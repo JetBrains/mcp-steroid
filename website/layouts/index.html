@@ -14,11 +14,14 @@
   limitations under the License.
 */}}
 {{ define "styles" }}
-<style>
     .hero {
         text-align: center;
         max-width: 700px;
         margin: 0 auto 4rem auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
     }
     .logo {
         width: 120px;
@@ -114,7 +117,7 @@
     .about-content {
         background: rgba(255, 255, 255, 0.05);
         border-radius: 12px;
-        padding: 2rem;
+        padding: 3.5rem 4rem;
         text-align: left;
     }
     .about-content p {
@@ -316,7 +319,9 @@
         .whatsnew-date {
             min-width: auto;
         }
-        .about-content,
+        .about-content {
+            padding: 2rem;
+        }
         .cta-card {
             padding: 1.5rem;
         }
@@ -335,12 +340,13 @@
         .whatsnew-banner {
             padding: 0.75rem;
         }
-        .about-content,
+        .about-content {
+            padding: 1.5rem;
+        }
         .cta-card {
             padding: 1.25rem;
         }
     }
-</style>
 {{ end }}
 
 {{ define "main" }}
