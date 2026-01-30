@@ -12,25 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: dev build clean setup update-version
+.PHONY: dev build clean setup update-config
 
 VERSION := $(shell cat ../VERSION 2>/dev/null || echo "0.0.0")
+WHATSNEW := $(shell cat whatsnew.txt 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ $$//')
 
 # First time setup - clone the public repository
 setup:
 	git clone git@github.com:jonnyzzz/mcp-steroid.git mcp-steroid-public
 
-# Update version in hugo.toml from ../VERSION file
-update-version:
+# Update version and whatsnew in hugo.toml
+update-config:
 	@echo "Updating version to $(VERSION)"
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
+	@echo "Updating whatsnew"
+	@sed -i.bak 's/whatsnew = ".*"/whatsnew = "$(WHATSNEW)"/' hugo.toml && rm -f hugo.toml.bak
 
 # Start development server with live reload
-dev: update-version
+dev: update-config
 	docker compose up dev
 
 # Build the site to the public repository
-build: update-version
+build: update-config
 	docker compose run --rm build
 
 # Clean generated files (preserves .git and CNAME)
