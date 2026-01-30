@@ -14,10 +14,11 @@
 
 baseURL = 'https://mcp-steroid.jonnyzzz.com/'
 languageCode = 'en-us'
-title = 'MCP Steroid - IntelliJ Plugin for AI Agents'
+title = 'MCP Steroid - MCP Server for IntelliJ-based IDEs'
+disableKinds = ['taxonomy', 'term']
 
 [params]
-  description = "An MCP Server that brings all IntelliJ-based IDE features to AI Agents"
+  description = "An MCP Server for IntelliJ-based IDEs. Works with ANY AI agent via the open MCP protocol."
   playlistUrl = "https://www.youtube.com/playlist?list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f"
   githubUrl = "https://github.com/jonnyzzz/mcp-steroid"
   githubIssuesUrl = "https://github.com/jonnyzzz/mcp-steroid/issues"

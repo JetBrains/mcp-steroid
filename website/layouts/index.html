@@ -354,8 +354,8 @@
         <h1>MCP Steroid</h1>
         <span class="version-badge">v{{ .Site.Params.version }}</span>
         <p class="tagline">
-            {{ .Site.Params.description }},
-            just the same way what IntelliJ brings to developers.
+            {{ .Site.Params.description }}<br>
+            MCP Steroid brings everything to AI agents just like IntelliJ IDEA does for human developers.
         </p>
         <div class="cta-buttons">
             <a href="https://linkedin.com/in/jonnyzzz" class="btn btn-primary" target="_blank" rel="noopener">
@@ -390,31 +390,34 @@
     </section>
 
     <section class="about-section">
-        <h2>About the Plugin</h2>
+        <h2>About the MCP Server</h2>
         <div class="about-content">
             <p>
-                MCP Steroid is an MCP (Model Context Protocol) plugin for IntelliJ IDEA that provides a Kotlin console interface,
-                allowing LLM agents to execute code directly within the IDE's runtime environment.
+                MCP Steroid is an MCP Server for IntelliJ-based IDEs, packaged as an IntelliJ plugin.
+                It exposes IDE APIs and resources to ANY AI agent or LLM through Kotlin script execution inside the IDE runtime.
             </p>
             <p>
-                This IntelliJ plugin exposes IDE APIs to LLM agents via Kotlin script execution.
-                Code runs in IntelliJ's own classpath with access to all installed plugins.
+                Works with Claude, GPT, Gemini, Llama, and any MCP-compatible client.
+                No vendor lock-in &mdash; standard MCP protocol.
             </p>
             <ul class="features-list">
-                <li>Access project structure and PSI (Program Structure Interface)</li>
-                <li>Use refactoring tools and VFS (Virtual File System)</li>
-                <li>Execute any IDE APIs directly from your AI agent</li>
-                <li>Built-in code review mode for safe execution</li>
-                <li>Demo mode overlay for presentations and debugging</li>
+                <li>9 MCP tools and 61 MCP resources from the IDE</li>
+                <li>All IntelliJ-based IDEs supported (IntelliJ IDEA, Rider, Android Studio, GoLand, and more)</li>
+                <li>Execute IDE APIs, refactorings, and VFS operations directly from your AI agent</li>
+                <li>Human review by default (ALWAYS mode)</li>
+                <li>No vendor lock-in &mdash; standard MCP protocol</li>
             </ul>
-            <p>Works with popular AI coding agents:</p>
+            <p>Works with Claude, GPT, Gemini, Llama, and ANY MCP client:</p>
             <div class="agents-list">
-                <span class="agent-badge">Claude Code</span>
+                <span class="agent-badge">Claude</span>
+                <span class="agent-badge">GPT</span>
+                <span class="agent-badge">Gemini</span>
+                <span class="agent-badge">Llama</span>
                 <span class="agent-badge">Codex CLI</span>
-                <span class="agent-badge">Gemini CLI</span>
                 <span class="agent-badge">Cursor</span>
                 <span class="agent-badge">Junie</span>
                 <span class="agent-badge">OpenCode</span>
+                <span class="agent-badge">Any MCP Client</span>
             </div>
         </div>
     </section>
@@ -423,7 +426,7 @@
         <div class="cta-card">
             <h3>Want to Try MCP Steroid?</h3>
             <p>
-                The plugin is currently in early access. Message Eugene Petrenko on LinkedIn to get access to the latest build and join the community of early adopters.
+                The MCP Server (packaged as an IntelliJ plugin) is currently in early access. Message Eugene Petrenko on LinkedIn to get access to the latest build and join the community of early adopters.
             </p>
             <a href="https://linkedin.com/in/jonnyzzz" class="btn btn-primary" target="_blank" rel="noopener">
                 <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
