@@ -33,15 +33,16 @@ update-config: ensure-public-repo
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
 	@echo "Generating version.json"
 	@echo '{"version-base": "$(VERSION)"}' > static/version.json
+	@mkdir -p mcp-steroid-public/docs
 
 # Start development server with live reload
 dev: update-config
 	docker compose up dev
 
-# Build the site to the public repository
+# Build the site to mcp-steroid-public/docs
 build: update-config
 	docker compose run --rm build
 
-# Clean generated files (preserves .git and CNAME)
+# Clean generated files (recreated by build)
 clean:
-	find mcp-steroid-public/docs -mindepth 1 ! -name '.git' ! -name 'CNAME' -delete 2>/dev/null || true
+	find mcp-steroid-public/docs -mindepth 1 -delete 2>/dev/null || true

@@ -80,10 +80,14 @@
 </div>
 
 <div class="docs-grid">
-    {{ range .Pages }}
-    <a href="{{ .Permalink }}" class="doc-card">
+    {{ $docs := site.GetPage "section" "docs" }}
+    {{ range $docs.RegularPagesRecursive.ByWeight }}
+    <a href="{{ .RelPermalink }}" class="doc-card">
         <h2>{{ .Title }}</h2>
-        <p>{{ .Description }}</p>
+        {{ $desc := .Description | plainify }}
+        {{ if not $desc }}{{ $desc = .Summary | plainify }}{{ end }}
+        {{ if not $desc }}{{ $desc = .Plain | truncate 160 }}{{ end }}
+        <p>{{ $desc }}</p>
         <span class="arrow">Read more &rarr;</span>
     </a>
     {{ end }}

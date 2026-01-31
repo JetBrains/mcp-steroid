@@ -71,7 +71,7 @@ Verify the connection:
 codex exec "List all open projects using steroid_list_projects"
 ```
 
-**Note**: `codex mcp add` only supports stdio servers; HTTP servers require TOML configuration.
+> **Note:** `codex mcp add` only supports stdio servers; HTTP servers require TOML configuration.
 
 ### Google Gemini CLI
 
@@ -105,7 +105,7 @@ Cursor has basic MCP support. Add to your MCP configuration:
 }
 ```
 
-**Note**: For the best MCP Steroid experience, we recommend using Claude Code CLI, Codex CLI, or Gemini CLI, which have more mature MCP implementations.
+> **Note:** For the best MCP Steroid experience, we recommend using Claude Code CLI, Codex CLI, or Gemini CLI, which have more mature MCP implementations.
 
 ### Other MCP Clients
 

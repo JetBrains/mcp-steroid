@@ -46,14 +46,6 @@ MCP Steroid can be configured via IntelliJ's Registry (`Help > Find Action > Reg
 
 ---
 
-<div class="note">
+> **Note:** When the plugin starts, it writes the server URL to `.idea/mcp-steroid.md` in each open project. The first line contains the URL (for example, `http://127.0.0.1:6315/mcp`). This file is your MCP client's connection target.
 
-**Finding the MCP Server URL:** When the plugin starts, it writes the server URL to `.idea/mcp-steroid.md` in each open project. The first line contains the URL (e.g., `http://127.0.0.1:6315/mcp`). This file is your MCP client's connection target.
-
-</div>
-
-<div class="note">
-
-**Tip:** You can also set these as JVM system properties by using `-Dmcp.steroid.server.port=8080` in your IDE's VM options. System properties take precedence over Registry values.
-
-</div>
+> **Tip:** You can also set these as JVM system properties by using `-Dmcp.steroid.server.port=8080` in your IDE's VM options. System properties take precedence over Registry values.

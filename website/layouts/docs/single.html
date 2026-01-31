@@ -191,9 +191,10 @@
     <h3>Documentation</h3>
     <ul>
         {{ $currentPage := . }}
-        {{ range .Parent.Pages }}
+        {{ $docs := site.GetPage "section" "docs" }}
+        {{ range $docs.RegularPagesRecursive.ByWeight }}
         <li>
-            <a href="{{ .Permalink }}"{{ if eq .Permalink $currentPage.Permalink }} class="active"{{ end }}>
+            <a href="{{ .RelPermalink }}"{{ if eq .RelPermalink $currentPage.RelPermalink }} class="active"{{ end }}>
                 {{ .Title }}
             </a>
         </li>

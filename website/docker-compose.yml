@@ -28,4 +28,4 @@ services:
       - .:/src
       - ./mcp-steroid-public/docs:/output
     working_dir: /src
-    command: --destination /output --minify
+    command: --destination /output --minify --cleanDestinationDir
