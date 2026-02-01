@@ -1,0 +1,118 @@
+{{/*
+  Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com)
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/}}
+{{ define "styles" }}
+    .page-content {
+        max-width: 800px;
+        width: 100%;
+    }
+    .page-content h1 {
+        font-size: 2.5rem;
+        margin-bottom: 1.5rem;
+        background: var(--gradient-brand);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    .page-content h2 {
+        font-size: 1.5rem;
+        color: var(--color-secondary);
+        margin-top: 2.5rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .page-content h3 {
+        font-size: 1.2rem;
+        color: var(--color-secondary);
+        margin-top: 2rem;
+        margin-bottom: 0.75rem;
+    }
+    .page-content p {
+        color: var(--color-tertiary);
+        line-height: 1.7;
+        margin-bottom: 1rem;
+    }
+    .page-content ul, .page-content ol {
+        color: var(--color-tertiary);
+        margin-bottom: 1rem;
+        padding-left: 1.5rem;
+    }
+    .page-content li {
+        margin-bottom: 0.5rem;
+        line-height: 1.6;
+    }
+    .page-content pre {
+        overflow-x: auto;
+        max-width: 100%;
+    }
+    .page-content code {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    .page-content p {
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+    }
+    .page-content .note {
+        background: rgba(107, 87, 255, 0.1);
+        border-left: 3px solid var(--color-brand-purple);
+        border-radius: 0 8px 8px 0;
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+    }
+    .page-content .note p {
+        margin: 0;
+        color: var(--color-secondary);
+    }
+    .page-content .note strong {
+        color: var(--color-primary);
+    }
+    .page-content .warning {
+        background: rgba(254, 40, 87, 0.1);
+        border-left: 3px solid var(--color-brand-pink);
+        border-radius: 0 8px 8px 0;
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+    }
+    .page-content .warning p {
+        margin: 0;
+        color: var(--color-secondary);
+    }
+    .page-content .warning strong {
+        color: var(--color-brand-pink);
+    }
+    .page-content .success {
+        background: rgba(40, 167, 69, 0.15);
+        border-left: 3px solid #28a745;
+        border-radius: 0 8px 8px 0;
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+    }
+    .page-content .success p {
+        margin: 0;
+        color: var(--color-secondary);
+    }
+    .page-content .success strong {
+        color: #5cb85c;
+    }
+{{ end }}
+
+{{ define "main" }}
+<article class="page-content">
+    <h1>{{ .Title }}</h1>
+    {{ .Content }}
+</article>
+{{ end }}
