@@ -49,7 +49,7 @@ disableKinds = ['taxonomy', 'term']
     weight = 6
 
 [params]
-  description = "MCP Steroid is a Model Context Protocol server for JetBrains IDEs. It exposes IntelliJ Platform APIs, visual state, and runtime environment to any AI agent via Kotlin code execution and screenshot capture."
+  description = "MCP Steroid is a Model Context Protocol server for JetBrains IDEs. It exposes IntelliJ Platform APIs, visual state, and runtime environment to any MCP-compatible AI agent via Kotlin code execution and screenshot capture."
   playlistUrl = "https://www.youtube.com/playlist?list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f"
   githubUrl = "https://github.com/jonnyzzz/mcp-steroid"
   githubIssuesUrl = "https://github.com/jonnyzzz/mcp-steroid/issues"
@@ -63,7 +63,7 @@ disableKinds = ['taxonomy', 'term']
 
 [[params.whatsnew]]
   date = "2026-01-29"
-  text = "Supported all IntelliJ-based IDEs, including Rider, Android Studio, and GoLand"
+  text = "Supported IntelliJ-based IDEs, including Rider, Android Studio, and GoLand"
 
 [[params.featuredVideos]]
   id = "6ByedA15n8Q"
