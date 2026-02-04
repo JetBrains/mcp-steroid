@@ -1,11 +1,12 @@
 MCP Steroid Plugin - End User License Agreement (EULA)
 
-Last modified: February 4, 2025
+Last modified: February 4, 2026
 
 This EULA is concluded between You and the Developer with respect to the Plugin.
-This agreement governs the use of the Plugin binaries only.
+This agreement governs the use of the Plugin Binaries only and does not license
+any Source Code. JetBrains is not a party to this agreement.
 
-IMPORTANT: This Plugin build is available for a LIMITED TIME only and will
+IMPORTANT: Each Plugin Build is available for a LIMITED TIME only and will
 AUTOMATICALLY EXPIRE. See Section 3 for details.
 
 Based on the JetBrains Marketplace Standard EULA template.
@@ -19,8 +20,8 @@ Original template: https://plugins.jetbrains.com/docs/marketplace/eula.html#stan
 available for the Plugin at https://mcp-steroid.jonnyzzz.com and any other
 relevant Plugin documentation provided by the Developer.
 
-"Expiration Date" means the date embedded in the Plugin binary after which the
-Plugin will cease to function. Each Plugin build has a predetermined Expiration
+"Expiration Date" means the date embedded in a Plugin Build after which the
+Plugin will cease to function. Each Plugin Build has a predetermined Expiration
 Date set at build time.
 
 "JetBrains" means JetBrains s.r.o., which has its registered office at
@@ -30,11 +31,17 @@ ID.Nr.: 265 02 275.
 
 "JetBrains Product" means any software program or service made available by JetBrains.
 
-"Plugin" means the MCP Steroid plugin binary, an IntelliJ IDEA plugin designed
+"Plugin" means the MCP Steroid plugin software designed
 to work with JetBrains Products, distributed by the Developer under this EULA.
 
 "Plugin Binaries" means the compiled, distributable form of the Plugin, including
 ZIP archives and JAR files.
+
+"Plugin Build" means a specific distribution of the Plugin Binaries that includes
+an embedded Expiration Date.
+
+"Source Code" means the human-readable source code, scripts, or build files for
+the Plugin.
 
 "Update Server" means the Developer's server at https://mcp-steroid.jonnyzzz.com
 used for version checking and update notifications.
@@ -44,8 +51,9 @@ used for version checking and update notifications.
 2. Grant of License
 
 2.1. License. The Developer hereby grants You a limited, worldwide, non-exclusive,
-non-transferable license to use the Plugin Binaries as long as the use is in line
-with the Documentation and the limits set out in this EULA. You may:
+non-transferable license to use the Plugin Binaries (not any Source Code) as long
+as the use is in line with the Documentation and the limits set out in this EULA.
+You may:
 
 - install the Plugin;
 - use the Plugin until the Expiration Date; and
@@ -55,6 +63,7 @@ with the Documentation and the limits set out in this EULA. You may:
 
 - modify, reverse-engineer, decompile, or disassemble the Plugin in whole or in part;
 - create any derivative works from the Plugin;
+- remove, obscure, or alter any copyright or proprietary notices in the Plugin Binaries;
 - sublicense any rights to the Plugin;
 - redistribute the Plugin Binaries without prior written authorization from the Developer;
 - attempt to circumvent, disable, or interfere with the time-limited functionality
@@ -62,25 +71,30 @@ with the Documentation and the limits set out in this EULA. You may:
 - attempt to circumvent, disable, or interfere with the update check mechanism.
 
 2.3. Duration of License. The license granted under this EULA is TIME-LIMITED.
-Each Plugin build has an Expiration Date embedded at build time. After the
-Expiration Date, the Plugin will automatically cease to function. To continue
-using the Plugin, You must obtain a newer build with a later Expiration Date.
+Each Plugin Build has an Expiration Date embedded at build time. After the
+Expiration Date, the Plugin Build will automatically cease to function. To
+continue using the Plugin, You must obtain a newer Plugin Build with a later
+Expiration Date.
+
+2.4. Source Code. This EULA does not grant any rights to Source Code. If the
+Developer makes any Source Code available, it is licensed under a separate
+license, if any.
 
 3. Time-Limited Builds and Automatic Expiration
 
-3.1. Limited Availability. The Plugin is provided as time-limited builds. Each
-build contains an embedded Expiration Date after which the Plugin will
+3.1. Limited Availability. The Plugin is provided as time-limited Plugin Builds. Each
+Plugin Build contains an embedded Expiration Date after which the Plugin will
 automatically stop functioning.
 
 3.2. Automatic Expiration. Upon reaching the Expiration Date:
 - The Plugin will cease to function automatically;
 - No prior notice is required before expiration;
-- The Developer is under no obligation to provide replacement builds;
-- You may download a newer build (if available) to continue using the Plugin.
+- The Developer is under no obligation to provide replacement Plugin Builds;
+- You may download a newer Plugin Build (if available) to continue using the Plugin.
 
 3.3. No Perpetual License. This Plugin does not offer perpetual licenses. All
-Plugin builds are subject to automatic expiration. Continued use requires
-obtaining newer builds as they become available.
+Plugin Builds are subject to automatic expiration. Continued use requires
+obtaining newer Plugin Builds as they become available.
 
 4. Update Checks and Network Communication
 
@@ -88,7 +102,7 @@ obtaining newer builds as they become available.
 Update Server at https://mcp-steroid.jonnyzzz.com to:
 - Check for available Plugin updates;
 - Retrieve version information;
-- Notify You of newer builds.
+- Notify You of newer Plugin Builds.
 
 4.2. Data Transmitted. During update checks, the following information may be
 transmitted to the Update Server:
@@ -100,9 +114,9 @@ transmitted to the Update Server:
 update checks and the transmission of the information described above. The
 update check functionality is integral to the Plugin's operation.
 
-4.4. Privacy. The Developer does not collect or store personally identifiable
-information through the update check mechanism. For detailed privacy practices,
-see the Documentation.
+4.4. Privacy. The update check mechanism is not intended to collect personal data.
+Standard server logs (if any) may include technical connection metadata. For
+detailed privacy practices, see the Documentation.
 
 5. Intellectual Property
 
@@ -127,7 +141,7 @@ THE DEVELOPER DOES NOT WARRANT THAT:
 - THE PLUGIN WILL BE AVAILABLE AT ANY PARTICULAR TIME OR LOCATION, UNINTERRUPTED, OR SECURE;
 - ANY DEFECTS OR ERRORS WILL BE CORRECTED;
 - THE PLUGIN IS FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS;
-- NEWER BUILDS WILL BE MADE AVAILABLE BEFORE OR AFTER THE EXPIRATION DATE.
+- NEWER PLUGIN BUILDS WILL BE MADE AVAILABLE BEFORE OR AFTER THE EXPIRATION DATE.
 
 ANY UPDATES AND UPGRADES TO THE PLUGIN WILL ONLY BE PROVIDED ON AN "AS AVAILABLE"
 BASIS, AT THE DEVELOPER'S SOLE DISCRETION.
@@ -144,7 +158,7 @@ AND NOTWITHSTANDING ANY FAILURE OF ESSENTIAL PURPOSE OF ANY LIMITED REMEDY.
 
 THE DEVELOPER IS NOT LIABLE FOR ANY DAMAGES ARISING FROM:
 - THE AUTOMATIC EXPIRATION OF THE PLUGIN;
-- THE UNAVAILABILITY OF NEWER BUILDS;
+- THE UNAVAILABILITY OF NEWER PLUGIN BUILDS;
 - THE INABILITY TO USE THE PLUGIN AFTER THE EXPIRATION DATE;
 - DATA LOSS OR CORRUPTION RESULTING FROM PLUGIN USE OR EXPIRATION.
 
