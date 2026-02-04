@@ -57,6 +57,39 @@
     </div>
 </div>
 
+<section class="videos-section">
+    <div class="about-content videos-box">
+        <h2 class="section-title">Featured Demos</h2>
+        <div class="videos-carousel">
+            {{ range .Site.Params.featuredVideos }}
+            <div class="video-card">
+                <a href="https://www.youtube.com/watch?v={{ .id }}&list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f" target="_blank" rel="noopener">
+                    <div class="video-thumbnail">
+                        <img src="https://img.youtube.com/vi/{{ .id }}/mqdefault.jpg" alt="{{ .title }}">
+                        <span class="video-duration">{{ .duration }}</span>
+                    </div>
+                    <div class="video-info">
+                        <div class="video-title">{{ .title }}</div>
+                        <div class="video-meta">{{ .meta }}</div>
+                    </div>
+                </a>
+            </div>
+            {{ end }}
+            <div class="video-card view-more-card">
+                <a href="{{ .Site.Params.playlistUrl }}" target="_blank" rel="noopener">
+                    <div class="view-more-content">
+                        <svg class="view-more-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <span class="view-more-text">View More Videos</span>
+                        <span class="view-more-count">Full playlist on YouTube</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
 <section class="whatsnew-section">
     <div class="whatsnew-banner">
         <h2 class="section-title">What's New</h2>
@@ -91,33 +124,6 @@
             <span class="agent-badge">Cursor</span>
             <span class="agent-badge">OpenCode</span>
             <span class="agent-badge">Any MCP Client</span>
-        </div>
-    </div>
-</section>
-
-<section class="videos-section">
-    <div class="about-content videos-box">
-        <h2 class="section-title">Featured Demos</h2>
-        <div class="videos-grid">
-            {{ range first 3 .Site.Params.featuredVideos }}
-            <div class="video-card">
-                <a href="https://www.youtube.com/watch?v={{ .id }}&list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f" target="_blank" rel="noopener">
-                    <div class="video-thumbnail">
-                        <img src="https://img.youtube.com/vi/{{ .id }}/mqdefault.jpg" alt="{{ .title }}">
-                        <span class="video-duration">{{ .duration }}</span>
-                    </div>
-                    <div class="video-info">
-                        <div class="video-title">{{ .title }}</div>
-                        <div class="video-meta">{{ .meta }}</div>
-                    </div>
-                </a>
-            </div>
-            {{ end }}
-        </div>
-        <div class="playlist-link">
-            <a href="{{ .Site.Params.playlistUrl }}" class="more-videos-link" target="_blank" rel="noopener">
-                More videos
-            </a>
         </div>
     </div>
 </section>
