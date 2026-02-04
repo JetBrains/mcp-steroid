@@ -1,78 +1,184 @@
-Standard EULA
+MCP Steroid Plugin - End User License Agreement (EULA)
 
-This Standard EULA is concluded between You and the Developer with respect to the Plugin.
+Last modified: February 4, 2025
+
+This EULA is concluded between You and the Developer with respect to the Plugin.
+This agreement governs the use of the Plugin binaries only.
+
+IMPORTANT: This Plugin build is available for a LIMITED TIME only and will
+AUTOMATICALLY EXPIRE. See Section 3 for details.
+
+Based on the JetBrains Marketplace Standard EULA template.
+Original template: https://plugins.jetbrains.com/docs/marketplace/eula.html#standard-eula
 
 1. Definitions
 
-"Confirmation" means an email from JetBrains confirming Your rights to use a Paid Plugin and containing important information about Your license or Subscription.
+"Developer" means Evgeny Mandrikov (jonnyzzz).
 
-"Developer" means [FILL IN].
+"Documentation" means the latest versions of all online technical documentation
+available for the Plugin at https://mcp-steroid.jonnyzzz.com and any other
+relevant Plugin documentation provided by the Developer.
 
-"Documentation" means the latest versions of all online technical documentation available for a Plugin at JetBrains Marketplace and any other relevant Plugin documentation provided either by JetBrains or the Developer that applies to the Plugin.
+"Expiration Date" means the date embedded in the Plugin binary after which the
+Plugin will cease to function. Each Plugin build has a predetermined Expiration
+Date set at build time.
 
-"Fallback Date" means the date falling twelve (12) months prior to the date Your Subscription expired.
-
-"Fallback Version" means the most recent Plugin Version that the Developer made available for public purchase prior to the Fallback Date, along with any bug-fix updates for that Plugin Version. The Fallback Version does not include any Plugin updates or upgrades other than bug-fix updates that You may have used in the period between the Fallback Date and the expiration date of Your Subscription. For more information, see FAQ available at https://sales.jetbrains.com/hc/en-gb.
-
-"Free Plugin" means a Plugin that is offered at no cost.
-
-"JetBrains" means JetBrains s.r.o., which has its registered office at Na Hrebenech II 1718/8, Prague, 14000, Czech Republic, registered with the Commercial Register kept by the Municipal Court of Prague, Section C, file 86211, ID.Nr.: 265 02 275.
-
-"JetBrains Affiliate" means the subsidiary and/or any associated companies of JetBrains.
-
-"JetBrains Marketplace" means any platform operated by JetBrains or a JetBrains Affiliate on which JetBrains or JetBrains Affiliate markets Plugins for JetBrains Products, including the website https://plugins.jetbrains.com and/or any other website or other platform, whether named JetBrains Marketplace, JetBrains Plugins Repository, or otherwise.
+"JetBrains" means JetBrains s.r.o., which has its registered office at
+Na Hrebenech II 1718/8, Prague, 14000, Czech Republic, registered with the
+Commercial Register kept by the Municipal Court of Prague, Section C, file 86211,
+ID.Nr.: 265 02 275.
 
 "JetBrains Product" means any software program or service made available by JetBrains.
 
-"Paid Plugin" means a Plugin that is offered for a fee (can be either a one-time license fee or a recurring subscription fee).
+"Plugin" means the MCP Steroid plugin binary, an IntelliJ IDEA plugin designed
+to work with JetBrains Products, distributed by the Developer under this EULA.
 
-"Plugin" means any plugin, extension, application, widget, or other software program designed to work with JetBrains Products that the Developer makes available under this Standard EULA.
+"Plugin Binaries" means the compiled, distributable form of the Plugin, including
+ZIP archives and JAR files.
 
-"Plugin Users" means users that are able to access and use the Plugin concurrently.
+"Update Server" means the Developer's server at https://mcp-steroid.jonnyzzz.com
+used for version checking and update notifications.
 
-"Plugin Version" means a release, update, or upgrade of a particular Plugin that is not identified by the Developer as being made for the purpose of fixing software bugs.
-
-"Subscription" means Your right to use a Paid Plugin during the Subscription Period.
-
-"Subscription Period" means the Subscription period described in Your Confirmation.
-
-"You" means an individual or an entity concluding this Standard EULA.
+"You" means an individual or an entity concluding this EULA.
 
 2. Grant of License
 
-2.1. License. The Developer hereby grants You a limited, worldwide, non-exclusive, non-transferable license to use the Plugin (including any generally available updates and upgrades released during your rightful use of the Plugin) as long as the use is in line with Your Confirmation, the Documentation, and the limits set out in this Standard EULA. You may:
+2.1. License. The Developer hereby grants You a limited, worldwide, non-exclusive,
+non-transferable license to use the Plugin Binaries as long as the use is in line
+with the Documentation and the limits set out in this EULA. You may:
 
 - install the Plugin;
-- use the Plugin subject to the limits described in Your Confirmation (if any); and
+- use the Plugin until the Expiration Date; and
 - make backup copies of the Plugin for archival purposes.
 
-2.2. Restrictions. You may not modify, reverse-engineer, decompile, or disassemble the Plugin in whole or in part, or create any derivative works from the Plugin, or sublicense any rights to the Plugin, unless otherwise expressly authorized in writing by the Developer.
+2.2. Restrictions. You may not:
 
-2.3. Duration of License. The license granted under this Standard EULA can be provided as:
+- modify, reverse-engineer, decompile, or disassemble the Plugin in whole or in part;
+- create any derivative works from the Plugin;
+- sublicense any rights to the Plugin;
+- redistribute the Plugin Binaries without prior written authorization from the Developer;
+- attempt to circumvent, disable, or interfere with the time-limited functionality
+  or the automatic expiration mechanism;
+- attempt to circumvent, disable, or interfere with the update check mechanism.
 
-- perpetual in case of Free Plugins or Paid Plugins for which You are charged a one-time license fee, and
-- time-limited for the duration of your Subscription Period, in case of Paid Plugins for which You pay an annual or monthly Subscription fee.
+2.3. Duration of License. The license granted under this EULA is TIME-LIMITED.
+Each Plugin build has an Expiration Date embedded at build time. After the
+Expiration Date, the Plugin will automatically cease to function. To continue
+using the Plugin, You must obtain a newer build with a later Expiration Date.
 
-For more details about the type of Paid Plugin, see the information in Your Confirmation.
+3. Time-Limited Builds and Automatic Expiration
 
-3. Subscription
+3.1. Limited Availability. The Plugin is provided as time-limited builds. Each
+build contains an embedded Expiration Date after which the Plugin will
+automatically stop functioning.
 
-3.1. Subscription Limits. If You purchased a Plugin Subscription, You must use the Paid Plugin in accordance with the limits described in Your subscription plan (e.g., You must ensure that the maximum number of Plugin Users does not exceed the number of Plugin Users for which You have purchased the Subscription).
+3.2. Automatic Expiration. Upon reaching the Expiration Date:
+- The Plugin will cease to function automatically;
+- No prior notice is required before expiration;
+- The Developer is under no obligation to provide replacement builds;
+- You may download a newer build (if available) to continue using the Plugin.
 
-3.2. Subscription Period. The Subscription Period can be either annual or monthly.
+3.3. No Perpetual License. This Plugin does not offer perpetual licenses. All
+Plugin builds are subject to automatic expiration. Continued use requires
+obtaining newer builds as they become available.
 
-3.3. Fallback License. If the Plugin is provided with a Fallback license according to the Confirmation, following the expiration of the Subscription Period without a renewal, Your license to use the Plugin as stipulated in Section 2 shall continue on a perpetual, royalty-free, non-exclusive, and non-transferable basis with respect to the Fallback Version of the Plugin (including all limitations). The granting of the Fallback license is expressly contingent upon Your compliance with this EULA, including Your payment of the applicable Subscription fees for at least the preceding 12 months in full and without interruptions.
+4. Update Checks and Network Communication
 
-4. Intellectual Property
+4.1. Automatic Update Checks. The Plugin periodically communicates with the
+Update Server at https://mcp-steroid.jonnyzzz.com to:
+- Check for available Plugin updates;
+- Retrieve version information;
+- Notify You of newer builds.
 
-The Plugin is protected by copyright and other intellectual property laws and treaties. The Developer or its licensors own all title, copyright, and other intellectual property rights to the Plugin.
+4.2. Data Transmitted. During update checks, the following information may be
+transmitted to the Update Server:
+- Current Plugin version;
+- JetBrains Product version and type;
+- Operating system information.
 
-5. Disclaimer of Warranty
+4.3. Consent. By installing and using the Plugin, You consent to these automatic
+update checks and the transmission of the information described above. The
+update check functionality is integral to the Plugin's operation.
 
-ALL PLUGINS ARE PROVIDED TO YOU ON AN "AS-IS" AND "AS AVAILABLE" BASIS WITHOUT WARRANTIES. YOUR USE OF PLUGINS IS AT YOUR OWN RISK. THE DEVELOPER PROVIDES NO WARRANTY AS TO THE PLUGIN'S USE OR PERFORMANCE. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE DEVELOPER DISCLAIMS ALL OTHER WARRANTIES AND CONDITIONS, EITHER EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT, WITH REGARD TO THE PLUGIN, AND THE PROVISION OF OR FAILURE TO PROVIDE SUPPORT SERVICES. THE DEVELOPER DOES NOT WARRANT THAT THE PLUGIN IS ACCURATE, RELIABLE, OR CORRECT; THAT THE PLUGIN MEETS YOUR REQUIREMENTS; THAT THE PLUGIN WILL BE AVAILABLE AT ANY PARTICULAR TIME OR LOCATION, UNINTERRUPTED, OR SECURE; THAT ANY DEFECTS OR ERRORS WILL BE CORRECTED; OR THAT THE PLUGIN IS FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS. EXCEPT AS REQUIRED BY APPLICABLE LAWS, ANY UPDATES AND UPGRADES TO THE PLUGIN WILL ONLY BE PROVIDED ON AN "AS AVAILABLE" BASIS, I.E., AT THE DEVELOPER'S SOLE DISCRETION.
+4.4. Privacy. The Developer does not collect or store personally identifiable
+information through the update check mechanism. For detailed privacy practices,
+see the Documentation.
 
-6. Limitation of Liability
+5. Intellectual Property
 
-IN NO EVENT WILL THE DEVELOPER BE LIABLE FOR ANY DIRECT OR INDIRECT COSTS, LOSSES, OR DAMAGES ASSOCIATED WITH THE USE OF THE DEVELOPER'S PLUGIN.
+The Plugin is protected by copyright and other intellectual property laws and
+treaties. The Developer owns all title, copyright, and other intellectual
+property rights to the Plugin.
 
-THE DEVELOPER SHALL NOT BE LIABLE TO YOU FOR ANY LOST PROFITS OR CONSEQUENTIAL DAMAGES, NO MATTER THE CAUSE OF SAID PROFITS OR DAMAGES, AND IN NO EVENT WILL THE DEVELOPER'S AGGREGATE LIABILITY ARISING OUT OF OR RELATED TO THIS AGREEMENT OR THE USE OF THE PLUGIN EXCEED THE FEES WHICH YOU PAID FOR THE PLUGIN VIA JETBRAINS MARKETPLACE IN THE THREE-MONTH PERIOD PRECEDING THE CLAIM. THIS LIMITATION WILL APPLY EVEN IF THE DEVELOPER HAS BEEN ADVISED OF THE POSSIBILITY OF THE LIABILITY EXCEEDING THE AMOUNT AND NOTWITHSTANDING ANY FAILURE OF ESSENTIAL PURPOSE OF ANY LIMITED REMEDY. JETBRAINS' LIABILITY IS EXCLUDED IN ITS ENTIRETY AS JETBRAINS IS NOT A PARTY TO THE CONTRACTUAL RELATIONSHIP BETWEEN THE DEVELOPER AND YOU.
+6. Disclaimer of Warranty
+
+THE PLUGIN IS PROVIDED TO YOU ON AN "AS-IS" AND "AS AVAILABLE" BASIS WITHOUT
+WARRANTIES. YOUR USE OF THE PLUGIN IS AT YOUR OWN RISK. THE DEVELOPER PROVIDES
+NO WARRANTY AS TO THE PLUGIN'S USE OR PERFORMANCE. TO THE MAXIMUM EXTENT
+PERMITTED BY APPLICABLE LAW, THE DEVELOPER DISCLAIMS ALL OTHER WARRANTIES AND
+CONDITIONS, EITHER EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, IMPLIED
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT, WITH REGARD TO THE PLUGIN, AND THE PROVISION OF OR FAILURE
+TO PROVIDE SUPPORT SERVICES.
+
+THE DEVELOPER DOES NOT WARRANT THAT:
+- THE PLUGIN IS ACCURATE, RELIABLE, OR CORRECT;
+- THE PLUGIN MEETS YOUR REQUIREMENTS;
+- THE PLUGIN WILL BE AVAILABLE AT ANY PARTICULAR TIME OR LOCATION, UNINTERRUPTED, OR SECURE;
+- ANY DEFECTS OR ERRORS WILL BE CORRECTED;
+- THE PLUGIN IS FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS;
+- NEWER BUILDS WILL BE MADE AVAILABLE BEFORE OR AFTER THE EXPIRATION DATE.
+
+ANY UPDATES AND UPGRADES TO THE PLUGIN WILL ONLY BE PROVIDED ON AN "AS AVAILABLE"
+BASIS, AT THE DEVELOPER'S SOLE DISCRETION.
+
+7. Limitation of Liability
+
+IN NO EVENT WILL THE DEVELOPER BE LIABLE FOR ANY DIRECT OR INDIRECT COSTS,
+LOSSES, OR DAMAGES ASSOCIATED WITH THE USE OF THE PLUGIN.
+
+THE DEVELOPER SHALL NOT BE LIABLE TO YOU FOR ANY LOST PROFITS OR CONSEQUENTIAL
+DAMAGES, NO MATTER THE CAUSE OF SAID PROFITS OR DAMAGES. THIS LIMITATION WILL
+APPLY EVEN IF THE DEVELOPER HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES
+AND NOTWITHSTANDING ANY FAILURE OF ESSENTIAL PURPOSE OF ANY LIMITED REMEDY.
+
+THE DEVELOPER IS NOT LIABLE FOR ANY DAMAGES ARISING FROM:
+- THE AUTOMATIC EXPIRATION OF THE PLUGIN;
+- THE UNAVAILABILITY OF NEWER BUILDS;
+- THE INABILITY TO USE THE PLUGIN AFTER THE EXPIRATION DATE;
+- DATA LOSS OR CORRUPTION RESULTING FROM PLUGIN USE OR EXPIRATION.
+
+JETBRAINS' LIABILITY IS EXCLUDED IN ITS ENTIRETY AS JETBRAINS IS NOT A PARTY
+TO THE CONTRACTUAL RELATIONSHIP BETWEEN THE DEVELOPER AND YOU.
+
+8. Third-Party Components
+
+The Plugin may include or depend on third-party software components. Such
+components are subject to their respective licenses. The Developer makes no
+warranties regarding third-party components.
+
+9. Termination
+
+9.1. This EULA is effective until terminated.
+
+9.2. This EULA terminates automatically when:
+- The Plugin reaches its Expiration Date;
+- You breach any term of this EULA.
+
+9.3. Upon termination, You must cease all use of the Plugin and destroy all
+copies in Your possession.
+
+10. General Provisions
+
+10.1. Entire Agreement. This EULA constitutes the entire agreement between You
+and the Developer regarding the Plugin and supersedes all prior agreements and
+understandings.
+
+10.2. Severability. If any provision of this EULA is held to be unenforceable,
+the remaining provisions shall continue in full force and effect.
+
+10.3. No Waiver. The failure of the Developer to enforce any right or provision
+of this EULA shall not constitute a waiver of such right or provision.
+
+10.4. Contact. For questions regarding this EULA, contact the Developer through
+the Plugin's official website at https://mcp-steroid.jonnyzzz.com.
