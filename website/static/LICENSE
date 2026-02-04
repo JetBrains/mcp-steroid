@@ -114,7 +114,8 @@ obtaining newer Plugin Builds as they become available.
 Update Server at https://mcp-steroid.jonnyzzz.com to:
 - Check for available Plugin updates;
 - Retrieve version information;
-- Notify You of newer Plugin Builds.
+- Notify You of newer Plugin Builds;
+- Modify or remove certain features or functionality.
 
 4.2. Data Transmitted. During update checks, the following information may be
 transmitted to the Update Server:
@@ -155,11 +156,18 @@ ENVIRONMENTAL DAMAGE.
 
 6. Intellectual Property
 
-The Plugin is protected by copyright and other intellectual property laws and
+6.1. Ownership. The Plugin is protected by copyright and other intellectual property laws and
 treaties. The Developer owns all title, copyright, and other intellectual
 property rights to the Plugin. All rights not expressly granted are reserved by
 the Developer. No license or right is granted to use the Developer's or
 JetBrains' trademarks, service marks, or logos.
+
+6.2. Feedback. If You provide any feedback, suggestions, or comments to the
+Developer regarding the Plugin ("Feedback"), You hereby grant the Developer a
+worldwide, non-exclusive, perpetual, irrevocable, royalty-free, fully paid,
+sublicensable and transferable license to use, reproduce, modify, distribute,
+display, perform, and otherwise exploit the Feedback for any purpose, without
+any obligation or compensation to You.
 
 7. Disclaimer of Warranty
 
@@ -256,8 +264,8 @@ components.
 - The Plugin reaches its Expiration Date;
 - You breach any term of this EULA.
 
-11.3. Upon termination, You must cease all use of the Plugin and destroy all
-copies in Your possession.
+11.3. Upon termination, the license granted in Section 2 immediately ceases, and
+You must cease all use of the Plugin and destroy all copies in Your possession.
 
 11.4. Survival. Sections 5 through 12 survive termination.
 
