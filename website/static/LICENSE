@@ -1,6 +1,6 @@
 MCP Steroid Plugin - End User License Agreement (EULA)
 
-Last modified: February 4, 2026
+Last modified: February 6, 2026
 
 This EULA is concluded between You and the Developer with respect to the Plugin.
 If You are accepting this EULA on behalf of an entity, You represent that You
@@ -255,6 +255,30 @@ with those licenses. If there is a conflict between this EULA and a third-party
 license with respect to a component, the third-party license will control for
 that component. The Developer makes no warranties regarding third-party
 components.
+
+10.1. Third-Party Analytics Services
+
+The Plugin and its website use third-party analytics services to improve the
+product and prioritize development. The analytics are minimalistic and
+privacy-conscious.
+
+(a) PostHog (https://posthog.com). The Plugin uses PostHog as a server-side
+analytics service. The Plugin may collect and send the following technical
+event data:
+- JetBrains IDE build, version, and product code;
+- Plugin version;
+- Project hash (not the project name); and
+- exec_code call events (success/error).
+
+No personally identifiable information is collected by this analytics feature.
+You may opt out of Plugin analytics by disabling the
+`mcp.steroid.analytics.enabled` registry key in the IDE.
+
+(b) Cloudflare Web Analytics (https://www.cloudflare.com/web-analytics/).
+The Plugin website at https://mcp-steroid.jonnyzzz.com uses Cloudflare Web
+Analytics for privacy-first website traffic measurement. Cloudflare Web
+Analytics does not use client-side state (such as cookies) and does not
+track individuals across sites.
 
 11. Termination
 
