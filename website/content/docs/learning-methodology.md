@@ -1,6 +1,9 @@
 ---
 title: "Learning Methodology"
 description: "How MCP Steroid improves agent reliability with reproducible experiments"
+weight: 3
+aliases:
+  - /learning-methodology/
 ---
 
 ## Why this exists
@@ -32,13 +35,13 @@ For benchmark-quality claims we require reruns: at least 3 for internal claims, 
 
 Every execution stores a `reason` field and logs run artifacts. Agents can submit explicit feedback with the dedicated feedback tool. We analyze this data to identify pain points and prioritize fixes.
 
-The orchestration baseline is the run-agent methodology (`run-agent.jonnyzzz.com`) implemented in this repository with `run-agent.sh` and `THE_PROMPT_v5.md`.
+The orchestration baseline is the run-agent methodology ([run-agent.jonnyzzz.com](https://run-agent.jonnyzzz.com)) implemented in this repository with `run-agent.sh` and `THE_PROMPT_v5.md`.
 
 ## External scenario intake
 
 External scenarios are core input to this loop:
 
-1. Submission arrives through [Need Your Experiments and Support](/need-your-experiments-and-support/)
+1. Submission arrives through [Need Your Experiments and Support](/docs/need-your-experiments-and-support/)
 2. Baseline and treatment runs are executed
 3. Stable scenarios are promoted into benchmark tasks
 4. Findings are published and used for product iteration

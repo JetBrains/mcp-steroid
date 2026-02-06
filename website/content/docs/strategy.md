@@ -1,13 +1,22 @@
 ---
 title: "Strategy"
 description: "How MCP Steroid is building IDE-native infrastructure for AI coding agents"
+weight: 5
+aliases:
+  - /strategy/
 ---
 
 ## Give AI the whole IDE, not just the files
 
 MCP Steroid makes AI agents code with the IDE, not just with files. File-only workflows break on many real tasks because agents cannot run inspections, execute refactorings, launch debugger flows, or use live IDE context.
 
-MCP Steroid closes that gap by exposing IDE APIs, visual state, and runtime environment from JetBrains IDEs over MCP.
+MCP Steroid closes that gap by exposing IDE APIs, visual state, and runtime environment from JetBrains IDEs to AI agents. MCP is the current implementation detail.
+
+## Strategic thesis
+
+MCP Steroid is an agent-first product. Near-term distribution is through IntelliJ users, while the long-term product direction is infrastructure that lets agents execute reliable engineering workflows with IDE-native context.
+
+On tasks that depend on IDE state, agents with MCP Steroid should complete more tasks with fewer interventions, lower token usage, and faster delivery than the same agent without MCP Steroid.
 
 ## Three-phase product arc
 
@@ -35,21 +44,15 @@ Core metrics:
 - time to first accepted result
 - regressions or new defects
 
-This validation loop is described in [Learning Methodology](/learning-methodology/).
+This validation loop is described in [Learning Methodology](/docs/learning-methodology/).
 
 ### Phase 3: headless background runtime
 
 The long-term target is a self-contained runtime that can run locally or in hosted environments, managed by the AI agent, without requiring an open IDE window.
 
-## Strategic thesis
-
-MCP Steroid is an agent-first product. Near-term distribution is through IntelliJ users, while the long-term product direction is infrastructure that lets agents execute reliable engineering workflows with IDE-native context.
-
-On tasks that depend on IDE state, agents with MCP Steroid should complete more tasks with fewer interventions, lower token usage, and faster delivery than the same agent without MCP Steroid.
-
 ## How you can help
 
-- Developers: submit reproducible scenarios in [Need Your Experiments and Support](/need-your-experiments-and-support/)
+- Developers: submit reproducible scenarios in [Need Your Experiments and Support](/docs/need-your-experiments-and-support/)
 - Engineering leaders: request pilot evaluations on your repositories
 - Sponsors and investors: support benchmark expansion and productization
 

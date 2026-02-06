@@ -1,6 +1,9 @@
 ---
 title: "Need Your Experiments and Support"
 description: "Share reproducible scenarios to help improve MCP Steroid on real repositories"
+weight: 4
+aliases:
+  - /need-your-experiments-and-support/
 ---
 
 ## Why community scenarios matter
@@ -34,7 +37,7 @@ Submit via [GitHub Issues](https://github.com/jonnyzzz/mcp-steroid/issues).
 4. Capture run artifacts and compare completion, interventions, regressions, token cost, and time
 5. Convert stable findings into docs/prompts/benchmark tasks
 
-Methodology details: [Learning Methodology](/learning-methodology/).
+Methodology details: [Learning Methodology](/docs/learning-methodology/).
 
 ## What you get back
 

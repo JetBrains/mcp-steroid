@@ -33,32 +33,20 @@ disableKinds = ['taxonomy', 'term']
     weight = 2
   [[menus.main]]
     name = "Strategy"
-    url = "/strategy/"
+    url = "/docs/strategy/"
     weight = 3
-  [[menus.main]]
-    name = "Learning"
-    url = "/learning-methodology/"
-    weight = 4
-  [[menus.main]]
-    name = "Experiments"
-    url = "/need-your-experiments-and-support/"
-    weight = 5
-  [[menus.main]]
-    name = "Videos"
-    url = "https://www.youtube.com/playlist?list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f"
-    weight = 6
   [[menus.main]]
     name = "Slack Community"
     url = "https://mcp-steroid.slack.com"
-    weight = 7
+    weight = 4
   [[menus.main]]
     name = "GitHub Issues"
     url = "https://github.com/jonnyzzz/mcp-steroid/issues"
-    weight = 8
+    weight = 5
   [[menus.main]]
     name = "GitHub"
     url = "https://github.com/jonnyzzz/mcp-steroid"
-    weight = 9
+    weight = 6
 
 [params]
   description = "MCP Steroid is a Model Context Protocol server for JetBrains IDEs. It exposes IntelliJ Platform APIs, visual state, and runtime environment to any MCP-compatible AI agent via Kotlin code execution and screenshot capture."

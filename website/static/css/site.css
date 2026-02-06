@@ -1115,3 +1115,20 @@ h1 {
     display: block;
     font-size: 0.9rem;
 }
+
+.docs-grid-main {
+    margin-bottom: 1.5rem;
+}
+.docs-grid-research {
+    grid-template-columns: repeat(2, minmax(300px, 1fr));
+    margin-bottom: 1.5rem;
+}
+.docs-grid-debug {
+    grid-template-columns: minmax(300px, 1fr);
+}
+
+@media (max-width: 900px) {
+    .docs-grid-research {
+        grid-template-columns: 1fr;
+    }
+}
