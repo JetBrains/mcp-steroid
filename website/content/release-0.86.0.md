@@ -46,15 +46,6 @@ Download the latest plugin build from GitHub Releases:
 
 **[End User License Agreement (EULA)](/LICENSE)** - By downloading and using this plugin, you agree to the terms of the EULA.
 
-## Support the Project
-
-This project needs funding to continue development, testing, and support.
-
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/jonnyzzz)
-
-- Sponsor MCP Steroid: [github.com/sponsors/jonnyzzz](https://github.com/sponsors/jonnyzzz)
-- Contact Eugene on LinkedIn: [linkedin.com/in/jonnyzzz](https://linkedin.com/in/jonnyzzz)
-
 ### Installation
 
 1. Download the `.zip` file from the GitHub release above
@@ -62,13 +53,6 @@ This project needs funding to continue development, testing, and support.
 3. Select the downloaded ZIP file (e.g., `mcp-steroid-0.86.0-SNAPSHOT-2026-02-01-20-29-4ad98c4.zip`)
 4. Restart the IDE
 
-## Help Us Improve
-
-We're actively learning what content and features work best for the plugin. Your feedback is invaluable!
-
-<div class="note">
-<p><strong>Please share your usage data:</strong> After using the plugin for a while, please send us your <code>.idea/mcp-steroid</code> folder. This helps us understand real-world usage patterns and improve the plugin.</p>
-</div>
 
 ## Connecting to Cloud Agents
 
@@ -88,38 +72,33 @@ For full scenario submissions, use the template in [Need Your Experiments and Su
 
 ## Supported AI Agents
 
-| Agent               | Connection Method                                   |
-|---------------------|-----------------------------------------------------|
-| **Claude Code CLI** | `claude mcp add --transport http steroid <URL>`     |
-| **Codex CLI**       | `codex mcp add steroid --url <URL>`                 |
-| **Gemini CLI**      | `gemini mcp add mcp-steroid <URL> --transport http` |
-| **Cursor**          | JSON config in `mcpServers` section                 |
-| **Any MCP Client**  | HTTP transport at server URL                        |
-
-Prompt your AI Agent to use IntelliJ, explicitly. Ask what it sees in your IntelliJ to start with.
-
-
-This is what `mcpServers` JSON may look like:
-```json
-{
-  "mcpServers": {
-    "mcp-steroid": {
-      "type": "http",
-      "url": "<URL>"
-    }
-  }
-}
-```
-
+Claude Code, Codex, Gemini, Cursor, and any other coding agent that supports the latest MCP via HTTP Streaming.
 
 ## Notable Features in v0.86.0
 
 This is the **first public release** of MCP Steroid, bringing full IntelliJ Platform automation 
 to AI agents through MCP protocol.
 
+
 ## Feedback
 
-If you encounter any issues or have suggestions, please let us know! Your feedback directly shapes the development of MCP Steroid.
+We're actively learning what content and features work best for the plugin. Your feedback is invaluable!
+
+If you encounter any issues or have suggestions, please let us know in [GitHub Issues](https://github.com/jonnyzzz/mcp-steroid/issues)! Your feedback directly shapes the development of MCP Steroid.
+
+<div class="note">
+<p><strong>Please share your usage data:</strong> After using the plugin for a while, please send us your <code>.idea/mcp-steroid</code> folder. This helps us understand real-world usage patterns and improve the plugin.</p>
+</div>
+
+
+## Support the Project
+
+This project needs funding to continue development, testing, and support.
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/jonnyzzz)
+
+- Sponsor MCP Steroid: [github.com/sponsors/jonnyzzz](https://github.com/sponsors/jonnyzzz)
+- Contact Eugene on LinkedIn: [linkedin.com/in/jonnyzzz](https://linkedin.com/in/jonnyzzz)
 
 ---
 
