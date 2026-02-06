@@ -20,7 +20,7 @@ This is an **early preview version** of MCP Steroid. Thank you for helping us te
 <p><strong>Important:</strong> This preview build will expire on <strong>February 11, 2026</strong> (10 days after release). After expiration, you'll need to obtain a new build to continue using the plugin.</p>
 </div>
 
-Not, this plugin is only tested to run on macOS. 
+Note: this preview plugin is currently tested only on macOS.
 
 ## Reporting issues
 
@@ -30,10 +30,10 @@ Review the log file for specific problem.
 
 ## Slack Community
 
-[DM Eugene](https://linkedin.com/in/jonnyzzz) to get invite to the Slack community
-[MCP-Steroid Community](https://mcp-steroid.slack.com) 
+Message Eugene on LinkedIn for a Slack invite: [linkedin.com/in/jonnyzzz](https://linkedin.com/in/jonnyzzz)
+Workspace: [mcp-steroid.slack.com](https://mcp-steroid.slack.com)
 
-Use the [Invite Link](https://join.slack.com/t/mcp-steroid/shared_invite/zt-3p3oq91kx-BXJng8GSXveqncFVYWUcpQ)
+Direct invite link: [join.slack.com/t/mcp-steroid/shared_invite/zt-3p3oq91kx-BXJng8GSXveqncFVYWUcpQ](https://join.slack.com/t/mcp-steroid/shared_invite/zt-3p3oq91kx-BXJng8GSXveqncFVYWUcpQ)
 
 That is the best place to discuss the plugin, ideas, features.
 
@@ -45,6 +45,15 @@ Download the latest plugin build from GitHub Releases:
 - [v0.86.0-SNAPSHOT (2026-02-01).zip](https://github.com/jonnyzzz/mcp-steroid/releases/tag/0.86.0-SNAPSHOT-2026-02-01-20-29-4ad98c4) - Current preview plugin build
 
 **[End User License Agreement (EULA)](/LICENSE)** - By downloading and using this plugin, you agree to the terms of the EULA.
+
+## Support the Project
+
+This project needs funding to continue development, testing, and support.
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/jonnyzzz)
+
+- Sponsor MCP Steroid: [github.com/sponsors/jonnyzzz](https://github.com/sponsors/jonnyzzz)
+- Contact Eugene on LinkedIn: [linkedin.com/in/jonnyzzz](https://linkedin.com/in/jonnyzzz)
 
 ### Installation
 
@@ -74,6 +83,8 @@ You can submit your `.idea/mcp-steroid` folder in any of these ways:
 3. **Direct message**: Share via your preferred communication channel
 
 The folder contains execution logs and metadata that help us understand how the plugin is being used in practice.
+
+For full scenario submissions, use the template in [Need Your Experiments and Support](https://github.com/jonnyzzz/mcp-steroid/blob/main/docs/NEED-YOUR-EXPERIMENTS-AND-SUPPORT.md).
 
 ## Supported AI Agents
 
