@@ -8,11 +8,12 @@ aliases:
 
 ## Why community scenarios matter
 
-Internal demos are not enough. MCP Steroid needs diverse external scenarios across repositories, languages, and team workflows.
+MCP Steroid is the product for AI Agents, and we strive to make it more usable for AI that makes the difference. 
 
+Our project needs diverse external scenarios across repositories, languages, and workflows to train and improve.
 If a repository is workable in an IntelliJ-based IDE, it is in scope.
 
-## What to submit
+## What to submit to GitHub issues?
 
 Please provide:
 
@@ -77,3 +78,12 @@ Observed metrics (recommended for benchmark-ready submissions):
   Manual interventions (baseline vs treatment): <count>
   New regressions introduced: <count or N/A>
 ```
+
+## Usage logs sharing
+
+In addition to learning on the real scenarios, we are collecting the tool call logs
+to find tune and improve the agent. If you want to support us, submit the `.idea/mcp-steroid` folder
+form your projects. This folder contains the log of all tool calls that your AI Agents sent 
+to the MCP Steroid plugin. That information helps us to fine-tune and polish the agentic manuals.
+
+For more details see [Learning Methodology](/docs/learning-methodology/).

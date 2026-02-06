@@ -1,7 +1,7 @@
 ---
 title: "Configuration"
 description: "Registry keys and settings for MCP Steroid"
-weight: 2
+weight: 4
 ---
 
 MCP Steroid can be configured via IntelliJ's Registry (`Help > Find Action > Registry`) or via JVM system properties (`-D` flags). All settings use the `mcp.steroid.*` prefix.
