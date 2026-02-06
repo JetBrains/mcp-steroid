@@ -8,20 +8,18 @@ aliases:
 
 ## Why this exists
 
-MCP Steroid targets fast-moving AI Agents on fast-moving IDE platforms. Static documentation is not enough. We need a repeatable loop that measures what works, what fails, and what should be improved.
-We are building the learning circle and improve the MCP Server to maximize the value. You can see that as a user manual, especially designed for an AI Agents, our target audience. 
+MCP Steroid targets fast-moving AI agents on fast-moving IDE platforms. Static documentation alone is not enough. We need a repeatable loop that measures what works, what fails, and what should change next.
+
+We treat the MCP server itself as a product that learns. Every prompt, skill description, and tool schema is refined through data-driven iteration -- a user manual designed specifically for AI agents, our primary audience.
 
 ## The operating loop
 
-We collect and analyze the `.idea/mcp-steroid` folder data, where each agent call is recorded. We ask caller AI Agent to provide us with the explanatory reason, 
-on why and what it has executed. Time after time, a caller AI Agent sends feedback with the text message and score. 
+Every agent call is recorded in the `.idea/mcp-steroid` folder. Each invocation includes the caller's stated reason for the call, and agents periodically send feedback with a text message and a score.
 
-All this information is vital to update and improve on how and what the MCP server is offering to the IDEs. The fine-tuning of MCP Steroid helps us to improve
-on the quality of the tool or learn it to run more sophisticated tasks, with any functionality of your IntelliJ-platform based IDEs, both for internal and public plugins and extensions.
+This telemetry drives continuous improvement. We analyze call patterns, failure modes, and feedback signals to refine prompts, tool schemas, and skill descriptions. The result is an MCP server that handles increasingly sophisticated tasks across the full surface of IntelliJ-platform IDEs -- including third-party plugins and extensions.
 
-We are looking for your support to provide us with 
-- your actual `.idea/mcp-steroid` logs from your plugin usages
-- full project and task to create benchmarks 
-    
-Submission arrives through [Need Your Experiments and Support](/docs/need-your-experiments-and-support/)
+We are looking for your support:
+- Share your `.idea/mcp-steroid` logs from real plugin usage
+- Submit complete project and task scenarios for benchmarking
 
+Submissions are accepted through [Need Your Experiments and Support](/docs/need-your-experiments-and-support/).
