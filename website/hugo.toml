@@ -32,20 +32,20 @@ disableKinds = ['taxonomy', 'term']
     url = "/docs/"
     weight = 2
   [[menus.main]]
+    name = "Releases"
+    url = "/releases/"
+    weight = 3
+  [[menus.main]]
     name = "Strategy"
     url = "/docs/strategy/"
-    weight = 3
+    weight = 4
   [[menus.main]]
     name = "Slack Community"
     url = "https://mcp-steroid.slack.com"
-    weight = 4
+    weight = 5
   [[menus.main]]
     name = "GitHub Issues"
     url = "https://github.com/jonnyzzz/mcp-steroid/issues"
-    weight = 5
-  [[menus.main]]
-    name = "GitHub"
-    url = "https://github.com/jonnyzzz/mcp-steroid"
     weight = 6
 
 [params]
@@ -59,7 +59,7 @@ disableKinds = ['taxonomy', 'term']
 
 [[params.whatsnew]]
   date = "2026-02-08"
-  text = "v0.87.0 released — new skills system, no more build expiration, stability fixes"
+  text = "v0.87.0 released — redesigned skills system, no more build expiration, stability fixes"
 
 [[params.whatsnew]]
   date = "2026-01-30"
