@@ -35,7 +35,7 @@ update-config: ensure-public-repo
 	@echo "Generating version.json"
 	@echo '{"version-base": "$(VERSION)"}' > static/version.json
 	@echo "Generating updatePlugins.xml (zip: $(RELEASE_ZIP_NAME))"
-	@printf '<?xml version="1.0" encoding="UTF-8"?>\n<plugins>\n  <plugin id="com.jonnyzzz.mcp-steroid" url="https://github.com/jonnyzzz/mcp-steroid/releases/download/$(VERSION)/$(RELEASE_ZIP_NAME)" version="$(VERSION)">\n    <idea-version since-build="253"/>\n    <name>MCP Steroid</name>\n  </plugin>\n</plugins>\n' > static/updatePlugins.xml
+	@./scripts/generate-update-plugins-xml.sh "$(VERSION)" "$(RELEASE_ZIP_NAME)" > static/updatePlugins.xml
 	@xmllint --noout static/updatePlugins.xml 2>/dev/null && echo "updatePlugins.xml is valid XML" || echo "WARNING: xmllint not available, skipping XML validation"
 	@mkdir -p mcp-steroid-public/docs
 
