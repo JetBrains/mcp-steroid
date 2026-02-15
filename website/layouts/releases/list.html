@@ -19,7 +19,11 @@
     <p>Download and changelog for each MCP Steroid release.</p>
 </div>
 
-{{ partial "plugin-repo.html" . }}
+<div class="page-content">
+    <div class="success">
+        <p><strong>Custom Plugin Repository:</strong> Add <code>https://mcp-steroid.jonnyzzz.com/updatePlugins.xml</code> in <strong>Settings &rarr; Plugins &rarr; &#x2699; &rarr; Manage Plugin Repositories...</strong> for automatic updates.</p>
+    </div>
+</div>
 
 {{ $releases := site.GetPage "section" "releases" }}
 {{ $all := $releases.Pages.ByTitle.Reverse }}
