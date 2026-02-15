@@ -59,7 +59,7 @@ disableKinds = ['taxonomy', 'term']
 
 [[params.whatsnew]]
   date = "2026-02-15"
-  text = "v0.88.0 released — NPX CLI mode, GoLand & WebStorm support, debugger fixes"
+  text = "v0.88.0 released — GoLand & WebStorm support, debugger improvements, dialog killer fixes"
 
 [[params.whatsnew]]
   date = "2026-02-08"
