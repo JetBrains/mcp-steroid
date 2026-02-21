@@ -914,7 +914,10 @@ h1 {
     margin-bottom: 0.5rem;
 }
 .sidebar-group {
-    margin-bottom: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+.sidebar-group + .sidebar-group {
+    margin-top: 1.25rem;
 }
 .sidebar-group-label {
     display: block;
@@ -922,7 +925,7 @@ h1 {
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--color-quaternary);
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
     padding-left: 1rem;
 }
 .docs-sidebar a {
@@ -1093,14 +1096,17 @@ h1 {
     max-width: 900px;
 }
 .docs-group-section {
-    margin-bottom: 3rem;
+    margin-bottom: 2rem;
+}
+.docs-group-section + .docs-group-section {
+    margin-top: 2.5rem;
 }
 .docs-group-heading {
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--color-quaternary);
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
