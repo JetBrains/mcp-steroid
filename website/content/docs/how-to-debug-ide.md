@@ -20,7 +20,7 @@ group: "Examples"
 
 This guide explains how an AI agent can debug an IntelliJ-based IDE (like CLion) by:
 1. Launching the IDE in debug mode from IntelliJ IDEA
-2. Using the IntelliJ MCP Steroid to interact with the debugged IDE
+2. Using the MCP Steroid to interact with the debugged IDE
 3. Taking screenshots to observe UI state
 4. Using the debugger to inject code and inspect runtime state
 5. Testing plugin functionality programmatically
@@ -66,7 +66,7 @@ This guide explains how an AI agent can debug an IntelliJ-based IDE (like CLion)
 
 ### Step 1: Identify Available Run Configurations
 
-**Using IntelliJ MCP Steroid:**
+**Using MCP Steroid:**
 
 ```kotlin
 import com.intellij.execution.RunManager
@@ -168,7 +168,7 @@ println("Target IDE should be running now")
 
 ## Interacting with the Debugged IDE
 
-### Method 1: Using IntelliJ MCP Steroid
+### Method 1: Using MCP Steroid
 
 **Take Screenshots:**
 
@@ -816,7 +816,7 @@ State files updated
 **As an AI Agent, you can:**
 
 1. Launch IDEs in debug mode programmatically
-2. Use IntelliJ MCP Steroid to execute code
+2. Use MCP Steroid to execute code
 3. Set breakpoints and inspect runtime state
 4. Take screenshots for visual verification
 5. Monitor logs in real-time
@@ -827,7 +827,7 @@ State files updated
 10. Validate functionality programmatically
 
 **Key Tools:**
-- IntelliJ MCP Steroid (`steroid_execute_code`, `steroid_take_screenshot`)
+- MCP Steroid (`steroid_execute_code`, `steroid_take_screenshot`)
 - Debugger console (Evaluate Expression)
 - Log monitoring (`tail -f idea.log`)
 - Process inspection (`ps aux`)
