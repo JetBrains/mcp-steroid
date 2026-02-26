@@ -134,6 +134,13 @@ def main() -> None:
     zip_name = sys.argv[2]
     notes_path = Path(sys.argv[3])
 
+    if not zip_name.endswith(".zip"):
+        print(
+            f"Error: zip filename must end with .zip, got: {zip_name}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print(build_xml(version, zip_name, notes_path))
 
 
