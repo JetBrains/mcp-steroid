@@ -74,6 +74,12 @@ disableKinds = ['taxonomy', 'term']
   text = "Supported IntelliJ-based IDEs, including Rider, Android Studio, and GoLand"
 
 [[params.featuredVideos]]
+  id = "HtDDNyAoLak"
+  title = "Codex Debugs in IntelliJ IDEA"
+  meta = "Codex + debugger"
+  duration = "1:03:24"
+
+[[params.featuredVideos]]
   id = "6ByedA15n8Q"
   title = "MCP Steroid Demo 5"
   meta = "Most popular demo"
