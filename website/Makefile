@@ -14,8 +14,8 @@
 
 .PHONY: dev build clean setup update-config ensure-public-repo
 
-VERSION := $(shell cat ../VERSION 2>/dev/null || echo "0.0.0")
-RELEASE_ZIP_URL := $(shell gh release view $(VERSION) --repo jonnyzzz/mcp-steroid --json assets --jq '[.assets[] | select(.name | endswith(".zip")) | .url][0]' 2>/dev/null || echo "")
+VERSION := $(shell cat ../VERSION)
+RELEASE_ZIP_URL := $(shell gh release view $(VERSION) --repo jonnyzzz/mcp-steroid --json assets --jq '[.assets[] | select(.name | endswith(".zip")) | .url][0]')
 
 # First time setup - clone the public repository
 setup:
