@@ -20,7 +20,9 @@ This is a common pattern for GitHub Pages deployment where the source (Hugo mark
 
 ## Requirements
 
-- Docker and Docker Compose (no other system dependencies required)
+- Docker and Docker Compose (for Hugo builds)
+- `gh` CLI (authenticated, for querying GitHub release assets)
+- `uv` (Python script runner — used instead of `python3` directly)
 
 ## Directory Structure
 
@@ -93,7 +95,7 @@ git push origin main
 
 ## Important Notes
 
-1. **Version Sync**: The plugin version is read from `../VERSION` file during build. The Makefile automatically updates `hugo.toml` with the current version before building. Always keep `../VERSION` as the source of truth for the version number.
+1. **Version Sync**: The release version is read from `../VERSION` to find the GitHub release and update `hugo.toml`. The actual plugin version used in `updatePlugins.xml` comes from the JAR artifact's `plugin.xml` (e.g. `0.89.0-b8388824`), not from the VERSION file.
 
 2. **Build Output Layout**: The website root lives under `mcp-steroid-public/docs`. Do not create a `public/` folder in this repository.
 
@@ -107,7 +109,7 @@ git push origin main
 
 7. **version.json**: Published at `/version.json` with the current version. Generated automatically during build.
 
-8. **updatePlugins.xml**: Published at `/updatePlugins.xml` — IntelliJ custom plugin repository XML. Generated automatically during build by `scripts/generate-update-plugins-xml.py` (Python XML DOM API with CDATA sections). Always points to the latest release only. The Makefile queries `gh` for the actual ZIP asset filename.
+8. **updatePlugins.xml**: Published at `/updatePlugins.xml` — IntelliJ custom plugin repository XML. Generated automatically during build. The Makefile queries `gh` for the release ZIP download URL, then `scripts/generate-update-plugins-xml.py` (run via `uv`) downloads the ZIP, extracts the `ij-plugin-*.jar`, reads `META-INF/plugin.xml` to get the exact plugin version and `since-build`, and generates the XML. This ensures the version and URL always match the actual artifact. The build fails if `gh` is unavailable, the release doesn't exist, or the URL/version validation fails. No fallbacks — errors are fatal.
 
 9. **Release Pages**: Releases are ordered by title descending (`.ByTitle.Reverse`). The latest release appears as a featured tile; older releases show an auto-generated obsolete banner (handled by `layouts/releases/single.html`). No manual obsolete banners needed in content files.
 
