@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-  <plugin id="com.jonnyzzz.mcp-steroid" url="https://github.com/jonnyzzz/mcp-steroid/releases/download/0.89.0/mcp-steroid-0.89.0-b8388824.zip" version="0.89.0-b8388824">
+  <plugin id="com.jonnyzzz.mcp-steroid" url="https://github.com/jonnyzzz/mcp-steroid/releases/download/0.90.0/mcp-steroid-0.90.0-64b20612.zip" version="0.90.0-64b20612">
     <idea-version since-build="253"/>
     <name>MCP Steroid</name>
     <vendor>jonnyzzz.com</vendor>
@@ -16,59 +16,40 @@
 <p>Compatible with all IntelliJ Platform-based IDEs: IntelliJ IDEA, PyCharm, WebStorm, GoLand, CLion, Rider, and more.</p>
 <p>Requirements: IntelliJ IDEA 2025.3 or newer (build 253 or later).</p>
 <p>Visit <a href="https://mcp-steroid.jonnyzzz.com">mcp-steroid.jonnyzzz.com</a> for documentation and examples.</p>]]></description>
-    <change-notes><![CDATA[<h2>What's New in v0.89.0</h2>
-<h3>Demo: Codex Debugs in IntelliJ IDEA</h3>
-<p>[![Codex debugs an application in IntelliJ IDEA](https://img.youtube.com/vi/HtDDNyAoLak/hqdefault.jpg)](https://youtu.be/HtDDNyAoLak)</p>
-<p>In this video, Codex debugs an application in IntelliJ IDEA. The demo is powered by the MCP Steroid plugin for IntelliJ-based IDEs, https://mcp-steroid.jonnyzzz.com.</p>
-<h3>Codex Agent Output Support</h3>
-<p>Full support for Codex NDJSON output format — handles `mcp_tool_call` items with their distinct field names (`tool` instead of `name`, `arguments` instead of `input`), structured result objects, and `reasoning` items rendered as `[thinking]` blocks. Raw and decoded agent logs are now saved per prompt run.</p>
-<h3>Prompt System Overhaul</h3>
-<li>Migrated all articles from multi-file (header + kts) to single-file `.md` format</li>
-<li>Merged `-see-also.md` files into main article files</li>
-<li>Added `###_NO_AUTO_TOC_###` / `###_EXCLUDE_FROM_AUTO_TOC_###` directives for fine-grained TOC control</li>
-<li>Per-article read tests are now auto-generated</li>
-<li>Removed old-format article support from buildSrc codegen</li>
-<li>Migrated tool descriptions to prompt article resources</li>
-<h3>Docker Test Infrastructure Refactoring</h3>
-<p>Major refactoring of the Docker container process runner and agent infrastructure:</p>
-<li>Replaced `runInContainer` with `startProcessInContainer` across all drivers</li>
-<li>Consolidated container process types into `docker-container-exec-detached.kt`</li>
-<li>Channel-driven stdin for `ConsoleDriver` (replacing per-line docker exec)</li>
-<li>Real-time console pumping in `ConsoleAwareAgentSession` with raw + decoded log files</li>
-<li>Interactive docker exec support (`-i` flag)</li>
-<li>Coroutines `Channel` for `ProcessRunner` output (no busy loop)</li>
-<h3>DPAIA Arena Testing</h3>
-<p>Introduced Docker-based A/B comparison testing infrastructure (DPAIA — Developer Productivity AI Assessment) for measuring agent effectiveness with vs without MCP Steroid. Includes automated test pipeline with iterative improvement loops, bare git repo caching, JDK auto-configuration, Maven/Gradle import awaiting, and per-product smoke tests.</p>
-<h3>Plugin & Build Improvements</h3>
-<li>Extracted plugin build into dedicated `ij-plugin/` subproject</li>
-<li>Plugin deployment hot-reload via `deployPlugin` task</li>
-<li>MCP server now starts at IDE startup via `AppLifecycleListener`</li>
-<li>`execution_id` made optional in `steroid_execute_feedback`</li>
-<li>Release builds only include release notes in `plugin.xml` (skip for snapshots)</li>
-<li>Upload LICENSE to GitHub releases with full URLs</li>
-<h3>Settings & UI</h3>
-<li>New MCP Steroid project settings page (Tools > MCP Steroid) with copy buttons and structured connection info</li>
-<li>Human review workflow reworked: renamed actions, `isReviewRequired()` logic, Always Allow option with warning icon</li>
-<li>Screenshot capture now includes modal dialogs</li>
-<h3>Agent Compatibility</h3>
-<li>Claude Code 2.1.x new structured event format support in `ClaudeOutputFilter` (handles both old streaming and new structured formats)</li>
-<li>Output filters pass through unknown JSON events (future-proof)</li>
-<li>Generic `toolDetail()` extracts human-readable summary for all known tools</li>
-<h3>Stability & Bug Fixes</h3>
-<li>Fixed AIPromoWindowAdvisor 8-minute startup deadlock in Docker containers</li>
-<li>Fixed Islands Theme onboarding dialog blocking test containers</li>
-<li>Fixed `CodeButcher` import extraction from triple-quoted string literals</li>
-<li>Fixed AiAgentDriver NPE with lazy property ordering</li>
-<li>Fixed DISPLAY env var propagation in container processes</li>
-<li>Fixed Docker reaper image tagging and container ancestry filter</li>
-<li>Renamed "IntelliJ MCP Steroid" to "MCP Steroid" across codebase</li>
+    <change-notes><![CDATA[<h2>What's New in v0.90.0</h2>
+<h3>ClaudeCode debugs an application in Rider -- MCP Steroid</h3>
+<p><iframe width="560" height="315" src="https://www.youtube.com/embed/g73vZCO-YRw" frameborder="0" allowfullscreen></iframe></p>
+<p>In this video, ClaudeCode drives Rider debugger workflows through MCP Steroid, including breakpoint setup, debugger control, and IDE-driven test execution.</p>
+<h3>DPAIA Arena: First Success Metrics</h3>
+<p>As of 2026-03-02, the first completed A/B comparison set shows:</p>
+<li>Fix rate: `4/4` with MCP Steroid and `4/4` without MCP.</li>
+<li>Average agent time: `412s` with MCP vs `526s` without MCP.</li>
+<li>Net speedup: MCP was `22%` faster on average (`114s` gain per case).</li>
+<li>Cost: MCP was about `10%` cheaper across our 4-test experiment set.</li>
+<li>Strongest gains were on complex multi-file tasks (`21-27%` faster), while simple search-and-replace tasks were effectively neutral.</li>
+<h3>Prompt Platform Rework</h3>
+<li>Added a dedicated `prompts-api` module (`ArticlePart`, `IdeFilter`, `PromptsContext`) and reworked generation around article parts with computed filters.</li>
+<li>Migrated prompt articles to the single-article model with line-2 filters and fence annotations, including multi-IDE filter support.</li>
+<li>Replaced SkillCatalog YAML frontmatter with article properties and removed obsolete filter code paths.</li>
+<li>Moved prompt quality gates into the prompts pipeline (`KtBlock` compilation and debugger prompt quality coverage).</li>
+<h3>Additional Validations</h3>
+<li>Added article quality contract tests and stricter prompt content checks.</li>
+<li>Updated prompt examples to compilable fences and replaced deprecated IntelliJ 2025.3 API usages.</li>
+<li>Included kotlinc version in `KtBlock` compilation cache keys to prevent stale cache reuse across compiler upgrades.</li>
+<li>Hardened release/update validation by using actual GitHub release asset URLs for `updatePlugins.xml`, failing fast on missing `VERSION`/release URL values, and preventing non-plugin asset selection.</li>
+<h3>Rider and Debugger Workflow Maturity</h3>
+<li>Added Rider to IntelliJ debugger support coverage with dedicated Rider integration/debugger test flows.</li>
+<li>Introduced RLVR-based Rider debugger prompt iteration: agents were trained in a virtual environment to test and refine prompts for reliable debugger support.</li>
+<li>Added Rider IDE integration coverage for debugger workflows and introduced `RiderPlaygroundTest` for interactive debugging sessions.</li>
+<li>Improved debugger prompts for event-driven suspension, idempotent breakpoints, and Rider/.NET expression handling.</li>
+<li>Added run-test-at-caret prompt workflows and fixed action IDs/caret targeting in debugger demos.</li>
+<li>Extracted shared debugger test helpers to reduce duplication between IntelliJ and Rider demo tests.</li>
 <h3>Build & Infrastructure</h3>
-<li>KtBlocks compilation test infrastructure for verifying code examples in prompt articles</li>
-<li>`ScriptClassLoaderFactory` interface for test classpath isolation</li>
-<li>Compilation tests made stable across build re-runs</li>
-<li>Increased IDE window detection timeout with better diagnostics</li>
-<li>Concurrent test run protection documented (shared `idea-sandbox/` corruption)</li>
-<p>Full release notes: <a href="https://mcp-steroid.jonnyzzz.com/releases/0.89.0/">mcp-steroid.jonnyzzz.com/releases/0.89.0/</a></p>]]></change-notes>
+<li>Extracted `intellij-downloader` and `kotlin-cli` modules and moved related tests into the new module boundaries.</li>
+<li>Fixed IDE downloader platform resolution in containerized runs (correct archive per OS).</li>
+<li>Improved integration-run stability via warm snapshot bootstrap hardening and test-suite parallelism controls.</li>
+<li>Fixed ScriptExecutor timeout test behavior and excluded Docker CLI tests from the default fast suite.</li>
+<p>Full release notes: <a href="https://mcp-steroid.jonnyzzz.com/releases/0.90.0/">mcp-steroid.jonnyzzz.com/releases/0.90.0/</a></p>]]></change-notes>
   </plugin>
 </plugins>
 

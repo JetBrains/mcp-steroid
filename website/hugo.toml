@@ -55,7 +55,11 @@ disableKinds = ['taxonomy', 'term']
   githubIssuesUrl = "https://github.com/jonnyzzz/mcp-steroid/issues"
   youtubeChannel = "https://youtube.com/@jonnyzzz"
   # Version is read from ../VERSION file during build (see Makefile)
-  version = "0.89.0"
+  version = "0.90.0"
+
+[[params.whatsnew]]
+  date = "2026-03-02"
+  text = "v0.90.0 released — Rider debugger demo, first DPAIA A/B metrics, prompt platform rework"
 
 [[params.whatsnew]]
   date = "2026-02-26"
