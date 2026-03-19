@@ -296,6 +296,12 @@ a:focus-visible {
     gap: 1rem;
     margin: 1.25rem 0 1.5rem;
 }
+.hero-cards-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.hero-cards-three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 
 .hero-card,
 .about-content,
@@ -744,6 +750,12 @@ h1 {
     .hero-cards {
         grid-template-columns: 1fr;
     }
+    .hero-cards-two {
+        grid-template-columns: 1fr;
+    }
+    .hero-cards-three {
+        grid-template-columns: 1fr;
+    }
 }
 
 .feedback-section p {
@@ -1148,4 +1160,159 @@ h1 {
 
 .releases-footer-grid .doc-card p + p {
     margin-top: 0.75rem;
+}
+
+/* Benchmark panel -- dark terminal look with JetBrains Mono */
+.benchmark-panel {
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 2rem 2.5rem;
+    font-family: 'JetBrains Mono', 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
+}
+.benchmark-panel .section-title {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+.benchmark-subtitle {
+    color: var(--color-tertiary);
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+.benchmark-footnote {
+    margin-top: 0.75rem;
+    color: #888;
+    font-size: 0.8rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+.benchmark-table-wrapper {
+    overflow-x: auto;
+    margin: 1rem 0;
+}
+.benchmark-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+.benchmark-table th {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.benchmark-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: #bbb;
+}
+.benchmark-table tr:hover td {
+    background: rgba(255, 255, 255, 0.04);
+}
+.benchmark-faster {
+    color: #4caf50;
+}
+@media (max-width: 768px) {
+    .benchmark-panel {
+        padding: 1.25rem 0.75rem;
+    }
+    .benchmark-table-wrapper {
+        margin: 0.75rem -0.5rem;
+    }
+    .benchmark-table {
+        font-size: 0.75rem;
+        min-width: 480px;
+    }
+    .benchmark-table th,
+    .benchmark-table td {
+        padding: 0.4rem 0.5rem;
+    }
+}
+@media (max-width: 480px) {
+    .code-example {
+        font-size: 0.72rem;
+        padding: 0.75rem;
+        margin-left: -0.5rem;
+        margin-right: -0.5rem;
+        border-radius: 0;
+    }
+}
+
+/* Consulting note */
+.about-content p.consulting-note {
+    background: rgba(107, 87, 255, 0.08);
+    border-left: 3px solid var(--color-brand-purple);
+    border-radius: 0 8px 8px 0;
+    padding: 0.75rem 1rem;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+
+/* Support section */
+.support-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+@media (max-width: 480px) {
+    .support-links {
+        flex-direction: column;
+    }
+    .support-links .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Heart icons */
+.heart-icon {
+    width: 20px;
+    height: 20px;
+    color: #e25555;
+    vertical-align: middle;
+    margin-right: 0.25rem;
+}
+.heart-icon-btn {
+    color: #e25555;
+}
+.nav-heart {
+    width: 16px;
+    height: 16px;
+    color: #e25555;
+}
+.nav-support {
+    color: var(--color-tertiary);
+}
+.nav-support:hover {
+    color: #e25555;
+}
+
+/* Card links */
+.card-link {
+    color: inherit;
+    text-decoration: none;
+}
+.card-link:hover {
+    text-decoration: underline;
+    color: var(--color-link);
+}
+
+/* Code example block */
+.code-example {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+.code-example code {
+    background: none;
+    padding: 0;
+    color: var(--color-tertiary);
+    font-size: 0.85rem;
 }
