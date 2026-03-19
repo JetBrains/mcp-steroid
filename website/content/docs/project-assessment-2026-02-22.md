@@ -242,6 +242,6 @@ MCP Steroid is built and maintained by a solo developer. Continued development, 
 - **Submit real-world scenarios** — share your repositories and workflows so we can benchmark and improve. See [Support the Project](/docs/need-your-experiments-and-support/) for the submission template
 - **Share usage logs** — the `.idea/mcp-steroid` folder in your project contains tool call logs that help us fine-tune prompts and skills
 - **Report issues** — [github.com/jonnyzzz/mcp-steroid/issues](https://github.com/jonnyzzz/mcp-steroid/issues)
-- **Join the community** — [Slack workspace](https://join.slack.com/t/mcp-steroid/shared_invite/zt-3p3oq91kx-BXJng8GSXveqncFVYWUcpQ) or message Eugene on [LinkedIn](https://linkedin.com/in/jonnyzzz)
+- **Join the community** — [Discord server](https://discord.gg/e9qgQ7NeTC) or message Eugene on [LinkedIn](https://linkedin.com/in/jonnyzzz)
 
 Engineering leaders and sponsors interested in pilot evaluations or benchmark expansion are welcome to reach out directly.
