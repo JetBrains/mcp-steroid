@@ -1288,6 +1288,7 @@ h1 {
     color: #e25555;
     vertical-align: middle;
     margin-right: 0.25rem;
+    display: inline;
 }
 .heart-icon-btn {
     color: #e25555;
