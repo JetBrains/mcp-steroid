@@ -38,18 +38,18 @@ update-config: ensure-public-repo
 	@echo "Generating updatePlugins.xml (url: $(RELEASE_ZIP_URL))"
 	@./scripts/generate-update-plugins-xml.sh "$(VERSION)" "$(RELEASE_ZIP_URL)" > static/updatePlugins.xml
 	@xmllint --noout static/updatePlugins.xml 2>/dev/null && echo "updatePlugins.xml is valid XML" || echo "WARNING: xmllint not available, skipping XML validation"
-	@mkdir -p mcp-steroid-public/docs
+	@mkdir -p mcp-steroid-public/website
 
 # Start development server with live reload
 dev: update-config
 	docker compose up dev
 
-# Build the site to mcp-steroid-public/docs
+# Build the site to mcp-steroid-public/website
 build: update-config
 	@# Remove symlinks in output dir — they escape Docker mount boundary and break Hugo stat
-	@find mcp-steroid-public/docs -type l -delete 2>/dev/null || true
+	@find mcp-steroid-public/website -type l -delete 2>/dev/null || true
 	docker compose run --rm build
 
 # Clean generated files (recreated by build)
 clean:
-	find mcp-steroid-public/docs -mindepth 1 -delete 2>/dev/null || true
+	find mcp-steroid-public/website -mindepth 1 -delete 2>/dev/null || true
