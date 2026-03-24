@@ -26,6 +26,6 @@ services:
     image: hugomods/hugo:exts-0.142.0
     volumes:
       - .:/src
-      - ./mcp-steroid-public/website:/output
+      - ./mcp-steroid-public/mcp-steroid-plugin:/output
     working_dir: /src
     command: --destination /output --minify --cleanDestinationDir
