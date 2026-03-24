@@ -1,7 +1,7 @@
 # MCP Steroid
 
 <p align="center">
-  <img src="docs/pluginIcon.svg" alt="MCP Steroid Logo" width="120" height="120">
+  <img src="website/static/pluginIcon.svg" alt="MCP Steroid Logo" width="120" height="120">
 </p>
 
 <p align="center">
