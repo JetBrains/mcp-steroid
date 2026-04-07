@@ -23,4 +23,39 @@ class CodeEvalManagerTest: BasePlatformTestCase()  {
         Assert.assertNotNull(data)
     }
 
+    fun testCompileAnnotatedElementsSearch(): Unit = timeoutRunBlocking(5.minutes) {
+        // AnnotatedElementsSearch is in the intellij.java.indexing content module.
+        // In production IDEs (2025.3+), this module has its own classloader whose JARs
+        // may be missing from the kotlinc compile classpath. This test verifies that
+        // scripts importing content module classes compile successfully.
+        // See https://github.com/jonnyzzz/mcp-steroid/issues/16
+        //
+        // NOTE: In the test sandbox, content modules share the main plugin classloader,
+        // so this test passes. In a production IDE, this import fails with
+        // "unresolved reference 'AnnotatedElementsSearch'" unless the fix is applied.
+        // This test guards against regressions and will catch the bug if the sandbox
+        // starts supporting content module splitting.
+        val code = """
+            import com.intellij.psi.search.searches.AnnotatedElementsSearch
+            import com.intellij.psi.search.GlobalSearchScope
+            import com.intellij.psi.JavaPsiFacade
+
+            val scope = GlobalSearchScope.projectScope(project)
+            val facade = JavaPsiFacade.getInstance(project)
+            val cls = facade.findClass("java.lang.Deprecated", scope)
+            if (cls != null) {
+                val methods = AnnotatedElementsSearch.searchPsiMethods(cls, scope).findAll()
+                println("Found ${'$'}{methods.size} deprecated methods")
+            } else {
+                println("No Deprecated class found (expected in non-Java projects)")
+            }
+        """.trimIndent()
+        val testExecParams = testExecParams(code)
+        val execId = project.executionStorage.writeNewExecution(testExecParams)
+        val result = TestResultBuilder()
+        val data = project.codeEvalManager.evalCode(execId, code, result)
+        Assert.assertNotNull("Script using AnnotatedElementsSearch should compile. Result: $result", data)
+        Assert.assertFalse("Compilation should not fail. Result: $result", result.isFailed)
+    }
+
 }

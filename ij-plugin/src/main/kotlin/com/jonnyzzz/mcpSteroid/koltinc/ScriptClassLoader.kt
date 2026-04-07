@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.koltinc
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.PluginMainDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -36,7 +37,19 @@ class ScriptClassLoaderFactory {
     fun ideClasspath(): List<Path> {
         return orderedPluginDescriptors()
             .asSequence()
-            .mapNotNull { it.pluginClassLoader as UrlClassLoader? }
+            .flatMap { descriptor ->
+                // Main plugin classloader
+                val loaders = mutableListOf(descriptor.pluginClassLoader)
+                // Content module classloaders (IntelliJ 2025.3+)
+                // Plugins are split into content modules with separate PluginClassLoader instances.
+                // Without including these, kotlinc cannot compile scripts that reference classes
+                // from content modules (e.g. AnnotatedElementsSearch from intellij.java.indexing).
+                if (descriptor is PluginMainDescriptor) {
+                    loaders += descriptor.contentModules.mapNotNull { it.pluginClassLoader }
+                }
+                loaders.asSequence()
+            }
+            .filterIsInstance<UrlClassLoader>()
             .distinct()
             .flatMap { it.files }
             .distinct()
