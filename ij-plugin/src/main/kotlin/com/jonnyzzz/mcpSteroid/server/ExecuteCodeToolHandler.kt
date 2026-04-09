@@ -134,7 +134,7 @@ class ExecuteCodeToolHandler : McpRegistrar {
             reason = reason ?: "No reason provided",
             timeout = timeout,
             dialogKiller = dialogKiller,
-            rawParams = params.arguments
+            rawParams = args
         )
 
         val result = project

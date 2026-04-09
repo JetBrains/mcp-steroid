@@ -59,7 +59,11 @@ object SamplingTestToolHandler {
                 isError = true
             )
 
-        val systemPrompt = context.params.arguments.get("system_prompt")
+        val args = context.params.arguments ?: return ToolCallResult(
+            content = listOf(ContentItem.Text("Missing arguments")),
+            isError = true
+        )
+        val systemPrompt = args["system_prompt"]
             ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
 
         // Check if client supports sampling

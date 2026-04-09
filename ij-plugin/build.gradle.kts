@@ -81,6 +81,15 @@ dependencies {
         testFramework(TestFrameworkType.Platform)
     }
 
+    // MCP protocol core (protocol types, registries, session management)
+    api(project(":mcp-core"))
+
+    // MCP HTTP transport (Ktor-based)
+    implementation(project(":mcp-http"))
+
+    // MCP feature declarations (tool context interface)
+    implementation(project(":mcp-features"))
+
     // Prompt base classes + generated prompt code
     implementation(project(":prompts"))
 
@@ -395,6 +404,9 @@ val verifyBundledLibraries by tasks.registering {
             "lib/ai-agents-${project.version}.jar",
             "lib/ij-plugin-${project.version}.jar",
             "lib/kotlin-cli-${project.version}.jar",
+            "lib/mcp-core-${project.version}.jar",
+            "lib/mcp-features-${project.version}.jar",
+            "lib/mcp-http-${project.version}.jar",
             "lib/ocr-common-${project.version}.jar",
             "lib/prompts-api-${project.version}.jar",
             "lib/prompts-${project.version}.jar",

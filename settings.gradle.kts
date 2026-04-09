@@ -9,6 +9,11 @@ include(":prompts-api")
 include(":prompts")
 include(":intellij-downloader")
 
+include(":mcp-core")
+include(":mcp-http")
+include(":mcp-stdio")
+include(":mcp-features")
+
 include(":ij-plugin")
 
 include(":ocr-common")

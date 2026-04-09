@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.mcp.*
+import com.jonnyzzz.mcpSteroid.transport.http.McpHttpTransport
 import com.jonnyzzz.mcpSteroid.server.ActionDiscoveryResponse
 import com.jonnyzzz.mcpSteroid.server.ListProductsResponse
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
@@ -1322,9 +1323,10 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         val content = readResult.contents.first()
         assertEquals(skillResource.uri, content.uri)
         assertEquals("text/markdown", content.mimeType)
-        assertNotNull("Resource should have text content", content.text)
-        assertTrue("Content should contain SKILL.md content", content.text!!.contains("MCP Steroid"))
-        assertTrue("Content should contain quickstart", content.text.contains("Quickstart"))
+        val text = content.text
+        assertNotNull("Resource should have text content", text)
+        assertTrue("Content should contain SKILL.md content", text!!.contains("MCP Steroid"))
+        assertTrue("Content should contain quickstart", text.contains("Quickstart"))
     }
 
     /**

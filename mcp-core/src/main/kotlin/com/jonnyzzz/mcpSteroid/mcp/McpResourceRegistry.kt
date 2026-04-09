@@ -1,13 +1,13 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.mcp
 
-import com.intellij.openapi.diagnostic.thisLogger
+import org.slf4j.LoggerFactory
 
 /**
  * Registry for MCP resources.
  */
 class McpResourceRegistry {
-    private val log = thisLogger()
+    private val log = LoggerFactory.getLogger(McpResourceRegistry::class.java)
 
     private val resources = mutableMapOf<String, McpResourceDefinition>()
 
