@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.mcp
 
+import com.jonnyzzz.mcpSteroid.transport.http.McpHttpTransport
 import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*

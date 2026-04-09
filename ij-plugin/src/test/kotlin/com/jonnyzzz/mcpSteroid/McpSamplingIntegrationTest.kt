@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.mcp.*
+import com.jonnyzzz.mcpSteroid.transport.http.McpHttpTransport
 import com.jonnyzzz.mcpSteroid.server.SteroidsMcpServer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO

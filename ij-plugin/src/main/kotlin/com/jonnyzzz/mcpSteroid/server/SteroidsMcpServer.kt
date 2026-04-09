@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.registry.Registry
 import com.jonnyzzz.mcpSteroid.aiAgents.claudeMcpAddCommand
 import com.jonnyzzz.mcpSteroid.mcp.*
+import com.jonnyzzz.mcpSteroid.transport.http.McpHttpTransport
 import com.jonnyzzz.mcpSteroid.prompts.generated.McpSteroidInfoPrompt
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
 import io.ktor.http.*
