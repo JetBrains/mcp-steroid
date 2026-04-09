@@ -1,0 +1,93 @@
+{
+  "version": "2.0",
+  "project": "bonsai",
+  "specs": [
+    {
+      "id": "mcp-core",
+      "type": "module-design",
+      "path": "mcp-core/README.md",
+      "title": "mcp-core Module",
+      "status": "draft",
+      "covers": [
+        "mcp-core"
+      ],
+      "tags": [
+        "mcp",
+        "protocol",
+        "core"
+      ],
+      "created": "2026-04-08",
+      "updated": "2026-04-08"
+    },
+    {
+      "id": "mcp-http",
+      "type": "module-design",
+      "path": "mcp-http/README.md",
+      "title": "mcp-http Module",
+      "status": "draft",
+      "covers": [
+        "mcp-http"
+      ],
+      "tags": [
+        "mcp",
+        "http",
+        "transport",
+        "ktor"
+      ],
+      "created": "2026-04-08",
+      "updated": "2026-04-08"
+    },
+    {
+      "id": "mcp-stdio",
+      "type": "module-design",
+      "path": "mcp-stdio/README.md",
+      "title": "mcp-stdio Module",
+      "status": "draft",
+      "covers": [
+        "mcp-stdio"
+      ],
+      "tags": [
+        "mcp",
+        "stdio",
+        "transport"
+      ],
+      "created": "2026-04-08",
+      "updated": "2026-04-08"
+    },
+    {
+      "id": "mcp-features",
+      "type": "module-design",
+      "path": "mcp-features/README.md",
+      "title": "mcp-features Module",
+      "status": "draft",
+      "covers": [
+        "mcp-features"
+      ],
+      "tags": [
+        "mcp",
+        "features",
+        "tools",
+        "interfaces"
+      ],
+      "created": "2026-04-08",
+      "updated": "2026-04-08"
+    }
+  ],
+  "links": [
+    {
+      "from": "mcp-http",
+      "to": "mcp-core",
+      "type": "depends-on"
+    },
+    {
+      "from": "mcp-stdio",
+      "to": "mcp-core",
+      "type": "depends-on"
+    },
+    {
+      "from": "mcp-features",
+      "to": "mcp-core",
+      "type": "depends-on"
+    }
+  ]
+}

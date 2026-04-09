@@ -1,0 +1,74 @@
+[
+  {
+    "id": "claude-opus-4-6",
+    "label": "Opus 4.6",
+    "group": "current",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "pricingTier": "opus"
+  },
+  {
+    "id": "claude-sonnet-4-6",
+    "label": "Sonnet 4.6",
+    "group": "current",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "pricingTier": "sonnet"
+  },
+  {
+    "id": "claude-haiku-4-5-20251001",
+    "label": "Haiku 4.5",
+    "group": "legacy",
+    "contextWindow": 200000,
+    "maxOutput": 64000,
+    "pricingTier": "haiku"
+  },
+  {
+    "id": "claude-nectarine-eap",
+    "label": "\ud83e\udd2b Nectarine EAP",
+    "group": "legacy",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "pricingTier": "sonnet"
+  },
+  {
+    "id": "claude-opus-4-1-20250805",
+    "label": "Opus 4.1",
+    "group": "legacy",
+    "contextWindow": 200000,
+    "maxOutput": 32000,
+    "pricingTier": "opus"
+  },
+  {
+    "id": "claude-opus-4-20250514",
+    "label": "Opus 4",
+    "group": "legacy",
+    "contextWindow": 200000,
+    "maxOutput": 32000,
+    "pricingTier": "opus"
+  },
+  {
+    "id": "claude-opus-4-5-20251101",
+    "label": "Opus 4.5",
+    "group": "legacy",
+    "contextWindow": 200000,
+    "maxOutput": 64000,
+    "pricingTier": "opus"
+  },
+  {
+    "id": "claude-sonnet-4-20250514",
+    "label": "Sonnet 4",
+    "group": "legacy",
+    "contextWindow": 1000000,
+    "maxOutput": 64000,
+    "pricingTier": "sonnet"
+  },
+  {
+    "id": "claude-sonnet-4-5-20250929",
+    "label": "Sonnet 4.5",
+    "group": "legacy",
+    "contextWindow": 1000000,
+    "maxOutput": 64000,
+    "pricingTier": "sonnet"
+  }
+]

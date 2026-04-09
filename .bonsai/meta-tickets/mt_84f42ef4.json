@@ -1,0 +1,23 @@
+{
+  "id": "mt_84f42ef4",
+  "title": "refactor MCP",
+  "body": "## What\nExtract all MCP server logic from the `ij-plugin` monolith into four dedicated Gradle modules \u2014 `mcp-core` (protocol, serialization, session management), `mcp-http` (Ktor HTTP transport), `mcp-stdio` (stdio transport, based on `npx-kt`), and `mcp-features` (tool/resource/prompt skeletons as interfaces). The `ij-plugin` retains all concrete tool implementations and registers them via a context interface defined in `mcp-features`.\n\n## Purpose\nMove toward a CLI-based MCP server architecture that multiplexes across multiple running IDE instances, eliminating HTTP protocol limitations. This refactoring establishes clean module boundaries so that transports (HTTP, stdio) and feature declarations are independent of the IntelliJ plugin runtime. The work proceeds step-by-step with non-breaking changes to `ij-plugin`; the `npx`/`npx-kt` modules are experimental and can absorb more aggressive changes.\n\n## Approach\n- **mcp-core**: Protocol types (`McpProtocol`), JSON config (`McpJson`), session management (`McpSession`), and `McpServerCore` dispatch \u2014 no transport or IDE dependencies.\n- **mcp-http**: Ktor-based HTTP transport (`McpHttpTransport`, `SteroidsMcpServer`) depending on `mcp-core`.\n- **mcp-stdio**: Stdio transport extracted/adapted from `npx-kt`, depending on `mcp-core`. Used for testing and CLI-based server scenarios.\n- **mcp-features**: Declares tool/resource/prompt method skeletons as interfaces. Provides a context interface (e.g., `McpToolContext`) that returns handlers per tool \u2014 `ij-plugin` implements this context. No concrete implementations live here.\n- **ij-plugin**: Depends on `mcp-core`, `mcp-http`, and `mcp-features`. Keeps all existing tool handler implementations and registers them via the context interface.\n- Refactoring is non-breaking for `ij-plugin` consumers; existing tests must continue to pass at every step.\n- Use `run-agent.sh` for execution and multi-agent review of changes. Leverage the MCP Steroid plugin (already configured for Claude Code).\n\n## Success Criteria\n- [ ] All existing `ij-plugin` tests pass without modification after the refactoring\n- [ ] Module dependency graph is a clean DAG: `mcp-core` \u2190 `mcp-http`, `mcp-core` \u2190 `mcp-stdio`, `mcp-core` \u2190 `mcp-features`, all three \u2190 `ij-plugin`\n- [ ] `mcp-features` defines tool/resource interfaces with a context-based registration pattern \u2014 no concrete implementations\n- [ ] New integration tests for `mcp-stdio` transport (protocol-level, based on MCP specification)\n- [ ] New integration tests for `mcp-http` transport (protocol-level, based on MCP specification)\n- [ ] `mcp-stdio` module can serve tools via stdio without any IntelliJ dependencies\n- [ ] `npx-kt` can be adapted to use the extracted `mcp-stdio` module",
+  "status": "done",
+  "type": "feature",
+  "planPath": "plans/mt_84f42ef4.md",
+  "orchestratorSessionId": "cfea92a7-1692-4f6f-a2c1-aaeeb6cfde17",
+  "linkedSpecIds": [
+    "mcp-core",
+    "mcp-http",
+    "mcp-stdio",
+    "mcp-features"
+  ],
+  "sessionIds": [
+    "91b06940-5147-4ad2-a1ee-6ae8e692314d",
+    "cfea92a7-1692-4f6f-a2c1-aaeeb6cfde17"
+  ],
+  "specPatches": [],
+  "order": 0,
+  "created": "2026-04-08T16:38:02.374853+00:00",
+  "updated": "2026-04-09T15:39:42.014904+00:00"
+}
