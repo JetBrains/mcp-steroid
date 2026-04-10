@@ -50,14 +50,14 @@ dependencies {
 
 val generatedSources = layout.buildDirectory.dir("generated/kotlin/prompts")
 val generatedTestSources = layout.buildDirectory.dir("generated/kotlin-test/prompts")
-val licensePromptsDir = layout.buildDirectory.dir("license-prompts")
-val prepareLicensePrompt by tasks.registering {
-    val websiteEula = rootProject.layout.projectDirectory.file("EULA")
-    val outputFile = licensePromptsDir.map { it.file("license/LICENSE.md") }
-    inputs.file(websiteEula)
+val eulaPromptsDir = layout.buildDirectory.dir("eula-prompts")
+val prepareEulaPrompt by tasks.registering {
+    val eulaFile = rootProject.layout.projectDirectory.file("EULA")
+    val outputFile = eulaPromptsDir.map { it.file("license/EULA.md") }
+    inputs.file(eulaFile)
     outputs.file(outputFile)
     doLast {
-        val eulaText = websiteEula.asFile.readText()
+        val eulaText = eulaFile.asFile.readText()
         val out = outputFile.get().asFile
         out.parentFile.mkdirs()
         out.writeText(eulaText)
@@ -65,17 +65,17 @@ val prepareLicensePrompt by tasks.registering {
 }
 
 val generatePrompts by tasks.registering(JavaExec::class) {
-    dependsOn(prepareLicensePrompt)
+    dependsOn(prepareEulaPrompt)
     classpath = promptGeneratorClasspath
     mainClass.set("com.jonnyzzz.mcpSteroid.promptgen.MainKt")
     args(
         "--input-dir", layout.projectDirectory.dir("src/main/prompts").asFile.absolutePath,
         "--output-dir", generatedSources.get().asFile.absolutePath,
         "--test-output-dir", generatedTestSources.get().asFile.absolutePath,
-        "--extra-input-dirs", licensePromptsDir.get().asFile.absolutePath,
+        "--extra-input-dirs", eulaPromptsDir.get().asFile.absolutePath,
     )
     inputs.dir(layout.projectDirectory.dir("src/main/prompts"))
-    inputs.dir(licensePromptsDir)
+    inputs.dir(eulaPromptsDir)
     outputs.dir(generatedSources)
     outputs.dir(generatedTestSources)
 }

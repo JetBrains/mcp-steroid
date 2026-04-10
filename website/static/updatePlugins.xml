@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-  <plugin id="com.jonnyzzz.mcp-steroid" url="https://github.com/jonnyzzz/mcp-steroid/releases/download/0.90.0/mcp-steroid-0.90.0-64b20612.zip" version="0.90.0-64b20612">
+  <plugin id="com.jonnyzzz.mcp-steroid" url="https://github.com/jonnyzzz/mcp-steroid/releases/download/v0.92.0/mcp-steroid-0.92.0-59b78976.zip" version="0.92.0-59b78976">
     <idea-version since-build="253"/>
     <name>MCP Steroid</name>
     <vendor>jonnyzzz.com</vendor>
@@ -16,40 +16,27 @@
 <p>Compatible with all IntelliJ Platform-based IDEs: IntelliJ IDEA, PyCharm, WebStorm, GoLand, CLion, Rider, and more.</p>
 <p>Requirements: IntelliJ IDEA 2025.3 or newer (build 253 or later).</p>
 <p>Visit <a href="https://mcp-steroid.jonnyzzz.com">mcp-steroid.jonnyzzz.com</a> for documentation and examples.</p>]]></description>
-    <change-notes><![CDATA[<h2>What's New in v0.90.0</h2>
-<h3>ClaudeCode debugs an application in Rider -- MCP Steroid</h3>
-<p><iframe width="560" height="315" src="https://www.youtube.com/embed/g73vZCO-YRw" frameborder="0" allowfullscreen></iframe></p>
-<p>In this video, ClaudeCode drives Rider debugger workflows through MCP Steroid, including breakpoint setup, debugger control, and IDE-driven test execution.</p>
-<h3>DPAIA Arena: First Success Metrics</h3>
-<p>As of 2026-03-02, the first completed A/B comparison set shows:</p>
-<li>Fix rate: `4/4` with MCP Steroid and `4/4` without MCP.</li>
-<li>Average agent time: `412s` with MCP vs `526s` without MCP.</li>
-<li>Net speedup: MCP was `22%` faster on average (`114s` gain per case).</li>
-<li>Cost: MCP was about `10%` cheaper across our 4-test experiment set.</li>
-<li>Strongest gains were on complex multi-file tasks (`21-27%` faster), while simple search-and-replace tasks were effectively neutral.</li>
-<h3>Prompt Platform Rework</h3>
-<li>Added a dedicated `prompts-api` module (`ArticlePart`, `IdeFilter`, `PromptsContext`) and reworked generation around article parts with computed filters.</li>
-<li>Migrated prompt articles to the single-article model with line-2 filters and fence annotations, including multi-IDE filter support.</li>
-<li>Replaced SkillCatalog YAML frontmatter with article properties and removed obsolete filter code paths.</li>
-<li>Moved prompt quality gates into the prompts pipeline (`KtBlock` compilation and debugger prompt quality coverage).</li>
-<h3>Additional Validations</h3>
-<li>Added article quality contract tests and stricter prompt content checks.</li>
-<li>Updated prompt examples to compilable fences and replaced deprecated IntelliJ 2025.3 API usages.</li>
-<li>Included kotlinc version in `KtBlock` compilation cache keys to prevent stale cache reuse across compiler upgrades.</li>
-<li>Hardened release/update validation by using actual GitHub release asset URLs for `updatePlugins.xml`, failing fast on missing `VERSION`/release URL values, and preventing non-plugin asset selection.</li>
-<h3>Rider and Debugger Workflow Maturity</h3>
-<li>Added Rider to IntelliJ debugger support coverage with dedicated Rider integration/debugger test flows.</li>
-<li>Introduced RLVR-based Rider debugger prompt iteration: agents were trained in a virtual environment to test and refine prompts for reliable debugger support.</li>
-<li>Added Rider IDE integration coverage for debugger workflows and introduced `RiderPlaygroundTest` for interactive debugging sessions.</li>
-<li>Improved debugger prompts for event-driven suspension, idempotent breakpoints, and Rider/.NET expression handling.</li>
-<li>Added run-test-at-caret prompt workflows and fixed action IDs/caret targeting in debugger demos.</li>
-<li>Extracted shared debugger test helpers to reduce duplication between IntelliJ and Rider demo tests.</li>
-<h3>Build & Infrastructure</h3>
-<li>Extracted `intellij-downloader` and `kotlin-cli` modules and moved related tests into the new module boundaries.</li>
-<li>Fixed IDE downloader platform resolution in containerized runs (correct archive per OS).</li>
-<li>Improved integration-run stability via warm snapshot bootstrap hardening and test-suite parallelism controls.</li>
-<li>Fixed ScriptExecutor timeout test behavior and excluded Docker CLI tests from the default fast suite.</li>
-<p>Full release notes: <a href="https://mcp-steroid.jonnyzzz.com/releases/0.90.0/">mcp-steroid.jonnyzzz.com/releases/0.90.0/</a></p>]]></change-notes>
+    <change-notes><![CDATA[<h2>What's New in v0.92.0</h2>
+<h3>0.92.0</h3>
+<p>### MCP Steroid Is Now Open Source and Supported by JetBrains</p>
+<p>MCP Steroid is now licensed under **Apache 2.0** and officially supported by JetBrains. This release marks a milestone for the project — the full source is available for community contributions, audits, and forks. Read the full announcement: [MCP Steroid Goes Open Source](https://jonnyzzz.com/blog/2026/04/07/mcp-steroid-open-source/)</p>
+<p>### Your IDE Skill Factory</p>
+<p>MCP Steroid is more than a code-execution bridge — it is your **IDE Skill Factory**. Each prompt resource, each `steroid_execute_code` call, each debugging session is a scenario we collect and refine to make AI agents more capable in the IDE. We are actively gathering real-world workflows. Learn more and contribute yours: [MCP Steroid as Skill Factory](https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/)</p>
+<p>### Critical Bug Fix: Script Classpath (#16)</p>
+<p>**Content module JARs were missing from the script compile classpath.** This caused compilation failures for code using classes from IDE content modules — including Kotlin plugin internals and Java API wrappers provided by bundled plugins. AI agents would receive `unresolved reference` errors even for APIs that are clearly available in the IDE.</p>
+<p>The fix ensures that all JARs from loaded plugin classloaders are included when building the script classpath. ([#16](https://github.com/jonnyzzz/mcp-steroid/issues/16))</p>
+<p>### Exact Error Locations in Your Code</p>
+<p>When something goes wrong, agents now see exactly where — in **your code**, not in the internal wrapper.</p>
+<li><b>Compiler errors</b> now report the line number in the user-supplied code block, not in the generated wrapper class. A syntax error on line 3 of your snippet is now reported as line 3, not line 47.</li>
+<li><b>Runtime stack traces</b> are remapped the same way: exception frames pointing into MCP Steroid's wrapper code are translated to the original user-code line.</li>
+<li><b>Framework and wrapper frames</b> are stripped from stack traces entirely, leaving only the frames that matter for diagnosis.</li>
+<p>### Cleaner Tool Output</p>
+<p>Per-call boilerplate messages — `FILE DISCOVERY`, `PRO Tip`, `TIP` — have been removed from every tool response. These static hints were repeating on every invocation and adding noise without value. Output is now focused on execution results.</p>
+<p>### McpScriptContext Available as Prompt Resource</p>
+<p>`McpScriptContext` — the object giving scripts access to the `project`, `disposable`, `println()`, `progress()`, and other IDE integration helpers — is now documented as a built-in MCP resource article. Agents can browse it via `mcp-steroid://skill/coding-with-intellij`.</p>
+<p>### Update Notification Now Includes Download Link</p>
+<p>When a newer version of the plugin is available, the in-IDE update notification now shows a direct download link, making it faster to grab the latest release without navigating to the website.</p>
+<p>Full release notes: <a href="https://mcp-steroid.jonnyzzz.com/releases/0.92.0/">mcp-steroid.jonnyzzz.com/releases/0.92.0/</a></p>]]></change-notes>
   </plugin>
 </plugins>
 

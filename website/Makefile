@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: dev build clean setup update-config ensure-public-repo
+.PHONY: dev build clean setup update-config ensure-public-repo copy-root-files
 
 VERSION := $(shell cat ../VERSION)
 RELEASE_ZIP_URL := $(shell gh release view "v$(VERSION)" --repo jonnyzzz/mcp-steroid --json assets --jq '[.assets[] | select(.name | endswith(".zip")) | .url][0]' 2>/dev/null || gh release view "$(VERSION)" --repo jonnyzzz/mcp-steroid --json assets --jq '[.assets[] | select(.name | endswith(".zip")) | .url][0]' 2>/dev/null)
@@ -25,8 +25,13 @@ setup:
 ensure-public-repo:
 	@mkdir -p mcp-steroid-public
 
+# Copy EULA and LICENSE from repository root into static/ so the website serves both
+copy-root-files:
+	cp ../EULA static/EULA
+	cp ../LICENSE static/LICENSE
+
 # Update version in hugo.toml, generate version.json
-update-config: ensure-public-repo
+update-config: ensure-public-repo copy-root-files
 	@echo "Updating version to $(VERSION)"
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
 	@echo "Generating version.json"

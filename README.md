@@ -185,6 +185,14 @@ Not affiliated with, endorsed by, or supported by JetBrains s.r.o.
 
 ---
 
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on
+how to get started, and [CONTRIBUTORS.md](CONTRIBUTORS.md) for the list of people
+who have helped make MCP Steroid better.
+
+---
+
 ## License
 
 MCP Steroid is open-source software licensed under the [Apache License 2.0](LICENSE).

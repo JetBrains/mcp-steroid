@@ -290,10 +290,9 @@ listOf(tasks.prepareSandbox, tasks.prepareTestSandbox).forEach {
                 }
             }
         }
-        // Include EULA file in plugin root (EULA is the source of truth)
+        // Include EULA file in plugin root
         from(rootProject.layout.projectDirectory.file("EULA")) {
             into(intellijPlatform.projectName)
-            rename("EULA", "LICENSE")
         }
     }
 }
@@ -389,8 +388,8 @@ val verifyBundledLibraries by tasks.registering {
 
         // Assert expected libraries - update this list when dependencies change
         val expectedFiles = sortedSetOf(
-            // LICENSE file
-            "LICENSE",
+            // EULA file
+            "EULA",
 
             //our binaires
             "lib/ai-agents-${project.version}.jar",

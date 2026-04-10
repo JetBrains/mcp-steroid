@@ -27,19 +27,16 @@ For a quick release without the full Docker build matrix, use Claude Code agents
 3. **Build**: `./gradlew clean :ij-plugin:buildPlugin -Pmcp.release.build=true -Pmcp.release.notes.version=<version> -x :test-integration:test`
 4. **Publish to GitHub** (on the public repo `jonnyzzz/mcp-steroid`):
    ```bash
-   # Copy EULA as LICENSE (gh uses source filename as asset name)
-   cp website/EULA /tmp/LICENSE
-
    # Create release targeting the public repo commit
    gh release create "v<version>" \
      ij-plugin/build/distributions/mcp-steroid-*.zip \
-     /tmp/LICENSE \
+     EULA \
      --repo jonnyzzz/mcp-steroid \
      --target "$(git -C website rev-parse HEAD)" \
      --title "<version>" \
      --notes-file release/notes/<version>.md
    ```
-   **EULA handling**: The `gh` CLI uses the source filename as the asset name. Since we want the asset named `LICENSE` (not `EULA`), copy `website/EULA` to a temp file named `LICENSE` before upload. The `file#name` rename syntax does NOT work with `gh release create`.
+   **EULA handling**: The `gh` CLI uses the source filename as the asset name. The root `EULA` file is uploaded directly.
 5. **Upload to JetBrains Marketplace**:
    ```bash
    release/scripts/publish-marketplace.sh ij-plugin/build/distributions/mcp-steroid-*.zip
@@ -134,7 +131,7 @@ Custom plugin repository URL: `https://mcp-steroid.jonnyzzz.com/updatePlugins.xm
 
 - [ ] VERSION bumped in both repos (main + website)
 - [ ] Release tags created in both repos (`git tag -a "v<version>"`)
-- [ ] GitHub release has both assets: plugin ZIP + LICENSE (EULA)
+- [ ] GitHub release has both assets: plugin ZIP + EULA
 - [ ] Plugin uploaded to JetBrains Marketplace (`release/scripts/publish-marketplace.sh`)
 - [ ] Website homepage version and whatsnew updated (`hugo.toml`)
 - [ ] Older GitHub releases marked obsolete (prepend banner pointing to latest)

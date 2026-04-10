@@ -361,17 +361,11 @@ fi
 
 if [[ "$RUN_PUBLISH" == "1" ]]; then
   validate_publish_inputs
-  # gh uses the source filename as the asset name.
-  # Copy EULA to a temp dir as "LICENSE" so the asset appears as "LICENSE".
-  EULA_TMP_DIR="$(mktemp -d)"
-  EULA_AS_LICENSE="$EULA_TMP_DIR/LICENSE"
-  cp "$ROOT_DIR/website/EULA" "$EULA_AS_LICENSE"
-  trap 'rm -rf "$EULA_TMP_DIR"' EXIT
-
   # Resolve publish target from the website (public) repo
   PUBLISH_TARGET="$(git -C "$ROOT_DIR/website" rev-parse HEAD)"
 
-  gh release create "$RELEASE_TAG" "$RELEASE_ZIP_FILE" "$EULA_AS_LICENSE" \
+  # gh uses the source filename as the asset name — EULA is uploaded as "EULA"
+  gh release create "$RELEASE_TAG" "$RELEASE_ZIP_FILE" "$ROOT_DIR/EULA" \
     --repo jonnyzzz/mcp-steroid \
     --target "$PUBLISH_TARGET" \
     --notes-file "$RELEASE_NOTES_FILE"

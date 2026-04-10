@@ -1,287 +1,229 @@
-# MCP Steroid Release Worker Instructions
+# MCP Steroid Release Instructions
 
-You are the release worker agent for `mcp-steroid`.
+## Repository Layout
 
-## Mission
+There is **one repository**: `jonnyzzz/mcp-steroid` (at `/Users/jonnyzzz/Work/mcp-steroid`).
+It contains both the plugin source and the website source (under `website/`).
+The website is built and deployed automatically by the **GitHub Actions** workflow
+(`.github/workflows/github-pages.yml`) on every push to `main` that touches `website/**`
+or `VERSION`. There is no separate website repo and no need to commit generated files.
 
-Execute and coordinate the full release flow with reproducible Dockerized builds, selected integration tests, release-notes generation, and website release-page update.
+## Commit-Then-Build Principle
 
-Current milestone constraint: **dry-run mode is default**. In dry-run mode, do not publish to GitHub Releases and do not change `VERSION`.
+**Always commit and push all release material before building the plugin.**
+The plugin ZIP name embeds the HEAD git hash at build time (e.g. `mcp-steroid-0.92.0-59b78976.zip`).
+The GitHub release `--target` must point to the same commit. If you add commits after the build,
+the release will point to a newer commit than the plugin ZIP — avoid this.
 
-## Mandatory Methodology (THE_PROMPT_v5-aligned)
-
-Use the same workflow style as `~/Work/jonnyzzz-ai-coder/THE_PROMPT_v5.md`:
-
-1. Use run-based traceability for every sub-agent run.
-2. Use `~/Work/jonnyzzz-ai-coder/run-agent.sh` to start sub-agents.
-3. Keep artifacts per run (`prompt.md`, `agent-stdout.txt`, `agent-stderr.txt`, `cwd.txt`).
-4. Prefer MCP Steroid for code-aware operations; shell fallback is acceptable for orchestration scripts.
-5. Keep append-only coordination notes in `MESSAGE-BUS.md` and blockers in `ISSUES.md`.
-6. If a stage fails, document failure clearly and restart from the appropriate stage.
-
-## Inputs
-
-- Project root: `/Users/jonnyzzz/Work/mcp-steroid`
-- Orchestrator toolkit root: `/Users/jonnyzzz/Work/jonnyzzz-ai-coder`
-- Methodology source: `/Users/jonnyzzz/Work/jonnyzzz-ai-coder/THE_PROMPT_v5.md`
-- IntelliJ/PyCharm source research repo (for startup/debug behavior): `/Users/jonnyzzz/Work/intellij`
+Correct order:
+1. Commit all release material (notes, website page, `hugo.toml`, `VERSION`)
+2. Push to `origin/main`
+3. Build the plugin
+4. Create the GitHub release (target = HEAD = plugin hash)
+5. Upload to JetBrains Marketplace
 
 ## Release Stages
 
-## Dry-Run Mode
-
-Dry-run mode is the default in `release/scripts/run-release.sh`.
-
-Dry-run guarantees:
-
-- **Version bump stage is skipped**: `VERSION` file remains unchanged.
-- **GitHub publish stage is disabled**: no release created even with `--publish` flag.
-- Build/test matrix still runs to validate product readiness.
-- Release notes/website prep can still run.
-
-Preferred entrypoint:
-
-```bash
-release/scripts/run-release.sh --dry-run
-```
-
-Optional portability override for agent runner:
-
-```bash
-RUN_AGENT_SCRIPT=/path/to/run-agent.sh release/scripts/run-release.sh --dry-run
-```
-
-To run a non-dry-run release (version bump enabled, publish available):
-
-```bash
-release/scripts/run-release.sh --no-dry-run --publish
-```
-
 ### Stage 0: Preflight
 
-1. Ensure working tree is clean (enforced by default; override with `--allow-dirty` if needed).
-2. Verify Docker daemon is reachable.
-3. Verify `gh auth status` is valid (only required when publish is enabled).
-4. Ensure `VERSION` is in semantic format `major.minor.patch`.
-5. For publish runs, do not skip build/notes unless explicitly using `--allow-existing-artifacts`.
+1. Working tree must be clean (`git status` shows nothing).
+2. `gh auth status` is valid.
+3. `VERSION` is in `X.Y.Z` format.
+4. `~/.marketplace` token file exists (one-line JetBrains permanent token).
 
-The preflight stage enforces a clean working tree to prevent accidental inclusion of uncommitted changes in the release. Use `--allow-dirty` to bypass this check if intentionally building from a modified tree (e.g., for local testing).
+### Stage 1: Review Changes and Collect Contributors
 
-### Stage 1: Version Bump (exactly once per release attempt)
+Before writing release notes, review all changes since the last release and identify
+external contributors who should be acknowledged.
 
-Run:
+**1a. List commits since the last release tag:**
+```bash
+git log v<prev-version>..HEAD --oneline
+```
+
+**1b. Find external contributors (non-maintainer commits and co-authors):**
+```bash
+# Direct commit authors
+git log v<prev-version>..HEAD --format='%an <%ae>' | sort -u
+
+# Co-authors from commit bodies
+git log v<prev-version>..HEAD --format='%b' | grep -i 'co-authored-by' | sort -u
+
+# PRs merged in this range
+gh pr list --repo jonnyzzz/mcp-steroid --state merged --search "merged:>$(git log -1 --format=%ci v<prev-version> | cut -d' ' -f1)" --json author,title,number
+```
+
+**1c. Update `CONTRIBUTORS.md`** with any new contributors — add their name,
+GitHub handle, and a short description of their contribution(s). Keep the list
+alphabetically sorted within the Contributors section.
+
+**1d. Mention contributors in release notes** — if external contributors
+participated in this release, add an Acknowledgements section at the end of
+the release notes thanking them by name and linking to their PRs/issues.
+
+### Stage 2: Release Notes
+
+Create `release/notes/<version>.md` with user-facing prose (no raw commit hashes).
+Follow the style of previous notes files. Include segues to any relevant blog posts.
+
+If external contributors participated in this release, add an **Acknowledgements**
+section at the end:
+```markdown
+### Acknowledgements
+
+Thank you to the following contributors for their work in this release:
+- **Name** ([@handle](https://github.com/handle)) — short description ([#N](https://github.com/jonnyzzz/mcp-steroid/pull/N))
+```
+
+Commit it:
+```bash
+git add release/notes/<version>.md CONTRIBUTORS.md
+git commit -m "release: add <version> release notes and update contributors"
+```
+
+### Stage 3: Version Bump
 
 ```bash
 release/scripts/bump-version.sh
 ```
 
-Behavior:
+This bumps `VERSION` (`X.Y.Z` → `X.(Y+1).0`), commits it, and writes a guard file
+to `release/state/version-bump.env` (prevents double-bump on rerun).
 
-- Bumps the middle number in `VERSION` (`X.Y.Z` -> `X.(Y+1).0`).
-- Commits once.
-- Writes state into `release/state/version-bump.env`.
-- If rerun after a failed stage, it must **not** bump again.
-- In dry-run mode (`RELEASE_DRY_RUN=1`), prints planned bump and exits without edits.
-
-### Stage 2: Release Notes via Agents (Committed in Repo)
-
-Collect notes from git history with a dedicated agent run:
-
+Or manually:
 ```bash
-/Users/jonnyzzz/Work/jonnyzzz-ai-coder/run-agent.sh codex \
-  /Users/jonnyzzz/Work/mcp-steroid \
-  /Users/jonnyzzz/Work/mcp-steroid/release/prompts/release-notes-collect.md
+echo "0.92.0" > VERSION
+git add VERSION && git commit -m "release: bump version to 0.92.0"
 ```
 
-Review/edit notes with another independent run:
+### Stage 4: Website Release Page + Homepage Update
 
-```bash
-/Users/jonnyzzz/Work/jonnyzzz-ai-coder/run-agent.sh codex \
-  /Users/jonnyzzz/Work/mcp-steroid \
-  /Users/jonnyzzz/Work/mcp-steroid/release/prompts/release-notes-review.md
-```
+**3a. Release page** — create `website/content/releases/<version>.md` following the
+pattern of previous releases. Include:
+- Version, date
+- Download links + SHA-256 of the plugin ZIP
+- Highlights (can reuse the release notes content)
+- Standard feedback/support/EULA sections
 
-Release notes target:
+EULA link must point to the GitHub release asset:
+`https://github.com/jonnyzzz/mcp-steroid/releases/download/v<version>/EULA`
 
-- `release/notes/<version>.md` (for example `release/notes/0.88.0.md`)
-- This file is committed by release orchestration in non-dry-run mode.
-- Build consumes this file into plugin `change-notes`/`plugin.xml` patching.
-- Commit range must be resolved from local ancestor tags only.
-- If no suitable local previous tag exists, use fallback range: last 200 commits (`<oldest_of_last_200>..HEAD`).
-
-### Stage 3: Dockerized Build/Test Matrix
-
-Run:
-
-```bash
-release/scripts/run-builder.sh bash release/scripts/run-release-build-matrix.sh
-```
-
-Builder container requirements:
-
-- Uses `release/docker/Dockerfile`.
-- Mounts host Docker socket (`/var/run/docker.sock`) for Docker-in-Docker style test usage.
-- Uses a dedicated container volume for `/workspace/.intellijPlatform` to avoid host OS cache contamination.
-- Forwards API keys into the builder container:
-  - Uses existing env vars when already set (`OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`).
-  - If missing on host, auto-loads from local files (`~/.openai`, `~/.anthropic`, `~/.vertes`, `~/.vertex`) and forwards as env vars.
-- Builds plugin and runs tests in containerized environment.
-- Uses release build version format `X.Y.Z-<gitHash>` (no `SNAPSHOT`, no timestamp) by passing `-Pmcp.release.build=true`.
-
-Matrix goals:
-
-- Build plugin with stable line (default `2025.3.1`) and run baseline tests.
-- Build plugin with EAP line request (default `2026.1`) resolved to the latest matching EAP build number (for example `261.20869.38`) and run baseline tests.
-- Stage 1/2 exclude full `:test-integration:test`; selected integration coverage runs only in Stage 3.
-- `RELEASE_STABLE_*` and `RELEASE_EAP_*` overrides are forwarded into the Docker builder container.
-- Run selected test-integration category across:
-  - IDEA stable
-  - IDEA EAP
-  - PyCharm stable
-  - PyCharm EAP
-
-Selected category currently includes:
-
-- `DialogKiller*`
-- `IntelliJContainerTest*`
-- `InfrastructureTest*`
-- `WhatYouSeeTest*`
-- dedicated PyCharm smoke tests
-
-Stable plugin artifact handling:
-
-- Plugin ZIP built from stable build is preserved under a deterministic path: `release/out/plugin-${STABLE_PRODUCT}-${STABLE_VERSION}.zip`
-- Default artifact path: `release/out/plugin-idea-2025.3.1.zip`
-- This ZIP is the candidate for publishing.
-
-### Stage 4: GitHub Release Publish
-
-The publish stage is available in non-dry-run mode with the explicit `--publish` flag:
-
-```bash
-release/scripts/run-release.sh --no-dry-run --publish
-```
-
-Explicit override for publishing previously prepared artifacts:
-
-```bash
-release/scripts/run-release.sh --no-dry-run --publish --skip-build --skip-notes --allow-existing-artifacts
-```
-
-Target command when enabled:
-
-```bash
-cp website/EULA /tmp/LICENSE
-gh release create <tag> <stable-plugin-zip> /tmp/LICENSE \
-  --repo jonnyzzz/mcp-steroid \
-  --target "$(git -C website rev-parse HEAD)" \
-  --notes-file <notes-file>
-```
-
-**EULA as LICENSE**: The `gh` CLI uses the source filename as the asset name. The `file#name` rename syntax does NOT work. Copy `website/EULA` to a temp file named `LICENSE` before upload so the asset appears as `LICENSE` on the release page.
-
-**Release target**: The release is created on the public repo (`jonnyzzz/mcp-steroid`), so `--target` must be a commit from that repo (use `git -C website rev-parse HEAD`).
-
-**Tagging**: After publish, create matching tags in both repos:
-```bash
-git tag -a "v<version>" -m "release: <version>" HEAD && git push origin "v<version>"
-git -C website tag -a "v<version>" -m "release: <version>" HEAD && git push origin "v<version>"
-```
-
-**Immutable releases**: Once published on `jonnyzzz/mcp-steroid`, releases cannot be modified or have assets added. If you need to fix a release, delete it and recreate. Tags locked by immutable releases cannot be reused.
-
-Required inputs for publish stage:
-
-- **Tag**: defaults to `v<VERSION>` derived from `VERSION` file (e.g., `v0.91.0`)
-- **Tag target**: the HEAD commit of the `website/` (public repo) clone
-- **Notes file**: defaults to `release/notes/<version>.md` (for example `release/notes/0.91.0.md`)
-- **Plugin ZIP**: defaults to `release/out/plugin-idea-2025.3.1.zip`
-- `gh` CLI must be installed and authenticated (`gh auth status`)
-- Notes file and ZIP file must exist before publish stage starts
-- Existing release tag on GitHub is treated as a hard stop (no overwrite)
-- Publish with `--skip-build`/`--skip-notes` is blocked unless `--allow-existing-artifacts` is explicitly provided
-
-This stage remains disabled in dry-run mode regardless of the `--publish` flag. In dry-run mode, version remains unchanged and no GitHub release is created.
-
-### Stage 4b: Upload to JetBrains Marketplace
-
-After the GitHub release is published, upload the plugin to JetBrains Marketplace:
-
-```bash
-release/scripts/publish-marketplace.sh <plugin-zip>
-```
-
-Requires `~/.marketplace` file with JetBrains Marketplace permanent token (one line). The script uses the `xmlId` parameter (`com.jonnyzzz.mcp-steroid`) for the upload API. The plugin enters the JetBrains review queue and will be listed once approved.
-
-Plugin page: https://plugins.jetbrains.com/plugin/30019-mcp-steroid
-
-### Stage 5: Website Updates
-
-Two website updates are needed:
-
-**5a. Homepage version and whatsnew** — In `website/website/hugo.toml`:
+**3b. Homepage** — in `website/hugo.toml`:
 - Update `params.version` to the new version
 - Add a `[[params.whatsnew]]` entry at the top with date and summary
 
-**5b. Release page** — Create `website/website/content/releases/<version>.md` following the pattern of previous releases. Include: version, date, download links (with SHA-256), highlights, and the standard feedback/support sections. The EULA link must point to the LICENSE asset on the GitHub release (`https://github.com/jonnyzzz/mcp-steroid/releases/download/v<version>/LICENSE`), not to the website.
+**Note**: `static/updatePlugins.xml` and `static/version.json` are generated by the
+GitHub Actions CI (`make build`). Do **not** commit them — they are in `.gitignore`.
+The CI rebuilds them automatically on every push.
 
-Commit and push in the `website/` repo after both updates.
-
-### Stage 6: Website Build and Publish via Agent
-
-Create/update release page content with another agent run:
-
+Commit:
 ```bash
-/Users/jonnyzzz/Work/jonnyzzz-ai-coder/run-agent.sh codex \
-  /Users/jonnyzzz/Work/mcp-steroid \
-  /Users/jonnyzzz/Work/mcp-steroid/release/prompts/website-release-page.md
+git add -f website/content/releases/<version>.md website/hugo.toml
+git commit -m "release: add <version> website release page and update homepage version"
 ```
 
-Then build and serve website for review:
+(The `-f` flag is needed because `website/` is in the root `.gitignore`, but existing
+tracked files under `website/` still work normally. New files need `-f` once.)
+
+### Stage 5: Push All Commits
 
 ```bash
-cd website/website
-make build
-make dev
+git push origin main
 ```
 
-The `make build` target automatically:
+All release commits (notes, version bump, website page, hugo.toml) must be pushed
+**before** building the plugin and creating the GitHub release.
 
-- Updates `hugo.toml` with the current version from `VERSION`
-- Generates `static/version.json` for the in-IDE update checker
-- Generates `static/updatePlugins.xml` — downloads the release ZIP via URL from `gh`, extracts the plugin version from `ij-plugin-*.jar`'s `plugin.xml`, and generates the XML with the exact artifact version. Requires `gh` (authenticated) and `uv`. No fallbacks — build fails on any error.
-- Builds the Hugo site to `public/`
-
-Post-build, mark older GitHub releases as obsolete:
+### Stage 6: Build Plugin
 
 ```bash
-# For each older version
-gh release edit <old-version> --repo jonnyzzz/mcp-steroid --notes-file <updated-body-with-obsolete-banner>
+./gradlew :ij-plugin:buildPlugin -Pmcp.release.build=true
 ```
 
-The website automatically shows obsolete banners on older release pages (handled by `layouts/releases/single.html` template logic — no manual content changes needed).
+Or via IntelliJ MCP (`steroid_execute_code`) with a Gradle run configuration.
 
-### Stage 6: Final Report
+The resulting ZIP is in `ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip`.
+The `<gitHash>` must match the current HEAD (the version bump commit).
 
-Report:
+### Stage 7: Create GitHub Release
 
-- Version bump commit hash and resulting version.
-- Stable plugin ZIP path.
-- Build/test matrix results.
-- Release notes file path.
-- Website page path and local dev URL.
-- Any blockers.
+```bash
+gh release create "v<version>" \
+  "ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip" \
+  EULA \
+  --repo jonnyzzz/mcp-steroid \
+  --target "$(git rev-parse HEAD)" \
+  --notes-file "release/notes/<version>.md" \
+  --title "v<version>"
+```
 
-## Failure Handling
+**EULA**: The root `EULA` file is uploaded directly. The `gh` CLI uses the source
+filename as the asset name — it appears as `EULA` on the release page.
 
-- Never repeat version bump commit automatically after it has been recorded.
-- Keep partial outputs under `release/out/`.
-- If Docker or integration tests fail, stop publish stages and report diagnostics.
+**Target**: `git rev-parse HEAD` — must be the same commit whose hash appears in the ZIP name.
+
+**Immutable**: Once created, releases cannot have assets added. If a fix is needed,
+delete and recreate the release. Tags locked by a release cannot be reused.
+
+After creating the release, tag the repo:
+```bash
+# gh release create creates the tag automatically on the remote.
+# No manual tag push needed unless the tag was created locally first.
+```
+
+### Stage 8: Upload to JetBrains Marketplace
+
+```bash
+release/scripts/publish-marketplace.sh "ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip"
+```
+
+Requires `~/.marketplace` (one-line JetBrains permanent token).
+
+**Channel**: Uploads to the `Stable` channel (case-sensitive — `Stable`, not `stable` or `default`).
+
+Plugin page: https://plugins.jetbrains.com/plugin/30019-mcp-steroid
+
+The plugin enters the JetBrains review queue and will be listed once approved.
+
+### Stage 9: Website Deployment
+
+No manual action needed. The GitHub Actions workflow
+(`.github/workflows/github-pages.yml`) triggers automatically on the push from Stage 4
+and builds/deploys the website. Verify with:
+
+```bash
+gh run list --repo jonnyzzz/mcp-steroid --limit 5
+```
+
+Wait for the "Deploy to GitHub Pages" run to succeed.
+
+### Stage 10: Mark Older Releases Obsolete (Optional)
+
+The website template automatically renders an obsolete banner on older release pages
+(handled by `layouts/releases/single.html` — no manual content changes needed).
+
+## Key Paths
+
+| File | Purpose |
+|------|---------|
+| `CONTRIBUTORS.md` | Contributor acknowledgements (update each release) |
+| `VERSION` | Current plugin version (`X.Y.Z`) |
+| `EULA` | End User License Agreement (uploaded to GitHub releases) |
+| `release/notes/<version>.md` | Release notes (used as GitHub release body) |
+| `release/scripts/bump-version.sh` | Version bump with rerun guard |
+| `release/scripts/publish-marketplace.sh` | JetBrains Marketplace upload (Stable channel) |
+| `website/hugo.toml` | Homepage version + whatsnew entries |
+| `website/content/releases/<version>.md` | Website release page |
+| `website/static/updatePlugins.xml` | **Generated by CI** — do not commit |
+| `website/static/version.json` | **Generated by CI** — do not commit |
+| `.github/workflows/github-pages.yml` | Automated website build + deploy |
 
 ## Notes
 
-- The `CLAUDECODE` env var must be unset before launching nested Claude Code agents via `run-agent.sh`. Both `run-agent.sh` scripts handle this automatically.
-- Release notes format should match the GitHub release body style (user-friendly prose with section headers, not raw commit hashes).
-- All links in release pages must use full URLs (`https://mcp-steroid.jonnyzzz.com/...`), never relative paths — release content is also shown on GitHub where relative links break.
-- Custom plugin repository URL: `https://mcp-steroid.jonnyzzz.com/updatePlugins.xml` — always points to the latest release only.
-- The `updatePlugins.xml` is generated by `website/website/scripts/generate-update-plugins-xml.py` (run via `uv`). It downloads the release ZIP, extracts `plugin.xml` from the JAR to get the exact version and `since-build`, and validates URL format. No fallbacks — errors are fatal.
+- Release notes format: user-friendly prose with section headers, no raw commit hashes.
+- All links in release pages must use full URLs (`https://...`) — release content is also
+  shown on GitHub where relative links break.
+- Custom plugin repository: `https://mcp-steroid.jonnyzzz.com/updatePlugins.xml`
+- The `updatePlugins.xml` is generated by `website/scripts/generate-update-plugins-xml.py`
+  (run via `uv`). It downloads the release ZIP, extracts `plugin.xml` from the JAR to get
+  the exact version and `since-build`. No fallbacks — build fails on any error.

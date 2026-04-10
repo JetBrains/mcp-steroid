@@ -46,7 +46,7 @@ curl -i \
   --header "Authorization: Bearer $(head -1 "$MARKETPLACE_TOKEN_FILE" | tr -d '[:space:]')" \
   --form "xmlId=$PLUGIN_ID" \
   --form "file=@$PLUGIN_ZIP" \
-  --form "channel=default" \
+  --form "channel=Stable" \
   "https://plugins.jetbrains.com/plugin/uploadPlugin"
 
 echo ""

@@ -19,11 +19,18 @@ Requirements:
    - Infra/Build/Test
    - Docs
 4. Include short bullet per commit with commit hash.
-5. Write output directly to the provided release notes file (`release/notes/<version>.md`).
-6. If file exists, update it in place.
-7. Do not edit source code outside that notes file.
+5. Collect external contributors: scan commit authors and `Co-authored-by` trailers
+   in the commit range. List any non-maintainer contributors (name, GitHub handle,
+   and what they contributed).
+6. If external contributors are found, add an **Acknowledgements** section at the
+   end of the release notes thanking them by name and linking their PRs.
+7. Update `CONTRIBUTORS.md` with any new contributors not already listed.
+8. Write output directly to the provided release notes file (`release/notes/<version>.md`).
+9. If file exists, update it in place.
+10. Do not edit source code outside the notes file and `CONTRIBUTORS.md`.
 
 Return:
 - previous tag
 - commit range
+- new contributors found (if any)
 - output file path
