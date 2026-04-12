@@ -1241,8 +1241,10 @@ h1 {
 .benchmark-faster {
     color: #4caf50;
 }
-.benchmark-fix {
-    text-align: center;
+.benchmark-case {
+    font-family: monospace;
+    font-size: 0.85em;
+    opacity: 0.8;
 }
 @media (max-width: 768px) {
     .benchmark-panel {

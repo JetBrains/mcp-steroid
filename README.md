@@ -45,16 +45,16 @@ MCP Steroid is the **only MCP server** offering ALL of:
 
 ### Benchmarks
 
-On [DPAIA](https://dpaia.org) Spring Boot tasks, agents with MCP Steroid are **20–54% faster** than file-only workflows on complex multi-file operations — and both workflows produce correct fixes across all tasks:
+On [DPAIA](https://dpaia.org) Spring Boot tasks, agents with MCP Steroid are **20–54% faster** than file-only workflows on complex multi-file operations:
 
-| Task | MCP Time | No-MCP Time | &Delta; | MCP Fix | No-MCP Fix |
-|------|----------|-------------|---------|---------|------------|
-| Rename ROLE_ADMIN across app (9 files) | 202s | 440s | **-54%** | :white_check_mark: | :white_check_mark: |
-| JWT auth from scratch (5+ new files) | 288s | 396s | **-27%** | :white_check_mark: | :white_check_mark: |
-| Parent-child JPA + Flyway (10 files) | 382s | 523s | **-27%** | :white_check_mark: | :white_check_mark: |
-| Multi-layer JPA+service+controller (15 files) | 788s | 1002s | **-21%** | :white_check_mark: | :white_check_mark: |
-| Simple URL prefix replace (7 files) | 188s | 181s | +4% | :white_check_mark: | :white_check_mark: |
-| Extend OrderRepository JPQL (4 files) | 727s | 633s | +15% | :white_check_mark: | :white_check_mark: |
+| Case | Task | MCP Time | No-MCP Time | &Delta; |
+|------|------|----------|-------------|---------|
+| dpaia\_jhipster\_sample\_app-3 | Rename ROLE_ADMIN across app (9 files) | 202s | 440s | **-54%** |
+| dpaia\_empty\_maven\_springboot3-1 | JWT auth from scratch (5+ new files) | 288s | 396s | **-27%** |
+| dpaia\_feature\_service-25 | Parent-child JPA + Flyway (10 files) | 382s | 523s | **-27%** |
+| dpaia\_feature\_service-125 | Multi-layer JPA+service+controller (15 files) | 788s | 1002s | **-21%** |
+| dpaia\_spring\_petclinic\_rest-14 | Simple URL prefix replace (7 files) | 188s | 181s | +4% |
+| dpaia\_train\_ticket-1 | Extend OrderRepository JPQL (4 files) | 727s | 633s | +15% |
 
 Tasks requiring semantic understanding show the largest speed gains. Simple text replacements perform similarly with or without IDE access.
 

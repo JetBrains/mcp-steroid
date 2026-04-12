@@ -72,68 +72,61 @@
             <table class="benchmark-table">
                 <thead>
                     <tr>
+                        <th>Case</th>
                         <th>Task</th>
                         <th>With MCP</th>
                         <th>Without MCP</th>
                         <th>&Delta;</th>
-                        <th>MCP Fix</th>
-                        <th>No-MCP Fix</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
+                        <td class="benchmark-case">dpaia_jhipster_sample_app-3</td>
                         <td>Rename ROLE_ADMIN across JHipster app (9 files)</td>
                         <td>202s</td>
                         <td>440s</td>
                         <td class="benchmark-faster"><strong>&minus;54%</strong></td>
-                        <td class="benchmark-fix">&#x2705;</td>
-                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
+                        <td class="benchmark-case">dpaia_empty_maven_springboot3-1</td>
                         <td>JWT auth from scratch (5+ new files)</td>
                         <td>288s</td>
                         <td>396s</td>
                         <td class="benchmark-faster"><strong>&minus;27%</strong></td>
-                        <td class="benchmark-fix">&#x2705;</td>
-                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
+                        <td class="benchmark-case">dpaia_feature_service-25</td>
                         <td>Parent-child JPA &amp; Flyway (10 files)</td>
                         <td>382s</td>
                         <td>523s</td>
                         <td class="benchmark-faster"><strong>&minus;27%</strong></td>
-                        <td class="benchmark-fix">&#x2705;</td>
-                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
+                        <td class="benchmark-case">dpaia_feature_service-125</td>
                         <td>Multi-layer JPA+service+controller (15 files)</td>
                         <td>788s</td>
                         <td>1002s</td>
                         <td class="benchmark-faster"><strong>&minus;21%</strong></td>
-                        <td class="benchmark-fix">&#x2705;</td>
-                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
+                        <td class="benchmark-case">dpaia_spring_petclinic_rest-14</td>
                         <td>Simple URL prefix replace (7 files)</td>
                         <td>188s</td>
                         <td>181s</td>
                         <td>+4%</td>
-                        <td class="benchmark-fix">&#x2705;</td>
-                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
+                        <td class="benchmark-case">dpaia_train_ticket-1</td>
                         <td>Extend OrderRepository JPQL (4 files)</td>
                         <td>727s</td>
                         <td>633s</td>
                         <td>+15%</td>
-                        <td class="benchmark-fix">&#x2705;</td>
-                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                 </tbody>
             </table>
         </div>
         <p class="benchmark-footnote">
-            Both workflows produce correct fixes across all tasks. Tasks requiring semantic understanding &mdash; refactorings across many files, multi-layer code generation &mdash; show the largest speed gains. Simple text replacements perform similarly with or without IDE access. <a href="https://github.com/jonnyzzz/mcp-steroid/issues" target="_blank" rel="noopener">Suggest your project</a> for the next benchmark run.
+            Tasks requiring semantic understanding &mdash; refactorings across many files, multi-layer code generation &mdash; show the largest speed gains. Simple text replacements perform similarly with or without IDE access. <a href="https://github.com/jonnyzzz/mcp-steroid/issues" target="_blank" rel="noopener">Suggest your project</a> for the next benchmark run.
         </p>
     </div>
 </section>
@@ -207,11 +200,14 @@
         <p>
             Create custom skills for your agent in minutes. Describe what you want, give it an IntelliJ API example, and let the agent iterate. No plugin development needed.
         </p>
-        <pre class="code-example"><code>// Example: find all TODO comments in the project
+        <pre class="code-example"><code>import com.intellij.psi.search.PsiSearchHelper
+import com.intellij.psi.search.GlobalSearchScope
+
+// Example: find all TODO comments in the project
 val todoItems = readAction {
     val searchHelper = PsiSearchHelper.getInstance(project)
     val result = mutableListOf&lt;String&gt;()
-    searchHelper.processCommentsContainingIdentifier("TODO") { comment ->
+    searchHelper.processCommentsContainingIdentifier("TODO", GlobalSearchScope.projectScope(project)) { comment -&gt;
         result.add("${comment.containingFile.virtualFile.path}: ${comment.text.trim()}")
         true
     }

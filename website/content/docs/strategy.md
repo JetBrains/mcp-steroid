@@ -58,7 +58,7 @@ The collected data is analyzed to identify sharp edges in the current implementa
 and documentation. AI Agents help us craft the better product for AI Agents. This is an iterative process; we have
 completed roughly seven optimization rounds so far, primarily on the MCP Steroid project itself.
 
-This validation loop is described in [Learning Methodology](/docs/learning-methodology/).
+This validation loop is described in [Learning Methodology](/docs/learning-methodology/). See also [IntelliJ as a Skill Factory](/docs/skill-factory/) for how skills turn one-off API explorations into reusable agent capabilities.
 
 ### Phase 3: Scale -- headless runtime, SaaS, B2B
 
@@ -69,11 +69,14 @@ The long-term target is a self-contained runtime, available both as SaaS and as 
 MCP Steroid provides an easy way to experiment with new tasks, prompts, and skills locally. Create a new skill, ask your agent to use `steroid_execute_code`, and give it an example code snippet using IntelliJ API to solve your goal:
 
 ```kotlin
+import com.intellij.psi.search.PsiSearchHelper
+import com.intellij.psi.search.GlobalSearchScope
+
 // Example: find all TODO comments in the project
 val todoItems = readAction {
     val searchHelper = PsiSearchHelper.getInstance(project)
     val result = mutableListOf<String>()
-    searchHelper.processCommentsContainingIdentifier("TODO") { comment ->
+    searchHelper.processCommentsContainingIdentifier("TODO", GlobalSearchScope.projectScope(project)) { comment ->
         result.add("${comment.containingFile.virtualFile.path}: ${comment.text.trim()}")
         true
     }

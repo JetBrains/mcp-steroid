@@ -30,3 +30,5 @@ We are looking for your support:
 - Submit complete project and task scenarios for benchmarking
 
 Submissions are accepted through [Need Your Experiments and Support](/docs/need-your-experiments-and-support/).
+
+See [IntelliJ as a Skill Factory](/docs/skill-factory/) for how this learning process feeds into reusable agent skills.

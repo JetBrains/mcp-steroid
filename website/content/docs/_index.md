@@ -10,3 +10,5 @@ MCP Steroid enables AI agents to interact programmatically with JetBrains IDEs, 
 ---
 
 **See AI agents in action:** The [How to Debug an IDE](/docs/how-to-debug-ide/) guide was written entirely by AI agents using MCP Steroid while working on the IntelliJ Platform codebase - a real example of what autonomous agents can discover and document when given full IDE access.
+
+**Build reusable skills:** Learn how to turn one-off API explorations into reusable agent capabilities in [IntelliJ as a Skill Factory](/docs/skill-factory/).
