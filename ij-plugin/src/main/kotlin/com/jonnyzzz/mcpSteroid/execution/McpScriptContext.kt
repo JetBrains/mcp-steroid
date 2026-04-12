@@ -138,18 +138,26 @@ interface McpScriptContext {
     // ============================================================
 
     /**
-     * Check whether the daemon code analyzer is currently running.
+     * Check whether code highlighting is completed and up to date for the selected file in the editor.
+     * This method returns a result instantly without waiting for any delay.
      *
      * ```kotlin
-     * if (isDaemonRunning()) {
-     *     println("Analysis in progress...")
+     * val file = findProjectFile("src/Main.kt") ?: error("File not found")
+     * // Open file in editor first
+     * withContext(Dispatchers.EDT) {
+     *     FileEditorManager.getInstance(project).openFile(file, true)
+     * }
+     * // Check analysis completed
+     * val completed = isEditorHighlightingCompleted(file)
+     * if (completed) {
+     *     println("Analysis completed!")
      * }
      * ```
      */
-    suspend fun isDaemonRunning(): Boolean
+    suspend fun isEditorHighlightingCompleted(file: VirtualFile): Boolean
 
     /**
-     * Wait for the daemon code analyzer to complete highlighting on the given file.
+     * Wait for the code analysis process to complete highlighting on the given file.
      * The file must be open in the editor for highlighting to work.
      *
      * @param file The virtual file to wait for analysis completion
@@ -163,13 +171,13 @@ interface McpScriptContext {
      *     FileEditorManager.getInstance(project).openFile(file, true)
      * }
      * // Wait for analysis
-     * val completed = waitForDaemonAnalysis(file)
+     * val completed = waitForEditorHighlighting(file)
      * if (completed) {
      *     println("Analysis complete!")
      * }
      * ```
      */
-    suspend fun waitForDaemonAnalysis(file: VirtualFile, timeout: Duration = 30.seconds): Boolean
+    suspend fun waitForEditorHighlighting(file: VirtualFile, timeout: Duration = 30.seconds): Boolean
 
     /**
      * Waits for the daemon analysis to complete and then returns highlights for the file.

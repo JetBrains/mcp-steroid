@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://mcp-steroid.jonnyzzz.com">Website</a> &bull;
   <a href="https://www.youtube.com/playlist?list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f">Demo Videos</a> &bull;
-  <a href="https://jonnyzzz.com/blog/2026/01/04/mcp-steroids-intellij/">Blog Post</a> &bull;
+  <a href="https://jonnyzzz.com/blog/2026/04/07/mcp-steroid-open-source/">Blog Post</a> &bull;
   <a href="https://discord.gg/e9qgQ7NeTC">Discord</a>
 </p>
 
@@ -45,7 +45,18 @@ MCP Steroid is the **only MCP server** offering ALL of:
 
 ### Benchmarks
 
-On DPAIA Spring Boot tasks, agents with MCP Steroid are **20–54% faster** than file-only workflows on complex multi-file operations like cross-codebase renames, auth implementations, and JPA entity creation.
+On [DPAIA](https://dpaia.org) Spring Boot tasks, agents with MCP Steroid are **20–54% faster** than file-only workflows on complex multi-file operations — and both workflows produce correct fixes across all tasks:
+
+| Task | MCP Time | No-MCP Time | &Delta; | MCP Fix | No-MCP Fix |
+|------|----------|-------------|---------|---------|------------|
+| Rename ROLE_ADMIN across app (9 files) | 202s | 440s | **-54%** | :white_check_mark: | :white_check_mark: |
+| JWT auth from scratch (5+ new files) | 288s | 396s | **-27%** | :white_check_mark: | :white_check_mark: |
+| Parent-child JPA + Flyway (10 files) | 382s | 523s | **-27%** | :white_check_mark: | :white_check_mark: |
+| Multi-layer JPA+service+controller (15 files) | 788s | 1002s | **-21%** | :white_check_mark: | :white_check_mark: |
+| Simple URL prefix replace (7 files) | 188s | 181s | +4% | :white_check_mark: | :white_check_mark: |
+| Extend OrderRepository JPQL (4 files) | 727s | 633s | +15% | :white_check_mark: | :white_check_mark: |
+
+Tasks requiring semantic understanding show the largest speed gains. Simple text replacements perform similarly with or without IDE access.
 
 ---
 
@@ -177,9 +188,12 @@ The server runs **inside the IDE's JVM process** — no inter-process communicat
 
 ## About the Project
 
-**MCP Steroid** is an independent research project by Eugene Petrenko ([@jonnyzzz](https://linkedin.com/in/jonnyzzz)).
+**MCP Steroid** is an open-source project by Eugene Petrenko ([@jonnyzzz](https://linkedin.com/in/jonnyzzz)), licensed under [Apache 2.0](LICENSE).
 
-Not affiliated with, endorsed by, or supported by JetBrains s.r.o.
+Read more:
+- [MCP Steroid Is Now Open Source](https://jonnyzzz.com/blog/2026/04/07/mcp-steroid-open-source/) — announcement and project history
+- [IntelliJ as a Skill Factory](https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/) — build custom agent skills without plugin development
+- [Project Assessment: 75 Days, 1300+ Commits](https://jonnyzzz.com/blog/2026/02/23/mcp-steroid-project-assessment/) — architecture and quality deep dive
 
 *IntelliJ IDEA, IntelliJ Platform, PyCharm, WebStorm, and JetBrains are trademarks of JetBrains s.r.o.*
 

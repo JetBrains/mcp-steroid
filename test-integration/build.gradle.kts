@@ -107,6 +107,17 @@ fun Test.configureIntegrationTest() {
             "test.integration.repo.cache.dir",
             layout.buildDirectory.dir("repo-cache").get().asFile.absolutePath,
         )
+
+        // Build-compatibility test: persistent caches so IDE downloads and Gradle state survive across runs
+        val buildCompatDir = layout.buildDirectory.dir("build-compat").get().asFile
+        systemProperty(
+            "test.integration.build.compat.gradle.home",
+            File(buildCompatDir, "gradle-home").also { it.mkdirs() }.absolutePath,
+        )
+        systemProperty(
+            "test.integration.build.compat.ij.platform",
+            File(buildCompatDir, "intellij-platform").also { it.mkdirs() }.absolutePath,
+        )
     }
 }
 

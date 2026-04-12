@@ -3,7 +3,6 @@ package com.jonnyzzz.mcpSteroid.execution
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
-import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInspection.InspectionEngine
@@ -32,7 +31,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.psi.search.GlobalSearchScope
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
-import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import com.jonnyzzz.mcpSteroid.vision.VisionService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -177,14 +175,19 @@ class McpScriptContextImpl(
     // Daemon Code Analysis
     // ============================================================
 
-    override suspend fun isDaemonRunning(): Boolean {
+    override suspend fun isEditorHighlightingCompleted(file: VirtualFile): Boolean {
         checkDisposed()
+
+        val editor = withContext(Dispatchers.EDT) {
+            FileEditorManager.getInstance(project).getSelectedEditor(file)
+        } ?: return false
+
         return readAction {
-            DaemonCodeAnalyzer.getInstance(project).isRunning
+            DaemonCodeAnalyzerEx.isHighlightingCompleted(editor, project)
         }
     }
 
-    override suspend fun waitForDaemonAnalysis(file: VirtualFile, timeout: Duration): Boolean {
+    override suspend fun waitForEditorHighlighting(file: VirtualFile, timeout: Duration): Boolean {
         checkDisposed()
         log.info("[$executionId] Waiting for daemon analysis on ${file.name}...")
         resultBuilder.logProgress("Waiting for daemon analysis on ${file.name}...")
@@ -232,7 +235,7 @@ class McpScriptContextImpl(
         checkDisposed()
 
         // Wait for analysis to complete
-        val completed = waitForDaemonAnalysis(file, timeout)
+        val completed = waitForEditorHighlighting(file, timeout)
         if (!completed) {
             return emptyList()
         }

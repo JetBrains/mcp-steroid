@@ -76,6 +76,8 @@
                         <th>With MCP</th>
                         <th>Without MCP</th>
                         <th>&Delta;</th>
+                        <th>MCP Fix</th>
+                        <th>No-MCP Fix</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -84,42 +86,54 @@
                         <td>202s</td>
                         <td>440s</td>
                         <td class="benchmark-faster"><strong>&minus;54%</strong></td>
+                        <td class="benchmark-fix">&#x2705;</td>
+                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
                         <td>JWT auth from scratch (5+ new files)</td>
                         <td>288s</td>
                         <td>396s</td>
                         <td class="benchmark-faster"><strong>&minus;27%</strong></td>
+                        <td class="benchmark-fix">&#x2705;</td>
+                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
                         <td>Parent-child JPA &amp; Flyway (10 files)</td>
                         <td>382s</td>
                         <td>523s</td>
                         <td class="benchmark-faster"><strong>&minus;27%</strong></td>
+                        <td class="benchmark-fix">&#x2705;</td>
+                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
                         <td>Multi-layer JPA+service+controller (15 files)</td>
                         <td>788s</td>
                         <td>1002s</td>
                         <td class="benchmark-faster"><strong>&minus;21%</strong></td>
+                        <td class="benchmark-fix">&#x2705;</td>
+                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
                         <td>Simple URL prefix replace (7 files)</td>
                         <td>188s</td>
                         <td>181s</td>
                         <td>+4%</td>
+                        <td class="benchmark-fix">&#x2705;</td>
+                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                     <tr>
                         <td>Extend OrderRepository JPQL (4 files)</td>
                         <td>727s</td>
                         <td>633s</td>
                         <td>+15%</td>
+                        <td class="benchmark-fix">&#x2705;</td>
+                        <td class="benchmark-fix">&#x2705;</td>
                     </tr>
                 </tbody>
             </table>
         </div>
         <p class="benchmark-footnote">
-            Tasks requiring semantic understanding &mdash; refactorings across many files, multi-layer code generation &mdash; show the largest gains. Simple text replacements perform similarly with or without IDE access. <a href="https://github.com/jonnyzzz/mcp-steroid/issues" target="_blank" rel="noopener">Suggest your project</a> for the next benchmark run.
+            Both workflows produce correct fixes across all tasks. Tasks requiring semantic understanding &mdash; refactorings across many files, multi-layer code generation &mdash; show the largest speed gains. Simple text replacements perform similarly with or without IDE access. <a href="https://github.com/jonnyzzz/mcp-steroid/issues" target="_blank" rel="noopener">Suggest your project</a> for the next benchmark run.
         </p>
     </div>
 </section>
@@ -208,7 +222,7 @@ todoItems.forEach { println(it) }</code></pre>
             The <a href="/docs/how-to-debug-ide/">Debugging IDE with MCP Steroid</a> guide was written entirely by AI agents &mdash; a real skill created through experimentation with full IDE access.
         </p>
         <p class="consulting-note">
-            Need help teaching your agents skills for your corporate projects? <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Eugene Petrenko offers consulting</a> to help teams build custom agent workflows with MCP Steroid.
+            Ready to give your AI agents full IDE access? <a href="{{ "/releases/" | relURL }}">Download the latest release</a> and get started in minutes. See the <a href="https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/" target="_blank" rel="noopener">Skill Factory blog post</a> for a deep dive on building custom skills.
         </p>
     </div>
 </section>

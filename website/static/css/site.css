@@ -1241,6 +1241,9 @@ h1 {
 .benchmark-faster {
     color: #4caf50;
 }
+.benchmark-fix {
+    text-align: center;
+}
 @media (max-width: 768px) {
     .benchmark-panel {
         padding: 1.25rem 0.75rem;
