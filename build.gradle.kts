@@ -5,7 +5,7 @@ import java.time.format.DateTimeFormatter
 
 plugins {
     id("de.undercouch.download") version "5.6.0" apply false
-    id("org.jetbrains.intellij.platform") version "2.11.0" apply false
+    id("org.jetbrains.intellij.platform") version "2.13.1" apply false
     id("com.github.node-gradle.node") version "7.1.0" apply false
     kotlin("jvm") version "2.2.20" apply false
     kotlin("plugin.serialization") version "2.2.20" apply false
@@ -178,9 +178,8 @@ val buildPluginOnCI by tasks.registering {
 }
 
 /**
- * Subprojects that are NOT part of `buildPluginTests`. Anything in this list is something
- * that either is not a test of the plugin's base behaviour, or is too heavyweight to run on
- * the per-OS unit-test agents:
+ * Subprojects that are NOT part of any CI aggregator. Either not a test of the plugin's
+ * runtime behaviour, or too heavyweight for the per-OS unit-test agents:
  *
  * * `test-helper` — pure-test plumbing (Docker reaper, etc.); not exercised by the plugin.
  * * `test-integration` — Docker-based smoke matrix; runs on its own dedicated TC config.
@@ -189,7 +188,7 @@ val buildPluginOnCI by tasks.registering {
  *   separately, no influence on the IDE plugin.
  *
  * The website (`website/`) is not a Gradle module, so it is not in this list — it is
- * already invisible to `buildPluginTests`.
+ * already invisible to the CI aggregators.
  */
 val nonPluginTestSubprojects = setOf(
     "test-helper",
@@ -200,25 +199,69 @@ val nonPluginTestSubprojects = setOf(
 )
 
 /**
- * Aggregator that runs `:test` for every subproject we consider part of the IntelliJ
- * plugin's "base feature" coverage. Used by the per-OS `ij-plugin test (Windows|Linux|macOS)`
- * configurations on TeamCity (and runnable locally with `./gradlew buildPluginTests`).
+ * Subprojects that build the prompt-resource pipeline. Their tests are grouped into a
+ * separate CI aggregator ([ciBuildPromptsTests]) so TeamCity can run them on a dedicated
+ * fast-feedback "prompt-test" build configuration; they are NOT included in
+ * [ciBuildPluginTests] to avoid doubling their cost on the per-OS plugin test matrix.
  *
- * The exclusion list lives in [nonPluginTestSubprojects] above so the policy of "what counts
- * as a plugin test" is recorded in one place in the root project; per-CI configs only need
- * to invoke this single task.
+ * * `prompt-generator` — KotlinPoet code-gen for prompt resources.
+ * * `prompts` — generated prompt classes + markdown articles.
+ * * `prompts-api` — interfaces the generator emits against.
  */
-val buildPluginTests by tasks.registering {
-    group = "verification"
-    description = "Run :test for every subproject that ships as part of the IntelliJ plugin " +
-        "(excludes ${nonPluginTestSubprojects.joinToString { ":$it" }})."
+val promptsSubprojects = setOf(
+    "prompt-generator",
+    "prompts",
+    "prompts-api",
+)
 
+/**
+ * Aggregator that runs `:test` for every plugin subproject EXCEPT the prompts modules
+ * (which have their own aggregator, [ciBuildPromptsTests]) and the non-plugin modules
+ * listed in [nonPluginTestSubprojects]. Used by the per-OS `ij-plugin test
+ * (Windows|Linux|macOS)` configurations on TeamCity.
+ *
+ * The `ci` prefix marks it as "intended for CI invocation" — the two aggregators are
+ * siblings on the CI side; locally, developers run the subproject-specific `:test` tasks
+ * directly.
+ */
+val ciBuildPluginTests by tasks.registering {
+    group = "ci"
+    description = "Run :test for the plugin modules (excludes ${(nonPluginTestSubprojects + promptsSubprojects).joinToString { ":$it" }})."
+
+    val excluded = nonPluginTestSubprojects + promptsSubprojects
     val testTaskPaths = subprojects
-        .filter { it.name !in nonPluginTestSubprojects }
+        .filter { it.name !in excluded }
         .map { "${it.path}:test" }
     require(testTaskPaths.isNotEmpty()) {
-        "buildPluginTests resolved to zero :test tasks — settings.gradle.kts probably " +
-            "stopped including modules; refresh nonPluginTestSubprojects."
+        "ciBuildPluginTests resolved to zero :test tasks — settings.gradle.kts probably " +
+            "stopped including modules; refresh nonPluginTestSubprojects / promptsSubprojects."
+    }
+    dependsOn(testTaskPaths)
+
+    dependsOn("ij-plugin:verifyPlugin")
+    dependsOn("ij-plugin:verifyBundledLibraries")
+    dependsOn("ij-plugin:verifyBundledKotlinCompatibility")
+}
+
+/**
+ * Aggregator that runs `:test` for the prompts-related subprojects only (see
+ * [promptsSubprojects]). Invoked by TeamCity's dedicated `prompt-test` configuration, a
+ * sibling to the `ij-plugin test` matrix.
+ *
+ * Running this separately from [ciBuildPluginTests] means a prompt-generator regression
+ * fails fast in its own TC build config without blocking the per-OS plugin tests.
+ */
+val ciBuildPromptsTests by tasks.registering {
+    group = "ci"
+    description = "Run :test for the prompts-related subprojects: ${promptsSubprojects.joinToString { ":$it" }}."
+
+    val testTaskPaths = subprojects
+        .filter { it.name in promptsSubprojects }
+        .map { "${it.path}:test" }
+    require(testTaskPaths.size == promptsSubprojects.size) {
+        "ciBuildPromptsTests: expected ${promptsSubprojects.size} :test tasks, resolved " +
+            "${testTaskPaths.size}. Did a module in promptsSubprojects disappear from " +
+            "settings.gradle.kts?"
     }
     dependsOn(testTaskPaths)
 }

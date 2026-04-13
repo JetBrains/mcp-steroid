@@ -27,14 +27,3 @@ fun BasePlatformTestCase.setServerPortProperties() {
     // Disable review mode for tests
     setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
 }
-
-@Suppress("UnusedReceiverParameter")
-fun BasePlatformTestCase.resolveDockerUrl(): String {
-    // Docker on macOS runs in a VM, so localhost inside container != host's localhost
-    // Use host.docker.internal to access the host from inside Docker
-    val mcpUrl = McpTestUtil.getSseUrlIfRunning()
-    val dockerUrl = mcpUrl.replace("localhost", "host.docker.internal")
-        .replace("127.0.0.1", "host.docker.internal")
-    println("[TEST] MCP URL: $mcpUrl -> Docker URL: $dockerUrl")
-    return dockerUrl
-}

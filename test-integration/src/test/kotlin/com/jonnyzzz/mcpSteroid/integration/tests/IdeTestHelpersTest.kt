@@ -1,17 +1,17 @@
-/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
-package com.jonnyzzz.mcpSteroid.integration.infra
+package com.jonnyzzz.mcpSteroid.integration.tests
 
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertThrows
+import com.jonnyzzz.mcpSteroid.integration.infra.parseDockerHostPathMappings
+import com.jonnyzzz.mcpSteroid.integration.infra.remapPathForDockerHost
+import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import java.io.File
 
 class IdeTestHelpersTest {
     @Test
     fun `parseDockerHostPathMappings returns empty for blank input`() {
-        assertEquals(emptyList<Pair<String, String>>(), parseDockerHostPathMappings(null))
-        assertEquals(emptyList<Pair<String, String>>(), parseDockerHostPathMappings(""))
-        assertEquals(emptyList<Pair<String, String>>(), parseDockerHostPathMappings("   "))
+        Assertions.assertEquals(emptyList<Pair<String, String>>(), parseDockerHostPathMappings(null))
+        Assertions.assertEquals(emptyList<Pair<String, String>>(), parseDockerHostPathMappings(""))
+        Assertions.assertEquals(emptyList<Pair<String, String>>(), parseDockerHostPathMappings("   "))
     }
 
     @Test
@@ -21,7 +21,7 @@ class IdeTestHelpersTest {
             "/workspace=/host-workspace",
         )
 
-        assertEquals(
+        Assertions.assertEquals(
             File("/host-workspace/test-integration/build/test-logs/test").absolutePath,
             remapped.absolutePath,
         )
@@ -32,7 +32,7 @@ class IdeTestHelpersTest {
         val original = File("/tmp/somewhere")
         val remapped = remapPathForDockerHost(original, "/workspace=/host-workspace")
 
-        assertEquals(original.absolutePath, remapped.absolutePath)
+        Assertions.assertEquals(original.absolutePath, remapped.absolutePath)
     }
 
     @Test
@@ -42,7 +42,7 @@ class IdeTestHelpersTest {
             "/workspace=/host-workspace,/workspace/test-integration=/host-workspace-special",
         )
 
-        assertEquals(
+        Assertions.assertEquals(
             File("/host-workspace-special/build/test-logs/test").absolutePath,
             remapped.absolutePath,
         )
@@ -50,7 +50,7 @@ class IdeTestHelpersTest {
 
     @Test
     fun `parseDockerHostPathMappings rejects invalid entries`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        Assertions.assertThrows(IllegalArgumentException::class.java) {
             parseDockerHostPathMappings("/workspace")
         }
     }

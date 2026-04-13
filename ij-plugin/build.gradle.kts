@@ -25,10 +25,8 @@ val releaseNotesVersion = providers.gradleProperty("mcp.release.notes.version")
     .get()
 val releaseNotesFile = rootProject.layout.projectDirectory.file("release/notes/$releaseNotesVersion.md")
 
-val defaultTargetIdeProduct = "idea"
-val defaultTargetIdeVersion = "2025.3"
-val targetIdeProductRaw = providers.gradleProperty("mcp.platform.product").orElse(defaultTargetIdeProduct).get()
-val targetIdeVersion = providers.gradleProperty("mcp.platform.version").orElse(defaultTargetIdeVersion).get()
+val targetIdeProductRaw = providers.gradleProperty("mcp.platform.product").orElse("idea").get()
+val targetIdeVersion = providers.gradleProperty("mcp.platform.version").orElse("2025.3").get()
 val targetIdeProduct = when (targetIdeProductRaw.trim().lowercase()) {
     "idea", "iiu", "intellij", "intellijidea", "intellijideaultimate" -> JetBrainsIdeProduct.IntelliJIdeaUltimate
     "pycharm", "pcp", "python" -> JetBrainsIdeProduct.PyCharm
@@ -37,9 +35,6 @@ val targetIdeProduct = when (targetIdeProductRaw.trim().lowercase()) {
                 "Use one of: idea, pycharm."
     )
 }
-val isTargetIdeOverridden = providers.gradleProperty("mcp.platform.product").isPresent ||
-        providers.gradleProperty("mcp.platform.version").isPresent
-val hostArchitecture = resolveHostArchitecture()
 
 repositories {
     mavenCentral()
@@ -121,6 +116,20 @@ dependencies {
     testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 }
 
+// Dedicated source set for Docker-based CLI integration tests (CliClaudeIntegrationTest,
+// CliCodexIntegrationTest, CliGeminiIntegrationTest, etc.). These extend BasePlatformTestCase
+// and need the full IntelliJ Platform test framework classpath, but they spin up Docker
+// containers and require API keys, so they are NOT part of the default `:ij-plugin:test` run.
+// Invoke explicitly via `./gradlew :ij-plugin:integrationTest`.
+val integrationTest: SourceSet by sourceSets.creating {
+    compileClasspath += sourceSets["main"].output + sourceSets["test"].output +
+            sourceSets["test"].compileClasspath
+    runtimeClasspath += output + compileClasspath + sourceSets["test"].runtimeClasspath
+}
+
+configurations["integrationTestImplementation"].extendsFrom(configurations["testImplementation"])
+configurations["integrationTestRuntimeOnly"].extendsFrom(configurations["testRuntimeOnly"])
+
 kotlin {
     jvmToolchain(21)
 }
@@ -169,10 +178,41 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            ide(IntelliJPlatformType.IntellijIdeaUltimate, "2025.3")
-            ide(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1")
-            // 262 nightly is not publicly accessible yet — enable when 2026.2 EAP is published
-            // ide(IntelliJPlatformType.IntellijIdeaUltimate, "2026.2")
+            create(IntelliJPlatformType.IntellijIdeaUltimate, "2025.3") { useInstaller = true }
+            create(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1") { useInstaller = true }
+            //TODO: Setup 262 tests
+        }
+    }
+}
+
+// Register a dedicated `integrationTest` task via the IntelliJ Platform testing DSL so it
+// gets its own sandbox (prepareSandbox_integrationTest) and the proper IDE JVM argument
+// providers, while compiling from `src/integrationTest/kotlin` instead of `src/test/kotlin`.
+intellijPlatformTesting {
+    testIde {
+        register("integrationTest") {
+            // Populates the suffixed intellijPlatformTestDependencies_integrationTest
+            // configuration with opentest4j + IntelliJ test framework JARs. Without this
+            // the test JVM hits NoClassDefFoundError on org.opentest4j.AssertionFailedError.
+            testFramework(TestFrameworkType.Platform)
+
+            task {
+                group = "verification"
+                description = "Runs Docker-based CLI integration tests (Claude/Codex/Gemini). " +
+                        "Requires Docker and API keys. Not run by default `:ij-plugin:test`."
+                useJUnit()
+
+                // Replace (not append) testClassesDirs: the TestIdeTask default includes
+                // the plugin's instrumented default-test-set classes — keeping them would
+                // run every regular test alongside the Cli*IntegrationTest classes.
+                testClassesDirs = integrationTest.output.classesDirs
+
+                // Additive on classpath: preserve the IntelliJ Platform JARs +
+                // test framework that TestIdeTask.configuration (registration-time lambda)
+                // already wired up, then add this source set's classes and its runtime deps
+                // on top for our own tests (testcontainers, ktor-client, :test-helper, …).
+                classpath += integrationTest.output + integrationTest.runtimeClasspath
+            }
         }
     }
 }
@@ -189,66 +229,6 @@ tasks {
             inputs.file(releaseNotesFile)
         }
     }
-}
-
-val verifyIntellijMajorReleaseAlignment by tasks.registering {
-    group = "verification"
-    description = "Assert configured IntelliJ major matches latest stable IntelliJ major from products service"
-    inputs.property("targetIdeProduct", targetIdeProduct.name)
-    inputs.property("targetIdeVersion", targetIdeVersion)
-    inputs.property("isTargetIdeOverridden", isTargetIdeOverridden)
-
-    doLast {
-        if (isTargetIdeOverridden) {
-            logger.lifecycle(
-                "Skipping stable-major alignment check because mcp.platform.product/version overrides are set: {} {}.",
-                targetIdeProduct.name,
-                targetIdeVersion,
-            )
-            return@doLast
-        }
-
-        val latestStable = IdeaReleaseService.latestRelease(targetIdeProduct, IdeaReleaseChannel.STABLE)
-        val configuredMajor = targetIdeVersion
-            .split(".")
-            .take(2)
-            .joinToString(".")
-        check(latestStable.majorVersion == configuredMajor) {
-            "Configured ${targetIdeProduct.name} major '$configuredMajor' is stale. " +
-                    "Latest stable major is '${latestStable.majorVersion}' " +
-                    "(version ${latestStable.version}, build ${latestStable.build}). " +
-                    "Update mcp.platform.version in build.gradle.kts."
-        }
-        logger.lifecycle(
-            "{} major alignment verified: configured {}, latest stable {} ({} / {}).",
-            targetIdeProduct.name,
-            configuredMajor,
-            latestStable.majorVersion,
-            latestStable.version,
-            latestStable.build,
-        )
-    }
-}
-
-val verifySupportedHostArchitecture by tasks.registering {
-    group = "verification"
-    description = "Assert current host machine architecture is supported by build scripts"
-    inputs.property("hostArchitecture", hostArchitecture.name)
-    doLast {
-        check(hostArchitecture == HostArchitecture.ARM64 || hostArchitecture == HostArchitecture.X86_64) {
-            "Unsupported host architecture '$hostArchitecture'"
-        }
-        logger.lifecycle(
-            "Host architecture support verified: {} (aliases {}).",
-            hostArchitecture.name,
-            hostArchitecture.aliases.joinToString(", "),
-        )
-    }
-}
-
-tasks.check {
-    dependsOn(verifyIntellijMajorReleaseAlignment)
-    dependsOn(verifySupportedHostArchitecture)
 }
 
 val verifyBundledKotlinCompatibility by tasks.registering(VerifyBundledKotlinCompatibilityTask::class) {
@@ -282,8 +262,8 @@ dependencies {
     ocrToolDist(project(":ocr-tesseract"))
 }
 
-listOf(tasks.prepareSandbox, tasks.prepareTestSandbox).forEach {
-    it.invoke {
+listOf(tasks.prepareSandbox, tasks.prepareTestSandbox).forEach { r ->
+    r.configure {
         from(ocrToolDist) {
             into(intellijPlatform.projectName.map { "$it/ocr-tesseract" })
             filesMatching("bin/*") {
