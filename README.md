@@ -21,6 +21,7 @@
   <a href="https://mcp-steroid.jonnyzzz.com">Website</a> &bull;
   <a href="https://www.youtube.com/playlist?list=PLitZWClhc4Qgz3w8qrtctMR_lpIc81n0f">Demo Videos</a> &bull;
   <a href="https://jonnyzzz.com/blog/2026/04/07/mcp-steroid-open-source/">Blog Post</a> &bull;
+  <a href="https://buildserver.labs.intellij.net/project/mcp_steroid?projectTab=overview&amp;mode=builds">TeamCity (JetBrains internal)</a> &bull;
   <a href="https://discord.gg/e9qgQ7NeTC">Discord</a>
 </p>
 
