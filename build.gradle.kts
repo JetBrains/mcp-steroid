@@ -38,11 +38,21 @@ val isReleaseBuild = parseBooleanProperty(
 /**
  * CI-supplied version string (GitHub Actions or TeamCity). When provided, the build uses it
  * verbatim as the plugin version — the build NEVER rewrites it. Gradle only asserts that the
- * format matches "<baseVersion>-SNAPSHOT-(GH|JB)-<gitHash>-<counter>" so a misconfigured CI
+ * format matches "<baseVersionPrefix>.<counter>-(gh|jb)-<gitHash>" so a misconfigured CI
  * fails fast instead of silently producing a wrongly-labelled artifact.
+ *
+ * Accepts either -Pmcp.build.version=<version> (GitHub Actions path) or the BUILD_NUMBER
+ * environment variable (TeamCity sets it automatically from %build.number%, which we wire
+ * to the upstream "build number" build config's emitted buildNumber service message).
  */
-val providedBuildVersion: String? = providers.gradleProperty("mcp.build.version")
-    .orNull?.trim()?.takeIf { it.isNotEmpty() }
+val providedBuildVersion: String? =
+    providers.gradleProperty("mcp.build.version").orNull?.trim()?.takeIf { it.isNotEmpty() }
+        ?: providers.environmentVariable("BUILD_NUMBER").orNull?.trim()?.takeIf {
+            // Only accept BUILD_NUMBER when it looks like a full version string, not a bare
+            // counter. GitHub Actions exports its run_id there; that must go through
+            // -Pmcp.build.version instead so a misconfig is caught loudly.
+            it.isNotEmpty() && it.contains('-')
+        }
 
 if (providedBuildVersion != null) {
     // baseVersion comes from the VERSION file as MAJOR.MINOR.PATCH. The CI-computed
