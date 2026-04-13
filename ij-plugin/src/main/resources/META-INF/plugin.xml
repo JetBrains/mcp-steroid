@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.jonnyzzz.mcp-steroid</id>
     <name>MCP Steroid</name>
-    <vendor>jonnyzzz.com</vendor>
+    <vendor>JetBrains</vendor>
 
     <description><![CDATA[
     <p><strong>MCP Steroid</strong> brings the full power of the IntelliJ Platform to AI agents through the Model Context Protocol (MCP).</p>
