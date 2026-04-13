@@ -46,7 +46,7 @@ jobs:
           base="$(tr -d '[:space:]' < VERSION)"
           hash="$(git rev-parse --short HEAD)"
           counter="${{ github.run_number }}"
-          new_version="${base}-SNAPSHOT-GH-${hash}-${counter}"
+          new_version="${base}-SNAPSHOT-GH-${counter}-${hash}"
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
           echo "Plugin build number: ${new_version}"
 

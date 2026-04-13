@@ -46,11 +46,11 @@ val providedBuildVersion: String? = providers.gradleProperty("mcp.build.version"
 
 if (providedBuildVersion != null) {
     val expected = Regex(
-        "^" + Regex.escape(baseVersion) + "-SNAPSHOT-(GH|JB)-" + Regex.escape(gitHash) + "-\\d+$"
+        "^" + Regex.escape(baseVersion) + "-SNAPSHOT-(GH|JB)-\\d+-" + Regex.escape(gitHash) + "$"
     )
     require(expected.matches(providedBuildVersion)) {
         "mcp.build.version='$providedBuildVersion' does not match expected format " +
-            "'${baseVersion}-SNAPSHOT-{GH|JB}-${gitHash}-<counter>'. " +
+            "'${baseVersion}-SNAPSHOT-{GH|JB}-<counter>-${gitHash}'. " +
             "The build number must be composed upstream (GitHub Actions run_number or " +
             "TeamCity buildNumber service message) and passed in unchanged — this build " +
             "does not rewrite it."
