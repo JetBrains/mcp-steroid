@@ -91,3 +91,52 @@ allprojects {
         maxHeapSize = "4g"
     }
 }
+
+/**
+ * Root configuration that resolves the plugin .zip artifact produced by :ij-plugin.
+ * Consumed by [buildPluginOnCI] to avoid reaching into `ij-plugin/build/distributions/` directly.
+ */
+val pluginZip by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "plugin-zip"))
+    }
+}
+
+dependencies {
+    pluginZip(project(":ij-plugin"))
+}
+
+/**
+ * CI entry point that builds the plugin and publishes the resulting .zip(s) as build artifacts.
+ *
+ * Depends on :ij-plugin's plugin-zip configuration (so Gradle drives the buildPlugin task for us),
+ * then emits one `##teamcity[publishArtifacts '<path>']` service message per resolved zip so
+ * TeamCity uploads them as regular build artifacts — no need for TeamCity-side artifactRules.
+ * The service messages are harmless no-ops on GitHub Actions, which keeps using its own
+ * `actions/upload-artifact` step.
+ *
+ * Intended to be the single entry point for both CI systems:
+ *   ./gradlew buildPluginOnCI -Pmcp.build.version=<base>-SNAPSHOT-(GH|JB)-<counter>-<hash>
+ */
+val buildPluginOnCI by tasks.registering {
+    group = "ci"
+    description = "Build the plugin distribution and publish its binaries via TeamCity service messages."
+    inputs.files(pluginZip)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val zips = pluginZip.files
+        require(zips.isNotEmpty()) {
+            "No plugin .zip resolved from :ij-plugin's plugin-zip configuration"
+        }
+        zips.forEach { zip ->
+            require(zip.isFile) { "Plugin zip not a file: ${zip.absolutePath}" }
+            logger.lifecycle("Plugin binary: ${zip.absolutePath} (${zip.length()} bytes)")
+            // TeamCity service message — ignored by GitHub Actions runners.
+            // See https://www.jetbrains.com/help/teamcity/service-messages.html#Publishing+Artifacts+while+the+Build+is+Still+in+Progress
+            println("##teamcity[publishArtifacts '${zip.absolutePath}']")
+        }
+    }
+}
