@@ -508,6 +508,53 @@ List actions: `ActionManager.getInstance().getActionIds("").filter { it.contains
 
 Atomic commits, descriptive messages (what and why). Test and build before committing.
 
+## TeamCity (buildserver.labs.intellij.net)
+
+The project lives at https://buildserver.labs.intellij.net/project/mcp_steroid with two build
+configurations: `build number` (fast, Docker/alpine, just emits `##teamcity[buildNumber 'X']`)
+and `build plugin` (inherits the number via `buildNumberPattern`, builds `mcp-steroid-build:ci`
+Docker image, runs `:buildPluginOnCI` inside it). Versioned settings sync from
+`JetBrains/mcp-steroid-teamcity` (Kotlin DSL). Store your Personal Access Token at
+`~/.teamcity` (chmod 600) so REST calls can read it.
+
+### Always bump queued builds to the top of the queue
+
+When an agent triggers a build on TC, the queued builds **must** be re-ordered to the top of the
+build queue so they land on an agent immediately instead of sitting behind unrelated work. TC
+surfaces this as the "Move to the top" UI action; the REST equivalent is
+`POST /app/rest/buildQueue/order` — per TeamCity's REST contract, the body must contain
+**every** currently-queued build ID in the intended order, with the target build first.
+
+```bash
+TC=https://buildserver.labs.intellij.net
+TOK=$(cat ~/.teamcity)
+target=$1  # the build id to move to the top
+
+# 1. snapshot the current queue
+cur=$(curl -fsS -H "Authorization: Bearer $TOK" -H "Accept: application/json" \
+  "$TC/app/rest/buildQueue?fields=build(id)" \
+  | python3 -c 'import sys,json; print(" ".join(str(b["id"]) for b in json.load(sys.stdin).get("build", [])))')
+
+# 2. build an ordered list: target first, then the rest
+ordered=$(python3 -c "
+import sys
+target = sys.argv[1]
+ids = [x for x in sys.argv[2].split() if x != target]
+ids.insert(0, target)
+print(' '.join(ids))
+" "$target" "$cur")
+
+# 3. POST the full order back
+payload=$(python3 -c 'import sys,json; print(json.dumps({"build":[{"id":int(x)} for x in sys.argv[1].split()]}))' "$ordered")
+curl -fsS -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -H "Accept: application/json" \
+  -d "$payload" "$TC/app/rest/buildQueue/order"
+```
+
+The "include every queued build in the body" part is not optional — omitting any queued build ID
+causes TC to reject the request. Snapshot the queue immediately before the reorder POST to
+minimise the race window where another trigger enqueues a new build between steps 1 and 3.
+
 ## Website
 
 `website/` is a separate git repo clone (jonnyzzz/mcp-steroid public repo). It contains the Hugo site sources in `website/website/`. The `website/` folder is gitignored from the main repo.
