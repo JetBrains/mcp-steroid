@@ -13,9 +13,26 @@ plugins {
 
 group = "com.jonnyzzz.intellij"
 val baseVersion = file("VERSION").readText().trim()
-val gitHash = providers.exec {
-    commandLine("git", "rev-parse", "--short", "HEAD")
-}.standardOutput.asText.get().trim()
+
+/**
+ * Short git hash (7 chars) for the current HEAD. On CI we read the full SHA from the
+ * BUILD_VCS_NUMBER environment variable (TeamCity) or GITHUB_SHA (GitHub Actions)
+ * rather than shelling out to `git`: gradle often runs inside a Docker container that
+ * mounts the workspace from the host, and git then refuses to operate on a directory
+ * owned by a different UID ("detected dubious ownership", exit 128). Locally neither
+ * env var is set, so we fall back to `git rev-parse`.
+ */
+val gitHash: String = run {
+    val ciSha = providers.environmentVariable("BUILD_VCS_NUMBER").orNull?.trim()
+        ?: providers.environmentVariable("GITHUB_SHA").orNull?.trim()
+    if (!ciSha.isNullOrEmpty()) {
+        ciSha.take(7)
+    } else {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+        }.standardOutput.asText.get().trim()
+    }
+}
 
 fun parseBooleanProperty(propertyName: String, raw: String): Boolean {
     return when (raw.trim().lowercase()) {
