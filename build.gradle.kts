@@ -34,36 +34,33 @@ val isReleaseBuild = parseBooleanProperty(
     propertyName = "mcp.release.build",
     raw = providers.gradleProperty("mcp.release.build").orElse("false").get()
 )
-val isGhBuild = parseBooleanProperty(
-    propertyName = "mcp.gh.build",
-    raw = providers.gradleProperty("mcp.gh.build").orElse("false").get()
-)
-val isJbBuild = parseBooleanProperty(
-    propertyName = "mcp.jb.build",
-    raw = providers.gradleProperty("mcp.jb.build").orElse("false").get()
-)
 
 /**
- * Monotonic integer build identifier supplied by the CI system — used as the last
- * component of snapshot versions (GH = github.run_number, JB = TeamCity build counter).
- * Required whenever mcp.gh.build or mcp.jb.build is set.
+ * CI-supplied version string (GitHub Actions or TeamCity). When provided, the build uses it
+ * verbatim as the plugin version — the build NEVER rewrites it. Gradle only asserts that the
+ * format matches "<baseVersion>-SNAPSHOT-(GH|JB)-<gitHash>-<counter>" so a misconfigured CI
+ * fails fast instead of silently producing a wrongly-labelled artifact.
  */
-fun requireBuildCounter(flag: String): String {
-    val raw = providers.gradleProperty("mcp.build.counter").orNull?.trim().orEmpty()
-    require(raw.isNotEmpty()) {
-        "$flag=true requires -Pmcp.build.counter=<int> to be passed"
+val providedBuildVersion: String? = providers.gradleProperty("mcp.build.version")
+    .orNull?.trim()?.takeIf { it.isNotEmpty() }
+
+if (providedBuildVersion != null) {
+    val expected = Regex(
+        "^" + Regex.escape(baseVersion) + "-SNAPSHOT-(GH|JB)-" + Regex.escape(gitHash) + "-\\d+$"
+    )
+    require(expected.matches(providedBuildVersion)) {
+        "mcp.build.version='$providedBuildVersion' does not match expected format " +
+            "'${baseVersion}-SNAPSHOT-{GH|JB}-${gitHash}-<counter>'. " +
+            "The build number must be composed upstream (GitHub Actions run_number or " +
+            "TeamCity buildNumber service message) and passed in unchanged — this build " +
+            "does not rewrite it."
     }
-    require(raw.toIntOrNull()?.let { it >= 0 } == true) {
-        "mcp.build.counter must be a non-negative integer, got '$raw'"
-    }
-    return raw
 }
 
 val snapshotTimestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
 version = when {
     isReleaseBuild -> "$baseVersion-$gitHash"
-    isGhBuild -> "$baseVersion-SNAPSHOT-GH-$gitHash-${requireBuildCounter("mcp.gh.build")}"
-    isJbBuild -> "$baseVersion-SNAPSHOT-JB-$gitHash-${requireBuildCounter("mcp.jb.build")}"
+    providedBuildVersion != null -> providedBuildVersion
     else -> "$baseVersion-SNAPSHOT-$snapshotTimestamp-$gitHash"
 }
 val releaseNotesVersion = providers.gradleProperty("mcp.release.notes.version").orElse(baseVersion).get()
