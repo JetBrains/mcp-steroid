@@ -15,7 +15,18 @@
 .PHONY: dev build clean setup update-config ensure-public-repo copy-root-files
 
 VERSION := $(shell cat ../VERSION)
-RELEASE_ZIP_URL := $(shell gh release view "v$(VERSION)" --repo jonnyzzz/mcp-steroid --json assets --jq '[.assets[] | select(.name | endswith(".zip")) | .url][0]' 2>/dev/null || gh release view "$(VERSION)" --repo jonnyzzz/mcp-steroid --json assets --jq '[.assets[] | select(.name | endswith(".zip")) | .url][0]' 2>/dev/null)
+
+# Look up the .zip download URL for the published release matching VERSION on the public
+# jonnyzzz/mcp-steroid repository. Uses the GitHub REST API directly via curl + jq so the
+# lookup runs without any authentication token (public repos allow anonymous reads at
+# 60 req/hour per IP, which is far more than this Makefile ever spends). Falls back from
+# the `vX.Y.Z` tag form to the bare `X.Y.Z` form, mirroring the prior `gh` invocation.
+RELEASE_ZIP_URL := $(shell \
+    curl -fsSL "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/v$(VERSION)" 2>/dev/null \
+    | jq -r 'first(.assets[]? | select(.name | endswith(".zip"))) | .browser_download_url // empty' \
+    || curl -fsSL "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/$(VERSION)" 2>/dev/null \
+    | jq -r 'first(.assets[]? | select(.name | endswith(".zip"))) | .browser_download_url // empty' \
+)
 
 # First time setup - clone the public repository
 setup:
@@ -30,25 +41,16 @@ copy-root-files:
 	cp ../EULA static/EULA
 	cp ../LICENSE static/LICENSE
 
-# Update version in hugo.toml, generate version.json (and updatePlugins.xml unless skipped).
-#
-# Set SKIP_RELEASE_LOOKUP=1 to skip the GitHub-release-dependent steps. The site renders
-# fine without updatePlugins.xml — that file is only consumed by the IDE's plugin
-# auto-update mechanism and is not part of the page itself. Used by CI environments
-# (TeamCity) that don't have a `gh` PAT provisioned.
+# Update version in hugo.toml, generate version.json + updatePlugins.xml.
 update-config: ensure-public-repo copy-root-files
 	@echo "Updating version to $(VERSION)"
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
 	@echo "Generating version.json"
 	@echo '{"version-base": "$(VERSION)"}' > static/version.json
-ifndef SKIP_RELEASE_LOOKUP
-	@if [ -z "$(RELEASE_ZIP_URL)" ]; then echo "ERROR: Could not find release ZIP for version $(VERSION). Is 'gh' installed and the release published? (set SKIP_RELEASE_LOOKUP=1 to bypass)" >&2; exit 1; fi
+	@if [ -z "$(RELEASE_ZIP_URL)" ]; then echo "ERROR: Could not find release ZIP for version $(VERSION). Is the release published on jonnyzzz/mcp-steroid?" >&2; exit 1; fi
 	@echo "Generating updatePlugins.xml (url: $(RELEASE_ZIP_URL))"
 	@./scripts/generate-update-plugins-xml.sh "$(VERSION)" "$(RELEASE_ZIP_URL)" > static/updatePlugins.xml
 	@xmllint --noout static/updatePlugins.xml 2>/dev/null && echo "updatePlugins.xml is valid XML" || echo "WARNING: xmllint not available, skipping XML validation"
-else
-	@echo "[skip] updatePlugins.xml generation (SKIP_RELEASE_LOOKUP=$(SKIP_RELEASE_LOOKUP))"
-endif
 	@mkdir -p mcp-steroid-public/mcp-steroid-plugin
 
 # Start development server with live reload
