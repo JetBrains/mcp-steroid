@@ -508,6 +508,34 @@ List actions: `ActionManager.getInstance().getActionIds("").filter { it.contains
 
 Atomic commits, descriptive messages (what and why). Test and build before committing.
 
+## Git Remotes: `origin` vs `jb`
+
+This clone has two remotes — they are **not** the same branch and must be synced deliberately:
+
+| Remote | URL | Role |
+|---|---|---|
+| `origin` | `git@github.com:jonnyzzz/mcp-steroid` | Day-to-day development fork; source of truth for new commits |
+| `jb` | `git@github.com:JetBrains/mcp-steroid.git` | Canonical JetBrains-org mirror; consumed by TeamCity (`mcp_steroid` project on `buildserver.labs.intellij.net`) |
+
+**Never fast-forward-push `main` straight to `jb`.** `jb/main` carries commits that are **not** on `origin/main` (e.g. org-specific tooling / compliance edits). Doing `git push jb main:main` would lose them.
+
+The correct sync procedure — always a merge commit, always from a throwaway `jb-merge` branch:
+
+```bash
+git fetch jb
+git checkout -b jb-merge jb/main
+git merge main --no-ff -m "Merge remote-tracking branch 'origin/main' into jb-merge"
+git push jb jb-merge:main
+git checkout main
+git branch -D jb-merge
+```
+
+The `--no-ff` is required: it preserves `jb/main`'s existing head as the first parent of the merge, so the jb-only history stays reachable.
+
+This is also what every `Merge remote-tracking branch 'origin/main' into jb-merge` commit in `jb/main`'s log is doing — keep the pattern consistent.
+
+**Why this matters for CI:** the TC VCS root `mcp_steroid_main` pulls from `jb`, not `origin`. If your commit isn't on `jb/main`, TeamCity builds stale code.
+
 ## TeamCity (buildserver.labs.intellij.net)
 
 The project lives at https://buildserver.labs.intellij.net/project/mcp_steroid with two build
