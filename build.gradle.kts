@@ -176,3 +176,49 @@ val buildPluginOnCI by tasks.registering {
         }
     }
 }
+
+/**
+ * Subprojects that are NOT part of `buildPluginTests`. Anything in this list is something
+ * that either is not a test of the plugin's base behaviour, or is too heavyweight to run on
+ * the per-OS unit-test agents:
+ *
+ * * `test-helper` — pure-test plumbing (Docker reaper, etc.); not exercised by the plugin.
+ * * `test-integration` — Docker-based smoke matrix; runs on its own dedicated TC config.
+ * * `test-experiments` — long-running experimental Docker tests; ditto.
+ * * `npx`, `npx-kt` — Node/Kotlin packaging for the standalone npx wrapper. Distributed
+ *   separately, no influence on the IDE plugin.
+ *
+ * The website (`website/`) is not a Gradle module, so it is not in this list — it is
+ * already invisible to `buildPluginTests`.
+ */
+val nonPluginTestSubprojects = setOf(
+    "test-helper",
+    "test-integration",
+    "test-experiments",
+    "npx",
+    "npx-kt",
+)
+
+/**
+ * Aggregator that runs `:test` for every subproject we consider part of the IntelliJ
+ * plugin's "base feature" coverage. Used by the per-OS `ij-plugin test (Windows|Linux|macOS)`
+ * configurations on TeamCity (and runnable locally with `./gradlew buildPluginTests`).
+ *
+ * The exclusion list lives in [nonPluginTestSubprojects] above so the policy of "what counts
+ * as a plugin test" is recorded in one place in the root project; per-CI configs only need
+ * to invoke this single task.
+ */
+val buildPluginTests by tasks.registering {
+    group = "verification"
+    description = "Run :test for every subproject that ships as part of the IntelliJ plugin " +
+        "(excludes ${nonPluginTestSubprojects.joinToString { ":$it" }})."
+
+    val testTaskPaths = subprojects
+        .filter { it.name !in nonPluginTestSubprojects }
+        .map { "${it.path}:test" }
+    require(testTaskPaths.isNotEmpty()) {
+        "buildPluginTests resolved to zero :test tasks — settings.gradle.kts probably " +
+            "stopped including modules; refresh nonPluginTestSubprojects."
+    }
+    dependsOn(testTaskPaths)
+}
