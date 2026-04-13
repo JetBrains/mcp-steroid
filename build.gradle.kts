@@ -1,8 +1,5 @@
 @file:Suppress("HasPlatformType")
 
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-
 plugins {
     id("de.undercouch.download") version "5.6.0" apply false
     id("org.jetbrains.intellij.platform") version "2.11.0" apply false
@@ -70,11 +67,14 @@ if (providedBuildVersion != null) {
     }
 }
 
-val snapshotTimestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+// Local/dev builds — no CI counter available. Use the literal "19999-SNAPSHOT" in place
+// of the CI counter so the shape stays <VERSION>.<counter>-...-<hash>, sorts after any
+// realistic CI run, and is obviously not an official build.
+val localBuildCounter = "19999-SNAPSHOT"
 version = when {
     isReleaseBuild -> "$baseVersion-$gitHash"
     providedBuildVersion != null -> providedBuildVersion
-    else -> "$baseVersion-SNAPSHOT-$snapshotTimestamp-$gitHash"
+    else -> "$baseVersion.$localBuildCounter-$gitHash"
 }
 val releaseNotesVersion = providers.gradleProperty("mcp.release.notes.version").orElse(baseVersion).get()
 val releaseNotesFile = layout.projectDirectory.file("release/notes/$releaseNotesVersion.md")
