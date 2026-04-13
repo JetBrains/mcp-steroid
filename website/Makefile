@@ -62,10 +62,19 @@ dev: update-config
 # `--user` keeps the produced files owned by the invoking host user instead of root,
 # so subsequent runs (and TC's "git clean -fdx" between builds) can remove them
 # without privilege issues.
+#
+# Emits a TeamCity service message at the end so CI picks the rendered site up as a
+# regular build artifact. Harmless no-op for local runs and GitHub Actions — both
+# just print the line to stdout. See:
+#   https://www.jetbrains.com/help/teamcity/service-messages.html#Publishing+Artifacts+while+the+Build+is+Still+in+Progress
 build: update-config
 	@# Remove symlinks in output dir — they escape Docker mount boundary and break Hugo stat
 	@find mcp-steroid-public/mcp-steroid-plugin -type l -delete 2>/dev/null || true
 	docker compose run --rm --user "$$(id -u):$$(id -g)" build
+	@# `=> website.zip` (with the .zip extension) tells TeamCity to bundle the matched
+	@# files into a single archive artifact instead of publishing the directory tree
+	@# verbatim. See https://www.jetbrains.com/help/teamcity/configuring-general-settings.html#Artifact+Paths
+	@echo "##teamcity[publishArtifacts '$(CURDIR)/mcp-steroid-public/mcp-steroid-plugin/** => website.zip']"
 
 # Clean generated files (recreated by build)
 clean:
