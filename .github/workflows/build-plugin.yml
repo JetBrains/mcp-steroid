@@ -39,19 +39,17 @@ jobs:
       - name: Build Docker build image
         run: docker build -t mcp-steroid-build:ci docker/build
 
-      - name: Compute plugin version
+      - name: Compute plugin version label (for artifact naming)
         id: version
         run: |
           set -euo pipefail
           base="$(tr -d '[:space:]' < VERSION)"
-          # Replace the last dot-separated component with (237 + github.run_number).
-          # VERSION is typically MAJOR.MINOR.0; we want MAJOR.MINOR.(237 + run_number).
-          prefix="${base%.*}"
-          patch=$(( 237 + ${{ github.run_number }} ))
-          new_version="${prefix}.${patch}"
-          printf '%s\n' "$new_version" > VERSION
+          hash="$(git rev-parse --short HEAD)"
+          counter="${{ github.run_number }}"
+          new_version="${base}-SNAPSHOT-GH-${hash}-${counter}"
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
-          echo "Plugin base version: ${new_version}"
+          echo "counter=${counter}" >> "$GITHUB_OUTPUT"
+          echo "Plugin version label: ${new_version}"
 
       - name: Build plugin (Docker)
         run: |
@@ -66,6 +64,7 @@ jobs:
             mcp-steroid-build:ci \
             ./gradlew :ij-plugin:buildPlugin \
               -Pmcp.gh.build=true \
+              -Pmcp.build.counter=${{ steps.version.outputs.counter }} \
               --no-daemon \
               --stacktrace
 

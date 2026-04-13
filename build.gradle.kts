@@ -42,11 +42,28 @@ val isJbBuild = parseBooleanProperty(
     propertyName = "mcp.jb.build",
     raw = providers.gradleProperty("mcp.jb.build").orElse("false").get()
 )
+
+/**
+ * Monotonic integer build identifier supplied by the CI system — used as the last
+ * component of snapshot versions (GH = github.run_number, JB = TeamCity build counter).
+ * Required whenever mcp.gh.build or mcp.jb.build is set.
+ */
+fun requireBuildCounter(flag: String): String {
+    val raw = providers.gradleProperty("mcp.build.counter").orNull?.trim().orEmpty()
+    require(raw.isNotEmpty()) {
+        "$flag=true requires -Pmcp.build.counter=<int> to be passed"
+    }
+    require(raw.toIntOrNull()?.let { it >= 0 } == true) {
+        "mcp.build.counter must be a non-negative integer, got '$raw'"
+    }
+    return raw
+}
+
 val snapshotTimestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
 version = when {
     isReleaseBuild -> "$baseVersion-$gitHash"
-    isGhBuild -> "$baseVersion-SNAPSHOT-GH-$gitHash"
-    isJbBuild -> "$baseVersion-SNAPSHOT-JB-$gitHash"
+    isGhBuild -> "$baseVersion-SNAPSHOT-GH-$gitHash-${requireBuildCounter("mcp.gh.build")}"
+    isJbBuild -> "$baseVersion-SNAPSHOT-JB-$gitHash-${requireBuildCounter("mcp.jb.build")}"
     else -> "$baseVersion-SNAPSHOT-$snapshotTimestamp-$gitHash"
 }
 val releaseNotesVersion = providers.gradleProperty("mcp.release.notes.version").orElse(baseVersion).get()
