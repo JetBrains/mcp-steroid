@@ -23,4 +23,15 @@ ZIP_URL="$2"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NOTES_FILE="$SCRIPT_DIR/../../release/notes/${VERSION}.md"
 
-exec uv run "$SCRIPT_DIR/generate-update-plugins-xml.py" "$VERSION" "$ZIP_URL" "$NOTES_FILE"
+# Prefer `uv` (used in local dev; honours the PEP-723 inline script metadata block at
+# the top of the .py file) but fall back to plain `python3` for CI environments that
+# don't ship `uv`. The script imports only stdlib (`urllib`, `zipfile`, `xml.etree`,
+# `xml.dom.minidom`, `re`, `pathlib`, `io`, `sys`) so a vanilla Python ≥ 3.10 is enough.
+if command -v uv >/dev/null 2>&1 ; then
+    exec uv run "$SCRIPT_DIR/generate-update-plugins-xml.py" "$VERSION" "$ZIP_URL" "$NOTES_FILE"
+elif command -v python3 >/dev/null 2>&1 ; then
+    exec python3 "$SCRIPT_DIR/generate-update-plugins-xml.py" "$VERSION" "$ZIP_URL" "$NOTES_FILE"
+else
+    echo "ERROR: neither 'uv' nor 'python3' is on PATH; install one to generate updatePlugins.xml" >&2
+    exit 1
+fi
