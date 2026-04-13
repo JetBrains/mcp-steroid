@@ -59,7 +59,7 @@ import java.util.concurrent.TimeUnit
  *
  * **Run default scenario (dpaia__empty__maven__springboot3-3):**
  * ```
- * ./gradlew :test-integration:test --tests '*DpaiaClaudeComparisonTest*'
+ * ./gradlew :test-experiments:test --tests '*DpaiaClaudeComparisonTest*'
  * ```
  *
  * **Override case list (deprecated, prefer instanceId for one case):**

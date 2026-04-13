@@ -1,11 +1,16 @@
 # test-integration — Agent Guide
 
-Integration tests that run AI agents inside Docker containers with real IDEs + MCP Steroid.
+**Stable** Docker-based integration tests + shared infrastructure for the wider integration test
+suite. Experimental / long-running tests live in the sibling `:test-experiments` module, which
+depends on this one for the infrastructure.
 
 ## Architecture
 
 ```
 test-integration/
+  src/main/kotlin/.../infra/   # Shared infrastructure (containers, drivers, MCP client)
+                               # — published as a regular library so :test-experiments can reuse it
+  src/main/resources/skills/   # MCP skill resources loaded via classpath
   src/test/
     docker/
       ide-base/          # Base Docker image (Debian + X11 + agents)
@@ -20,9 +25,13 @@ test-integration/
       test-project-pycharm/# Python project (PyCharm)
       test-project-webstorm/# JS project (WebStorm)
     kotlin/.../
-      infra/             # Test infrastructure (container, drivers, MCP client)
-      tests/             # Actual test classes
+      infra/             # Pure-JVM unit tests for the infra (no Docker)
+      tests/             # Stable Docker smoke tests (release matrix)
 ```
+
+The Docker image / fixture-project tree under `src/test/docker/` is referenced by both modules
+via the `test.integration.docker` system property (set per test task in each module's
+`build.gradle.kts`). `:test-experiments` reads it as a sibling-project resource.
 
 ## Playground Tests for Interactive Debugging
 
@@ -33,7 +42,7 @@ for developing and debugging IDE-specific features.
 ### How to Start
 
 ```bash
-./gradlew :test-integration:test --tests '*RiderPlaygroundTest*' \
+./gradlew :test-experiments:test --tests '*RiderPlaygroundTest*' \
   -Dtest.integration.ide.product=rider
 ```
 
@@ -129,7 +138,7 @@ The frontend actions just serialize the editor context and send it to the backen
 ### Step 2: Start the Playground
 
 ```bash
-./gradlew :test-integration:test --tests '*RiderPlaygroundTest*' \
+./gradlew :test-experiments:test --tests '*RiderPlaygroundTest*' \
   -Dtest.integration.ide.product=rider
 ```
 

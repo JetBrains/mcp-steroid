@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * to the NPX proxy process and validates the response.
  *
  * Run:
- *   ./gradlew :test-integration:test --tests '*NpxToolVisibilityTest*'
+ *   ./gradlew :test-experiments:test --tests '*NpxToolVisibilityTest*'
  */
 class NpxToolVisibilityTest {
 

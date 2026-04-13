@@ -16,6 +16,7 @@ include(":ocr-tesseract")
 
 include(":test-helper")
 include(":test-integration")
+include(":test-experiments")
 
 include(":npx")
 include(":npx-kt")

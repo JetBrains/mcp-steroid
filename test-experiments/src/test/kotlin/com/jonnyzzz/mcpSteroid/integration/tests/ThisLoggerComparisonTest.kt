@@ -34,13 +34,13 @@ import java.util.concurrent.TimeUnit
  *
  * Run:
  * ```
- * ./gradlew :test-integration:test --tests '*ThisLoggerComparisonTest*'
+ * ./gradlew :test-experiments:test --tests '*ThisLoggerComparisonTest*'
  * ```
  *
  * Run a single mode:
  * ```
- * ./gradlew :test-integration:test --tests '*ThisLoggerComparisonTest.mcp*'
- * ./gradlew :test-integration:test --tests '*ThisLoggerComparisonTest.none*'
+ * ./gradlew :test-experiments:test --tests '*ThisLoggerComparisonTest.mcp*'
+ * ./gradlew :test-experiments:test --tests '*ThisLoggerComparisonTest.none*'
  * ```
  */
 class ThisLoggerComparisonTest {

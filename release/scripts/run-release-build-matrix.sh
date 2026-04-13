@@ -17,6 +17,7 @@ RELEASE_NOTES_VERSION="${RELEASE_NOTES_VERSION:-$(tr -d '[:space:]' < "$ROOT_DIR
 GRADLE_COMMON=(./gradlew --no-daemon --stacktrace --console=plain)
 GRADLE_STAGE_EXCLUDES=(
   -x :test-integration:test
+  -x :test-experiments:test
 )
 
 is_build_number() {

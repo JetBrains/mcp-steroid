@@ -1,6 +1,7 @@
 @file:Suppress("HasPlatformType")
 
 import com.jonnyzzz.mcpSteroid.gradle.*
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.net.HttpURLConnection
@@ -163,6 +164,15 @@ intellijPlatform {
         ideaVersion {
             sinceBuild = "253"
             untilBuild = null
+        }
+    }
+
+    pluginVerification {
+        ides {
+            ide(IntelliJPlatformType.IntellijIdeaUltimate, "2025.3")
+            ide(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1")
+            // 262 nightly is not publicly accessible yet — enable when 2026.2 EAP is published
+            // ide(IntelliJPlatformType.IntellijIdeaUltimate, "2026.2")
         }
     }
 }

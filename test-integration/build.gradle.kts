@@ -35,15 +35,17 @@ dependencies {
     agentOutputFilterDist(project(path = ":agent-output-filter", configuration = "executableDistribution"))
     npxPackageDist(project(":npx"))
 
-    testImplementation(project(":test-helper"))
-    testImplementation(project(":agent-output-filter"))
-    testImplementation(project(":ai-agents"))
-    testImplementation(project(":intellij-downloader"))
+    // Infrastructure code lives in src/main/kotlin so it can be reused by :test-experiments.
+    implementation(project(":test-helper"))
+    implementation(project(":agent-output-filter"))
+    implementation(project(":ai-agents"))
+    implementation(project(":intellij-downloader"))
 
-    testImplementation(platform("org.junit:junit-bom:5.11.4"))
-    testImplementation("org.junit.jupiter:junit-jupiter-api")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation(platform("org.junit:junit-bom:5.11.4"))
+    implementation("org.junit.jupiter:junit-jupiter-api")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -63,17 +65,6 @@ fun Test.configureIntegrationTest() {
     classpath = sourceSets["test"].runtimeClasspath
     testLogging { showStandardStreams = true }
     systemProperty("junit.jupiter.execution.timeout.default", "15m")
-
-    // Forward claude.comparison.* system properties from the Gradle JVM to the test JVM.
-    // This allows: ./gradlew :test-integration:test -Dclaude.comparison.maxCases=1
-    System.getProperties()
-        .filterKeys { it.toString().startsWith("claude.comparison.") }
-        .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
-
-    // Forward arena.test.* system properties (used by DpaiaArenaTest).
-    System.getProperties()
-        .filterKeys { it.toString().startsWith("arena.test.") }
-        .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
 
     dependsOn(pluginZip, agentOutputFilterDist, npxPackageDist)
     doFirst {
@@ -107,17 +98,6 @@ fun Test.configureIntegrationTest() {
             "test.integration.repo.cache.dir",
             layout.buildDirectory.dir("repo-cache").get().asFile.absolutePath,
         )
-
-        // Build-compatibility test: persistent caches so IDE downloads and Gradle state survive across runs
-        val buildCompatDir = layout.buildDirectory.dir("build-compat").get().asFile
-        systemProperty(
-            "test.integration.build.compat.gradle.home",
-            File(buildCompatDir, "gradle-home").also { it.mkdirs() }.absolutePath,
-        )
-        systemProperty(
-            "test.integration.build.compat.ij.platform",
-            File(buildCompatDir, "intellij-platform").also { it.mkdirs() }.absolutePath,
-        )
     }
 }
 
@@ -128,9 +108,10 @@ tasks.test {
     // Integration tests require Docker, API keys, and IDE containers — they must be invoked explicitly.
     //
     // Correct usage:
-    //   ./gradlew :test-integration:test --tests '*DebuggerDemoTest.claude*'
-    //   ./gradlew :test-integration:test --tests '*DpaiaArenaTest*' -Darena.test.instanceId=<id>
+    //   ./gradlew :test-integration:test --tests '*EapSmokeTest*'
     //   ./gradlew :test-integration:testReleaseSmokeIdea
+    //
+    // Experimental / long-running / API-key-heavy tests now live in :test-experiments.
     onlyIf("Requires explicit :test-integration: task invocation — not for root aggregation") {
         gradle.startParameter.taskNames.any { it.contains(":test-integration:") }
     }

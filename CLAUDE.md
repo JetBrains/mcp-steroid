@@ -19,7 +19,7 @@ Never include AI as co-author or mention AI in commit messages.
 - Log new ideas/tasks in TODO* files (TODO.md, TODO-*.md)
 - **No infrastructure workarounds**: when tests fail due to infrastructure limitations (missing Docker socket, missing CLI, wrong JDK), fix the infrastructure — mount Docker socket, install Docker CLI, configure JDK. Do NOT add code that detects the limitation and silently skips tests or changes behavior. A failing test that reveals a real problem is better than a passing test that hides it.
 - **Prefer Kotlin Coroutines native APIs over Java threading primitives**: use `CompletableDeferred<T>` + `withTimeout(duration) { deferred.await() }` instead of `CountDownLatch`. Use `Channel<T>` for streaming. Use `suspendCancellableCoroutine` for one-shot callbacks. `CountDownLatch` / `Semaphore` / `Object.wait()` are banned in new coroutine code — they block threads and are not cancellation-aware.
-- **NEVER run `test-integration` tests in parallel** — each test starts a full Docker IntelliJ container. Running two or more concurrently exhausts RAM/CPU (IDE windows never appear, containers OOM). Always run one `./gradlew :test-integration:test --tests '...'` at a time. Wait for it to finish completely before starting the next. This applies to all Docker-based tests: DPAIA arena, debugger demo, playground, CLI agent tests.
+- **NEVER run `test-integration` or `test-experiments` tests in parallel** — each test starts a full Docker IntelliJ container. Running two or more concurrently exhausts RAM/CPU (IDE windows never appear, containers OOM). Always run one `./gradlew :test-integration:test --tests '...'` (or `:test-experiments:test --tests '...'`) at a time. Wait for it to finish completely before starting the next. This applies to all Docker-based tests: DPAIA arena, debugger demo, playground, CLI agent tests.
 
 ## Workflow
 
@@ -145,10 +145,19 @@ private fun testExecParams(code: String, timeout: Int = 30) = ExecCodeParams(
 
 - **`./gradlew :ij-plugin:test`** — runs only unit/in-process tests. Docker CLI tests are excluded by default.
   - Docker CLI tests (require Docker + API keys): run explicitly with `--tests '*CliClaudeIntegrationTest*'` etc.
-  - `./gradlew test` at root does NOT run `test-integration:test` (guarded by `onlyIf`).
+  - `./gradlew test` at root does NOT run `test-integration:test` or `test-experiments:test` (both guarded by `onlyIf`).
 - **`./gradlew :test-integration:test`** — MUST be invoked explicitly with `:test-integration:` prefix.
+  Holds the **stable** Docker-based smoke tests (release matrix: DialogKiller, IntelliJContainer, Infrastructure,
+  WhatYouSee, PyCharm…, EapSmoke). Shared infrastructure (IdeContainer, drivers, MCP client) lives here in
+  `src/main/kotlin` and is consumed as a library by `:test-experiments`.
   - Running `./gradlew test` at root silently skips `test-integration:test` (`onlyIf` returns false).
   - Direct invocation `./gradlew :test-integration:test --tests '...'` still works.
+- **`./gradlew :test-experiments:test`** — MUST be invoked explicitly with `:test-experiments:` prefix.
+  Holds the **experimental / long-running / less stable** tests: `DebuggerDemoTest`, `RiderDebuggerTest`,
+  `RiderPlaygroundTest`, `Plugin{Build,Runtime}CompatibilityTest`, the DPAIA arena suite, all prompt-quality
+  comparisons, `XcvbConsoleTest`, etc.
+  - Same `onlyIf` guard — never runs as part of root `./gradlew test`.
+  - Depends on `:test-integration` for the shared infrastructure.
 
 ### Key Test Files
 
@@ -157,13 +166,16 @@ private fun testExecParams(code: String, timeout: Int = 30) = ExecCodeParams(
 - **ScriptExecutorTest** — Fast failure semantics, compilation/runtime errors
 - **ExecutionManagerTest** — Execution with progress reporting
 
-### Docker Integration Tests (test-integration/)
+### Docker Integration Tests (test-integration/ and test-experiments/)
 
 Run AI agents in Docker with IntelliJ IDEA + MCP Steroid. Prerequisites: Docker, API keys, plugin ZIP built.
 
+Stable smoke matrix lives in `:test-integration`. Experimental / long-running tests live in `:test-experiments`
+(see split rules above).
+
 ```bash
-./gradlew :test-integration:test --tests '*DebuggerDemoTest.claude*'
-./gradlew :test-integration:test --tests '*DpaiaArenaTest*' -Darena.test.instanceId=dpaia__empty__maven__springboot3-3
+./gradlew :test-experiments:test --tests '*DebuggerDemoTest.claude*'
+./gradlew :test-experiments:test --tests '*DpaiaArenaTest*' -Darena.test.instanceId=dpaia__empty__maven__springboot3-3
 ```
 
 Key classes: `IdeContainer`, `ConsoleDriver`, `XcvbDriver`, `AiAgentDriver`, `ConsolePumpingContainerDriver`
@@ -240,9 +252,9 @@ Rendered as `[thinking] first-non-blank-line`.
 
 #### Integration Test Strategy
 
-- **ONLY 1 test-integration test at a time** — each test spins up a full Docker IntelliJ container. Running two simultaneously exhausts memory and CPU: the second IDE window never appears, containers get OOM-killed (exit 137), and both tests fail. Always wait for the current test to finish before starting another.
+- **ONLY 1 test-integration / test-experiments test at a time** — each test spins up a full Docker IntelliJ container. Running two simultaneously exhausts memory and CPU: the second IDE window never appears, containers get OOM-killed (exit 137), and both tests fail. Always wait for the current test to finish before starting another.
 - **Infrastructure failures are transient** — "Failed waiting for IntelliJ IDEA window" or "Failed waiting for Project import" are usually environment issues; retry individually with a cooldown
-- One-at-a-time run: `./gradlew :test-integration:test --tests '*DebuggerDemoTest.claude*'`
+- One-at-a-time run: `./gradlew :test-experiments:test --tests '*DebuggerDemoTest.claude*'`
 
 #### Forcing Agents to Output Required Data
 
@@ -392,6 +404,79 @@ Get services: `project.service<MyService>()` or `service<AppService>()`
 - Never catch `ProcessCanceledException` — rethrow it
 - Use `Logger.getInstance(MyClass::class.java)` for logging
 
+## Multi-Version Compatibility Strategy
+
+**Strategy: build against 253, run the same binary on 261 and 262.**
+
+The plugin is always compiled against IntelliJ 2025.3 (253). The same binary is then validated
+against newer IDE versions via two independent test suites:
+
+| Test | What it validates | How |
+|------|------------------|-----|
+| `PluginBuildCompatibilityTest` | Plugin **compiles** against newer SDKs | Docker + `./gradlew buildPlugin` with patched versions |
+| `PluginVerificationTest` | Built binary is **API-compatible** with newer IDEs | Docker + Plugin Verifier (`verifyPlugin`) |
+| `PluginRuntimeCompatibilityTest` | Plugin **runs** correctly in newer IDEs | Docker IDE container + MCP tool calls |
+
+The runtime test specifically exercises `list_windows` which triggers mcp-steroid#18
+(ClassCastException on the `kotlin.Pair` vs `c.i.o.u.Pair` type change in 262).
+
+### Build Compatibility Tests
+
+Docker-based tests that validate the plugin compiles against multiple IntelliJ Platform versions.
+Located in `test-experiments/.../PluginBuildCompatibilityTest.kt`.
+
+```bash
+# Run all build compat tests
+./gradlew :test-experiments:test --tests '*PluginBuildCompatibilityTest*'
+
+# Run specific version
+./gradlew :test-experiments:test --tests '*PluginBuildCompatibilityTest.build plugin with IntelliJ 2025_3*'
+```
+
+### How It Works
+
+Each test mounts the project read-only into a Docker container (`docker/build` image: Debian + JDK 21 + git),
+copies to a build dir, cleans with `git clean -fdx`, applies version patches via `sed`, then runs
+`./gradlew :ij-plugin:buildPlugin`. Persistent caches under `build/build-compat/` (Gradle home,
+`.intellijPlatform`) make re-runs fast.
+
+### Version Patches
+
+| Target IDE | Patches needed |
+|------------|---------------|
+| 2025.3 | None (project default) |
+| 2026.1 | Kotlin → 2.4.0-Beta1 (IDE bundles metadata 2.4.0) |
+| 262-SNAPSHOT | Kotlin → 2.4.0-Beta1 + plugin 2.14.0 + `useInstaller = false` + `nightly()` repo |
+
+### IntelliJ Platform Gradle Plugin — Snapshot Resolution
+
+The plugin (v2.11.0 in project, v2.14.0 latest) resolves IDEs in two modes:
+- **Installer mode** (`useInstaller = true`, default): Downloads `.zip`/`.dmg` from `download.jetbrains.com`. Works for releases only.
+- **Maven mode** (`useInstaller = false`): Resolves from Maven repos (`snapshots()`, `nightly()`). Required for snapshot/nightly versions.
+
+Nightly builds (`262-SNAPSHOT`) require:
+1. `nightly()` repo (`https://www.jetbrains.com/intellij-repository/nightly` — may require authentication/VPN; source: [Constants.kt#L250](https://github.com/JetBrains/intellij-platform-gradle-plugin/blob/12b993e2a56a66c6fdde72deb0bebb02a1635622/src/main/kotlin/org/jetbrains/intellij/platform/gradle/Constants.kt#L250))
+2. `useInstaller = false` (Maven resolution, not installer download)
+3. Plugin version ≥ 2.14.0 (v2.11.0 doesn't handle nightly snapshots correctly)
+
+Source: cloned at `~/Work/intellij-platform-gradle-plugin/` — key files:
+- `IntelliJPlatformDependenciesHelper.kt` — dependency resolution, `useInstaller` default
+- `IntelliJPlatformRepositoriesExtension.kt` — `nightly()` repo definition
+- `RequestedIntelliJPlatformsService.kt` — snapshot version pattern matching
+
+### Runtime Compatibility Tests
+
+Validates the 253-built plugin works when loaded into newer IDEs at runtime.
+Located in `test-experiments/.../PluginRuntimeCompatibilityTest.kt`.
+
+```bash
+./gradlew :test-experiments:test --tests '*PluginRuntimeCompatibilityTest*'
+```
+
+Each test starts a full IntelliJ IDE in Docker with the pre-built plugin installed,
+then calls `list_projects`, `list_windows`, and `execute_code` via MCP HTTP.
+The `list_windows` call exercises the code path affected by mcp-steroid#18.
+
 ## Plugin Deployment
 
 ```bash
@@ -450,7 +535,7 @@ stream, screenshot capture, and a loaded test project.
 
 | Test | IDE | Command |
 |------|-----|---------|
-| `RiderPlaygroundTest` | Rider (.NET) | `./gradlew :test-integration:test --tests '*RiderPlaygroundTest*' -Dtest.integration.ide.product=rider` |
+| `RiderPlaygroundTest` | Rider (.NET) | `./gradlew :test-experiments:test --tests '*RiderPlaygroundTest*' -Dtest.integration.ide.product=rider` |
 
 To create a playground for another IDE, copy `RiderPlaygroundTest.kt` and change `IdeProduct.Rider` to the desired product.
 
