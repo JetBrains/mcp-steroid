@@ -30,27 +30,40 @@ copy-root-files:
 	cp ../EULA static/EULA
 	cp ../LICENSE static/LICENSE
 
-# Update version in hugo.toml, generate version.json
+# Update version in hugo.toml, generate version.json (and updatePlugins.xml unless skipped).
+#
+# Set SKIP_RELEASE_LOOKUP=1 to skip the GitHub-release-dependent steps. The site renders
+# fine without updatePlugins.xml — that file is only consumed by the IDE's plugin
+# auto-update mechanism and is not part of the page itself. Used by CI environments
+# (TeamCity) that don't have a `gh` PAT provisioned.
 update-config: ensure-public-repo copy-root-files
 	@echo "Updating version to $(VERSION)"
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
 	@echo "Generating version.json"
 	@echo '{"version-base": "$(VERSION)"}' > static/version.json
-	@if [ -z "$(RELEASE_ZIP_URL)" ]; then echo "ERROR: Could not find release ZIP for version $(VERSION). Is 'gh' installed and the release published?" >&2; exit 1; fi
+ifndef SKIP_RELEASE_LOOKUP
+	@if [ -z "$(RELEASE_ZIP_URL)" ]; then echo "ERROR: Could not find release ZIP for version $(VERSION). Is 'gh' installed and the release published? (set SKIP_RELEASE_LOOKUP=1 to bypass)" >&2; exit 1; fi
 	@echo "Generating updatePlugins.xml (url: $(RELEASE_ZIP_URL))"
 	@./scripts/generate-update-plugins-xml.sh "$(VERSION)" "$(RELEASE_ZIP_URL)" > static/updatePlugins.xml
 	@xmllint --noout static/updatePlugins.xml 2>/dev/null && echo "updatePlugins.xml is valid XML" || echo "WARNING: xmllint not available, skipping XML validation"
+else
+	@echo "[skip] updatePlugins.xml generation (SKIP_RELEASE_LOOKUP=$(SKIP_RELEASE_LOOKUP))"
+endif
 	@mkdir -p mcp-steroid-public/mcp-steroid-plugin
 
 # Start development server with live reload
 dev: update-config
 	docker compose up dev
 
-# Build the site to mcp-steroid-public/mcp-steroid-plugin
+# Build the site to mcp-steroid-public/mcp-steroid-plugin.
+#
+# `--user` keeps the produced files owned by the invoking host user instead of root,
+# so subsequent runs (and TC's "git clean -fdx" between builds) can remove them
+# without privilege issues.
 build: update-config
 	@# Remove symlinks in output dir — they escape Docker mount boundary and break Hugo stat
 	@find mcp-steroid-public/mcp-steroid-plugin -type l -delete 2>/dev/null || true
-	docker compose run --rm build
+	docker compose run --rm --user "$$(id -u):$$(id -g)" build
 
 # Clean generated files (recreated by build)
 clean:
