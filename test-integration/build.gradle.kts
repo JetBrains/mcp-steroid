@@ -110,10 +110,13 @@ tasks.test {
     // Correct usage:
     //   ./gradlew :test-integration:test --tests '*EapSmokeTest*'
     //   ./gradlew :test-integration:testReleaseSmokeIdea
+    //   ./gradlew ciIntegrationTests                 (CI aggregator, see root build.gradle.kts)
     //
     // Experimental / long-running / API-key-heavy tests now live in :test-experiments.
-    onlyIf("Requires explicit :test-integration: task invocation — not for root aggregation") {
-        gradle.startParameter.taskNames.any { it.contains(":test-integration:") }
+    onlyIf("Requires explicit :test-integration: or ciIntegrationTests task invocation — not for root aggregation") {
+        val names = gradle.startParameter.taskNames
+        names.any { it.contains(":test-integration:") } ||
+            names.any { it == "ciIntegrationTests" || it.endsWith(":ciIntegrationTests") }
     }
 }
 

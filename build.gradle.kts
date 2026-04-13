@@ -265,3 +265,67 @@ val ciBuildPromptsTests by tasks.registering {
     }
     dependsOn(testTaskPaths)
 }
+
+/**
+ * Ordered list of Gradle task paths that make up the `ciIntegrationTests` aggregator.
+ *
+ * Kept in an explicit `List` (not a `Set`) so the declaration order is the execution
+ * order — cheapest first, heaviest last. Each entry is paired with its predecessor via
+ * `mustRunAfter` below, so Gradle serialises them even under `--parallel`.
+ *
+ * 1. `:test-helper:test`           — pure-test infrastructure (Docker reaper helpers,
+ *                                    agent-output-filter plumbing); no container boot.
+ * 2. `:ij-plugin:integrationTest`  — Docker CLI tests (Cli{Claude,Codex,Gemini}…).
+ *                                    Spins up agent-in-Docker; needs API keys.
+ * 3. `:test-integration:test`      — Docker IntelliJ smoke matrix (IntelliJContainer,
+ *                                    DialogKiller, WhatYouSee, PyCharm, EapSmoke…).
+ *                                    Spins up a full IDE container per test.
+ *
+ * CLAUDE.md warns: NEVER run two Docker-IDE tests concurrently — two IntelliJ
+ * containers exhaust RAM/CPU and both OOM. The mustRunAfter chain below is what
+ * enforces that for this aggregator.
+ */
+val ciIntegrationTestTaskPaths = listOf(
+    ":test-helper:test",
+    ":ij-plugin:integrationTest",
+    ":test-integration:test",
+)
+
+/**
+ * Aggregator that runs the integration-test suite end-to-end, strictly sequentially.
+ * The mirror image of [ciBuildPluginTests] on the integration-test side — one entry
+ * point TeamCity can invoke from a single `./gradlew ciIntegrationTests` step so the
+ * ordering rule lives in Gradle (where it belongs), not duplicated per CI system.
+ *
+ * Note: `:test-integration:test` has an `onlyIf` guard that normally skips it unless
+ * the task name contains `:test-integration:`. That guard is extended in
+ * `test-integration/build.gradle.kts` to also accept `ciIntegrationTests`, otherwise
+ * this aggregator would silently skip the heaviest step.
+ */
+val ciIntegrationTests by tasks.registering {
+    group = "ci"
+    description = "Run the integration-test suite in order: ${ciIntegrationTestTaskPaths.joinToString()}."
+    dependsOn(ciIntegrationTestTaskPaths)
+}
+
+/**
+ * Enforce strict ordering between the three steps. Configured inside
+ * `gradle.projectsEvaluated` because the tasks live in subprojects that are not yet
+ * evaluated when this script runs; `tasks.named(...)` on a not-yet-known task would
+ * fail eagerly otherwise.
+ *
+ * `mustRunAfter` is relative — it only takes effect when both tasks are in the graph,
+ * so adding it unconditionally here does NOT change behaviour for anyone running e.g.
+ * `./gradlew :ij-plugin:integrationTest` on its own.
+ */
+gradle.projectsEvaluated {
+    fun taskForPath(path: String): TaskProvider<Task> {
+        val projectPath = path.substringBeforeLast(":")
+        val taskName = path.substringAfterLast(":")
+        return project(projectPath).tasks.named(taskName)
+    }
+    ciIntegrationTestTaskPaths.zipWithNext().forEach { (earlier, later) ->
+        val earlierTask = taskForPath(earlier)
+        taskForPath(later).configure { mustRunAfter(earlierTask) }
+    }
+}

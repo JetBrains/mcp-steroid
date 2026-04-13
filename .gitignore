@@ -5,6 +5,8 @@
 *.kotlin_module
 build/
 
+.claude/scheduled_tasks.lock
+
 .worktrees/
 
 # IntelliJ IDEA
