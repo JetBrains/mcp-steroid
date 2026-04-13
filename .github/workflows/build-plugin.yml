@@ -44,9 +44,10 @@ jobs:
         run: |
           set -euo pipefail
           base="$(tr -d '[:space:]' < VERSION)"
+          prefix="${base%.*}"
           hash="$(git rev-parse --short HEAD)"
           counter="${{ github.run_number }}"
-          new_version="${base}-SNAPSHOT-GH-${counter}-${hash}"
+          new_version="${prefix}.${counter}-gh-${hash}"
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
           echo "Plugin build number: ${new_version}"
 

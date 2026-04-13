@@ -45,12 +45,20 @@ val providedBuildVersion: String? = providers.gradleProperty("mcp.build.version"
     .orNull?.trim()?.takeIf { it.isNotEmpty() }
 
 if (providedBuildVersion != null) {
+    // baseVersion comes from the VERSION file as MAJOR.MINOR.PATCH. The CI-computed
+    // version replaces the PATCH segment with the CI counter and adds the -<ci>-<hash>
+    // suffix — e.g. baseVersion=0.92.0 becomes 0.92.<counter>-jb-<hash>.
+    val baseVersionPrefix = baseVersion.substringBeforeLast('.', missingDelimiterValue = "").also {
+        require(it.isNotEmpty()) {
+            "VERSION file content '$baseVersion' must contain at least one '.' (e.g. MAJOR.MINOR.PATCH)"
+        }
+    }
     val expected = Regex(
-        "^" + Regex.escape(baseVersion) + "-SNAPSHOT-(GH|JB)-\\d+-" + Regex.escape(gitHash) + "$"
+        "^" + Regex.escape(baseVersionPrefix) + "\\.\\d+-(gh|jb)-" + Regex.escape(gitHash) + "$"
     )
     require(expected.matches(providedBuildVersion)) {
         "mcp.build.version='$providedBuildVersion' does not match expected format " +
-            "'${baseVersion}-SNAPSHOT-{GH|JB}-<counter>-${gitHash}'. " +
+            "'${baseVersionPrefix}.<counter>-(gh|jb)-${gitHash}'. " +
             "The build number must be composed upstream (GitHub Actions run_number or " +
             "TeamCity buildNumber service message) and passed in unchanged — this build " +
             "does not rewrite it."
