@@ -555,6 +555,20 @@ The "include every queued build in the body" part is not optional — omitting a
 causes TC to reject the request. Snapshot the queue immediately before the reorder POST to
 minimise the race window where another trigger enqueues a new build between steps 1 and 3.
 
+**Caveat for `buildserver.labs.intellij.net`**: at JB scale the queue typically contains several
+thousand builds, so the full-queue POST above hits a 1 MB+ request body and TeamCity rejects it
+with `HTTP 400`. The single-build `PUT /app/rest/buildQueue/id:<id>` with `{"queuePosition":"top"}`
+returns `HTTP 405` on this server build — there is no working REST path for "move this one to
+the top" in this environment. Two pragmatic options:
+
+1. Do it in the UI (the button exists on the build page and is O(1) on the server).
+2. Skip the reorder and rely on natural progression. `build number` is a thirty-second Docker
+   step so even starting at the tail of a large queue it's rarely the bottleneck; the time cost
+   lives in `build plugin` (which takes minutes to run anyway).
+
+When running from an agent, prefer option 2 and document the queued build IDs in the conversation
+so the user can click "Move to top" in the UI if immediate priority is needed.
+
 ## Website
 
 `website/` is a separate git repo clone (jonnyzzz/mcp-steroid public repo). It contains the Hugo site sources in `website/website/`. The `website/` folder is gitignored from the main repo.
