@@ -36,6 +36,15 @@
 | 6 | — | — | 117s | — | 47/47 | DpaiaJhipsterArenaTest post-refactor (JDK via API, 9-step flow) |
 | 7 | — | — | 133s | — | 47/47 | DpaiaArenaTest explicit @Test post-refactor |
 
+### feature-service-125 A/B comparison (harder case: 44KB, cross-layer, state machine)
+
+| Mode     | Fix? | Exit | Duration | Tool calls | Notes |
+|----------|------|------|----------|------------|-------|
+| claude+mcp  | YES  | 0    | 516s     | 4 steroid  | Implemented endpoints, state machine, migration, 25/25 tests |
+| claude+none | NO   | -1   | 900s     | 60+ bash/read, 0 writes | Timeout — only explored, never implemented |
+
+ProcessRunner timeout fix validated: agent killed at exactly 900s (previously ran 1941s / 32 min due to stuck I/O threads).
+
 ## Next: Redesign waitForProjectReady flow
 
 ### Problem

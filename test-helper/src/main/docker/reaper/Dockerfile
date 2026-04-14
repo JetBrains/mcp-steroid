@@ -1,4 +1,4 @@
-FROM registry.jetbrains.team/p/ij/docker-hub/docker:27-cli
+FROM docker:27-cli
 RUN apk add --no-cache socat
 COPY reaper.sh /reaper.sh
 RUN chmod +x /reaper.sh

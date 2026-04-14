@@ -1,4 +1,4 @@
-FROM registry.jetbrains.team/p/ij/docker-hub/debian:bookworm-slim
+FROM debian:bookworm-slim
 
 # Install Node.js 20 and Maven (for arena test projects that require mvn)
 RUN apt-get update && \

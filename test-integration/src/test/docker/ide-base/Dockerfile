@@ -1,4 +1,4 @@
-FROM registry.jetbrains.team/p/ij/docker-hub/debian:bookworm-slim
+FROM debian:bookworm-slim
 
 # Install system dependencies: Xvfb, window manager, fonts, utils
 RUN apt-get update && \
