@@ -256,10 +256,40 @@ private fun ensureNativeLibraries() {
             }
             System.setProperty("jna.library.path", updated)
 
-            // Also register with JNA's NativeLibrary so it uses LOAD_WITH_ALTERED_SEARCH_PATH
-            // which makes Windows search the DLL's own directory for transitive dependencies.
-            com.sun.jna.NativeLibrary.addSearchPath("libtesseract551", nativePath)
-            com.sun.jna.NativeLibrary.addSearchPath("libleptonica1850", nativePath)
+            // Pre-load ALL DLLs from native/ in dependency order BEFORE Tess4J's LoadLibs
+            // static initializer runs. Windows caches loaded DLLs by name — once loaded,
+            // subsequent LoadLibrary calls for the same DLL name return the cached handle.
+            // This ensures libleptonica1850.dll is already in the process when
+            // libtesseract551.dll is loaded and needs it as a dependency.
+            val dllLoadOrder = listOf(
+                // MSVC runtime (loaded first — everything depends on these)
+                "ucrtbase.dll", "vcruntime140.dll", "vcruntime140_1.dll",
+                "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+                "concrt140.dll", "vcomp140.dll",
+                // Leptonica (depends on MSVC runtime)
+                "libleptonica1850.dll",
+                // Tesseract (depends on leptonica + MSVC runtime)
+                "libtesseract551.dll",
+            )
+            for (dll in dllLoadOrder) {
+                val path = nativeDir.resolve(dll)
+                if (Files.exists(path)) {
+                    try {
+                        com.sun.jna.Native.load(
+                            path.toAbsolutePath().toString(),
+                            com.sun.jna.Library::class.java
+                        )
+                    } catch (_: Exception) {
+                        // Some DLLs may not be JNA-loadable directly; that's OK —
+                        // System.load works for raw DLLs (no JNI_OnLoad needed)
+                        try {
+                            System.load(path.toAbsolutePath().toString())
+                        } catch (_: Exception) {
+                            // Ignore — DLL may already be loaded or not needed
+                        }
+                    }
+                }
+            }
         }
         System.setProperty("jna.nosys", "true")
         return

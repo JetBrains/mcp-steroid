@@ -126,7 +126,18 @@ letter — 0 steroid_execute_code calls, using only native Read/Grep/Edit/Bash.
 - [x] Investigate why agent skipped MCP (root cause: prompt instruction)
 - [x] Deploy fresh plugin and verify MCP works locally
 - [x] Remove "skip steroid" instruction, add mandatory steroid calls
-- [ ] Re-run jhipster experiment to verify agent now uses MCP
+- [ ] Re-run jhipster experiment — 5 iterations to converge
+
+## Iteration Log (jhipster-3, Claude+MCP, mandatory steroid calls)
+
+| Iter | steroid calls | Agent time | Cost | Tests | Fix? | Notes |
+|------|--------------|------------|------|-------|------|-------|
+| 0 (baseline) | 0 | 117s | $0.53 | 47/47 | YES | Old prompt: "skip steroid" |
+| 1 | ? | ? | ? | ? | ? | New prompt: mandatory first+compile calls |
+| 2 | ? | ? | ? | ? | ? | |
+| 3 | ? | ? | ? | ? | ? | |
+| 4 | ? | ? | ? | ? | ? | |
+| 5 | ? | ? | ? | ? | ? | |
 
 ### Experiment: harder scenarios
 - [ ] `dpaia__feature__service-125` — 44KB patch, cross-layer JPQL (HIGH MCP benefit)
