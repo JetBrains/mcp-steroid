@@ -380,14 +380,15 @@ $roots
       </roots>
     </jdk>"""
 
-        // Note: apt package temurin-N-jdk creates /usr/lib/jvm/temurin-N-jdk-<arch>
-        // (not temurin-N-<arch>). The "jdk-" infix is required for paths to be valid.
+        // Note: apt package temurin-N-jdk creates /usr/lib/jvm/temurin-N-jdk-<arch>.
+        // Names use just the version number ("8", "11", "17", "21", "25") so that
+        // mcpSetupJdkAndWaitForImport can easily match by name.
         val entries = buildString {
-            appendLine(jdk8Entry("temurin-8-jdk-$temurinArch", "/usr/lib/jvm/temurin-8-jdk-$temurinArch"))
-            appendLine(jdk9PlusEntry("temurin-11-jdk-$temurinArch", "/usr/lib/jvm/temurin-11-jdk-$temurinArch", "java version \"11\""))
-            appendLine(jdk9PlusEntry("temurin-17-jdk-$temurinArch", "/usr/lib/jvm/temurin-17-jdk-$temurinArch", "java version \"17\""))
-            appendLine(jdk9PlusEntry("temurin-21-jdk-$temurinArch", "/usr/lib/jvm/temurin-21-jdk-$temurinArch", "java version \"21\""))
-            appendLine(jdk9PlusEntry("temurin-25-jdk-$temurinArch", "/usr/lib/jvm/temurin-25-jdk-$temurinArch", "java version \"25\""))
+            appendLine(jdk8Entry("8", "/usr/lib/jvm/temurin-8-jdk-$temurinArch"))
+            appendLine(jdk9PlusEntry("11", "/usr/lib/jvm/temurin-11-jdk-$temurinArch", "java version \"11\""))
+            appendLine(jdk9PlusEntry("17", "/usr/lib/jvm/temurin-17-jdk-$temurinArch", "java version \"17\""))
+            appendLine(jdk9PlusEntry("21", "/usr/lib/jvm/temurin-21-jdk-$temurinArch", "java version \"21\""))
+            appendLine(jdk9PlusEntry("25", "/usr/lib/jvm/temurin-25-jdk-$temurinArch", "java version \"25\""))
         }
 
         val xml = """<?xml version="1.0" encoding="UTF-8"?>

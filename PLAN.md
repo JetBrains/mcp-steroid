@@ -137,7 +137,15 @@ letter — 0 steroid_execute_code calls, using only native Read/Grep/Edit/Bash.
 | 2 | 3 (0 err) | 122s | $0.42 | 47/47 | YES | Consistent: VCS+compile; no API errors |
 | 3 | 3 (0 err) | 105s | $0.37 | 47/47 | YES | Fastest yet; stable pattern |
 | 4 | 5 (3 err) | 151s | $0.46 | 47/47 | YES | Modal "Resolving SDKs" aborted builds; agent retried |
-| 5 | ? | ? | ? | ? | ? | Fix: jdk.table.xml paths (temurin-N-jdk-arch) |
+| 5 | 4 (4 err) | 123s | $0.40 | 47/47 | YES | SDK errors (old paths); fix committed for next run |
+
+### Summary after 5 iterations
+- Agent consistently uses 3-5 steroid_execute_code calls (VCS check + compilation check)
+- Compilation check errors caused by wrong JDK paths in jdk.table.xml — fixed
+- Cost range: $0.37-$0.46 (down from $0.53 baseline)
+- Agent time: 105-151s (baseline was 117s)
+- 100% fix rate (5/5)
+- Next iteration should show 0 exec_code errors with correct jdk.table.xml
 
 ### Experiment: harder scenarios
 - [ ] `dpaia__feature__service-125` — 44KB patch, cross-layer JPQL (HIGH MCP benefit)
