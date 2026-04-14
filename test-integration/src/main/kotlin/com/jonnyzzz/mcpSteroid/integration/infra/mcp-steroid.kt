@@ -453,26 +453,29 @@ import com.intellij.ide.projectView.ProjectView
 import com.intellij.openapi.application.EDT
 import kotlinx.coroutines.withContext
 
-// 1. Open the configured file, or fall back to README.md / first source file.
+// 1. Open a file for agent orientation.
 // Use refreshAndFindFileByPath so VFS content is loaded from disk —
 // git clone happened outside IntelliJ's file watcher, so findFileByPath
 // may return a VirtualFile whose content cache is empty (black editor).
+// Skip files > 10 KB — large README.md files (e.g. JHipster) cause the
+// Markdown preview renderer to hang the IDE during startup.
 val basePath = project.basePath ?: ""
 val openFileRelPath: String? = $filePathLiteral
+val maxFileSize = 10_000L
 
 val fileToOpen = if (openFileRelPath != null) {
     val targetPath = "${'$'}basePath/${'$'}openFileRelPath"
     LocalFileSystem.getInstance().refreshAndFindFileByPath(targetPath)
 } else {
-    // Fallback: README.md or first .java/.kt source file
-    val readmePath = "${'$'}basePath/README.md"
-    val readmeFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(readmePath)
-    if (readmeFile != null && readmeFile.exists()) {
-        readmeFile
+    // Fallback chain: README.md (if small), then first small source file
+    val baseDir = java.io.File(basePath)
+    val readme = java.io.File(basePath, "README.md")
+    if (readme.exists() && readme.length() <= maxFileSize) {
+        LocalFileSystem.getInstance().refreshAndFindFileByPath(readme.absolutePath)
     } else {
-        val baseDir = java.io.File(basePath)
         val sourceFile = baseDir.walkTopDown()
-            .filter { it.isFile && (it.extension == "java" || it.extension == "kt") }
+            .filter { it.isFile && it.length() <= maxFileSize }
+            .filter { it.extension in listOf("java", "kt", "ts", "js") }
             .firstOrNull()
         if (sourceFile != null) {
             LocalFileSystem.getInstance().refreshAndFindFileByPath(sourceFile.absolutePath)
@@ -491,7 +494,18 @@ if (fileToOpen != null) {
     println("[UX-SETUP] No file found to open (configured=${'$'}openFileRelPath)")
 }
 
-// 2. Show Maven or Gradle tool window depending on what build file exists
+// 2. Show the Commit tool window (local changes) — more useful for agents than
+// the build tool window, and avoids the Markdown preview hang issue.
+withContext(Dispatchers.EDT) {
+    try {
+        ToolWindowManager.getInstance(project).getToolWindow("Commit")?.show()
+        println("[UX-SETUP] Commit tool window shown")
+    } catch (e: Exception) {
+        println("[UX-SETUP] Could not show Commit tool window: ${'$'}{e.message}")
+    }
+}
+
+// 3. Show Maven or Gradle tool window depending on what build file exists
 val pomFile = java.io.File(basePath, "pom.xml")
 val gradleFile = java.io.File(basePath, "build.gradle")
 val gradleKtsFile = java.io.File(basePath, "build.gradle.kts")

@@ -4,6 +4,10 @@ package com.jonnyzzz.mcpSteroid.server
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProgressModel
+import com.intellij.openapi.progress.TaskInfo
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.StatusBarEx
@@ -18,7 +22,9 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import javax.swing.SwingUtilities
+import kotlin.math.log
 
+private val log = logger<ListWindowsToolHandler>()
 /**
  * Handler for the steroid_list_windows MCP tool.
  */
@@ -65,10 +71,35 @@ suspend fun collectListWindowsResponse(): ListWindowsResponse {
                 val window = SwingUtilities.getWindowAncestor(component)
                 val bounds = window?.bounds
 
-                // Collect progress tasks from the status bar using new ProgressModel API
                 val statusBar = frame.statusBar as? StatusBarEx
                 statusBar?.let { bar ->
-                    val tasks = bar.backgroundProcessModels
+                    val tasks = try {
+                        val listOfAny: List<Any> = bar.backgroundProcessModels
+
+                        listOfAny.mapNotNull {
+                            // Collect progress tasks from the status bar.
+                            // Wrapped in try/catch because IntelliJ 262+ changed the return type of
+                            // StatusBarEx.backgroundProcessModels from List<c.i.o.u.Pair> to
+                            // List<kotlin.Pair>, causing ClassCastException when the plugin is built
+                            // against 253. See mcp-steroid#18.
+                            runCatching {
+                                val inner = it as com.intellij.openapi.util.Pair<*, *>
+                                return@mapNotNull inner.first to inner.second
+                            }
+                            runCatching {
+                                return@mapNotNull it as Pair<*, *>
+                            }
+                            null
+                        }.mapNotNull { (a, b) ->
+                            (a as? TaskInfo ?: return@mapNotNull null) to (b as? ProgressModel
+                                ?: return@mapNotNull null)
+                        }
+                    } catch (e: Throwable) {
+                        if (e is ControlFlowException) throw e
+                        log.warn("Failed to get list windows. Skipping. ${e.message}", e)
+                        listOf()
+                    }
+
                     tasks.forEach { pair ->
                         val taskInfo = pair.first
                         val progressModel = pair.second

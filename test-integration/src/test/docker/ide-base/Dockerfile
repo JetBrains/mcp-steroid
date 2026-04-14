@@ -86,6 +86,16 @@ https://download.docker.com/linux/debian bookworm stable" \
     apt-get install -y --no-install-recommends docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Chromium for puppeteer (used by JHipster and similar frontend projects).
+# puppeteer's built-in download does not support arm64; installing system chromium
+# and pointing PUPPETEER_EXECUTABLE_PATH at it avoids the "chromium binary is not
+# available for arm64" error during `npm install`.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends chromium && \
+    rm -rf /var/lib/apt/lists/*
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # Install AI agent CLIs for integration tests
 RUN npm install -g @anthropic-ai/claude-code
 RUN npm install -g @openai/codex

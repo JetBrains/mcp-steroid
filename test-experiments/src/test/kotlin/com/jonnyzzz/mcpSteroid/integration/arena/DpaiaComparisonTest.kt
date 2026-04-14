@@ -8,156 +8,155 @@ import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
-import com.jonnyzzz.mcpSteroid.testHelper.git.BareRepoCache
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.DynamicTest
-import org.junit.jupiter.api.TestFactory
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
 /**
  * A/B comparison test: "agent with MCP Steroid" vs "agent without MCP Steroid".
  *
- * Runs the same DPAIA arena cases twice — once with IntelliJ IDE tools available
- * via [AiMode.AI_MCP] and once without ([AiMode.NONE]) — then logs and compares outcomes.
- *
- * The goal is to show cases where MCP Steroid provides measurably better results:
- * - Agent with MCP: opens project in IDE, uses steroid_execute_code for navigation,
- *   compilation, and test running
- * - Agent without MCP: uses only bash/shell commands, mvn/gradle, and file tools
- *
- * Two shared containers are kept alive across all test cases:
- * - [sessionWithMcp]: IntelliJ + agents registered with MCP Steroid ([AiMode.AI_MCP])
- * - [sessionWithoutMcp]: IntelliJ running, agents have NO MCP registered ([AiMode.NONE])
- *
- * Test cases come from [DpaiaCuratedCases.PRIMARY_COMPARISON_CASES].
+ * Each test method starts a **fresh Docker container** so agents never see state
+ * left by a previous run. After all methods finish, [printComparisonTable] prints
+ * a side-by-side summary.
  *
  * **Run a specific subset:**
  * ```
- * -Dcomparison.test.cases=dpaia__spring__petclinic__rest-14,dpaia__feature__service-25
+ * -Dcomparison.test.cases=dpaia__spring__petclinic__rest-14
  * ```
  *
- * **Limit the number of cases:**
+ * **Run a single agent+mode:**
  * ```
- * -Dcomparison.test.maxCases=1
+ * --tests '*DpaiaComparisonTest.claude with mcp'
  * ```
  */
 class DpaiaComparisonTest {
 
-    @TestFactory
-    @Timeout(value = 30, unit = TimeUnit.MINUTES)
-    fun `comparison test cases`(): List<DynamicTest> {
+    // ── Claude ───────────────────────────────────────────────────────────────
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `claude with mcp`() {
+        runComparisonTest(agentName = "claude", withMcp = true)
+    }
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `claude without mcp`() {
+        runComparisonTest(agentName = "claude", withMcp = false)
+    }
+
+    // ── Codex ────────────────────────────────────────────────────────────────
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `codex with mcp`() {
+        runComparisonTest(agentName = "codex", withMcp = true)
+    }
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `codex without mcp`() {
+        runComparisonTest(agentName = "codex", withMcp = false)
+    }
+
+    // ── Gemini ───────────────────────────────────────────────────────────────
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `gemini with mcp`() {
+        runComparisonTest(agentName = "gemini", withMcp = true)
+    }
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `gemini without mcp`() {
+        runComparisonTest(agentName = "gemini", withMcp = false)
+    }
+
+    // ── Test execution ───────────────────────────────────────────────────────
+
+    private fun runComparisonTest(agentName: String, withMcp: Boolean) {
         val cases = selectTestCases()
-        println("[COMPARISON] Running ${cases.size} case(s) × 2 agents × 2 modes = ${cases.size * 4} dynamic tests")
+        for (testCase in cases) {
+            runSingleCase(testCase, agentName, withMcp)
+        }
+    }
 
-        // Pairs: agentName → (agentWithMcp, agentWithoutMcp)
-        val agentPairs = listOf(
-            "claude" to (sessionWithMcp.aiAgents.claude to sessionWithoutMcp.aiAgents.claude),
-            "codex"  to (sessionWithMcp.aiAgents.codex  to sessionWithoutMcp.aiAgents.codex),
-        )
+    private fun runSingleCase(testCase: DpaiaTestCase, agentName: String, withMcp: Boolean) {
+        val modeLabel = if (withMcp) "mcp" else "none"
+        val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]
+            ?: DpaiaCuratedCases.CaseConfig()
 
-        return cases.flatMap { testCase ->
-            agentPairs.flatMap { (agentName, pair) ->
-                val (agentWithMcp, agentWithoutMcp) = pair
-                listOf(
-                    DynamicTest.dynamicTest("[$agentName+mcp] ${testCase.instanceId}") {
-                        runComparisonTest(testCase, agentName, agentWithMcp, withMcp = true, sessionWithMcp)
-                    },
-                    DynamicTest.dynamicTest("[$agentName+none] ${testCase.instanceId}") {
-                        runComparisonTest(testCase, agentName, agentWithoutMcp, withMcp = false, sessionWithoutMcp)
-                    },
-                )
+        val lifetime = CloseableStackHost()
+        try {
+            val aiMode = if (withMcp) AiMode.AI_MCP else AiMode.NONE
+            val mcpMode = if (withMcp) null else McpConnectionMode.None
+
+            val session = IntelliJContainer.create(
+                lifetime,
+                consoleTitle = "comparison-${testCase.instanceId}-$agentName-$modeLabel",
+                aiMode = aiMode,
+                mcpConnectionMode = mcpMode,
+                mountDockerSocket = true,
+            ).waitForProjectReady(
+                timeoutMillis = caseConfig.projectReadyTimeoutMs,
+            )
+
+            val agent: AiAgentSession = when (agentName) {
+                "claude" -> session.aiAgents.claude
+                "codex" -> session.aiAgents.codex
+                "gemini" -> session.aiAgents.gemini
+                else -> error("Unknown agent: $agentName")
             }
+
+            val runner = ArenaTestRunner(
+                container = session.scope,
+                projectGuestDir = ARENA_WORKSPACE,
+            )
+
+            val result = runner.runTest(
+                testCase = testCase,
+                agent = agent,
+                withMcp = withMcp,
+                timeoutSeconds = caseConfig.agentTimeoutSeconds,
+            )
+
+            results.add(
+                RunRecord(
+                    instanceId = testCase.instanceId,
+                    agentName = agentName,
+                    withMcp = withMcp,
+                    exitCode = result.agentResult.exitCode,
+                    claimedFix = result.evaluation.agentClaimedFix,
+                    usedMcpSteroid = result.evaluation.usedMcpSteroid,
+                    summary = result.evaluation.agentSummary,
+                    agentDurationMs = result.agentDurationMs,
+                )
+            )
+
+            println("[COMPARISON] [$agentName+$modeLabel] ${testCase.instanceId} — " +
+                    "fix=${result.evaluation.agentClaimedFix}, " +
+                    "mcp=${result.evaluation.usedMcpSteroid}, " +
+                    "exit=${result.agentResult.exitCode}")
+
+            check(result.evaluation.agentExitedSuccessfully || result.evaluation.agentClaimedFix) {
+                "Agent [$agentName+$modeLabel] neither exited successfully nor claimed a fix " +
+                        "for ${testCase.instanceId}.\nOutput:\n${result.agentResult.stdout}"
+            }
+        } finally {
+            lifetime.closeAllStacks()
         }
     }
 
-    private fun runComparisonTest(
-        testCase: DpaiaTestCase,
-        agentName: String,
-        agent: AiAgentSession,
-        withMcp: Boolean,
-        session: IntelliJContainer,
-    ) {
-        val modeLabel = if (withMcp) "MCP" else "NONE"
-        println("[COMPARISON] ========================================")
-        println("[COMPARISON] Running: ${testCase.instanceId} [$agentName, $modeLabel]")
-        println("[COMPARISON] Repo: ${testCase.repo}")
-        println("[COMPARISON] Tags: ${testCase.tags}")
-        println("[COMPARISON] ========================================")
-
-        val runner = ArenaTestRunner(
-            container = session.scope,
-            projectGuestDir = ARENA_WORKSPACE,
-        )
-
-        val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId] ?: DpaiaCuratedCases.CaseConfig()
-        val result = runner.runTest(
-            testCase = testCase,
-            agent = agent,
-            withMcp = withMcp,
-            timeoutSeconds = caseConfig.agentTimeoutSeconds,
-        )
-
-        // Log both outcomes — the comparison value is in the printed metrics.
-        // Tests do not hard-fail here so both MCP and no-MCP results are always collected.
-        println("[COMPARISON] ========================================")
-        println("[COMPARISON] Result: ${testCase.instanceId} [$agentName, $modeLabel]")
-        println("[COMPARISON]   Exit code:    ${result.agentResult.exitCode}")
-        println("[COMPARISON]   Claimed fix:  ${result.evaluation.agentClaimedFix}")
-        println("[COMPARISON]   Used MCP:     ${result.evaluation.usedMcpSteroid}")
-        println("[COMPARISON]   Summary:      ${result.evaluation.agentSummary ?: "(none)"}")
-        println("[COMPARISON] ========================================")
-
-        // A pass requires the agent to have at minimum attempted a fix
-        check(result.evaluation.agentExitedSuccessfully || result.evaluation.agentClaimedFix) {
-            "Agent [$agentName, $modeLabel] neither exited successfully nor claimed a fix " +
-                    "for ${testCase.instanceId}.\nOutput:\n${result.agentResult.stdout}"
-        }
-    }
+    // ── Companion ────────────────────────────────────────────────────────────
 
     companion object {
         private const val DATASET_URL =
             "https://raw.githubusercontent.com/dpaia/ee-dataset/main/datasets/java-spring-ee-dataset.json"
 
-        /** Guest directory for cloned arena projects — separate from DpaiaArenaTest workspace. */
         private const val ARENA_WORKSPACE = "/home/agent/comparison-projects"
-
-        @JvmStatic
-        val lifetimeWithMcp by lazy { CloseableStackHost() }
-
-        @JvmStatic
-        val lifetimeWithoutMcp by lazy { CloseableStackHost() }
-
-        /**
-         * Maximum project-ready timeout across all configured cases.
-         * Ensures the IDE startup wait covers the slowest case (e.g. microshop-18 with 20-min timeout).
-         */
-        private val maxProjectReadyTimeoutMs: Long =
-            DpaiaCuratedCases.PRIMARY_COMPARISON_CASES.maxOf { id ->
-                DpaiaCuratedCases.CASE_CONFIGS[id]?.projectReadyTimeoutMs
-                    ?: DpaiaCuratedCases.CaseConfig().projectReadyTimeoutMs
-            }
-
-        /** Container where agents connect to MCP Steroid via HTTP. */
-        val sessionWithMcp by lazy {
-            IntelliJContainer.create(
-                lifetimeWithMcp,
-                consoleTitle = "comparison-mcp",
-                aiMode = AiMode.AI_MCP,
-                mountDockerSocket = true,
-            ).waitForProjectReady(timeoutMillis = maxProjectReadyTimeoutMs)
-        }
-
-        /** Container where agents have NO MCP Steroid — baseline/control group. */
-        val sessionWithoutMcp by lazy {
-            IntelliJContainer.create(
-                lifetimeWithoutMcp,
-                consoleTitle = "comparison-none",
-                mcpConnectionMode = McpConnectionMode.None,
-                mountDockerSocket = true,
-            ).waitForProjectReady(timeoutMillis = maxProjectReadyTimeoutMs)
-        }
 
         private val dataset by lazy {
             println("[COMPARISON] Downloading dataset from $DATASET_URL ...")
@@ -177,24 +176,44 @@ class DpaiaComparisonTest {
             return ids.take(maxCases).map { id -> DpaiaDatasetLoader.findById(dataset, id) }
         }
 
-        @JvmStatic
-        @BeforeAll
-        fun beforeAll() {
-            // Warm bare repo cache on the host before containers start
-            val cacheDir = IdeTestFolders.repoCacheDirOrNull
-            if (cacheDir != null) {
-                BareRepoCache.warmDpaiaRepos(cacheDir)
-            }
-            // Initialize both sessions so they are ready before tests run
-            sessionWithMcp.toString()
-            sessionWithoutMcp.toString()
-        }
+        val results = CopyOnWriteArrayList<RunRecord>()
 
         @JvmStatic
         @AfterAll
-        fun tearDown() {
-            lifetimeWithMcp.closeAllStacks()
-            lifetimeWithoutMcp.closeAllStacks()
+        fun printComparisonTable() {
+            if (results.isEmpty()) {
+                println("[COMPARISON] No results to compare.")
+                return
+            }
+
+            println()
+            println("╔════════════════════════════════════════════════════════════════════════════════╗")
+            println("║                      COMPARISON TABLE                                         ║")
+            println("╠════════════════════════════════════════════════════════════════════════════════╣")
+            println("║ Instance                          │ Agent+Mode      │ Fix? │ Exit │ Duration  ║")
+            println("╠════════════════════════════════════════════════════════════════════════════════╣")
+            for (r in results.sortedWith(compareBy({ it.instanceId }, { it.agentName }, { !it.withMcp }))) {
+                val instance = r.instanceId.takeLast(33).padEnd(33)
+                val mode = if (r.withMcp) "mcp " else "none"
+                val label = "${r.agentName}+$mode".padEnd(15)
+                val fix = if (r.claimedFix) " YES" else "  NO"
+                val exit = (r.exitCode?.toString() ?: "?").padStart(4)
+                val dur = "${r.agentDurationMs / 1000}s".padStart(9)
+                println("║ $instance │ $label │ $fix │ $exit │ $dur ║")
+            }
+            println("╚════════════════════════════════════════════════════════════════════════════════╝")
+            println()
         }
     }
+
+    data class RunRecord(
+        val instanceId: String,
+        val agentName: String,
+        val withMcp: Boolean,
+        val exitCode: Int?,
+        val claimedFix: Boolean,
+        val usedMcpSteroid: Boolean,
+        val summary: String?,
+        val agentDurationMs: Long,
+    )
 }
