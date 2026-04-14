@@ -11,6 +11,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.SystemInfoRt
 import com.jonnyzzz.mcpSteroid.PluginDescriptorProvider
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -45,7 +46,17 @@ class OcrProcessClient {
         Files.writeString(argFile, args.joinToString("\n"), StandardCharsets.UTF_8)
 
         val commandLine = if (SystemInfoRt.isWindows) {
-            GeneralCommandLine("cmd.exe", "/c", executable.path.toString())
+            // On Windows, the generated .bat wrapper expands CLASSPATH with long absolute paths
+            // that exceed cmd.exe's 8191-char limit. Bypass the wrapper and invoke java directly
+            // with a wildcard classpath.
+            val javaHome = System.getProperty("java.home")
+            val javaExe = Path.of(javaHome, "bin", "java.exe")
+            val libDir = executable.root.resolve("lib")
+            GeneralCommandLine(
+                javaExe.toString(),
+                "-cp", "${libDir.toAbsolutePath()}${File.separator}*",
+                "com.jonnyzzz.mcpSteroid.ocr.app.OcrCliKt",
+            )
         } else {
             GeneralCommandLine(executable.path.toString())
         }

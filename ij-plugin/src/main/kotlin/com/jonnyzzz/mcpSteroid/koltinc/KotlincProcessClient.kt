@@ -23,15 +23,22 @@ class KotlincProcessClient {
 
     fun kotlinc(args: List<String>, workingDir: Path? = null): ProcessOutput {
         val executable = resolveExecutable()
+
+        // Always use an argfile to avoid "Command is too long" on Windows.
+        // kotlinc natively supports @argfile. Write to a temp file under the working dir.
+        val effectiveWorkDir = workingDir ?: executable.root
+        val argFile = Files.createTempFile(effectiveWorkDir, "kotlinc-", ".args")
+        writeKotlincArgFile(argFile, args)
+
         val commandLine = if (SystemInfoRt.isWindows) {
             GeneralCommandLine("cmd.exe", "/c", executable.path.toString())
         } else {
             GeneralCommandLine(executable.path.toString())
         }
 
-        commandLine.withParameters(args)
+        commandLine.withParameters("@${argFile.toAbsolutePath()}")
             .withCharset(StandardCharsets.UTF_8)
-            .withWorkDirectory((workingDir ?: executable.root).toFile())
+            .withWorkDirectory(effectiveWorkDir.toFile())
 
         commandLine.withEnvironment("JAVA_HOME", System.getProperty("java.home"))
         commandLine.withEnvironment("KOTLIN_HOME", executable.root.toString())
