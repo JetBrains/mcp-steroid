@@ -246,13 +246,20 @@ private fun ensureNativeLibraries() {
         val appRoot = findAppRoot()
         val nativeDir = appRoot.resolve("native")
         if (Files.isDirectory(nativeDir)) {
+            val nativePath = nativeDir.toAbsolutePath().toString()
+            // Set jna.library.path for JNA library search
             val existing = System.getProperty("jna.library.path").orEmpty()
             val updated = if (existing.isNotBlank()) {
-                "${nativeDir}${File.pathSeparator}$existing"
+                "$nativePath${File.pathSeparator}$existing"
             } else {
-                nativeDir.toString()
+                nativePath
             }
             System.setProperty("jna.library.path", updated)
+
+            // Also register with JNA's NativeLibrary so it uses LOAD_WITH_ALTERED_SEARCH_PATH
+            // which makes Windows search the DLL's own directory for transitive dependencies.
+            com.sun.jna.NativeLibrary.addSearchPath("libtesseract551", nativePath)
+            com.sun.jna.NativeLibrary.addSearchPath("libleptonica1850", nativePath)
         }
         System.setProperty("jna.nosys", "true")
         return

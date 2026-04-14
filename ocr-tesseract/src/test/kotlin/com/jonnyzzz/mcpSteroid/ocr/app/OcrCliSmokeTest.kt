@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.ocr.app
 import com.jonnyzzz.mcpSteroid.ocr.OcrResult
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
+import java.io.File
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
@@ -88,6 +89,13 @@ class OcrCliSmokeTest {
             .directory(installDir.toFile())
             .redirectErrorStream(false)
         pb.environment()["JAVA_HOME"] = System.getProperty("java.home")
+        // On Windows, add native/ to PATH so LoadLibrary() finds transitive DLL
+        // dependencies (libleptonica1850.dll, MSVC runtime) when loading libtesseract551.dll.
+        val nativeDir = installDir.resolve("native")
+        if (Files.isDirectory(nativeDir)) {
+            val path = pb.environment().getOrDefault("PATH", "")
+            pb.environment()["PATH"] = "${nativeDir.toAbsolutePath()}${File.pathSeparator}$path"
+        }
 
         val process = pb.start()
         val stdout = process.inputStream.bufferedReader().readText()
