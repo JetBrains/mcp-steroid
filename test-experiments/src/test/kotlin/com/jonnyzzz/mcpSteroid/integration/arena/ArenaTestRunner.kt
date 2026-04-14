@@ -105,6 +105,23 @@ class ArenaTestRunner(
             appendLine()
         }
 
+        // Include the test patch so the agent immediately sees what changed
+        // without needing a VCS check or file read on the first turn.
+        if (testCase.testPatch.isNotBlank()) {
+            appendLine("### Test Patch (already applied — these tests define expected behavior)")
+            appendLine("```diff")
+            // Truncate very large patches to avoid blowing up the prompt
+            val patchLines = testCase.testPatch.lines()
+            if (patchLines.size <= 200) {
+                appendLine(testCase.testPatch)
+            } else {
+                appendLine(patchLines.take(200).joinToString("\n"))
+                appendLine("... (${patchLines.size - 200} more lines truncated)")
+            }
+            appendLine("```")
+            appendLine()
+        }
+
         if (testCase.passToPass.isNotEmpty()) {
             appendLine("### PASS_TO_PASS")
             for (test in testCase.passToPass) {

@@ -69,8 +69,11 @@ ARG CACHE_BUST=1
 # Set Java 21 as the default JAVA_HOME (arch-agnostic symlink).
 # Java 25 (the newest installed JDK) is not compatible with Groovy 2.x DSL
 # used by some arena projects (e.g. microshop-18). Java 21 is LTS and widely supported.
+# Note: apt package creates temurin-21-jdk-<arch>, not temurin-21-<arch>.
+# The Maven wrapper validates JAVA_HOME/bin/java exists and does NOT follow symlinks,
+# so the symlink target must be the exact directory name from the apt package.
 RUN ARCH=$(dpkg --print-architecture) && \
-    ln -sfn /usr/lib/jvm/temurin-21-${ARCH} /usr/lib/jvm/java-21-default
+    ln -sfn /usr/lib/jvm/temurin-21-jdk-${ARCH} /usr/lib/jvm/java-21-default
 ENV JAVA_HOME=/usr/lib/jvm/java-21-default
 
 # Install Docker CLI for Testcontainers (Docker-in-Docker) support.
