@@ -251,9 +251,37 @@ private fun ensureNativeLibraries() {
     // Tess4J/Lept4J look for unversioned sonames, while JavaCPP provides only versioned files.
     // Create local aliases in JavaCPP cache dirs so JNA binds to matching bundled natives.
     if (isWindows) {
-        ensureLibraryAlias(leptonicaLibDir, "leptonica.dll", leptonicaVersionedLib)
-        ensureLibraryAlias(leptonicaLibDir, "lept.dll", leptonicaVersionedLib)
-        ensureLibraryAlias(tesseractLibDir, "tesseract.dll", tesseractVersionedLib)
+        // On Windows, DLLs have transitive dependencies (libtesseract55.dll depends on
+        // libleptonica.dll which depends on GCC runtime DLLs like libgcc_s_seh-1.dll).
+        // Windows DLL loader only searches the directory of the DLL being loaded + PATH.
+        // JavaCPP extracts leptonica and tesseract to SEPARATE cache directories, so the
+        // Windows DLL loader can't find cross-directory dependencies.
+        //
+        // Fix: copy ALL DLLs from both cache directories into a single merged directory
+        // so transitive dependencies resolve correctly.
+        val mergedDir = Files.createTempDirectory("ocr-native-merged")
+        for (dir in listOf(leptonicaLibDir, tesseractLibDir)) {
+            Files.list(dir).use { stream ->
+                stream.filter { it.fileName.toString().endsWith(".dll") }
+                    .forEach { dll ->
+                        val target = mergedDir.resolve(dll.fileName)
+                        if (!Files.exists(target)) {
+                            Files.copy(dll, target, StandardCopyOption.REPLACE_EXISTING)
+                        }
+                    }
+            }
+        }
+        // Create unversioned aliases that Tess4J/JNA expects
+        ensureLibraryAlias(mergedDir, "leptonica.dll", leptonicaVersionedLib)
+        ensureLibraryAlias(mergedDir, "lept.dll", leptonicaVersionedLib)
+        ensureLibraryAlias(mergedDir, "tesseract.dll", tesseractVersionedLib)
+
+        val existing = System.getProperty("jna.library.path").orEmpty()
+        val updated = buildList {
+            add(mergedDir.toString())
+            if (existing.isNotBlank()) add(existing)
+        }.joinToString(File.pathSeparator)
+        System.setProperty("jna.library.path", updated)
     } else {
         ensureLibraryAlias(leptonicaLibDir, "libleptonica.so", leptonicaVersionedLib)
         ensureLibraryAlias(leptonicaLibDir, "liblept.so", leptonicaVersionedLib)
@@ -261,16 +289,16 @@ private fun ensureNativeLibraries() {
         ensureLibraryAlias(leptonicaLibDir, "libleptonica.dylib", leptonicaVersionedLib)
         ensureLibraryAlias(tesseractLibDir, "libtesseract.so", tesseractVersionedLib)
         ensureLibraryAlias(tesseractLibDir, "libtesseract.dylib", tesseractVersionedLib)
+
+        val existing = System.getProperty("jna.library.path").orEmpty()
+        val updated = buildList {
+            add(leptonicaLibDir.toString())
+            add(tesseractLibDir.toString())
+            if (existing.isNotBlank()) add(existing)
+        }.joinToString(File.pathSeparator)
+        System.setProperty("jna.library.path", updated)
     }
 
-    val existing = System.getProperty("jna.library.path").orEmpty()
-    val updated = buildList {
-        add(leptonicaLibDir.toString())
-        add(tesseractLibDir.toString())
-        if (existing.isNotBlank()) add(existing)
-    }.joinToString(File.pathSeparator)
-
-    System.setProperty("jna.library.path", updated)
     System.setProperty("jna.nosys", "true")
 }
 

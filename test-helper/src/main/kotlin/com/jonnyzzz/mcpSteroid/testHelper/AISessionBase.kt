@@ -67,8 +67,10 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
 
         // On TeamCity, skip the test instead of failing the build — allows CI to
         // proceed when a key (e.g. GEMINI_API_KEY) hasn't been configured yet.
+        // Use JUnit 4's AssumptionViolatedException which is recognized by both
+        // JUnit 4 (BasePlatformTestCase) and JUnit 5 Platform as a skip signal.
         if (System.getenv("TEAMCITY_VERSION") != null) {
-            throw org.opentest4j.TestAbortedException(message)
+            throw org.junit.AssumptionViolatedException(message)
         }
 
         error(message)
