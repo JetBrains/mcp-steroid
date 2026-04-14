@@ -8,8 +8,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
-import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
-import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
+import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
@@ -91,35 +90,11 @@ class DpaiaJhipsterArenaTest {
                 mountDockerSocket = true,
             ).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
+                buildSystem = BuildSystem.MAVEN,
+                compileProject = true,
             )
 
             val ideProjectDir = session.intellijDriver.getGuestProjectDir()
-
-            // ── Prewarm: compile Maven project (NOT counted in agent timer) ─────
-            // This compiles Java sources and runs frontend-maven-plugin (npm install + webapp build).
-            // After this, the agent can run tests immediately without waiting for compilation.
-            // Find the real JDK 21 path inside the container.
-            // The java-21-default symlink may not resolve correctly with mvnw, and the apt
-            // package name includes arch suffix (temurin-21-jdk-arm64/amd64).
-            val javaHome = session.scope.startProcessInContainer {
-                this.args("ls", "-d", "/usr/lib/jvm/temurin-21-*")
-                    .timeoutSeconds(5)
-                    .description("Find JDK 21 path")
-            }.awaitForProcessFinish().stdout.trim().lines().first()
-            println("[ARENA] Resolved JAVA_HOME=$javaHome")
-
-            println("[ARENA] Prewarming: ./mvnw compile -DskipTests ...")
-            val prewarmStart = System.currentTimeMillis()
-            session.scope.startProcessInContainer {
-                this
-                    .args("./mvnw", "compile", "-DskipTests", "-Dspotless.check.skip=true", "-B", "-q")
-                    .workingDirInContainer(ideProjectDir)
-                    .addEnv("JAVA_HOME", javaHome)
-                    .timeoutSeconds(600)
-                    .description("Maven compile prewarm for ${testCase.instanceId}")
-            }.assertExitCode(0) { "Maven compile prewarm failed for ${testCase.instanceId}" }
-            val prewarmMs = System.currentTimeMillis() - prewarmStart
-            println("[ARENA] Prewarm complete in ${prewarmMs / 1000}s")
 
             // ── Agent run (TIMED) ────────────────────────────────────────────────
             val agent = session.aiAgents.claude
@@ -145,7 +120,7 @@ class DpaiaJhipsterArenaTest {
                 instanceId = testCase.instanceId,
                 withMcp = withMcp,
                 agentDurationMs = result.agentDurationMs,
-                prewarmMs = prewarmMs,
+                prewarmMs = 0L, // Prewarm is now inside waitForProjectReady
                 exitCode = result.agentResult.exitCode,
                 claimedFix = result.evaluation.agentClaimedFix,
                 usedMcpSteroid = result.evaluation.usedMcpSteroid,

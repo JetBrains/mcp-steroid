@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
+import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeTestFolders
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
@@ -110,6 +111,12 @@ class DpaiaArenaTest {
                 mountDockerSocket = true,
             ).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
+                buildSystem = when (testCase.buildSystem) {
+                    "maven" -> BuildSystem.MAVEN
+                    "gradle" -> BuildSystem.GRADLE
+                    else -> BuildSystem.NONE
+                },
+                compileProject = true,
             )
 
             val agent: AiAgentSession = when (agentName) {

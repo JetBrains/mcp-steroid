@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
+import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeTestFolders
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
@@ -102,6 +103,7 @@ class DpaiaComparisonTest {
                 mountDockerSocket = true,
             ).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
+                buildSystem = BuildSystem.NONE,
             )
 
             val agent: AiAgentSession = when (agentName) {

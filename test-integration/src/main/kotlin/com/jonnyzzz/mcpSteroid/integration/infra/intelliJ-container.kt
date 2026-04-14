@@ -98,15 +98,96 @@ class IntelliJContainer(
      * When a modal dialog is detected (e.g. NewUI Onboarding in IntelliJ 2025.3.3+),
      * actively kills it via steroid_execute_code so Gradle import can proceed.
      */
+    /**
+     * Wait for the project to be fully ready for agent work.
+     *
+     * Ordered steps:
+     * 1. Wait for IDE window (projectInitialized=true, indexingInProgress=false)
+     * 2. Reposition IDE window
+     * 3. Register JDKs via IntelliJ API (earliest possible — before any import)
+     * 4. Set project SDK (parameter-driven, skip for Rider/.NET)
+     * 5. Trigger build tool import (Maven/Gradle/NONE)
+     * 6. Wait for import + indexing to complete
+     * 7. Install IDE plugins (after import so dependency detection works)
+     * 8. Compile project (testClasses/test-compile) — optional
+     * 9. Open file + show tool windows
+     *
+     * @param timeoutMillis Max time for initial IDE window wait
+     * @param projectJdkVersion JDK version to set as project SDK ("21", "17", etc.), null = skip
+     * @param buildSystem Build system for import/compile. NONE = IntelliJ auto-detect only
+     * @param compileProject Whether to run compilation (testClasses/test-compile) before returning
+     */
     fun waitForProjectReady(
         timeoutMillis: Long = System.getProperty("test.integration.project.ready.timeout.ms")?.toLongOrNull() ?: 600_000L,
         pollIntervalMillis: Long = 1_000L,
         requireIndexingComplete: Boolean = true,
         performPostSetup: Boolean = true,
+        projectJdkVersion: String? = "21",
+        buildSystem: BuildSystem = BuildSystem.NONE,
+        compileProject: Boolean = false,
     ) : IntelliJContainer {
+        // Step 1: Wait for IDE window
         val waitLabel = if (requireIndexingComplete) "project import and indexing" else "project initialization"
-        console.writeStep(0, "Waiting for $waitLabel...")
+        console.writeStep(1, "Waiting for $waitLabel...")
         val guestProjectDir = intellijDriver.getGuestProjectDir()
+        waitForIdeWindow(guestProjectDir, timeoutMillis, pollIntervalMillis, requireIndexingComplete, waitLabel)
+
+        if (!performPostSetup) return this
+
+        // Step 2: Reposition IDE window
+        console.writeStep(2, "Applying IDE window layout...")
+        repositionIdeWindow()
+        console.writeSuccess("Window layout applied")
+
+        // Step 3: Register JDKs (earliest — before any import)
+        if (projectJdkVersion != null) {
+            console.writeStep(3, "Registering JDKs via IntelliJ API...")
+            mcpSteroid.mcpRegisterJdks(guestProjectDir)
+            console.writeSuccess("JDK registration complete")
+
+            // Step 4: Set project SDK
+            console.writeStep(4, "Setting project SDK to JDK $projectJdkVersion...")
+            mcpSteroid.mcpSetProjectSdk(guestProjectDir, projectJdkVersion)
+            console.writeSuccess("Project SDK set to $projectJdkVersion")
+        } else {
+            console.writeStep(3, "Skipping JDK setup (projectJdkVersion=null)")
+        }
+
+        // Step 5+6: Trigger import and wait for completion
+        console.writeStep(5, "Triggering $buildSystem import and waiting...")
+        mcpSteroid.mcpTriggerImportAndWait(guestProjectDir, buildSystem)
+        console.writeSuccess("Import + indexing complete")
+
+        // Step 7: Install IDE plugins
+        console.writeStep(7, "Installing required IDE plugins...")
+        mcpSteroid.mcpInstallRequiredPlugins(guestProjectDir)
+        console.writeSuccess("Plugin installation complete")
+
+        // Step 8: Compile project (optional)
+        if (compileProject) {
+            console.writeStep(8, "Compiling project ($buildSystem)...")
+            mcpSteroid.mcpCompileProject(guestProjectDir, buildSystem)
+            console.writeSuccess("Compilation complete")
+        }
+
+        // Step 9: Open file + show tool windows
+        console.writeStep(9, "Opening project file and build tool window...")
+        mcpSteroid.mcpOpenFileAndBuildToolWindow(guestProjectDir, openFileOnStart)
+        console.writeSuccess("Project UX ready")
+
+        return this
+    }
+
+    /**
+     * Poll for IDE window readiness (extracted from the old waitForProjectReady).
+     */
+    private fun waitForIdeWindow(
+        guestProjectDir: String,
+        timeoutMillis: Long,
+        pollIntervalMillis: Long,
+        requireIndexingComplete: Boolean,
+        waitLabel: String,
+    ) {
         var lastDialogKillMs = 0L
         val startedAt = System.currentTimeMillis()
         var lastStatus = "no project windows found"
@@ -169,39 +250,6 @@ class IntelliJContainer(
             "Failed waiting for $waitLabel after ${elapsed}ms. " +
                     problemDetailsWithScreenshot("Last status: $lastStatus")
         }
-
-        if (!performPostSetup) return this
-
-        // Re-apply IDE window layout as early as possible: IntelliJ restores its own saved window
-        // bounds during project import/indexing, overriding the initial xdotool positioning.
-        // Apply immediately after indexing so the IDE is correctly positioned before any further
-        // setup steps (plugin install, JDK setup, README open) which can take several minutes.
-        console.writeStep(0, "Applying IDE window layout...")
-        repositionIdeWindow()
-        console.writeSuccess("Window layout applied")
-
-        // Install required IDE plugins (e.g. Kafka) detected from project dependencies.
-        // Must happen before JDK/Maven setup so Maven re-sync benefits from fresh plugin support.
-        console.writeStep(0, "Installing required IDE plugins...")
-        mcpSteroid.mcpInstallRequiredPlugins(guestProjectDir)
-        console.writeSuccess("Plugin installation complete")
-
-        // Set up project JDK (if missing) and wait for Maven/Gradle sync to finish.
-        // No-op when JDK is already set and no import is pending.
-        // For Rider: the JavaSdk import will fail to compile, but the try/catch in
-        // mcpSetupJdkAndWaitForImport handles this gracefully. Rider handles NuGet
-        // restore during its own indexing phase — no JDK setup is needed.
-        console.writeStep(0, "Configuring project JDK and waiting for build tool sync...")
-        mcpSteroid.mcpSetupJdkAndWaitForImport(guestProjectDir)
-        console.writeSuccess("Build tool sync complete")
-
-        // Open the configured file (or README.md fallback) and show build tool window so agents
-        // can orient themselves from the IDE view immediately.
-        console.writeStep(0, "Opening project file and build tool window...")
-        mcpSteroid.mcpOpenFileAndBuildToolWindow(guestProjectDir, openFileOnStart)
-        console.writeSuccess("Project UX ready")
-
-        return this
     }
 
     /**

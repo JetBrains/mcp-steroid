@@ -10,6 +10,13 @@ import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResultValue
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import kotlinx.serialization.json.*
 
+/** Build system type for project setup. Must be specified explicitly per test. */
+enum class BuildSystem {
+    MAVEN,
+    GRADLE,
+    NONE,
+}
+
 data class McpProjectInfo(
     val name: String,
     val path: String,
@@ -414,6 +421,51 @@ println("[JDK-REGISTER] Newly registered: ${"\$"}registered")
         }
     }
 
+    /**
+     * Set the project SDK to a registered JDK by version name (e.g. "21", "17").
+     * JDKs must have been registered first via [mcpRegisterJdks].
+     */
+    fun mcpSetProjectSdk(projectPath: String, jdkVersion: String) {
+        val projectName = resolveProjectName(projectPath) ?: return
+
+        val code = """
+import com.intellij.openapi.projectRoots.JavaSdk
+import com.intellij.openapi.projectRoots.ProjectJdkTable
+import com.intellij.openapi.projectRoots.ex.JavaSdkUtil
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.application.edtWriteAction
+
+val currentSdk = ProjectRootManager.getInstance(project).projectSdk
+if (currentSdk != null) {
+    println("[SDK] Project SDK already set: ${'$'}{currentSdk.name}")
+} else {
+    val javaSdks = ProjectJdkTable.getInstance().getSdksOfType(JavaSdk.getInstance())
+    println("[SDK] Available SDKs: ${'$'}{javaSdks.map { it.name }}")
+    val sdk = javaSdks.firstOrNull { it.name == "$jdkVersion" }
+        ?: javaSdks.firstOrNull { it.name.contains("$jdkVersion") }
+    if (sdk != null) {
+        println("[SDK] Applying SDK: ${'$'}{sdk.name} at ${'$'}{sdk.homePath}")
+        edtWriteAction { JavaSdkUtil.applyJdkToProject(project, sdk) }
+    } else {
+        println("[SDK] WARNING: No SDK matching version $jdkVersion found")
+    }
+}
+"done"
+""".trimIndent()
+
+        try {
+            mcpExecuteCode(
+                code = code,
+                projectName = projectName,
+                reason = "Set project SDK to JDK $jdkVersion",
+                timeout = 30,
+            )
+        } catch (e: Exception) {
+            println("[SDK] Warning: Project SDK setup failed: ${e.message}")
+        }
+    }
+
+    @Deprecated("Use mcpRegisterJdks + mcpSetProjectSdk + mcpTriggerImportAndWait separately")
     fun mcpSetupJdkAndWaitForImport(projectPath: String) {
         val projectName = resolveProjectName(projectPath) ?: return
 
@@ -500,6 +552,115 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
             println("[MCP] Project not found for path $projectPath — skipping")
         }
         return projectName
+    }
+
+    /**
+     * Trigger Maven or Gradle import and wait for it to complete.
+     *
+     * For Maven: calls `forceUpdateAllProjectsOrFindAllAvailablePomFiles()`
+     * For Gradle: relies on IntelliJ auto-import (triggered by project open)
+     * For NONE: only waits for `Observation.awaitConfiguration`
+     *
+     * Waits via `Observation.awaitConfiguration(project)` + `waitForSmartMode()`.
+     */
+    fun mcpTriggerImportAndWait(projectPath: String, buildSystem: BuildSystem) {
+        val projectName = resolveProjectName(projectPath) ?: return
+
+        val triggerCode = when (buildSystem) {
+            BuildSystem.MAVEN -> """
+                try {
+                    println("[IMPORT] Triggering Maven import...")
+                    org.jetbrains.idea.maven.project.MavenProjectsManager.getInstance(project)
+                        .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                    kotlinx.coroutines.delay(2_000L)
+                } catch (e: Exception) {
+                    println("[IMPORT] Maven trigger failed: ${'$'}{e.message}")
+                }
+            """.trimIndent()
+            BuildSystem.GRADLE -> """
+                println("[IMPORT] Gradle auto-import active from project open")
+            """.trimIndent()
+            BuildSystem.NONE -> """
+                println("[IMPORT] No build system — skipping import trigger")
+            """.trimIndent()
+        }
+
+        val code = """
+import com.intellij.platform.backend.observation.Observation
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
+
+println("[IMPORT] Build system: $buildSystem")
+$triggerCode
+
+println("[IMPORT] Waiting for project configuration...")
+val configured = withTimeoutOrNull(8 * 60 * 1000L) {
+    Observation.awaitConfiguration(project)
+}
+println(if (configured == null) "[IMPORT] WARNING: Configuration timed out after 8 minutes"
+        else "[IMPORT] Configuration complete")
+
+waitForSmartMode()
+println("[IMPORT] Smart mode reached — import + indexing complete")
+"done"
+""".trimIndent()
+
+        try {
+            mcpExecuteCode(
+                code = code,
+                projectName = projectName,
+                reason = "Trigger $buildSystem import and wait for completion",
+                timeout = 600,
+            )
+        } catch (e: Exception) {
+            println("[IMPORT] Warning: import trigger failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Compile the project via bash (not IntelliJ build).
+     *
+     * For Maven: `./mvnw test-compile -Dspotless.check.skip=true`
+     * For Gradle: `./gradlew testClasses`
+     * For NONE: skip
+     *
+     * Runs inside the container with the correct JAVA_HOME.
+     * This is a pre-agent warmup step — ensures all sources compile and deps are downloaded.
+     */
+    fun mcpCompileProject(projectPath: String, buildSystem: BuildSystem) {
+        if (buildSystem == BuildSystem.NONE) {
+            println("[COMPILE] Build system is NONE — skipping compilation")
+            return
+        }
+
+        // Resolve JAVA_HOME from the temurin-21 JDK dir
+        val javaHome = try {
+            driver.startProcessInContainer {
+                this.args("ls", "-d", "/usr/lib/jvm/temurin-21-*")
+                    .timeoutSeconds(5)
+                    .description("Find JDK 21 path")
+            }.awaitForProcessFinish().stdout.trim().lines().first()
+        } catch (_: Exception) {
+            "/usr/lib/jvm/java-21-default"
+        }
+        println("[COMPILE] JAVA_HOME=$javaHome, buildSystem=$buildSystem")
+
+        val command = when (buildSystem) {
+            BuildSystem.MAVEN -> "./mvnw test-compile -DskipTests -Dspotless.check.skip=true -B -q"
+            BuildSystem.GRADLE -> "./gradlew testClasses --console=plain -q"
+            BuildSystem.NONE -> return
+        }
+        println("[COMPILE] Running: $command")
+
+        driver.startProcessInContainer {
+            this
+                .args("bash", "-c", "export JAVA_HOME=$javaHome && $command")
+                .workingDirInContainer(projectPath)
+                .timeoutSeconds(600)
+                .description("Compile project ($buildSystem)")
+        }.assertExitCode(0) { "Project compilation failed ($buildSystem)" }
+
+        println("[COMPILE] Compilation complete")
     }
 
     /**
