@@ -173,6 +173,14 @@ private fun toTextBlock(word: Word): OcrTextBlock? {
 }
 
 private fun ensureTessdataDir(): Path {
+    // Check for explicit tessdata path via system property or environment variable
+    val explicitPath = System.getProperty("tessdata.prefix")
+        ?: System.getenv("TESSDATA_PREFIX")
+    if (explicitPath != null) {
+        val dir = Paths.get(explicitPath)
+        if (Files.isDirectory(dir)) return dir
+    }
+
     // Find tessdata relative to the application installation directory.
     // Distribution structure: ocr-tesseract/{bin,lib,tessdata}
     val appRoot = findAppRoot()

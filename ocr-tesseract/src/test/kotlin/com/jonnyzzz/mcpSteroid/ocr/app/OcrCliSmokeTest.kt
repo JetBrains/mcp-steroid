@@ -67,12 +67,22 @@ class OcrCliSmokeTest {
         val javaExe = Paths.get(javaHome, "bin", "java").toString()
         val classpath = System.getProperty("java.class.path")
 
-        val command = mutableListOf(javaExe, "-cp", classpath, "com.jonnyzzz.mcpSteroid.ocr.app.OcrCliKt")
+        val command = mutableListOf(javaExe, "-cp", classpath)
+        // Pass tessdata location to subprocess if available
+        val tessdataPrefix = System.getProperty("tessdata.prefix")
+        if (tessdataPrefix != null) {
+            command.add("-Dtessdata.prefix=$tessdataPrefix")
+        }
+        command.add("com.jonnyzzz.mcpSteroid.ocr.app.OcrCliKt")
         command.addAll(args)
 
-        val process = ProcessBuilder(command)
+        val pb = ProcessBuilder(command)
             .redirectErrorStream(false)
-            .start()
+        // Also pass via env var as fallback
+        if (tessdataPrefix != null) {
+            pb.environment()["TESSDATA_PREFIX"] = tessdataPrefix
+        }
+        val process = pb.start()
 
         val stdout = process.inputStream.bufferedReader().readText()
         val stderr = process.errorStream.bufferedReader().readText()
