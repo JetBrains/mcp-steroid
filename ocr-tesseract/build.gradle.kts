@@ -92,30 +92,49 @@ listOf(
     downloadTessdata.configure { dependsOn(task) }
 }
 
-// Extract MSVC runtime DLLs from JavaCPP's javacpp-*-windows-x86_64.jar for bundling.
-// Tess4J's libtesseract551.dll and lept4j's libleptonica1850.dll are MSVC-compiled and
-// depend on these runtime DLLs. The target Windows machine may not have VC++ Redistributable
-// installed, so we bundle the DLLs in the distribution's native/ directory.
+// Extract ALL Windows native DLLs into a single native/ directory in the distribution.
+// This includes:
+//   - libtesseract551.dll from tess4j (MSVC-compiled OCR engine)
+//   - libleptonica1850.dll from lept4j (MSVC-compiled image processing)
+//   - MSVC runtime DLLs from JavaCPP (msvcp140.dll, vcruntime140.dll, ucrtbase.dll, etc.)
+// Having everything in one directory simplifies native library loading — just set
+// jna.library.path to native/ and the Windows DLL loader resolves all dependencies.
 // See: https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute
-val extractMsvcRuntime by tasks.registering(Copy::class) {
+val extractWindowsNatives by tasks.registering(Copy::class) {
     group = "build"
-    description = "Extract MSVC runtime DLLs from JavaCPP for Windows distribution"
-    val javacppJar = configurations.runtimeClasspath.get().files.find {
-        it.name.contains("javacpp") && it.name.contains("windows-x86_64")
+    description = "Extract all Windows native DLLs for distribution"
+    val cp = configurations.runtimeClasspath.get().files
+
+    // Tess4J: libtesseract551.dll
+    cp.find { it.name.startsWith("tess4j") }?.let { jar ->
+        from(zipTree(jar)) {
+            include("win32-x86-64/*.dll")
+            eachFile { path = name }
+        }
     }
-    if (javacppJar != null) {
-        from(zipTree(javacppJar)) {
+
+    // lept4j: libleptonica1850.dll
+    cp.find { it.name.startsWith("lept4j") }?.let { jar ->
+        from(zipTree(jar)) {
+            include("win32-x86-64/*.dll")
+            eachFile { path = name }
+        }
+    }
+
+    // JavaCPP: MSVC runtime DLLs (VC++ 2015-2022 Redistributable)
+    cp.find { it.name.contains("javacpp") && it.name.contains("windows-x86_64") }?.let { jar ->
+        from(zipTree(jar)) {
             include("org/bytedeco/javacpp/windows-x86_64/msvcp140*.dll")
             include("org/bytedeco/javacpp/windows-x86_64/vcruntime140*.dll")
             include("org/bytedeco/javacpp/windows-x86_64/ucrtbase.dll")
             include("org/bytedeco/javacpp/windows-x86_64/concrt140.dll")
             include("org/bytedeco/javacpp/windows-x86_64/vcomp140.dll")
-            // api-ms-win-*.dll forwarding DLLs needed by ucrtbase.dll on older Windows
             include("org/bytedeco/javacpp/windows-x86_64/api-ms-win-*.dll")
-            eachFile { path = name } // flatten directory structure
+            eachFile { path = name }
         }
     }
-    into(layout.buildDirectory.dir("msvc-runtime"))
+
+    into(layout.buildDirectory.dir("windows-natives"))
     includeEmptyDirs = false
 }
 
@@ -126,7 +145,7 @@ distributions {
             from(downloadTessdata) {
                 into("tessdata")
             }
-            from(extractMsvcRuntime) {
+            from(extractWindowsNatives) {
                 into("native")
             }
         }

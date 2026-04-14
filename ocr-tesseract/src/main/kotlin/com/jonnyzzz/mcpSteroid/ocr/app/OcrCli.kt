@@ -237,13 +237,12 @@ private fun ensureNativeLibraries() {
         // incompatible with Tess4J's MSVC-compiled DLLs. Loading both in the same JVM
         // causes UnsatisfiedLinkError because of conflicting runtime dependencies.
         //
-        // Let Tess4J handle native loading natively on Windows.
-        // MSVC runtime DLLs (msvcp140.dll, vcruntime140.dll, ucrtbase.dll) are bundled
-        // in the distribution's native/ directory at build time — extracted from the
-        // JavaCPP javacpp-*-windows-x86_64.jar by the Gradle build.
-        // Tess4J's LoadLibs auto-extracts libtesseract551.dll and libleptonica1850.dll
-        // to a temp directory. We add our native/ dir to jna.library.path so the MSVC
-        // runtime DLLs are found as transitive dependencies.
+        // All Windows DLLs are bundled in the distribution's native/ directory at build
+        // time: libtesseract551.dll (tess4j), libleptonica1850.dll (lept4j), and MSVC
+        // runtime DLLs (msvcp140.dll, vcruntime140.dll, ucrtbase.dll, api-ms-win-*.dll).
+        // Set jna.library.path to native/ so JNA finds everything in one place.
+        // This bypasses Tess4J's LoadLibs temp dir extraction — JNA loads directly
+        // from our bundled directory.
         val appRoot = findAppRoot()
         val nativeDir = appRoot.resolve("native")
         if (Files.isDirectory(nativeDir)) {
