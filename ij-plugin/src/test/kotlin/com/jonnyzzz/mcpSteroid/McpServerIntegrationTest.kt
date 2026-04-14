@@ -42,6 +42,10 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         super.setUp()
         client = HttpClient(CIO) {
             expectSuccess = false
+            install(io.ktor.client.plugins.HttpTimeout) {
+                requestTimeoutMillis = 60_000 // 60s — action discovery needs time on slow CI agents
+                connectTimeoutMillis = 10_000
+            }
         }
     }
 

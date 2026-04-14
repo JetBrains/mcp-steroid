@@ -9,13 +9,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
@@ -229,46 +223,6 @@ class DpaiaJhipsterArenaTest {
             println()
         }
 
-        // ── Metrics extraction ───────────────────────────────────────────────
-
-        private val TEST_RESULT_REGEX = Regex("""Tests run: (\d+), Failures: (\d+), Errors: (\d+), Skipped: (\d+)""")
-        private val BUILD_STATUS_REGEX = Regex("""BUILD (SUCCESS|FAILURE)""")
-
-        fun extractTestMetrics(rawOutput: String): TestMetrics? {
-            val matches = TEST_RESULT_REGEX.findAll(rawOutput).toList()
-            if (matches.isEmpty()) return null
-            val last = matches.last()
-            val testsRun = last.groupValues[1].toInt()
-            val testsFail = last.groupValues[2].toInt()
-            val testsError = last.groupValues[3].toInt()
-            val testsPass = testsRun - testsFail - testsError
-            val buildSuccess = BUILD_STATUS_REGEX.findAll(rawOutput).toList()
-                .lastOrNull()?.groupValues?.get(1)?.let { it == "SUCCESS" }
-            return TestMetrics(testsRun, testsPass, testsFail, testsError, buildSuccess)
-        }
-
-        fun extractTokenUsage(rawOutput: String): TokenUsage? {
-            for (line in rawOutput.lines().asReversed()) {
-                val trimmed = line.trim()
-                if (trimmed.isEmpty()) continue
-                val json = try {
-                    Json.parseToJsonElement(trimmed).jsonObject
-                } catch (_: Exception) {
-                    continue
-                }
-                if (json["type"]?.jsonPrimitive?.content != "result") continue
-                val usage = json["usage"]?.jsonObject ?: return null
-                return TokenUsage(
-                    inputTokens = usage["input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
-                    outputTokens = usage["output_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
-                    cacheReadTokens = usage["cache_read_input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
-                    costUsd = (json["total_cost_usd"] ?: json["cost_usd"])?.jsonPrimitive?.doubleOrNull,
-                    numTurns = json["num_turns"]?.jsonPrimitive?.intOrNull,
-                )
-            }
-            return null
-        }
-
         private fun writeRunSummary(
             testCase: DpaiaTestCase,
             modeLabel: String,
@@ -309,24 +263,6 @@ class DpaiaJhipsterArenaTest {
             println("[ARENA] Run summary written to: ${summaryFile.absolutePath}")
         }
     }
-
-    // ── Data classes ─────────────────────────────────────────────────────────
-
-    data class TokenUsage(
-        val inputTokens: Long,
-        val outputTokens: Long,
-        val cacheReadTokens: Long = 0L,
-        val costUsd: Double? = null,
-        val numTurns: Int? = null,
-    )
-
-    data class TestMetrics(
-        val testsRun: Int,
-        val testsPass: Int,
-        val testsFail: Int,
-        val testsError: Int,
-        val buildSuccess: Boolean?,
-    )
 
     data class RunRecord(
         val instanceId: String,
