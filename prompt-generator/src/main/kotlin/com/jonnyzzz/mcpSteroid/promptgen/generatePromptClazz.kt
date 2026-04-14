@@ -82,8 +82,8 @@ fun PromptGenerationContext.generatePromptClazz(
     src: File,
 ): GeneratedPromptClazz {
     val filePropValue = src.extension
-    val pathValue = src.toRelativeString(inputRoot)
-    val folderValue = src.parentFile.toRelativeString(inputRoot)
+    val pathValue = src.toRelativeString(inputRoot).replace('\\', '/')
+    val folderValue = src.parentFile.toRelativeString(inputRoot).replace('\\', '/')
 
     val classType = run {
         val packageInfix = folderValue.trim('/')
