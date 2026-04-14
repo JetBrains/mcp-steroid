@@ -33,6 +33,8 @@
 | 3 | 3 | 0 | 105s | $0.37 | 47/47 | Fastest |
 | 4 | 5 | 3 | 151s | $0.46 | 47/47 | SDK modal aborted builds |
 | 5 | 4 | 4 | 123s | $0.40 | 47/47 | Same SDK issue |
+| 6 | — | — | 117s | — | 47/47 | DpaiaJhipsterArenaTest post-refactor (JDK via API, 9-step flow) |
+| 7 | — | — | 133s | — | 47/47 | DpaiaArenaTest explicit @Test post-refactor |
 
 ## Next: Redesign waitForProjectReady flow
 

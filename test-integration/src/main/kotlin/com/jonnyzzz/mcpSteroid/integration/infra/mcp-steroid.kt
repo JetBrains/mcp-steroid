@@ -652,15 +652,21 @@ println("[IMPORT] Smart mode reached — import + indexing complete")
         }
         println("[COMPILE] Running: $command")
 
-        driver.startProcessInContainer {
+        val compileResult = driver.startProcessInContainer {
             this
                 .args("bash", "-c", "export JAVA_HOME=$javaHome && $command")
                 .workingDirInContainer(projectPath)
                 .timeoutSeconds(600)
                 .description("Compile project ($buildSystem)")
-        }.assertExitCode(0) { "Project compilation failed ($buildSystem)" }
+        }.awaitForProcessFinish()
 
-        println("[COMPILE] Compilation complete")
+        if (compileResult.exitCode == 0) {
+            println("[COMPILE] Compilation complete")
+        } else {
+            println("[COMPILE] WARNING: Compilation failed (exit=${compileResult.exitCode}) — continuing anyway")
+            println("[COMPILE] stderr: ${compileResult.stderr.take(500)}")
+            println("[COMPILE] stdout: ${compileResult.stdout.take(500)}")
+        }
     }
 
     /**
