@@ -19,7 +19,7 @@ data class ProcessResultValue(
 ) : ProcessResult
 
 
-private fun RunProcessRequest.withDefaultLogPrefix(prefix: String) = if (this.logPrefix.isNullOrEmpty()) this else withLogPrefix(prefix)
+private fun RunProcessRequest.withDefaultLogPrefix(prefix: String) = if (this.logPrefix.isNullOrEmpty()) withLogPrefix(prefix) else this
 
 
 fun RunProcessRequest.startProcess(processRunner: ProcessRunner): StartedProcess {
@@ -88,19 +88,18 @@ private fun startProcessImpl(request: RunProcessRequest): StartedProcessImpl {
     val messagesChannel = Collections.synchronizedList(mutableListOf<ProcessStreamLine>())
 
     fun readOutput(stream: InputStream, prefix: String, type: ProcessStreamType) {
-        runCatching {
-            stream.reader().use { reader ->
-                while (process.isAlive) {
-                    Thread.sleep(100)
-                    reader.forEachLine { line ->
-                        val filterSecrets = request.filterSecrets(line)
-                        if (!request.quietly) {
-                            println("[$prefix] $filterSecrets")
-                        }
-                        messagesChannel.add(ProcessStreamLine(type, line))
+        try {
+            stream.bufferedReader().use { reader ->
+                reader.forEachLine { line ->
+                    val filterSecrets = request.filterSecrets(line)
+                    if (!request.quietly) {
+                        println("[$prefix] $filterSecrets")
                     }
+                    messagesChannel.add(ProcessStreamLine(type, line))
                 }
             }
+        } catch (e: Exception) {
+            println("[$prefix] Error reading output: ${e.message}")
         }
     }
 
