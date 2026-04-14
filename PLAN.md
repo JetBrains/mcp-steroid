@@ -154,7 +154,8 @@ letter — 0 steroid_execute_code calls, using only native Read/Grep/Edit/Bash.
 - [ ] `dpaia__spring__boot__microshop-2` — productId validation across microservices (HIGH)
 
 ### Test infrastructure improvements
-- [x] JdkTableIntegrationTest — validates JDK registration, paths, project SDK, compilation
+- [x] JdkTableIntegrationTest — validates JDK registration, paths, project SDK, compilation (PASSING)
+- [x] mcpRegisterJdks() helper — uses JavaSdk.createJdk() + addJdk() (no modal dialogs)
 - [ ] DpaiaClaudeComparisonTest refactoring (complex: token metrics, report generation)
 - [ ] Token usage in comparison table (currently only in per-run log)
 - [ ] Docker warm snapshot to skip repeated IDE startup (~30s per run)
