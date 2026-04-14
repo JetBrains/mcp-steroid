@@ -37,12 +37,19 @@ class OcrProcessClient {
     fun extractText(imagePath: Path, language: String = "eng", level: OcrLevel = OcrLevel.TEXT_LINE): OcrResult {
         require(Files.exists(imagePath)) { "OCR image does not exist: $imagePath" }
         val executable = resolveExecutable()
+
+        // Write arguments to an argfile to avoid "Command is too long" on Windows.
+        // The argfile is placed next to the image in the mcp-run directory.
+        val argFile = imagePath.resolveSibling("ocr-args.txt")
+        val args = listOf("--image", imagePath.toString(), "--lang", language, "--level", level.cliToken())
+        Files.writeString(argFile, args.joinToString("\n"), StandardCharsets.UTF_8)
+
         val commandLine = if (SystemInfoRt.isWindows) {
             GeneralCommandLine("cmd.exe", "/c", executable.path.toString())
         } else {
             GeneralCommandLine(executable.path.toString())
         }
-        commandLine.withParameters("--image", imagePath.toString(), "--lang", language, "--level", level.cliToken())
+        commandLine.withParameters("@${argFile.toAbsolutePath()}")
             .withCharset(StandardCharsets.UTF_8)
             .withWorkDirectory(executable.root.toFile())
 

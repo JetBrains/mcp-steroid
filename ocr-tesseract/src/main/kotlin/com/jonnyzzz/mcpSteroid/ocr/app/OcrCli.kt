@@ -44,7 +44,8 @@ fun main(args: Array<String>) {
 }
 
 private fun parseArgs(args: Array<String>): OcrOptions? {
-    if (args.isEmpty() || args.contains("--help")) {
+    val expanded = expandArgFiles(args)
+    if (expanded.isEmpty() || expanded.contains("--help")) {
         printUsage()
         return null
     }
@@ -54,16 +55,16 @@ private fun parseArgs(args: Array<String>): OcrOptions? {
     var level = OcrLevel.TEXT_LINE
 
     var index = 0
-    while (index < args.size) {
-        when (val arg = args[index]) {
+    while (index < expanded.size) {
+        when (val arg = expanded[index]) {
             "--image" -> {
-                imagePath = args.getOrNull(++index)?.let { Paths.get(it) }
+                imagePath = expanded.getOrNull(++index)?.let { Paths.get(it) }
             }
             "--lang" -> {
-                language = args.getOrNull(++index) ?: language
+                language = expanded.getOrNull(++index) ?: language
             }
             "--level" -> {
-                val raw = args.getOrNull(++index)
+                val raw = expanded.getOrNull(++index)
                 if (raw != null) {
                     level = parseLevel(raw)
                 }
@@ -84,6 +85,33 @@ private fun parseArgs(args: Array<String>): OcrOptions? {
     }
 
     return OcrOptions(imagePath, language, level)
+}
+
+/**
+ * Expand @argfile references in the argument list.
+ * Each line in an argfile becomes a separate argument.
+ * Supports the same convention as kotlinc: arguments starting with `@`
+ * are treated as paths to argument files.
+ */
+private fun expandArgFiles(args: Array<String>): List<String> {
+    val result = mutableListOf<String>()
+    for (arg in args) {
+        if (arg.startsWith("@")) {
+            val argFile = Paths.get(arg.substring(1))
+            if (Files.exists(argFile)) {
+                Files.readAllLines(argFile, java.nio.charset.StandardCharsets.UTF_8)
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .forEach { result.add(it) }
+            } else {
+                System.err.println("Argument file not found: $argFile")
+                exitProcess(2)
+            }
+        } else {
+            result.add(arg)
+        }
+    }
+    return result
 }
 
 private fun parseLevel(raw: String): OcrLevel {
