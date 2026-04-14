@@ -597,6 +597,21 @@ the top" in this environment. Two pragmatic options:
 When running from an agent, prefer option 2 and document the queued build IDs in the conversation
 so the user can click "Move to top" in the UI if immediate priority is needed.
 
+### CI API Keys for Integration Tests
+
+API keys for Docker CLI integration tests (`CliClaudeIntegrationTest`, `CliCodexIntegrationTest`)
+are configured as TeamCity parameters on the `test-integration` build configuration:
+
+| Agent | Key parameter | Status |
+|-------|--------------|--------|
+| Claude | `ANTHROPIC_API_KEY` | configured |
+| Codex | `OPENAI_API_KEY` | configured |
+| Gemini | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | **not configured** |
+
+These keys are only needed by `:ij-plugin:integrationTest` (and the `:test-integration:test`
+Docker smoke tests), NOT by the regular `:ij-plugin:test` task. The `ciBuildPluginTests`
+aggregator deliberately excludes integration tests.
+
 ## Website
 
 `website/` is a separate git repo clone (jonnyzzz/mcp-steroid public repo). It contains the Hugo site sources in `website/website/`. The `website/` folder is gitignored from the main repo.
