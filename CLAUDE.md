@@ -101,7 +101,7 @@ ProgramRunnerUtil.executeConfiguration(settings, DefaultRunExecutor.getRunExecut
 
 ## Technology Stack
 
-Gradle 8.11.1 / Kotlin 2.2.21 / Java 21 / IntelliJ Platform 2025.3+ / Ktor 3.1.0 (CIO+SSE) / kotlinx.serialization
+Gradle 9.4.1 / Kotlin 2.2.20 / Java 21 / IntelliJ Platform 2025.3+ / Ktor 3.1.0 (CIO+SSE) / kotlinx.serialization
 
 ## Architecture
 
@@ -504,6 +504,53 @@ List actions: `ActionManager.getInstance().getActionIds("").filter { it.contains
 
 `timeout`/`gtimeout` not available. Use Gradle timeout mechanisms or Bash tool's `timeout` parameter.
 
+## CI Aggregator Tasks
+
+Root `build.gradle.kts` defines `ci`-prefixed aggregator tasks for TeamCity and GitHub Actions.
+Run `./gradlew tasks --group ci` to list them.
+
+| Task | Subprojects covered | Notes |
+|------|-------------------|-------|
+| `buildPluginOnCI` | `:ij-plugin` (builds + publishes ZIP) | Entry point for both GH Actions & TC "build plugin" configs |
+| `ciBuildPluginTests` | All plugin modules **except** prompts + non-plugin | Per-OS matrix (Win/Linux/Mac) on TC |
+| `ciBuildPromptsTests` | `prompt-generator`, `prompts`, `prompts-api` | Single Linux agent on TC; platform-neutral |
+| `ciIntegrationTests` | `:test-helper:test` → `:ij-plugin:integrationTest` → `:test-integration:test` | **Strict sequential ordering** via `mustRunAfter`; requires Docker + API keys |
+
+### `ciIntegrationTests` ordering
+
+The three steps run cheapest-first, heaviest-last, with `mustRunAfter` ensuring no two
+Docker IDE containers overlap even under `--parallel`:
+
+1. `:test-helper:test` — pure-test infrastructure (Docker reaper, output-filter plumbing)
+2. `:ij-plugin:integrationTest` — Docker CLI tests (Claude/Codex/Gemini); needs `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`
+3. `:test-integration:test` — Docker IntelliJ smoke matrix (full IDE containers)
+
+`:test-integration:test` has an `onlyIf` guard: it only runs when the task name contains
+`:test-integration:` **or** `ciIntegrationTests`. Plain `./gradlew test` at root skips it.
+
+### `ciBuildPromptsTests` runtime
+
+The full `ciBuildPromptsTests` run (all three prompts subprojects, all IDE targets) takes
+**significantly longer** than the `*KtBlock*`-only subset quoted elsewhere (~7 min).
+Expect **60–120+ minutes** for the full matrix on a developer machine — each KtBlock
+compilation test invokes `kotlinc` as an external process for every block × IDE combination.
+
+## Gradle Daemon JVM
+
+The Gradle Daemon is pinned to **JDK 21** via `gradle/gradle-daemon-jvm.properties`.
+Without this, the daemon inherits whatever JVM is on `JAVA_HOME`/`PATH` — on some
+workstations that defaults to JDK 25, which causes subtle "works on CI / breaks locally"
+mismatches since all modules target JDK 21 via `kotlin { jvmToolchain(21) }`.
+
+The `foojay-resolver-convention` plugin (declared in `settings.gradle.kts`) is the
+download fallback: if no JDK 21 is found locally, Gradle auto-downloads one. It stays
+completely silent on machines that already have a local JDK 21 installed.
+
+To update the daemon JVM version: edit `gradle/gradle-daemon-jvm.properties` directly
+(it's a one-line `toolchainVersion=N` file). The `./gradlew updateDaemonJvm --jvm-version=N`
+task also works but requires network access to the foojay disco-API for generating
+download URLs.
+
 ## Commit Guidelines
 
 Atomic commits, descriptive messages (what and why). Test and build before committing.
@@ -536,14 +583,46 @@ This is also what every `Merge remote-tracking branch 'origin/main' into jb-merg
 
 **Why this matters for CI:** the TC VCS root `mcp_steroid_main` pulls from `jb`, not `origin`. If your commit isn't on `jb/main`, TeamCity builds stale code.
 
-## TeamCity (buildserver.labs.intellij.net)
+## TeamCity (`buildserver.labs.intellij.net`)
 
-The project lives at https://buildserver.labs.intellij.net/project/mcp_steroid with two build
-configurations: `build number` (fast, Docker/alpine, just emits `##teamcity[buildNumber 'X']`)
-and `build plugin` (inherits the number via `buildNumberPattern`, builds `mcp-steroid-build:ci`
-Docker image, runs `:buildPluginOnCI` inside it). Versioned settings sync from
-`JetBrains/mcp-steroid-teamcity` (Kotlin DSL). Store your Personal Access Token at
-`~/.teamcity` (chmod 600) so REST calls can read it.
+The project lives at https://buildserver.labs.intellij.net/project/mcp_steroid.
+
+The TeamCity Kotlin DSL lives in a **separate** repository:
+`~/Work/mcp-steroid-teamcity` → `git@github.com:JetBrains/mcp-steroid-teamcity.git`.
+
+It is **not** inside the main mcp-steroid repo. Changes to the DSL follow their own commit/push cycle.
+See `mcp-steroid-teamcity/CLAUDE.md` for the full DSL workflow (generate → backup → edit → regenerate → diff → commit).
+
+Store your Personal Access Token at `~/.teamcity` (chmod 600) so REST calls can read it.
+
+### DSL generation
+
+```bash
+export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
+cd ~/Work/mcp-steroid-teamcity/.teamcity
+mvn -q org.jetbrains.teamcity:teamcity-configs-maven-plugin:generate
+```
+
+Must run on **JDK 21** — the Byte Buddy agent bundled by the TC DSL dependency does not support JDK 25+.
+Generated XML lands in `.teamcity/target/generated-configs/` (gitignored).
+
+### Build configurations
+
+| TC config | DSL file | Gradle task | Agent requirements |
+|-----------|----------|-------------|-------------------|
+| `build number` | `_01_build_number.kt` | shell (VERSION + git hash) | any (runs in alpine Docker) |
+| `teamcity settings test` | `_02_settings_test.kt` | (empty / TODO) | Linux |
+| `ij-plugin test` (composite) | `_04_ij_plugin_test.kt` | — | — |
+| `ij-plugin test (Linux/Mac/Win)` | `_04_ij_plugin_test.kt` | `ciBuildPluginTests` | per-OS |
+| `prompt-test` | `_05_prompt_test.kt` | `ciBuildPromptsTests` | Linux |
+| `test-integration` | `_06_test_integration.kt` | `ciIntegrationTests` | Linux + Docker |
+| `test-experiments` | `_09_test_experiments.kt` | (empty / TODO) | Linux |
+| `build plugin` | `_08_build_plugin.kt` | `buildPluginOnCI` | any (docker build image) |
+| `website` | `_11_website.kt` | `make build` | Linux + Docker |
+| `Deploy plugin to TBE` | `_AA_deploy_tbe.kt` | curl upload | any |
+
+All configs snapshot-depend on `BuildNumber` via `useRootBuildNumber()`, which wires the build number pattern
+and ensures the same VCS revision across the chain.
 
 ### Always bump queued builds to the top of the queue
 
@@ -578,20 +657,51 @@ queued build ID in the body — at JB scale (5000+ builds) this exceeds the 1 MB
 The `PUT /app/rest/buildQueue/id:<id>` with `{"queuePosition":"top"}` returns HTTP 405 on this
 server version. The `ajax.html` endpoint is the only working programmatic path.
 
-### CI API Keys for Integration Tests
+### API keys on TC
 
-API keys for Docker CLI integration tests (`CliClaudeIntegrationTest`, `CliCodexIntegrationTest`)
-are configured as TeamCity parameters on the `test-integration` build configuration:
+Credentials stored as `credentialsJSON:*` on the TC server, referenced via `Tokens.kt`:
 
-| Agent | Key parameter | Status |
-|-------|--------------|--------|
-| Claude | `ANTHROPIC_API_KEY` | configured |
-| Codex | `OPENAI_API_KEY` | configured |
-| Gemini | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | **not configured** |
+| Token | Env var on agent | Used by |
+|-------|-----------------|---------|
+| `ANTHROPIC_TOKEN_KEY_REF` | `ANTHROPIC_API_KEY` | `test-integration` (Cli Claude tests) |
+| `OPENAI_TOKEN_KEY_REF` | `OPENAI_API_KEY` | `test-integration` (Cli Codex tests) |
+| `TBE_PLUGINS_TOKEN_REF` | — (inline in script) | `Deploy plugin to TBE` |
+
+**Missing:** `GEMINI_API_KEY` — no `credentialsJSON` ref exists yet. `CliGeminiIntegrationTest` will fail
+with `GEMINI_API_KEY required` until one is added to the TC server and declared in `Tokens.kt`.
 
 These keys are only needed by `:ij-plugin:integrationTest` (and the `:test-integration:test`
 Docker smoke tests), NOT by the regular `:ij-plugin:test` task. The `ciBuildPluginTests`
 aggregator deliberately excludes integration tests.
+
+### Adding / changing a TC build configuration
+
+1. Edit the `.kt` file in `~/Work/mcp-steroid-teamcity/.teamcity/builds/`
+2. Every entity needs an explicit `id("...")` — omitting it risks build-history loss on rename
+3. Use `setupIjPluginTestBuildForOs(...)` (in `builder.kt`) for per-OS Gradle test configs
+4. Register the `BuildType` in `settings.kts` via `buildType(...)` — order there controls UI order
+5. Regenerate, diff against baseline, verify only intended XML changed, commit & push
+
+### Shared DSL helpers
+
+- `builder.kt` — `setupIjPluginTestBuildForOs()`: shared scaffold for per-OS Gradle test builds (VCS, requirements, JDK, gradle step)
+- `CpuAndOs.kt` — `CpuAndOs` enum + `setupRequirementsFor()` extension on `Requirements`
+- `_01_build_number.kt` — `useRootBuildNumber()` extension: wires snapshot dependency + `buildNumberPattern` to the `BuildNumber` config
+
+## GitHub Actions (`.github/workflows/`)
+
+GitHub Actions runs on pushes to `origin/main` (the public `jonnyzzz/mcp-steroid` repo).
+Currently scoped to building the publishable plugin ZIP — **full test coverage stays on
+TeamCity** (`buildserver.labs.intellij.net`), whose internal agents run tests 3–5× faster
+than GitHub-hosted runners.
+
+| Workflow | File | What it does |
+|----------|------|-------------|
+| Build Plugin | `build-plugin.yml` | `build-number` job → `build-plugin` job (Docker, `buildPluginOnCI`), uploads `.zip` artifact |
+
+Plugin tests are intentionally NOT mirrored — they take 15+ min on `ubuntu-latest` and
+regularly get cancelled by `cancel-in-progress` before completing. PR commits don't
+auto-trigger; use `workflow_dispatch` on the PR's head branch for explicit builds.
 
 ## Website
 
