@@ -273,21 +273,15 @@ private fun ensureNativeLibraries() {
             )
             for (dll in dllLoadOrder) {
                 val path = nativeDir.resolve(dll)
-                if (Files.exists(path)) {
-                    try {
-                        com.sun.jna.Native.load(
-                            path.toAbsolutePath().toString(),
-                            com.sun.jna.Library::class.java
-                        )
-                    } catch (_: Exception) {
-                        // Some DLLs may not be JNA-loadable directly; that's OK —
-                        // System.load works for raw DLLs (no JNI_OnLoad needed)
-                        try {
-                            System.load(path.toAbsolutePath().toString())
-                        } catch (_: Exception) {
-                            // Ignore — DLL may already be loaded or not needed
-                        }
-                    }
+                if (!Files.exists(path)) {
+                    System.err.println("[OCR] native/$dll not found — skipping")
+                    continue
+                }
+                try {
+                    System.load(path.toAbsolutePath().toString())
+                    System.err.println("[OCR] loaded native/$dll")
+                } catch (e: UnsatisfiedLinkError) {
+                    System.err.println("[OCR] FAILED to load native/$dll: ${e.message}")
                 }
             }
         }
