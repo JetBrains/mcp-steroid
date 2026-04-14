@@ -120,17 +120,17 @@ fun waitForProjectReady(
 
 ### Implementation plan (ordered tasks)
 
-1. [ ] Refactor `mcpRegisterJdks` to be callable standalone (already done)
-2. [ ] Add `BuildSystem` enum: `AUTO, MAVEN, GRADLE, NONE`
-3. [ ] Create `mcpTriggerBuildToolImport(buildSystem)` helper
-4. [ ] Create `mcpWaitForImportComplete()` helper (Observation + smart mode)
-5. [ ] Create `mcpCompileProject(buildSystem)` helper
-6. [ ] Refactor `waitForProjectReady()` to use the new ordered steps
-7. [ ] Update `DpaiaJhipsterArenaTest` to pass `buildSystem = MAVEN`
-8. [ ] Update `DpaiaArenaTest` to use auto-detection
-9. [ ] Run JdkTableIntegrationTest to verify JDK registration still works
-10. [ ] Run jhipster arena test to verify full flow
-11. [ ] Update all other test classes that call `waitForProjectReady()`
+1. [x] Refactor `mcpRegisterJdks` to be callable standalone
+2. [x] Add `BuildSystem` enum: `MAVEN, GRADLE, NONE`
+3. [x] Create `mcpTriggerImportAndWait(buildSystem)` helper
+4. [x] Create `mcpSetProjectSdk(path, version)` helper
+5. [x] Create `mcpCompileProject(buildSystem)` helper
+6. [x] Refactor `waitForProjectReady()` to use the new ordered steps
+7. [x] Update `DpaiaJhipsterArenaTest` to pass `buildSystem = MAVEN`
+8. [x] Update `DpaiaArenaTest` to derive from testCase.buildSystem
+9. [x] Run JdkTableIntegrationTest — PASSED (1m 9s)
+10. [x] Run jhipster arena test — PASSED (4 steroid, 0 errors, $0.46, 163 tests)
+11. [ ] Update remaining test classes that call `waitForProjectReady()`
 
 ### Files to modify
 
