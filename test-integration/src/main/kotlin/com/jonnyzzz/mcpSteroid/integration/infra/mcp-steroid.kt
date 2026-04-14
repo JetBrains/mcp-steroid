@@ -335,17 +335,92 @@ if (toInstall.isEmpty()) {
      *
      * @param projectPath Guest project directory (used to resolve the project name from [mcpListProjects]).
      */
-    fun mcpSetupJdkAndWaitForImport(projectPath: String) {
-        val projectName = try {
-            mcpListProjects().firstOrNull { it.path == projectPath }?.name
+    /**
+     * Register all Temurin JDKs found in `/usr/lib/jvm/` into IntelliJ's [ProjectJdkTable]
+     * using the IntelliJ API (`SdkConfigurationUtil.createAndAddSDK`).
+     *
+     * This replaces the pre-written `jdk.table.xml` approach which was fragile:
+     * IntelliJ sometimes ignored the XML entries. Using the API ensures the IDE
+     * properly indexes each JDK's classpath, sources, and annotations.
+     *
+     * SDK names use the major version number ("8", "11", "17", "21", "25").
+     *
+     * @param projectPath Guest project directory (for project name resolution).
+     */
+    fun mcpRegisterJdks(projectPath: String) {
+        val projectName = resolveProjectName(projectPath) ?: return
+
+        val code = """
+import com.intellij.openapi.projectRoots.JavaSdk
+import com.intellij.openapi.projectRoots.ProjectJdkTable
+import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
+
+// Discover Temurin JDK dirs in /usr/lib/jvm/
+val jvmDir = java.io.File("/usr/lib/jvm")
+val temurinDirs = jvmDir.listFiles { f -> f.isDirectory && f.name.startsWith("temurin-") && f.name.contains("-jdk-") }
+    ?.sortedBy { it.name }
+    ?: emptyList()
+
+println("[JDK-REGISTER] Found ${"\$"}{temurinDirs.size} Temurin JDK dirs: ${"\$"}{temurinDirs.map { it.name }}")
+
+val javaSdkType = JavaSdk.getInstance()
+val existingSdks = ProjectJdkTable.getInstance().getSdksOfType(javaSdkType)
+val existingNames = existingSdks.map { it.name }.toSet()
+println("[JDK-REGISTER] Already registered: ${"\$"}existingNames")
+
+var registered = 0
+for (dir in temurinDirs) {
+    val javaFile = java.io.File(dir, "bin/java")
+    if (!javaFile.exists()) {
+        println("[JDK-REGISTER] Skipping ${"\$"}{dir.name} — no bin/java")
+        continue
+    }
+    // Extract version number: "temurin-21-jdk-arm64" -> "21"
+    val version = dir.name.removePrefix("temurin-").substringBefore("-jdk")
+    if (version in existingNames) {
+        println("[JDK-REGISTER] Already registered: ${"\$"}version")
+        continue
+    }
+
+    // createAndAddSDK requires EDT for VFS refresh + write action
+    val sdk = withContext(Dispatchers.EDT) {
+        SdkConfigurationUtil.createAndAddSDK(dir.absolutePath, javaSdkType)
+    }
+    if (sdk != null) {
+        // Rename to simple version number
+        val mod = sdk.sdkModificator
+        mod.name = version
+        com.intellij.openapi.application.writeAction { mod.commitChanges() }
+        println("[JDK-REGISTER] Registered: ${"\$"}version at ${"\$"}{dir.absolutePath}")
+        registered++
+    } else {
+        println("[JDK-REGISTER] FAILED to register ${"\$"}version at ${"\$"}{dir.absolutePath}")
+    }
+}
+
+val finalSdks = ProjectJdkTable.getInstance().getSdksOfType(javaSdkType)
+println("[JDK-REGISTER] Final SDK count: ${"\$"}{finalSdks.size} — ${"\$"}{finalSdks.map { "${"\$"}{it.name}@${"\$"}{it.homePath}" }}")
+println("[JDK-REGISTER] Newly registered: ${"\$"}registered")
+"done"
+""".trimIndent()
+
+        try {
+            mcpExecuteCode(
+                code = code,
+                projectName = projectName,
+                reason = "Register Temurin JDKs into ProjectJdkTable via IntelliJ API",
+                timeout = 120,
+            )
         } catch (e: Exception) {
-            println("[JDK-SETUP] Could not list projects: ${e.message}")
-            null
+            println("[JDK-REGISTER] Warning: JDK registration failed: ${e.message}")
         }
-        if (projectName == null) {
-            println("[JDK-SETUP] Project not found for path $projectPath — skipping JDK setup")
-            return
-        }
+    }
+
+    fun mcpSetupJdkAndWaitForImport(projectPath: String) {
+        val projectName = resolveProjectName(projectPath) ?: return
+
+        // First, ensure JDKs are registered via the IntelliJ API
+        mcpRegisterJdks(projectPath)
 
         val code = """
 import com.intellij.openapi.projectRoots.JavaSdk
@@ -356,19 +431,18 @@ import com.intellij.platform.backend.observation.Observation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
-// JDKs were pre-registered in jdk.table.xml before IDE startup.
-// Find the registered SDK matching JAVA_HOME (same JDK Maven uses), or any with a valid homePath.
 val javaHome = System.getenv("JAVA_HOME") ?: ""
 val allRegisteredSdks = com.intellij.openapi.projectRoots.ProjectJdkTable.getInstance()
     .getSdksOfType(JavaSdk.getInstance())
 println("[JDK-SETUP] JAVA_HOME=${'$'}javaHome, registered SDKs: ${'$'}{allRegisteredSdks.map { it.name }}")
 
-val registeredJavaSdk = allRegisteredSdks.firstOrNull { sdk ->
-    sdk.homePath != null && sdk.homePath == javaHome
-} ?: allRegisteredSdks.firstOrNull { sdk ->
-    val home = sdk.homePath ?: return@firstOrNull false
-    java.io.File(home, "bin/java").exists()
-}
+// Prefer JDK 21, then match JAVA_HOME, then any valid JDK
+val registeredJavaSdk = allRegisteredSdks.firstOrNull { it.name == "21" }
+    ?: allRegisteredSdks.firstOrNull { sdk -> sdk.homePath != null && sdk.homePath == javaHome }
+    ?: allRegisteredSdks.firstOrNull { sdk ->
+        val home = sdk.homePath ?: return@firstOrNull false
+        java.io.File(home, "bin/java").exists()
+    }
 
 var jdkWasSet = false
 val currentSdk = ProjectRootManager.getInstance(project).projectSdk
@@ -379,7 +453,7 @@ if (currentSdk != null) {
     edtWriteAction { JavaSdkUtil.applyJdkToProject(project, registeredJavaSdk) }
     jdkWasSet = true
 } else {
-    println("[JDK-SETUP] WARNING: No valid registered Java SDK found — jdk.table.xml may be missing")
+    println("[JDK-SETUP] WARNING: No valid registered Java SDK found")
 }
 
 // Trigger Maven re-sync if JDK was just set (first Maven import may have run without a JDK)
@@ -389,7 +463,7 @@ if (jdkWasSet && pomFile.exists()) {
         println("[JDK-SETUP] Triggering Maven re-sync after JDK setup...")
         org.jetbrains.idea.maven.project.MavenProjectsManager.getInstance(project)
             .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
-        delay(2_000L)  // Give Maven time to register its activity before awaiting
+        delay(2_000L)
     } catch (e: Exception) {
         println("[JDK-SETUP] Maven re-sync failed: ${'$'}{e.message}")
     }
@@ -415,6 +489,19 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
         } catch (e: Exception) {
             println("[JDK-SETUP] Warning: JDK/import setup failed: ${e.message}")
         }
+    }
+
+    private fun resolveProjectName(projectPath: String): String? {
+        val projectName = try {
+            mcpListProjects().firstOrNull { it.path == projectPath }?.name
+        } catch (e: Exception) {
+            println("[MCP] Could not list projects: ${e.message}")
+            null
+        }
+        if (projectName == null) {
+            println("[MCP] Project not found for path $projectPath — skipping")
+        }
+        return projectName
     }
 
     /**

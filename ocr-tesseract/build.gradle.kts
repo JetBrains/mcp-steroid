@@ -129,6 +129,7 @@ val extractWindowsNatives by tasks.registering(Copy::class) {
             include("org/bytedeco/javacpp/windows-x86_64/ucrtbase.dll")
             include("org/bytedeco/javacpp/windows-x86_64/concrt140.dll")
             include("org/bytedeco/javacpp/windows-x86_64/vcomp140.dll")
+            include("org/bytedeco/javacpp/windows-x86_64/libomp140.x86_64.dll")
             include("org/bytedeco/javacpp/windows-x86_64/api-ms-win-*.dll")
             eachFile { path = name }
         }
