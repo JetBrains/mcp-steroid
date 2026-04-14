@@ -380,12 +380,14 @@ $roots
       </roots>
     </jdk>"""
 
+        // Note: apt package temurin-N-jdk creates /usr/lib/jvm/temurin-N-jdk-<arch>
+        // (not temurin-N-<arch>). The "jdk-" infix is required for paths to be valid.
         val entries = buildString {
-            appendLine(jdk8Entry("temurin-8-$temurinArch", "/usr/lib/jvm/temurin-8-$temurinArch"))
-            appendLine(jdk9PlusEntry("temurin-11-$temurinArch", "/usr/lib/jvm/temurin-11-$temurinArch", "java version \"11\""))
-            appendLine(jdk9PlusEntry("temurin-17-$temurinArch", "/usr/lib/jvm/temurin-17-$temurinArch", "java version \"17\""))
-            appendLine(jdk9PlusEntry("temurin-21-$temurinArch", "/usr/lib/jvm/temurin-21-$temurinArch", "java version \"21\""))
-            appendLine(jdk9PlusEntry("temurin-25-$temurinArch", "/usr/lib/jvm/temurin-25-$temurinArch", "java version \"25\""))
+            appendLine(jdk8Entry("temurin-8-jdk-$temurinArch", "/usr/lib/jvm/temurin-8-jdk-$temurinArch"))
+            appendLine(jdk9PlusEntry("temurin-11-jdk-$temurinArch", "/usr/lib/jvm/temurin-11-jdk-$temurinArch", "java version \"11\""))
+            appendLine(jdk9PlusEntry("temurin-17-jdk-$temurinArch", "/usr/lib/jvm/temurin-17-jdk-$temurinArch", "java version \"17\""))
+            appendLine(jdk9PlusEntry("temurin-21-jdk-$temurinArch", "/usr/lib/jvm/temurin-21-jdk-$temurinArch", "java version \"21\""))
+            appendLine(jdk9PlusEntry("temurin-25-jdk-$temurinArch", "/usr/lib/jvm/temurin-25-jdk-$temurinArch", "java version \"25\""))
         }
 
         val xml = """<?xml version="1.0" encoding="UTF-8"?>

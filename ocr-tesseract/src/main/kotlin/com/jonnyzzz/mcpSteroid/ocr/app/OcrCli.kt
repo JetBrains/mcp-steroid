@@ -256,33 +256,17 @@ private fun ensureNativeLibraries() {
             }
             System.setProperty("jna.library.path", updated)
 
-            // Pre-load ALL DLLs from native/ in dependency order BEFORE Tess4J's LoadLibs
-            // static initializer runs. Windows caches loaded DLLs by name — once loaded,
-            // subsequent LoadLibrary calls for the same DLL name return the cached handle.
-            // This ensures libleptonica1850.dll is already in the process when
-            // libtesseract551.dll is loaded and needs it as a dependency.
-            val dllLoadOrder = listOf(
-                // MSVC runtime (loaded first — everything depends on these)
-                "ucrtbase.dll", "vcruntime140.dll", "vcruntime140_1.dll",
-                "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
-                "concrt140.dll", "vcomp140.dll",
-                // Leptonica (depends on MSVC runtime)
-                "libleptonica1850.dll",
-                // Tesseract (depends on leptonica + MSVC runtime)
-                "libtesseract551.dll",
-            )
-            for (dll in dllLoadOrder) {
-                val path = nativeDir.resolve(dll)
-                if (!Files.exists(path)) {
-                    System.err.println("[OCR] native/$dll not found — skipping")
-                    continue
-                }
-                try {
-                    System.load(path.toAbsolutePath().toString())
-                    System.err.println("[OCR] loaded native/$dll")
-                } catch (e: UnsatisfiedLinkError) {
-                    System.err.println("[OCR] FAILED to load native/$dll: ${e.message}")
-                }
+            // Use SetDllDirectoryW to add native/ to the Windows DLL search path.
+            // This makes Windows find transitive dependencies (libleptonica1850.dll,
+            // MSVC runtime DLLs) when Tess4J's LoadLibs loads libtesseract551.dll.
+            // System.load() doesn't help because LoadLibraryEx resolves imports by
+            // file name search, not from already-loaded modules.
+            try {
+                val kernel32 = com.sun.jna.Native.load("kernel32", Kernel32SetDllDir::class.java)
+                val success = kernel32.SetDllDirectoryW(com.sun.jna.WString(nativePath))
+                System.err.println("[OCR] SetDllDirectoryW($nativePath) = $success")
+            } catch (e: Exception) {
+                System.err.println("[OCR] SetDllDirectoryW failed: ${e.message}")
             }
         }
         System.setProperty("jna.nosys", "true")
@@ -348,4 +332,9 @@ private fun ensureLibraryAlias(directory: Path, aliasName: String, target: Path)
     } catch (_: SecurityException) {
         Files.copy(target, alias, StandardCopyOption.REPLACE_EXISTING)
     }
+}
+
+/** Minimal JNA interface for kernel32.SetDllDirectoryW — adds a directory to the Windows DLL search path. */
+private interface Kernel32SetDllDir : com.sun.jna.Library {
+    fun SetDllDirectoryW(lpPathName: com.sun.jna.WString): Boolean
 }
