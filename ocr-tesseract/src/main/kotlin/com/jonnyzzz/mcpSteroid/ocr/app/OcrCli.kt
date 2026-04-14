@@ -256,17 +256,32 @@ private fun ensureNativeLibraries() {
             }
             System.setProperty("jna.library.path", updated)
 
+            // List native/ contents for diagnostics
+            System.err.println("[OCR] native/ directory contents:")
+            Files.list(nativeDir).use { stream ->
+                stream.sorted().forEach { System.err.println("[OCR]   ${it.fileName}") }
+            }
+
             // Use SetDllDirectoryW to add native/ to the Windows DLL search path.
-            // This makes Windows find transitive dependencies (libleptonica1850.dll,
-            // MSVC runtime DLLs) when Tess4J's LoadLibs loads libtesseract551.dll.
-            // System.load() doesn't help because LoadLibraryEx resolves imports by
-            // file name search, not from already-loaded modules.
             try {
                 val kernel32 = com.sun.jna.Native.load("kernel32", Kernel32SetDllDir::class.java)
                 val success = kernel32.SetDllDirectoryW(com.sun.jna.WString(nativePath))
                 System.err.println("[OCR] SetDllDirectoryW($nativePath) = $success")
             } catch (e: Exception) {
                 System.err.println("[OCR] SetDllDirectoryW failed: ${e.message}")
+            }
+
+            // Also try pre-loading the DLLs from native/ to check for missing deps
+            for (dll in listOf("libleptonica1850.dll", "libtesseract551.dll")) {
+                val path = nativeDir.resolve(dll)
+                if (Files.exists(path)) {
+                    try {
+                        System.load(path.toAbsolutePath().toString())
+                        System.err.println("[OCR] System.load($dll) = OK")
+                    } catch (e: UnsatisfiedLinkError) {
+                        System.err.println("[OCR] System.load($dll) FAILED: ${e.message}")
+                    }
+                }
             }
         }
         System.setProperty("jna.nosys", "true")
