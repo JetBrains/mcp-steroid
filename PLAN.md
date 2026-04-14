@@ -131,9 +131,11 @@ fun waitForProjectReady(
 9. [x] Run JdkTableIntegrationTest — PASSED (1m 9s)
 10. [x] Run jhipster arena test — PASSED (4 steroid, 0 errors, $0.46, 163 tests)
 11. [ ] Update remaining test classes that call `waitForProjectReady()`
-12. [ ] Extract data processing (token extraction, test metrics, tool call stats) into shared utility
-        functions in test-helper or test-integration — currently duplicated across
-        DpaiaJhipsterArenaTest and DpaiaClaudeComparisonTest
+12. [x] Extract data processing into shared AgentOutputMetrics.kt:
+        - TokenUsage, TestMetrics, ToolCallStats data classes
+        - extractTestMetrics(), extractTokenUsage(), extractToolCallStats()
+        - Removed duplicates from DpaiaJhipsterArenaTest + DpaiaClaudeComparisonTest
+        - Updated unit tests (ExtractTestMetricsTest, ExtractToolCallStatsTest)
 
 ### Files to modify
 

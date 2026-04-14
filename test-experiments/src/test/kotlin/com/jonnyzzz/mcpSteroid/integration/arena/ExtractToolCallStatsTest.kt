@@ -7,14 +7,14 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
- * Unit tests for [DpaiaClaudeComparisonTest.extractToolCallStats].
+ * Unit tests for [extractToolCallStats].
  *
  * Validates parsing of Claude NDJSON stream-json output to count steroid_execute_code calls,
  * total tool_use blocks, and tool results with is_error=true.
  */
 class ExtractToolCallStatsTest {
 
-    private val extract = DpaiaClaudeComparisonTest.Companion::extractToolCallStats
+    private val extract = ::extractToolCallStats
 
     @Test
     fun `returns null when output has no assistant events`() {

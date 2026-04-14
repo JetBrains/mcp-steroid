@@ -7,14 +7,14 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
- * Unit tests for [DpaiaClaudeComparisonTest.extractTestMetrics].
+ * Unit tests for [extractTestMetrics].
  *
  * These tests validate parsing logic on sample Maven Surefire output strings
  * without requiring Docker or a running IDE container.
  */
 class ExtractTestMetricsTest {
 
-    private val extract = DpaiaClaudeComparisonTest.Companion::extractTestMetrics
+    private val extract = ::extractTestMetrics
 
     @Test
     fun `returns null when no test results in output`() {
