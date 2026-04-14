@@ -97,9 +97,9 @@ val ideDownloadSpecs = listOf(
 )
 
 /**
- * Optional filter: `-Pmcp.prompts.ide.filter=idea` limits IDE downloads and tests
- * to matching products. On TeamCity each IDE group runs in its own build config.
- * Comma-separated, e.g. `idea,rider`. Empty or absent → all IDEs.
+ * Optional filter: `-Pmcp.prompts.ide.filter=idea:stable` limits IDE downloads and tests
+ * to matching entries. Supports both `product` (matches all channels) and `product:channel`
+ * (matches one specific entry). Comma-separated. Empty or absent → all IDEs.
  */
 val ideFilter = providers.gradleProperty("mcp.prompts.ide.filter")
     .orElse("")
@@ -112,7 +112,10 @@ val ideFilter = providers.gradleProperty("mcp.prompts.ide.filter")
 val filteredIdeDownloadSpecs = if (ideFilter.isEmpty()) {
     ideDownloadSpecs
 } else {
-    ideDownloadSpecs.filter { it.product in ideFilter }
+    ideDownloadSpecs.filter { spec ->
+        // Match "product" (all channels) or "product:channel" (specific)
+        spec.product in ideFilter || "${spec.product}:${spec.channel}" in ideFilter
+    }
 }
 
 val ideDownloadTasks = filteredIdeDownloadSpecs.map { spec ->
