@@ -66,13 +66,21 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
         }
 
         // On TeamCity, skip the test instead of failing the build.
-        // TestAbortedException works for JUnit 5 (DockerProgressTests in test-helper:test).
-        // For JUnit 4 (CliIntegrationTests in ij-plugin:integrationTest), the Vintage engine
-        // on JUnit Platform also recognizes it. The only case where it doesn't work is
-        // pure useJUnit() without the Platform — but ciIntegrationTests runs both tasks
-        // independently, so each uses its own test framework.
+        // Two different mechanisms needed depending on the test runner:
+        // - test-helper:test uses useJUnitPlatform() (JUnit 5 Jupiter): TestAbortedException → aborted
+        // - ij-plugin:integrationTest uses useJUnit() (JUnit 4 native): TestAbortedException is
+        //   an unrecognized exception → test FAILS. Must use Assume.assumeTrue(false) which throws
+        //   AssumptionViolatedException, recognized by the JUnit 4 runner as "skipped".
+        // Detect by checking if JUnit Platform classes are on the call stack.
         if (System.getenv("TEAMCITY_VERSION") != null) {
-            throw org.opentest4j.TestAbortedException(message)
+            val isJUnit5Platform = Thread.currentThread().stackTrace.any {
+                it.className.startsWith("org.junit.platform.")
+            }
+            if (isJUnit5Platform) {
+                throw org.opentest4j.TestAbortedException(message)
+            } else {
+                org.junit.Assume.assumeTrue(message, false)
+            }
         }
 
         error(message)
