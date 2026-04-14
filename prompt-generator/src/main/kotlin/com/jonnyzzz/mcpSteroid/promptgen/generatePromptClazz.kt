@@ -24,7 +24,7 @@ data class GeneratedPromptClazz(
     val src: File,
     val fileSpec: FileSpec,
 ) : Generated {
-    val content get() = src.readText()
+    val content get() = src.readText().replace("\r\n", "\n")
 
     override val entryName: String get() = path.substringAfterLast("/").toPromptIdentifierName()
 }
@@ -95,7 +95,7 @@ fun PromptGenerationContext.generatePromptClazz(
         ClassName(packageName + packageInfix, className)
     }
 
-    val (readFn, readResourceFun) = buildEncodedReadFunctions(src.readText())
+    val (readFn, readResourceFun) = buildEncodedReadFunctions(src.readText().replace("\r\n", "\n"))
 
     val mimeType = when (filePropValue) {
         "kts" -> "text/x-kotlin"
