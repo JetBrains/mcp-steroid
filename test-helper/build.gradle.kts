@@ -23,9 +23,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
-    // opentest4j on the main classpath so AIAgentCompanion.create() can throw
-    // TestAbortedException to skip tests when an API key is missing on CI.
+    // opentest4j + JUnit 4 on the main classpath so AIAgentCompanion.create() can
+    // skip tests when an API key is missing on CI. JUnit 4's AssumptionViolatedException
+    // is needed because CliClaudeIntegrationTest uses BasePlatformTestCase (JUnit 4 runner)
+    // which doesn't recognize opentest4j's TestAbortedException as a skip signal.
     implementation("org.opentest4j:opentest4j:1.3.0")
+    implementation("junit:junit:4.13.2")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
