@@ -92,13 +92,42 @@ listOf(
     downloadTessdata.configure { dependsOn(task) }
 }
 
-// Include tessdata in the distribution
+// Extract MSVC runtime DLLs from JavaCPP's javacpp-*-windows-x86_64.jar for bundling.
+// Tess4J's libtesseract551.dll and lept4j's libleptonica1850.dll are MSVC-compiled and
+// depend on these runtime DLLs. The target Windows machine may not have VC++ Redistributable
+// installed, so we bundle the DLLs in the distribution's native/ directory.
+// See: https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute
+val extractMsvcRuntime by tasks.registering(Copy::class) {
+    group = "build"
+    description = "Extract MSVC runtime DLLs from JavaCPP for Windows distribution"
+    val javacppJar = configurations.runtimeClasspath.get().files.find {
+        it.name.contains("javacpp") && it.name.contains("windows-x86_64")
+    }
+    if (javacppJar != null) {
+        from(zipTree(javacppJar)) {
+            include("org/bytedeco/javacpp/windows-x86_64/msvcp140*.dll")
+            include("org/bytedeco/javacpp/windows-x86_64/vcruntime140*.dll")
+            include("org/bytedeco/javacpp/windows-x86_64/ucrtbase.dll")
+            include("org/bytedeco/javacpp/windows-x86_64/concrt140.dll")
+            include("org/bytedeco/javacpp/windows-x86_64/vcomp140.dll")
+            // api-ms-win-*.dll forwarding DLLs needed by ucrtbase.dll on older Windows
+            include("org/bytedeco/javacpp/windows-x86_64/api-ms-win-*.dll")
+            eachFile { path = name } // flatten directory structure
+        }
+    }
+    into(layout.buildDirectory.dir("msvc-runtime"))
+    includeEmptyDirs = false
+}
+
+// Include tessdata and MSVC runtime in the distribution
 distributions {
     main {
         contents {
-            //dependeny to the task behind   tessdataDownloadDir
             from(downloadTessdata) {
                 into("tessdata")
+            }
+            from(extractMsvcRuntime) {
+                into("native")
             }
         }
     }

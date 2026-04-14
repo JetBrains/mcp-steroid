@@ -72,21 +72,23 @@ Fix: install chromium in ide-base Dockerfile so puppeteer finds it.
 - Phase 4: DONE
 - Phase 5: PARTIAL (DpaiaComparisonTest done, DpaiaClaudeComparisonTest deferred)
 
-## First Experiment Result (2026-04-14)
+## First A/B Experiment (2026-04-14)
 
 **Scenario:** dpaia__jhipster__sample__app-3 (ROLE_ADMIN → ROLE_ADMINISTRATOR)
-**Agent:** Claude Sonnet 4.6 + MCP Steroid
 
-| Metric         | Value |
-|----------------|-------|
-| Fix claimed    | YES   |
-| Tests          | 47/47 pass, BUILD SUCCESS |
-| Agent time     | 117s  |
-| Prewarm        | 81s   |
-| Cost           | $0.53 |
-| Turns          | 33    |
+| Metric         | Claude + MCP | Claude (no MCP) | Delta |
+|----------------|-------------|-----------------|-------|
+| Fix            | YES (47/47) | YES (47/47)     | —     |
+| Agent time     | 117s        | 135s            | -13%  |
+| Cost           | $0.53       | $0.48           | +10%  |
+| Turns          | 33          | 33              | —     |
+| Input tokens   | 1,261       | 2,171           | -42%  |
+| Cache read     | 839,867     | 624,884         | +34%  |
+
+Simple rename task — both modes succeed. MCP is 18s faster but costs $0.05 more.
+For this task type (pure find-and-replace), MCP advantage is modest.
+Need to test on NAVIGATE_MODIFY tasks (multi-layer, compilation feedback) for larger delta.
 
 ## Remaining Work
-- [ ] Run `claude without mcp` for A/B comparison on same scenario
 - [ ] DpaiaClaudeComparisonTest refactoring (complex due to token metrics extraction)
 - [ ] Extract token usage from NDJSON (currently parsed but not printed in table)

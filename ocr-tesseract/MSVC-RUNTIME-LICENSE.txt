@@ -1,0 +1,13 @@
+Microsoft Visual C++ Redistributable Runtime Libraries
+
+The files in the native/ directory (msvcp140.dll, vcruntime140.dll, ucrtbase.dll,
+concrt140.dll, vcomp140.dll, and api-ms-win-*.dll) are redistributable components
+of the Microsoft Visual C++ Runtime.
+
+These files are redistributed under the terms of the Microsoft Software License
+Terms for Visual Studio. See:
+https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
+
+The DLLs are extracted from the JavaCPP javacpp-platform distribution
+(https://github.com/bytedeco/javacpp) which bundles them for cross-platform
+native library support.
