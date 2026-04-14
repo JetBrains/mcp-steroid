@@ -202,7 +202,10 @@ private class StartedProcessImpl(
                 if (it.isAlive) {
                     println("[$logPrefix] Waiting for process thread ${it.name}")
                     it.interrupt()
-                    it.join()
+                    it.join(10_000)
+                    if (it.isAlive) {
+                        println("[$logPrefix] Thread ${it.name} still alive after interrupt — giving up")
+                    }
                 }
             }
         }
@@ -213,6 +216,14 @@ private class StartedProcessImpl(
 
         if (!completed) {
             process.destroyForcibly()
+            // Explicitly close streams so that output-reader threads (which call
+            // BufferedReader.readLine()) get an IOException/EOF and exit promptly.
+            // Without this, threads block indefinitely reading from the docker exec pipe
+            // even after the proxy process is killed — because the container process
+            // is still running and the pipe stays open from the container's side.
+            try { process.inputStream.close() } catch (_: Exception) { }
+            try { process.errorStream.close() } catch (_: Exception) { }
+            try { process.outputStream.close() } catch (_: Exception) { }
             waitForThreads()
 
             println("[${logPrefix}] Process is terminated by timeout after ${request.timeout}")
