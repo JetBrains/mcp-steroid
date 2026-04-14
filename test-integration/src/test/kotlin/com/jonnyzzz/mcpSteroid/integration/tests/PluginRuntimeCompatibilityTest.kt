@@ -1,4 +1,3 @@
-/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeChannel
@@ -9,9 +8,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
 import com.jonnyzzz.mcpSteroid.testHelper.runWithCloseableStack
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
@@ -53,14 +50,14 @@ class PluginRuntimeCompatibilityTest {
 
         // 1. list_projects — plugin loaded, MCP server started
         val projects = session.mcpSteroid.mcpListProjects()
-        assertTrue(projects.isNotEmpty(), "Should have at least one project")
+        Assertions.assertTrue(projects.isNotEmpty(), "Should have at least one project")
 
         // 2. list_windows — triggers mcp-steroid#18 on 262+
         val windows = session.mcpSteroid.mcpListWindows()
-        assertTrue(windows.isNotEmpty(), "Should have at least one window")
+        Assertions.assertTrue(windows.isNotEmpty(), "Should have at least one window")
         val projectWindow = windows.find { it.projectName != null }
-        assertNotNull(projectWindow, "Should have a window with project")
-        assertFalse(projectWindow!!.modalDialogShowing, "Should not have modal dialog")
+        Assertions.assertNotNull(projectWindow, "Should have a window with project")
+        Assertions.assertFalse(projectWindow!!.modalDialogShowing, "Should not have modal dialog")
 
         // 3. execute_code — compilation + execution works
         session.mcpSteroid.mcpExecuteCode(

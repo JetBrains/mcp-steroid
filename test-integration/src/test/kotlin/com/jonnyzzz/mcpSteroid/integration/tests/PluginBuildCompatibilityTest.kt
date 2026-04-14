@@ -1,6 +1,6 @@
-/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
+import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerVolume
@@ -11,7 +11,6 @@ import com.jonnyzzz.mcpSteroid.testHelper.docker.startDockerContainerAndDispose
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
-import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
 import com.jonnyzzz.mcpSteroid.testHelper.runWithCloseableStack
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -28,7 +27,8 @@ import java.util.concurrent.TimeUnit
 class PluginBuildCompatibilityTest {
 
     companion object {
-        @JvmStatic @BeforeAll fun setUp() = BuildCompatInfra.setUp()
+        @JvmStatic @BeforeAll
+        fun setUp() = BuildCompatInfra.setUp()
     }
 
     @Test
@@ -64,7 +64,8 @@ class PluginBuildCompatibilityTest {
 class PluginVerificationTest {
 
     companion object {
-        @JvmStatic @BeforeAll fun setUp() = BuildCompatInfra.setUp()
+        @JvmStatic @BeforeAll
+        fun setUp() = BuildCompatInfra.setUp()
     }
 
     @Test
@@ -88,10 +89,6 @@ class PluginVerificationTest {
         )
 }
 
-// ---------------------------------------------------------------------------
-// Shared infrastructure
-// ---------------------------------------------------------------------------
-
 private object BuildCompatInfra {
     private lateinit var buildImage: ImageDriver
 
@@ -99,12 +96,16 @@ private object BuildCompatInfra {
         ProjectHomeDirectory.requireProjectHomeDirectory().toFile()
     }
     private val gradleHomeDir: File by lazy {
-        File(System.getProperty("test.integration.build.compat.gradle.home")
-            ?: error("test.integration.build.compat.gradle.home not set"))
+        File(
+            System.getProperty("test.integration.build.compat.gradle.home")
+                ?: error("test.integration.build.compat.gradle.home not set")
+        )
     }
     private val ijPlatformCacheDir: File by lazy {
-        File(System.getProperty("test.integration.build.compat.ij.platform")
-            ?: error("test.integration.build.compat.ij.platform not set"))
+        File(
+            System.getProperty("test.integration.build.compat.ij.platform")
+                ?: error("test.integration.build.compat.ij.platform not set")
+        )
     }
 
     fun setUp() {
@@ -179,7 +180,7 @@ private object BuildCompatInfra {
     private fun prepareContainer(lifetime: CloseableStack, logPrefix: String): ContainerDriver {
         val container = startDockerContainerAndDispose(
             lifetime,
-            StartContainerRequest()
+            StartContainerRequest.Companion()
                 .image(buildImage)
                 .logPrefix(logPrefix)
                 .entryPoint("sleep", "infinity")

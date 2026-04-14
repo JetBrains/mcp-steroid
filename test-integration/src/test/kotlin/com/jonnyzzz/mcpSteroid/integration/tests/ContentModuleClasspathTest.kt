@@ -1,4 +1,3 @@
-/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
@@ -6,8 +5,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Assertions.fail
+import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
@@ -334,9 +332,9 @@ class ContentModuleClasspathTest {
         val onlyInFilesystem = extractSection(stdout, "ONLY_IN_FILESYSTEM")
 
         // Classpath entries pointing to non-existent files indicate stale references
-        assertTrue(onlyInClasspath.isEmpty()) {
+        Assertions.assertTrue(onlyInClasspath.isEmpty()) {
             "ideClasspath() references ${onlyInClasspath.size} JARs not found on filesystem:\n" +
-                onlyInClasspath.joinToString("\n") { "  $it" }
+                    onlyInClasspath.joinToString("\n") { "  $it" }
         }
 
         // Apply structural exception rules (jbr, lib subdirs, plugin non-lib, plugin lib subdirs)
@@ -351,7 +349,7 @@ class ContentModuleClasspathTest {
         val staleEntries = (expectedUnloaded - onlyInFilesystem.toSet()).sorted()
 
         if (unexplained.isNotEmpty() || staleEntries.isNotEmpty()) {
-            fail<Nothing>(buildString {
+            Assertions.fail<Nothing>(buildString {
                 if (unexplained.isNotEmpty()) {
                     appendLine("${unexplained.size} JAR(s) on filesystem but not in classpath, not covered by any exception rule:")
                     appendLine("Add each to the appropriate category in UNLOADED_CONTENT_MODULES or fix isStructuralException().")

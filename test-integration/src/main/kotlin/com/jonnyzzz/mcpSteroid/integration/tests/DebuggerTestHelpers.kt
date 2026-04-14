@@ -1,18 +1,16 @@
-/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 /**
  * Shared helpers for debugger integration tests.
- * Used by [DebuggerDemoTest] (IntelliJ/JVM) and [RiderDebuggerTest] (Rider/.NET).
  */
 
-internal fun hasAnyMarkerLine(output: String, vararg markers: String): Boolean {
+fun hasAnyMarkerLine(output: String, vararg markers: String): Boolean {
     return markers.any { marker ->
         Regex("""(?im)^\s*[*_`>#-]*\s*${Regex.escape(marker)}\s*:""").containsMatchIn(output)
     }
 }
 
-internal fun findMarkerValue(output: String, vararg markers: String): String? {
+fun findMarkerValue(output: String, vararg markers: String): String? {
     if (markers.isEmpty()) return null
     val markerAlternation = markers.joinToString("|") { Regex.escape(it) }
     val markerRegex = Regex(
@@ -39,7 +37,7 @@ internal fun findMarkerValue(output: String, vararg markers: String): String? {
     }
 }
 
-internal fun assertUsedExecuteCodeEvidence(combined: String) {
+fun assertUsedExecuteCodeEvidence(combined: String) {
     val executionIdPattern = Regex("""\b(?:Execution ID|execution_id):\s*eid_[A-Za-z0-9_-]+""")
     val hasToolEvidence = executionIdPattern.containsMatchIn(combined)
 
@@ -49,7 +47,7 @@ internal fun assertUsedExecuteCodeEvidence(combined: String) {
     }
 }
 
-internal fun assertRootCauseQuality(
+fun assertRootCauseQuality(
     combined: String,
     output: String,
     firstAspectPatterns: List<String>,

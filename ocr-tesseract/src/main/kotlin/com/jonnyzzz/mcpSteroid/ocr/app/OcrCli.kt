@@ -216,6 +216,8 @@ private fun findAppRoot(): Path {
     error("Cannot determine application root directory. Run from the distribution directory or ensure TESSDATA_PREFIX is set.")
 }
 
+private val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+
 private fun ensureNativeLibraries() {
     val leptonicaJniLib = Paths.get(Loader.load(leptonica::class.java))
     val tesseractJniLib = Paths.get(Loader.load(tesseract::class.java))
@@ -223,25 +225,35 @@ private fun ensureNativeLibraries() {
     val leptonicaLibDir = leptonicaJniLib.parent ?: error("Cannot resolve Leptonica JNI directory from $leptonicaJniLib")
     val tesseractLibDir = tesseractJniLib.parent ?: error("Cannot resolve Tesseract JNI directory from $tesseractJniLib")
 
-    val leptonicaVersionedLib = findFirstSharedLibrary(
-        leptonicaLibDir,
-        "libleptonica.so.",
-        "libleptonica."
-    )
-    val tesseractVersionedLib = findFirstSharedLibrary(
-        tesseractLibDir,
-        "libtesseract.so.",
-        "libtesseract."
-    )
+    // JavaCPP uses different naming conventions per platform:
+    //   Linux:   libleptonica.so.X.Y.Z / libtesseract.so.X.Y.Z
+    //   macOS:   libleptonica.dylib / libtesseract.dylib
+    //   Windows: jnileptonica.dll / jnitesseract.dll
+    val leptonicaVersionedLib = if (isWindows) {
+        findFirstSharedLibrary(leptonicaLibDir, "jnileptonica.", "leptonica.")
+    } else {
+        findFirstSharedLibrary(leptonicaLibDir, "libleptonica.so.", "libleptonica.")
+    }
+    val tesseractVersionedLib = if (isWindows) {
+        findFirstSharedLibrary(tesseractLibDir, "jnitesseract.", "tesseract.")
+    } else {
+        findFirstSharedLibrary(tesseractLibDir, "libtesseract.so.", "libtesseract.")
+    }
 
     // Tess4J/Lept4J look for unversioned sonames, while JavaCPP provides only versioned files.
     // Create local aliases in JavaCPP cache dirs so JNA binds to matching bundled natives.
-    ensureLibraryAlias(leptonicaLibDir, "libleptonica.so", leptonicaVersionedLib)
-    ensureLibraryAlias(leptonicaLibDir, "liblept.so", leptonicaVersionedLib)
-    ensureLibraryAlias(leptonicaLibDir, "liblept.so.5", leptonicaVersionedLib)
-    ensureLibraryAlias(leptonicaLibDir, "libleptonica.dylib", leptonicaVersionedLib)
-    ensureLibraryAlias(tesseractLibDir, "libtesseract.so", tesseractVersionedLib)
-    ensureLibraryAlias(tesseractLibDir, "libtesseract.dylib", tesseractVersionedLib)
+    if (isWindows) {
+        ensureLibraryAlias(leptonicaLibDir, "leptonica.dll", leptonicaVersionedLib)
+        ensureLibraryAlias(leptonicaLibDir, "lept.dll", leptonicaVersionedLib)
+        ensureLibraryAlias(tesseractLibDir, "tesseract.dll", tesseractVersionedLib)
+    } else {
+        ensureLibraryAlias(leptonicaLibDir, "libleptonica.so", leptonicaVersionedLib)
+        ensureLibraryAlias(leptonicaLibDir, "liblept.so", leptonicaVersionedLib)
+        ensureLibraryAlias(leptonicaLibDir, "liblept.so.5", leptonicaVersionedLib)
+        ensureLibraryAlias(leptonicaLibDir, "libleptonica.dylib", leptonicaVersionedLib)
+        ensureLibraryAlias(tesseractLibDir, "libtesseract.so", tesseractVersionedLib)
+        ensureLibraryAlias(tesseractLibDir, "libtesseract.dylib", tesseractVersionedLib)
+    }
 
     val existing = System.getProperty("jna.library.path").orEmpty()
     val updated = buildList {

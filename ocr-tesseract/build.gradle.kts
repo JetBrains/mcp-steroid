@@ -28,6 +28,9 @@ dependencies {
     implementation("org.bytedeco:tesseract-platform:$tesseractPlatformVersion")
     implementation("org.bytedeco:leptonica-platform:$leptonicaPlatformVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 application {
@@ -37,6 +40,16 @@ application {
 
 kotlin {
     jvmToolchain(21)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    // OCR tests need the tessdata files to be downloaded
+    dependsOn(downloadTessdata)
+    doFirst {
+        // Set tessdata path so the CLI can find training data
+        systemProperty("tessdata.prefix", tessdataDownloadDir.get().asFile.absolutePath)
+    }
 }
 
 // Tessdata download configuration
