@@ -89,6 +89,15 @@ class OcrCliSmokeTest {
 
         val finished = process.waitFor(120, TimeUnit.SECONDS)
         assertTrue(finished) { "OCR process timed out after 120s" }
+
+        // Native Tesseract libraries may not be available on all platforms (e.g., Windows
+        // agents missing Visual C++ Runtime). Skip the test instead of failing.
+        if (process.exitValue() != 0 && stderr.contains("UnsatisfiedLinkError")) {
+            throw org.opentest4j.TestAbortedException(
+                "Native OCR libraries not available on this platform — skipping. stderr: ${stderr.take(200)}"
+            )
+        }
+
         assertEquals(0, process.exitValue()) {
             "OCR process failed with exit code ${process.exitValue()}.\nstderr: $stderr\nstdout: $stdout"
         }
