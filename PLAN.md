@@ -98,13 +98,35 @@ This works but is a regex workaround. With MCP Steroid, the agent could use
 **Fix:** Not urgent for rename tasks, but for complex refactors this matters. Add a
 prompt hint: "Use ReferencesSearch for Java symbol usage verification, not grep."
 
+## Investigation: Why agent didn't call MCP Steroid (2026-04-14)
+
+### Root cause found
+ArenaTestRunner.kt line 188 contained: **"Skip steroid entirely for simple multi-file edits"**.
+The agent correctly identified jhipster-3 as a rename task and followed this instruction to the
+letter — 0 steroid_execute_code calls, using only native Read/Grep/Edit/Bash.
+
+### Verified locally
+- Deployed fresh plugin `0.92.0.19999-SNAPSHOT-20260414-172401`
+- MCP Steroid works perfectly: VCS changes, project SDK, FilenameIndex all operational
+- The issue was purely in the arena prompt, not in MCP tooling
+
+### Fix applied
+- Removed "Skip steroid entirely" instruction
+- Added **MANDATORY first steroid call**: VCS changes + project readiness (even for simple tasks)
+- Added **MANDATORY compilation check**: after edits, before Maven/Gradle tests (~2s vs 25s)
+- Test patch diff now embedded in prompt (LF-2 already done)
+- JAVA_HOME symlink fixed in Dockerfile (LF-1 already done)
+
 ## Next Steps
 
-### Immediate (this session)
+### Immediate
 - [x] Analyze MCP run logs for improvement opportunities
-- [ ] Fix LF-1: Export JAVA_HOME to agent bash environment in Docker
-- [ ] Fix LF-2: Include VCS diff in the arena prompt so agent starts with context
-- [ ] Re-run jhipster experiment to verify improvements
+- [x] Fix LF-1: JAVA_HOME symlink in Dockerfile
+- [x] Fix LF-2: Test patch diff embedded in prompt
+- [x] Investigate why agent skipped MCP (root cause: prompt instruction)
+- [x] Deploy fresh plugin and verify MCP works locally
+- [x] Remove "skip steroid" instruction, add mandatory steroid calls
+- [ ] Re-run jhipster experiment to verify agent now uses MCP
 
 ### Experiment: harder scenarios
 - [ ] `dpaia__feature__service-125` — 44KB patch, cross-layer JPQL (HIGH MCP benefit)
