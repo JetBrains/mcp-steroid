@@ -672,6 +672,10 @@ blocked by the TC DSL security sandbox. Filesystem-dependent tests go in `main()
 
 ### Always bump queued builds to the top of the queue
 
+**MANDATORY**: Every time you trigger a build on TC — whether via REST API or retrigger —
+you **must** immediately move it (and all its snapshot dependencies) to the top of the queue.
+No exceptions. The queue has 5000+ builds; without moving to top, our builds wait hours.
+
 When an agent triggers a build on TC, the queued builds **must** be moved to the top of the
 build queue so they land on an agent immediately instead of sitting behind thousands of
 unrelated builds.
