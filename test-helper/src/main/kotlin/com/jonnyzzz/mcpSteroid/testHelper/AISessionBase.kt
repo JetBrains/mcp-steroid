@@ -41,7 +41,28 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
     abstract val displayName: String
     abstract val outputFilter: AgentProgressOutputFilter
 
-    protected abstract fun readApiKey(): String
+    /**
+     * Returns the API key for this agent, or `null` if it cannot be found.
+     * Each subclass checks env vars and well-known key files.
+     */
+    protected abstract fun readApiKey(): String?
+
+    /** Human-readable description of where the key can come from (for error/skip messages). */
+    protected abstract val apiKeyHint: String
+
+    private fun requireApiKey(): String {
+        readApiKey()?.let { return it }
+
+        val message = "$displayName API key not found ($apiKeyHint)"
+
+        // On TeamCity, skip the test instead of failing the build — allows CI to
+        // proceed when a key (e.g. GEMINI_API_KEY) hasn't been configured yet.
+        if (System.getenv("TEAMCITY_VERSION") != null) {
+            throw org.opentest4j.TestAbortedException(message)
+        }
+
+        error(message)
+    }
 
     fun create(lifetime: CloseableStack): T {
         val dockerfilePath = ProjectHomeDirectory.requireProjectHomeDirectory()
@@ -65,7 +86,7 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
 
     fun create(session: ContainerDriver): T {
         println("[DOCKER-${dockerFileBase.uppercase()}] Session created in container")
-        val apiKey = readApiKey()
+        val apiKey = requireApiKey()
         return createImpl(session, apiKey)
     }
 

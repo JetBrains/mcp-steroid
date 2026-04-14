@@ -91,14 +91,17 @@ class DockerGeminiSession(
         override val displayName = "Gemini"
         override val outputFilter get() = GeminiOutputFilter()
 
-        override fun readApiKey(): String {
+        override val apiKeyHint = "set env GEMINI_API_KEY, GOOGLE_API_KEY, or ~/.vertex"
+
+        override fun readApiKey(): String? {
             System.getenv("GEMINI_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
+            System.getenv("GOOGLE_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
             val keyFile = File(System.getProperty("user.home"), ".vertex")
             if (keyFile.exists()) {
                 val content = keyFile.readText().trim()
                 if (content.isNotBlank()) return content
             }
-            error("GEMINI_API_KEY required (set env GEMINI_API_KEY, GOOGLE_API_KEY, or ~/.vertex)")
+            return null
         }
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerGeminiSession {

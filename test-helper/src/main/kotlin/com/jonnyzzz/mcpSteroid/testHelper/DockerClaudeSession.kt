@@ -107,14 +107,16 @@ class DockerClaudeSession(
         override val displayName = "Claude Code"
         override val outputFilter get() = ClaudeOutputFilter()
 
-        override fun readApiKey(): String {
+        override val apiKeyHint = "set env ANTHROPIC_API_KEY or ~/.anthropic"
+
+        override fun readApiKey(): String? {
             System.getenv("ANTHROPIC_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
             val keyFile = File(System.getProperty("user.home"), ".anthropic")
             if (keyFile.exists()) {
                 val content = keyFile.readText().trim()
                 if (content.isNotBlank()) return content
             }
-            error("ANTHROPIC_API_KEY is required for Claude CLI tests (set env or ~/.anthropic)")
+            return null
         }
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerClaudeSession {

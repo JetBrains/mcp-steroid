@@ -100,14 +100,16 @@ class DockerCodexSession(
         override val displayName = "Codex"
         override val outputFilter get() = CodexOutputFilter()
 
-        override fun readApiKey(): String {
+        override val apiKeyHint = "set env OPENAI_API_KEY or ~/.openai"
+
+        override fun readApiKey(): String? {
             System.getenv("OPENAI_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
             val keyFile = File(System.getProperty("user.home"), ".openai")
             if (keyFile.exists()) {
                 val content = keyFile.readText().trim()
                 if (content.isNotBlank()) return content
             }
-            error("OPENAI_API_KEY is required for Codex CLI tests (set env or ~/.openai)")
+            return null
         }
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerCodexSession {
