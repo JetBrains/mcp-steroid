@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM registry.jetbrains.team/p/ij/docker-hub/debian:bookworm-slim
 
 # Install Node.js 20
 RUN apt-get update && \

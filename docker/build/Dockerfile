@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM registry.jetbrains.team/p/ij/docker-hub/debian:bookworm-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
