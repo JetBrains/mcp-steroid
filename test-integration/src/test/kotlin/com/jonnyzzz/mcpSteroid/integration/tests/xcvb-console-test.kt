@@ -1,7 +1,14 @@
-/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
-import com.jonnyzzz.mcpSteroid.integration.infra.*
+import com.jonnyzzz.mcpSteroid.integration.infra.HorizontalLayoutManager
+import com.jonnyzzz.mcpSteroid.integration.infra.IdeDistribution
+import com.jonnyzzz.mcpSteroid.integration.infra.WindowLayoutManager
+import com.jonnyzzz.mcpSteroid.integration.infra.XcvbConsoleDriver
+import com.jonnyzzz.mcpSteroid.integration.infra.XcvbDriver
+import com.jonnyzzz.mcpSteroid.integration.infra.XcvbVideoDriver
+import com.jonnyzzz.mcpSteroid.integration.infra.XcvbWindowDriver
+import com.jonnyzzz.mcpSteroid.integration.infra.buildIdeImage
+import com.jonnyzzz.mcpSteroid.integration.infra.resolveAndDownload
 import com.jonnyzzz.mcpSteroid.testHelper.docker.StartContainerRequest
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startDockerContainerAndDispose
 import com.jonnyzzz.mcpSteroid.testHelper.runWithCloseableStack
@@ -20,7 +27,7 @@ class XcvbConsoleTest {
 
         var container = startDockerContainerAndDispose(
             lifetime,
-            StartContainerRequest()
+            StartContainerRequest.Companion()
                 .image(imageId)
                 .ports(
                     XcvbVideoDriver.VIDEO_STREAMING_PORT
@@ -41,7 +48,8 @@ class XcvbConsoleTest {
         val windowsDriver = XcvbWindowDriver(lifetime, container, xcvb.wholeScreenAreal())
         windowsDriver.startWindowManager()
 
-        val videoDriver = XcvbVideoDriver(lifetime, container, windowsDriver, xcvb, "/tmp/ignored/video", "console test")
+        val videoDriver =
+            XcvbVideoDriver(lifetime, container, windowsDriver, xcvb, "/tmp/ignored/video", "console test")
         videoDriver.startVideoService()
 
         val windowsLayout = WindowLayoutManager(windowsDriver, layoutManager)

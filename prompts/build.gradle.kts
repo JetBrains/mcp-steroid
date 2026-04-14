@@ -96,7 +96,26 @@ val ideDownloadSpecs = listOf(
     IdeDownloadSpec("pycharm", "eap", "mcp.steroid.pycharm.eap.home"),
 )
 
-val ideDownloadTasks = ideDownloadSpecs.map { spec ->
+/**
+ * Optional filter: `-Pmcp.prompts.ide.filter=idea` limits IDE downloads and tests
+ * to matching products. On TeamCity each IDE group runs in its own build config.
+ * Comma-separated, e.g. `idea,rider`. Empty or absent → all IDEs.
+ */
+val ideFilter = providers.gradleProperty("mcp.prompts.ide.filter")
+    .orElse("")
+    .get()
+    .split(",")
+    .map { it.trim().lowercase() }
+    .filter { it.isNotEmpty() }
+    .toSet()
+
+val filteredIdeDownloadSpecs = if (ideFilter.isEmpty()) {
+    ideDownloadSpecs
+} else {
+    ideDownloadSpecs.filter { it.product in ideFilter }
+}
+
+val ideDownloadTasks = filteredIdeDownloadSpecs.map { spec ->
     val dirSuffix = "${spec.product}-${spec.channel}"
     val downloadDir = layout.buildDirectory.dir("ide-download-$dirSuffix")
     val unpackDir = layout.buildDirectory.dir("ide-unpack-$dirSuffix")
@@ -119,9 +138,22 @@ val ideDownloadTasks = ideDownloadSpecs.map { spec ->
     Triple(spec, unpackDir, task)
 }
 
+/** Gradle task that prints the ideDownloadSpecs list for TC settings validation. */
+tasks.register("listIdeDownloadSpecs") {
+    group = "verification"
+    description = "Print ideDownloadSpecs as product:channel lines for TC settings validation"
+    doLast {
+        for (spec in ideDownloadSpecs) {
+            println("${spec.product}:${spec.channel}")
+        }
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
-    maxParallelForks = 8
+    // On TeamCity, run single-threaded to avoid overwhelming the agent with
+    // parallel IDE downloads + kotlinc compilations. Locally, use 8 cores.
+    maxParallelForks = if (System.getenv("TEAMCITY_VERSION") != null) 1 else 8
 
     for ((_, _, task) in ideDownloadTasks) {
         dependsOn(task)

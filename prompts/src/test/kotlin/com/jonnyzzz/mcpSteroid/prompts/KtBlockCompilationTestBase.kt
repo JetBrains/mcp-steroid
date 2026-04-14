@@ -80,7 +80,17 @@ abstract class KtBlockCompilationTestBase {
 
     private fun compileAgainst(block: PromptBase, homeProperty: String, werror: Boolean) {
         val home = System.getProperty(homeProperty)
-            ?: error("Missing system property '$homeProperty' — IDE distribution not available")
+        if (home == null) {
+            // On TeamCity, skip tests for IDEs that weren't provided — each IDE group
+            // runs in its own build configuration with only its specific IDE downloaded.
+            // Locally, all IDEs are expected to be present.
+            if (System.getenv("TEAMCITY_VERSION") != null) {
+                throw org.opentest4j.TestAbortedException(
+                    "IDE not available (system property '$homeProperty' not set) — skipping on CI"
+                )
+            }
+            error("Missing system property '$homeProperty' — IDE distribution not available")
+        }
 
         val content = block.readPrompt()
         val wrapped = CodeWrapperForCompilation.wrap("MdKtBlock", content).code
