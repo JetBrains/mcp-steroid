@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM registry.jetbrains.team/p/ij/docker-hub/ubuntu:22.04
 
 RUN apt-get update && \
     apt-get install -y curl ca-certificates gnupg && \
