@@ -7,37 +7,45 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
- * Smoke tests for the OCR CLI tool. Runs the CLI as a **subprocess** (not in-process)
- * to match production usage and avoid native library crashes in the test JVM.
+ * Smoke tests for the OCR CLI tool. Runs the installed distribution binary
+ * (via `installDist`) as a subprocess on all platforms.
  *
- * These tests validate that:
- * 1. Native libraries load correctly on the current platform (Linux/macOS/Windows)
- * 2. Tesseract can extract text from simple images
- * 3. The JSON output format is correct
- * 4. The @argfile mechanism works
+ * The launcher path is passed via `-Docr.test.launcher` system property,
+ * set by the Gradle test task after `installDist` completes.
  */
 class OcrCliSmokeTest {
 
+    private val launcher: String = requireNotNull(System.getProperty("ocr.test.launcher")) {
+        "System property 'ocr.test.launcher' not set — run via Gradle (:ocr-tesseract:test)"
+    }
+
+    private val installDir: Path = Paths.get(
+        requireNotNull(System.getProperty("ocr.test.install.dir")) {
+            "System property 'ocr.test.install.dir' not set — run via Gradle (:ocr-tesseract:test)"
+        }
+    )
+
     @Test
     fun `extract text from hello-ocr image`() {
-        val result = runOcrSubprocess("hello-ocr.png")
+        val result = runOcr("hello-ocr.png")
         assertContainsTokens(result, "HELLO", "OCR")
     }
 
     @Test
     fun `extract text from multi-line image`() {
-        val result = runOcrSubprocess("multi-line.png")
+        val result = runOcr("multi-line.png")
         assertContainsTokens(result, "FIRST", "LINE", "SECOND")
     }
 
     @Test
     fun `extract text from numbers image`() {
-        val result = runOcrSubprocess("numbers.png")
+        val result = runOcr("numbers.png")
         assertContainsTokens(result, "12345", "TEST")
     }
 
@@ -47,43 +55,41 @@ class OcrCliSmokeTest {
         val argFile = Files.createTempFile("ocr-test-", ".args")
         Files.writeString(argFile, "--image\n$imagePath\n--lang\neng\n--level\ntext_line")
 
-        val result = runOcrSubprocessRaw("@${argFile.toAbsolutePath()}")
-        val parsed = json.decodeFromString(OcrResult.serializer(), result)
-        assertContainsTokens(parsed, "HELLO", "OCR")
+        val output = runLauncher("@${argFile.toAbsolutePath()}")
+        val result = json.decodeFromString(OcrResult.serializer(), output)
+        assertContainsTokens(result, "HELLO", "OCR")
     }
 
-    /**
-     * Runs the OCR CLI as a subprocess using `java -cp ... OcrCliKt`.
-     * This matches how OcrProcessClient invokes the tool in production.
-     */
-    private fun runOcrSubprocess(imageName: String): OcrResult {
+    private fun runOcr(imageName: String): OcrResult {
         val imagePath = loadImagePath(imageName)
-        val output = runOcrSubprocessRaw("--image", imagePath, "--lang", "eng", "--level", "text_line")
+        val output = runLauncher("--image", imagePath, "--lang", "eng", "--level", "text_line")
         return json.decodeFromString(OcrResult.serializer(), output)
     }
 
-    private fun runOcrSubprocessRaw(vararg args: String): String {
-        val javaHome = System.getProperty("java.home")
-        val javaExe = Paths.get(javaHome, "bin", "java").toString()
-        val classpath = System.getProperty("java.class.path")
-
-        val command = mutableListOf(javaExe, "-cp", classpath)
-        // Pass tessdata location to subprocess if available
-        val tessdataPrefix = System.getProperty("tessdata.prefix")
-        if (tessdataPrefix != null) {
-            command.add("-Dtessdata.prefix=$tessdataPrefix")
+    /**
+     * Runs the OCR CLI via the installed distribution launcher script.
+     * On Windows: `bin/ocr-tesseract.bat`, on Unix: `bin/ocr-tesseract`.
+     */
+    private fun runLauncher(vararg args: String): String {
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        val command = if (isWindows) {
+            mutableListOf("cmd.exe", "/c", launcher)
+        } else {
+            // Ensure the launcher is executable
+            val launcherFile = Paths.get(launcher)
+            if (!Files.isExecutable(launcherFile)) {
+                launcherFile.toFile().setExecutable(true)
+            }
+            mutableListOf(launcher)
         }
-        command.add("com.jonnyzzz.mcpSteroid.ocr.app.OcrCliKt")
         command.addAll(args)
 
         val pb = ProcessBuilder(command)
+            .directory(installDir.toFile())
             .redirectErrorStream(false)
-        // Also pass via env var as fallback
-        if (tessdataPrefix != null) {
-            pb.environment()["TESSDATA_PREFIX"] = tessdataPrefix
-        }
-        val process = pb.start()
+        pb.environment()["JAVA_HOME"] = System.getProperty("java.home")
 
+        val process = pb.start()
         val stdout = process.inputStream.bufferedReader().readText()
         val stderr = process.errorStream.bufferedReader().readText()
 
