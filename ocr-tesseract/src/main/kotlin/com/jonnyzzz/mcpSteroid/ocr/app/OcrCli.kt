@@ -237,7 +237,32 @@ private fun ensureNativeLibraries() {
         // incompatible with Tess4J's MSVC-compiled DLLs. Loading both in the same JVM
         // causes UnsatisfiedLinkError because of conflicting runtime dependencies.
         //
-        // Just let Tess4J handle native loading natively on Windows.
+        // Let Tess4J handle native loading natively on Windows.
+        // But first: extract MSVC runtime DLLs from JavaCPP's base jar to the cache.
+        // The target Windows machine may not have VC++ Redistributable installed.
+        // JavaCPP's javacpp-*-windows-x86_64.jar bundles msvcp140.dll, vcruntime140.dll,
+        // ucrtbase.dll, and api-ms-win-*.dll forwarding DLLs.
+        //
+        // Loader.load(Loader::class.java) extracts the base JavaCPP JNI bridge + all
+        // co-located DLLs (including MSVC runtime) to the cache directory. This does NOT
+        // load the MinGW-compiled tesseract/leptonica DLLs — those are in separate jars.
+        try {
+            val javacppJniLib = Paths.get(Loader.load(Loader::class.java))
+            val javacppLibDir = javacppJniLib.parent
+            if (javacppLibDir != null) {
+                // Prepend the JavaCPP cache dir (with MSVC DLLs) to jna.library.path
+                // so Tess4J's DLLs can find their MSVC runtime dependencies.
+                val existing = System.getProperty("jna.library.path").orEmpty()
+                val updated = if (existing.isNotBlank()) {
+                    "${javacppLibDir}${File.pathSeparator}$existing"
+                } else {
+                    javacppLibDir.toString()
+                }
+                System.setProperty("jna.library.path", updated)
+            }
+        } catch (e: Exception) {
+            System.err.println("Warning: failed to extract JavaCPP MSVC runtime: ${e.message}")
+        }
         System.setProperty("jna.nosys", "true")
         return
     }
