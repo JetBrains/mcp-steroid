@@ -500,6 +500,33 @@ ActionUtil.invokeAction(action, dataContext, "mcp", null, null)
 
 List actions: `ActionManager.getInstance().getActionIds("").filter { it.contains("restart", ignoreCase = true) }`
 
+## Windows CI Compatibility
+
+Cross-platform code must avoid these Windows pitfalls:
+
+### Line endings
+- **`BufferedWriter.newLine()`** writes `\r\n` on Windows. Use `write("\n")` explicitly for
+  protocol output (NDJSON, MCP responses).
+- **`File.readText()`** preserves `\r\n`. Normalize with `.replace("\r\n", "\n")` when the
+  content is compared against generated/assembled text.
+
+### Path separators
+- **`File.toRelativeString()`** uses `\` on Windows. Normalize with `.replace('\\', '/')` when
+  paths are used as Kotlin identifiers or URI components.
+
+### Command-line length
+- Windows `cmd.exe /c` has an 8191-char limit; `CreateProcessW` has a 32K limit.
+- **kotlinc**: `KotlincProcessClient.kotlinc()` always wraps args into a `@argfile` (kotlinc's
+  native argfile support). If the caller already provides `@argfile`, skip re-wrapping.
+- **OCR**: `OcrProcessClient` bypasses the `.bat` wrapper on Windows and invokes `java` directly
+  with `-cp "lib/*"` (wildcard classpath) to avoid the `.bat`'s CLASSPATH expansion exceeding
+  `cmd.exe` limits. OCR CLI args use `@argfile` on all platforms.
+
+### Native libraries (OCR)
+- JavaCPP uses platform-specific naming: `lib*.so` (Linux), `lib*.dylib` (macOS), `jni*.dll` (Windows).
+- `ensureNativeLibraries()` in `OcrCli.kt` detects the platform and uses the correct prefixes.
+- Aliases: Linux needs `.so` symlinks, Windows needs `.dll` copies — macOS needs `.dylib` symlinks.
+
 ## Environment Constraints
 
 `timeout`/`gtimeout` not available. Use Gradle timeout mechanisms or Bash tool's `timeout` parameter.
@@ -512,8 +539,8 @@ Run `./gradlew tasks --group ci` to list them.
 | Task | Subprojects covered | Notes |
 |------|-------------------|-------|
 | `buildPluginOnCI` | `:ij-plugin` (builds + publishes ZIP) | Entry point for both GH Actions & TC "build plugin" configs |
-| `ciBuildPluginTests` | All plugin modules **except** prompts + non-plugin | Per-OS matrix (Win/Linux/Mac) on TC |
-| `ciBuildPromptsTests` | `prompt-generator`, `prompts`, `prompts-api` | Single Linux agent on TC; platform-neutral |
+| `ciBuildPluginTests` | All plugin modules **except** prompts + non-plugin (includes `ocr-tesseract`, `ocr-common`, `agent-output-filter`, `kotlin-cli`, etc.) | Per-OS matrix (Win/Linux/Mac) on TC |
+| `ciBuildPromptsTests` | `prompt-generator`, `prompts`, `prompts-api` | Per-IDE on TC via `-Pmcp.prompts.ide.filter=<product>`; single-threaded on TC |
 | `ciIntegrationTests` | `:test-helper:test` → `:ij-plugin:integrationTest` → `:test-integration:test` | **Strict sequential ordering** via `mustRunAfter`; requires Docker + API keys |
 
 ### `ciIntegrationTests` ordering
