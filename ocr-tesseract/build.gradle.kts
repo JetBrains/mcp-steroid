@@ -114,10 +114,17 @@ val extractWindowsNatives by tasks.registering(Copy::class) {
     }
 
     // lept4j: libleptonica1850.dll
+    // NOTE: tess4j 5.17.0's libtesseract551.dll imports libleptonica1860.dll (version mismatch
+    // between tess4j and lept4j). Create a copy with the expected name so the DLL loader finds it.
     cp.find { it.name.startsWith("lept4j") }?.let { jar ->
         from(zipTree(jar)) {
             include("win32-x86-64/*.dll")
             eachFile { path = name }
+        }
+        // Duplicate under the name tesseract actually imports
+        from(zipTree(jar)) {
+            include("win32-x86-64/libleptonica1850.dll")
+            eachFile { path = "libleptonica1860.dll" }
         }
     }
 

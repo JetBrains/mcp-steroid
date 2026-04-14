@@ -353,7 +353,7 @@ if (toInstall.isEmpty()) {
         val code = """
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
+// JavaSdk.createJdk() + ProjectJdkTable.addJdk() — no modal dialogs
 
 // Discover Temurin JDK dirs in /usr/lib/jvm/
 val jvmDir = java.io.File("/usr/lib/jvm")
@@ -382,19 +382,17 @@ for (dir in temurinDirs) {
         continue
     }
 
-    // createAndAddSDK requires EDT for VFS refresh + write action
-    val sdk = withContext(Dispatchers.EDT) {
-        SdkConfigurationUtil.createAndAddSDK(dir.absolutePath, javaSdkType)
-    }
-    if (sdk != null) {
-        // Rename to simple version number
-        val mod = sdk.sdkModificator
-        mod.name = version
-        com.intellij.openapi.application.writeAction { mod.commitChanges() }
+    // Use JavaSdk.createJdk() which sets up classpath without modal dialogs,
+    // then add to ProjectJdkTable in a write action.
+    try {
+        val sdk = javaSdkType.createJdk(version, dir.absolutePath, false)
+        com.intellij.openapi.application.writeAction {
+            ProjectJdkTable.getInstance().addJdk(sdk)
+        }
         println("[JDK-REGISTER] Registered: ${"\$"}version at ${"\$"}{dir.absolutePath}")
         registered++
-    } else {
-        println("[JDK-REGISTER] FAILED to register ${"\$"}version at ${"\$"}{dir.absolutePath}")
+    } catch (e: Exception) {
+        println("[JDK-REGISTER] FAILED to register ${"\$"}version at ${"\$"}{dir.absolutePath}: ${"\$"}{e.message}")
     }
 }
 
