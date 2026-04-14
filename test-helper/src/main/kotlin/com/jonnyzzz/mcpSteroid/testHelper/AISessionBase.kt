@@ -51,9 +51,19 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
     protected abstract val apiKeyHint: String
 
     private fun requireApiKey(): String {
-        readApiKey()?.let { return it }
+        val key = readApiKey()
 
-        val message = "$displayName API key not found ($apiKeyHint)"
+        // Reject unresolved TeamCity credential references (%credentialsJSON:...%)
+        // which look non-blank but are not actual API keys.
+        if (key != null && !key.startsWith("%")) {
+            return key
+        }
+
+        val message = if (key != null) {
+            "$displayName API key is an unresolved TeamCity reference ($apiKeyHint)"
+        } else {
+            "$displayName API key not found ($apiKeyHint)"
+        }
 
         // On TeamCity, skip the test instead of failing the build — allows CI to
         // proceed when a key (e.g. GEMINI_API_KEY) hasn't been configured yet.

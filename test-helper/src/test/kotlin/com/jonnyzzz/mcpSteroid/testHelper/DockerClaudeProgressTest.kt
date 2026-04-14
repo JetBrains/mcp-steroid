@@ -6,7 +6,6 @@ import com.jonnyzzz.mcpSteroid.filter.ClaudeOutputFilter
 import com.jonnyzzz.mcpSteroid.filter.filterText
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 
 /**
  * Integration test for Claude progress visibility using lightweight Docker container.
@@ -34,7 +33,6 @@ class DockerClaudeProgressTest {
      * To run: Set ANTHROPIC_API_KEY environment variable and ensure Docker is running.
      */
     @Test
-    @EnabledIfEnvironmentVariable(named = "ANTHROPIC_API_KEY", matches = ".+")
     fun `test Claude shows progress events for tool calls`() = runWithCloseableStack { stack ->
         // Create Claude session with lightweight container
         val claudeSession = DockerClaudeSession.create(stack)
