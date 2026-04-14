@@ -547,55 +547,36 @@ Docker image, runs `:buildPluginOnCI` inside it). Versioned settings sync from
 
 ### Always bump queued builds to the top of the queue
 
-When an agent triggers a build on TC, the queued builds **must** be re-ordered to the top of the
-build queue so they land on an agent immediately instead of sitting behind unrelated work. TC
-surfaces this as the "Move to the top" UI action; the REST equivalent is
-`POST /app/rest/buildQueue/order` — per TeamCity's REST contract, the body must contain
-**every** currently-queued build ID in the intended order, with the target build first.
+When an agent triggers a build on TC, the queued builds **must** be moved to the top of the
+build queue so they land on an agent immediately instead of sitting behind thousands of
+unrelated builds.
+
+Use the internal `ajax.html` endpoint with the `moveToTop` parameter — this is the same
+mechanism the TC UI "Move to the top" button uses:
 
 ```bash
 TC=https://buildserver.labs.intellij.net
 TOK=$(cat ~/.teamcity)
-target=$1  # the build id to move to the top
+BUILD_ID=$1  # the build id to move to the top
 
-# 1. snapshot the current queue
-cur=$(curl -fsS -H "Authorization: Bearer $TOK" -H "Accept: application/json" \
-  "$TC/app/rest/buildQueue?fields=build(id)" \
-  | python3 -c 'import sys,json; print(" ".join(str(b["id"]) for b in json.load(sys.stdin).get("build", [])))')
-
-# 2. build an ordered list: target first, then the rest
-ordered=$(python3 -c "
-import sys
-target = sys.argv[1]
-ids = [x for x in sys.argv[2].split() if x != target]
-ids.insert(0, target)
-print(' '.join(ids))
-" "$target" "$cur")
-
-# 3. POST the full order back
-payload=$(python3 -c 'import sys,json; print(json.dumps({"build":[{"id":int(x)} for x in sys.argv[1].split()]}))' "$ordered")
-curl -fsS -X POST -H "Authorization: Bearer $TOK" \
-  -H "Content-Type: application/json" -H "Accept: application/json" \
-  -d "$payload" "$TC/app/rest/buildQueue/order"
+curl -sS -X POST -H "Authorization: Bearer $TOK" \
+  "$TC/ajax.html" -d "moveToTop=$BUILD_ID"
+# Returns: <response /> on success
 ```
 
-The "include every queued build in the body" part is not optional — omitting any queued build ID
-causes TC to reject the request. Snapshot the queue immediately before the reorder POST to
-minimise the race window where another trigger enqueues a new build between steps 1 and 3.
+Always move **all** queued builds from a trigger (including snapshot dependencies like
+`build number`) to the top. Example for multiple builds:
 
-**Caveat for `buildserver.labs.intellij.net`**: at JB scale the queue typically contains several
-thousand builds, so the full-queue POST above hits a 1 MB+ request body and TeamCity rejects it
-with `HTTP 400`. The single-build `PUT /app/rest/buildQueue/id:<id>` with `{"queuePosition":"top"}`
-returns `HTTP 405` on this server build — there is no working REST path for "move this one to
-the top" in this environment. Two pragmatic options:
+```bash
+for id in 925418945 925418946; do
+  curl -sS -X POST -H "Authorization: Bearer $TOK" "$TC/ajax.html" -d "moveToTop=$id"
+done
+```
 
-1. Do it in the UI (the button exists on the build page and is O(1) on the server).
-2. Skip the reorder and rely on natural progression. `build number` is a thirty-second Docker
-   step so even starting at the tail of a large queue it's rarely the bottleneck; the time cost
-   lives in `build plugin` (which takes minutes to run anyway).
-
-When running from an agent, prefer option 2 and document the queued build IDs in the conversation
-so the user can click "Move to top" in the UI if immediate priority is needed.
+**Why not the REST API?** The REST `POST /app/rest/buildQueue/order` requires listing *every*
+queued build ID in the body — at JB scale (5000+ builds) this exceeds the 1 MB request limit.
+The `PUT /app/rest/buildQueue/id:<id>` with `{"queuePosition":"top"}` returns HTTP 405 on this
+server version. The `ajax.html` endpoint is the only working programmatic path.
 
 ### CI API Keys for Integration Tests
 
