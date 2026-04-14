@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
+import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeTestFolders
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
@@ -190,7 +191,14 @@ class DpaiaClaudeComparisonTest {
                     buildSystem = setupTestCase.buildSystem,
                 ),
                 mountDockerSocket = true,
-            ).waitForProjectReady()
+            ).waitForProjectReady(
+                buildSystem = when (setupTestCase.buildSystem) {
+                    "maven" -> BuildSystem.MAVEN
+                    "gradle" -> BuildSystem.GRADLE
+                    else -> BuildSystem.NONE
+                },
+                compileProject = true,
+            )
         }
 
         /**
@@ -214,7 +222,14 @@ class DpaiaClaudeComparisonTest {
                     buildSystem = setupTestCase.buildSystem,
                 ),
                 mountDockerSocket = true,
-            ).waitForProjectReady()
+            ).waitForProjectReady(
+                buildSystem = when (setupTestCase.buildSystem) {
+                    "maven" -> BuildSystem.MAVEN
+                    "gradle" -> BuildSystem.GRADLE
+                    else -> BuildSystem.NONE
+                },
+                compileProject = true,
+            )
         }
 
         private val dataset by lazy {

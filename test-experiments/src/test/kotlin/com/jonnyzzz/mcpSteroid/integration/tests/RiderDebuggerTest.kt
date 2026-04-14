@@ -49,7 +49,7 @@ class RiderDebuggerTest {
             lifetime,
             consoleTitle = "Rider Debug with ${agentName.name.titleCase()}",
             distribution = IdeDistribution.Latest(IdeProduct.Rider),
-        ).waitForProjectReady()
+        ).waitForProjectReady(projectJdkVersion = null)
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }

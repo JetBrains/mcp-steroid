@@ -130,7 +130,11 @@ fun waitForProjectReady(
 8. [x] Update `DpaiaArenaTest` to derive from testCase.buildSystem
 9. [x] Run JdkTableIntegrationTest — PASSED (1m 9s)
 10. [x] Run jhipster arena test — PASSED (4 steroid, 0 errors, $0.46, 163 tests)
-11. [ ] Update remaining test classes that call `waitForProjectReady()`
+11. [x] Update remaining test classes with explicit buildSystem/JDK params:
+        - RiderDebuggerTest, RiderPlaygroundTest: projectJdkVersion=null
+        - DpaiaClaudeComparisonTest: buildSystem from testCase, compileProject=true
+        - KeycloakArchitectureTest: buildSystem=MAVEN
+        - Others (DebuggerDemoTest, EapSmokeTest, etc.): defaults OK (NONE)
 12. [x] Extract data processing into shared AgentOutputMetrics.kt:
         - TokenUsage, TestMetrics, ToolCallStats data classes
         - extractTestMetrics(), extractTokenUsage(), extractToolCallStats()

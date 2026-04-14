@@ -51,7 +51,7 @@ class RiderPlaygroundTest {
             consoleTitle = "Rider Playground",
             distribution = IdeDistribution.Latest(IdeProduct.Rider),
             aiMode = AiMode.NONE,
-        ).waitForProjectReady()
+        ).waitForProjectReady(projectJdkVersion = null)
 
         println()
         println("=".repeat(60))
