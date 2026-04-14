@@ -71,7 +71,7 @@ class ClaudeOutputFilter : AbstractOutputFilter() {
                     val text = itemObj["text"]?.jsonPrimitive?.contentOrNull ?: continue
                     if (text.isNotEmpty()) {
                         writer.write(text)
-                        if (!text.endsWith("\n")) writer.newLine()
+                        if (!text.endsWith("\n")) writer.write("\n")
                         writer.flush()
                     }
                 }
@@ -129,7 +129,7 @@ class ClaudeOutputFilter : AbstractOutputFilter() {
             writer.writeLine("$prefix $firstLine")
             if (rest.isNotEmpty()) {
                 writer.write(rest)
-                if (!rest.endsWith("\n")) writer.newLine()
+                if (!rest.endsWith("\n")) writer.write("\n")
             }
         }
         writer.flush()
@@ -221,7 +221,7 @@ class ClaudeOutputFilter : AbstractOutputFilter() {
         if (!resultText.isNullOrBlank()) {
             writer.write(resultText)
             if (!resultText.endsWith("\n")) {
-                writer.newLine()
+                writer.write("\n")
             }
         }
 

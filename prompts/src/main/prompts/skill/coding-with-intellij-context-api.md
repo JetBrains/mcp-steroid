@@ -79,12 +79,14 @@ println(String(appProps.contentsToByteArray(), appProps.charset))
 ```kotlin
 // IDE utilities:
 waitForSmartMode()                        // Wait for indexing (called automatically before script)
-println("Daemon running: ${isDaemonRunning()}")  // Check if daemon analyzer is running
 doNotCancelOnModalityStateChange()        // Disable auto-cancel on modal dialogs
 
-// Inspections on a file (RECOMMENDED — works regardless of window focus):
+// Check if editor highlighting has completed for a file:
 val buildFile = findProjectFile("build.gradle.kts")
 if (buildFile != null) {
+    println("Highlighting done: ${isEditorHighlightingCompleted(buildFile)}")
+
+    // Inspections on a file (RECOMMENDED — works regardless of window focus):
     val problems = runInspectionsDirectly(buildFile) // Map<toolId, List<ProblemDescriptor>>
     for ((tool, descs) in problems) {
         println("$tool: ${descs.size} problems")
@@ -105,9 +107,9 @@ withContext(Dispatchers.EDT) {
     FileEditorManager.getInstance(project).openFile(file, true)
 }
 
-// Wait for daemon analysis to complete (default timeout: 30s)
-val completed = waitForDaemonAnalysis(file, timeout = 30.seconds)
-println("Analysis completed: $completed")
+// Wait for editor highlighting to complete (default timeout: 30s)
+val completed = waitForEditorHighlighting(file, timeout = 30.seconds)
+println("Highlighting completed: $completed")
 
 // Get highlights (warnings/errors) when daemon finishes
 // NOTE: may return stale results if IDE window is not focused — use runInspectionsDirectly() instead

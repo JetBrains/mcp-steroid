@@ -16,10 +16,10 @@ internal val filterJson = Json {
     isLenient = true
 }
 
-/** Write text followed by a newline and flush. */
+/** Write text followed by a newline and flush. Uses `\n` explicitly to avoid platform-dependent `\r\n`. */
 internal fun BufferedWriter.writeLine(text: String) {
     write(text)
-    newLine()
+    write("\n")
     flush()
 }
 

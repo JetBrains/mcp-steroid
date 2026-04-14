@@ -220,6 +220,13 @@ intellijPlatformTesting {
 tasks {
     test {
         useJUnit()
+
+        // Explicitly restrict to the main 'test' source set. Without this, the
+        // IntelliJ Platform plugin's TestIdeTask includes instrumented classes from
+        // ALL test-like source sets (including 'integrationTest'), causing Docker CLI
+        // tests to run during the regular :ij-plugin:test task where they fail due
+        // to missing API keys.
+        testClassesDirs = sourceSets["test"].output.classesDirs
     }
 
     patchPluginXml {
