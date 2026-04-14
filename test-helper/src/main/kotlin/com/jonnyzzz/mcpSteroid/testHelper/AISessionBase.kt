@@ -65,12 +65,14 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
             "$displayName API key not found ($apiKeyHint)"
         }
 
-        // On TeamCity, skip the test instead of failing the build — allows CI to
-        // proceed when a key (e.g. GEMINI_API_KEY) hasn't been configured yet.
-        // Use JUnit 4's AssumptionViolatedException which is recognized by both
-        // JUnit 4 (BasePlatformTestCase) and JUnit 5 Platform as a skip signal.
+        // On TeamCity, skip the test instead of failing the build.
+        // TestAbortedException works for JUnit 5 (DockerProgressTests in test-helper:test).
+        // For JUnit 4 (CliIntegrationTests in ij-plugin:integrationTest), the Vintage engine
+        // on JUnit Platform also recognizes it. The only case where it doesn't work is
+        // pure useJUnit() without the Platform — but ciIntegrationTests runs both tasks
+        // independently, so each uses its own test framework.
         if (System.getenv("TEAMCITY_VERSION") != null) {
-            throw org.junit.AssumptionViolatedException(message)
+            throw org.opentest4j.TestAbortedException(message)
         }
 
         error(message)
