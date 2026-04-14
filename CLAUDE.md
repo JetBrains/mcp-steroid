@@ -651,6 +651,24 @@ Generated XML lands in `.teamcity/target/generated-configs/` (gitignored).
 All configs snapshot-depend on `BuildNumber` via `useRootBuildNumber()`, which wires the build number pattern
 and ensures the same VCS revision across the chain.
 
+### TC DSL: build types must be global named objects
+
+Every `BuildType` in the `.teamcity/` Kotlin DSL must be a **global `object` declaration**
+(e.g., `object IjPluginTestWindows : BuildType({...})`), not an anonymous or local instance.
+TC DSL serializes build configs by their Kotlin object identity — anonymous instances from
+`listOf(object : BuildType {...})` or factory functions break ID resolution and cause
+"Failed to load build settings from VCS" errors.
+
+When adding a new build config, register it in `settings.kts` via `buildType(MyNewBuild)`.
+For a matrix (e.g., per-IDE prompt tests), declare each variant as a named object and collect
+them in a `val` list for iteration in composites and `settings.kts`.
+
+### TC DSL: no sandboxed APIs in `runAllTests()`
+
+The `runAllTests()` function in `.teamcity/test/main-test.kt` runs during DSL evaluation
+(called from `settings.kts`). It must NOT use `System.getenv()`, file I/O, or other APIs
+blocked by the TC DSL security sandbox. Filesystem-dependent tests go in `main()` only.
+
 ### Always bump queued builds to the top of the queue
 
 When an agent triggers a build on TC, the queued builds **must** be moved to the top of the
