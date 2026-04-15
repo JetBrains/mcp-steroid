@@ -19,6 +19,7 @@ class DockerGeminiSession(
     private val session: ContainerDriver,
     private val apiKey: String,
     private val debug: Boolean = false,
+    val model: String = DEFAULT_MODEL,
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
 
@@ -75,6 +76,7 @@ class DockerGeminiSession(
      */
     override fun runPrompt(prompt: String, timeoutSeconds: Long): AiStartedProcess {
         val args = listOf(
+            "--model", model,
             "--screen-reader", "true",
             "--approval-mode", "yolo",
             "--output-format", "stream-json",
@@ -88,6 +90,9 @@ class DockerGeminiSession(
     }
 
     companion object : AIAgentCompanion<DockerGeminiSession>("gemini-cli") {
+        /** Default Gemini model for all test runs. Override via system property `gemini.model`. */
+        const val DEFAULT_MODEL = "gemini-3.1-pro-preview"
+
         override val displayName = "Gemini"
         override val outputFilter get() = GeminiOutputFilter()
 
@@ -105,7 +110,8 @@ class DockerGeminiSession(
         }
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerGeminiSession {
-            return DockerGeminiSession(session, apiKey)
+            val model = System.getProperty("gemini.model", DEFAULT_MODEL)
+            return DockerGeminiSession(session, apiKey, model = model)
         }
     }
 }

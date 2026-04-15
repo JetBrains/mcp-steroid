@@ -21,6 +21,7 @@ class DockerClaudeSession(
     private val session: ContainerDriver,
     private val apiKey: String,
     private val debug: Boolean = false,
+    val model: String = DEFAULT_MODEL,
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
 
@@ -86,6 +87,8 @@ class DockerClaudeSession(
         val claudeArgs = buildList {
             add("--permission-mode")
             add("bypassPermissions")
+            add("--model")
+            add(model)
             add("--tools")
             add("default")
             add("--input-format")
@@ -104,6 +107,9 @@ class DockerClaudeSession(
     }
 
     companion object : AIAgentCompanion<DockerClaudeSession>("claude-cli") {
+        /** Default Claude model for all test runs. Override via system property `claude.model`. */
+        const val DEFAULT_MODEL = "claude-opus-4-6"
+
         override val displayName = "Claude Code"
         override val outputFilter get() = ClaudeOutputFilter()
 
@@ -120,7 +126,8 @@ class DockerClaudeSession(
         }
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerClaudeSession {
-            return DockerClaudeSession(session, apiKey)
+            val model = System.getProperty("claude.model", DEFAULT_MODEL)
+            return DockerClaudeSession(session, apiKey, model = model)
         }
     }
 }

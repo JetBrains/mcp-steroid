@@ -23,6 +23,7 @@ class DockerCodexSession(
     private val session: ContainerDriver,
     private val apiKey: String,
     private val debug: Boolean = false,
+    val model: String = DEFAULT_MODEL,
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
 
@@ -84,6 +85,8 @@ class DockerCodexSession(
     ): AiStartedProcess {
         val codexArgs = buildList {
             add("exec")
+            add("--model")
+            add(model)
             add("--dangerously-bypass-approvals-and-sandbox")
             add("--skip-git-repo-check")
             add("--json")
@@ -97,6 +100,9 @@ class DockerCodexSession(
     }
 
     companion object : AIAgentCompanion<DockerCodexSession>("codex-cli") {
+        /** Default Codex model for all test runs. Override via system property `codex.model`. */
+        const val DEFAULT_MODEL = "gpt-5.4-xhigh"
+
         override val displayName = "Codex"
         override val outputFilter get() = CodexOutputFilter()
 
@@ -113,7 +119,8 @@ class DockerCodexSession(
         }
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerCodexSession {
-            return DockerCodexSession(session, apiKey)
+            val model = System.getProperty("codex.model", DEFAULT_MODEL)
+            return DockerCodexSession(session, apiKey, model = model)
         }
     }
 }

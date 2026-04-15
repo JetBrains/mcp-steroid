@@ -104,11 +104,22 @@ fun Test.configureIntegrationTest() {
 tasks.test {
     configureIntegrationTest()
 
+    // Project-property-driven filter: `-PtestFilter=*MyTest` is equivalent to
+    // `--tests '*MyTest'` but works reliably from environments where the CLI
+    // option ordering is fragile (TC's gradle runner emits gradleParams
+    // BEFORE task names, which detaches `--tests` from its task; the script
+    // step similarly can't always preserve quoted spaces). The property is
+    // applied programmatically via Test#filter so no CLI parsing is involved.
+    project.findProperty("testFilter")?.toString()?.let { pattern ->
+        filter { includeTestsMatching(pattern) }
+    }
+
     // Prevent this task from being silently triggered by root-level './gradlew test' aggregation.
     // Integration tests require Docker, API keys, and IDE containers — they must be invoked explicitly.
     //
     // Correct usage:
     //   ./gradlew :test-integration:test --tests '*EapSmokeTest*'
+    //   ./gradlew :test-integration:test -PtestFilter='*EapSmokeTest*'   (CI-friendly)
     //   ./gradlew :test-integration:testReleaseSmokeIdea
     //   ./gradlew ciIntegrationTests                 (CI aggregator, see root build.gradle.kts)
     //

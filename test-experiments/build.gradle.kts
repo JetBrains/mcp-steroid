@@ -127,11 +127,20 @@ fun Test.configureExperimentalTest() {
 tasks.test {
     configureExperimentalTest()
 
+    // Project-property-driven filter: `-PtestFilter=*MyTest` is equivalent to
+    // `--tests '*MyTest'` but works reliably under TC's gradle runner where
+    // `--tests` placed in `gradleParams` gets emitted BEFORE the task name and
+    // detached from it. Applied programmatically so no CLI parsing is involved.
+    project.findProperty("testFilter")?.toString()?.let { pattern ->
+        filter { includeTestsMatching(pattern) }
+    }
+
     // Prevent this task from being silently triggered by root-level './gradlew test' aggregation.
     // Experimental integration tests require Docker, API keys, and IDE containers — invoke explicitly.
     //
     // Correct usage:
     //   ./gradlew :test-experiments:test --tests '*DebuggerDemoTest.claude*'
+    //   ./gradlew :test-experiments:test -PtestFilter='*DebuggerDemoTest.claude*'   (CI-friendly)
     //   ./gradlew :test-experiments:test --tests '*DpaiaArenaTest*' -Darena.test.instanceId=<id>
     onlyIf("Requires explicit :test-experiments: task invocation — not for root aggregation") {
         gradle.startParameter.taskNames.any { it.contains(":test-experiments:") }
