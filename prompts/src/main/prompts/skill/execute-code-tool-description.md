@@ -22,9 +22,10 @@ This is a **stateful** API - everything you do changes the IDE state. The Intell
 - Inspections: Run code analysis, get warnings/errors
 - Actions: Trigger any IDE action programmatically
 - **Compile check**: `ProjectTaskManager.getInstance(project).build(*modules).await()` — 2-5s incremental, replaces `./mvnw test-compile` (25-60s)
-- **Run Maven tests**: `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` — structured pass/fail, no 200k-char output overflow. See `mcp-steroid://skill/coding-with-intellij-spring`. **Do NOT use Bash `./mvnw test` as primary approach — it is a LAST-RESORT fallback only.**
+- **Run Maven tests via IDE** — `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` gives structured pass/fail in ~4s, saves ~31s vs Bash `./mvnw test` (Maven cold start). Read [mcp-steroid://skill/coding-with-intellij-spring] for the copy-paste pattern (section "Maven projects — MavenRunConfigurationType"). **Do NOT use Bash `./mvnw test` as primary approach — it is a LAST-RESORT fallback only.**
+- **Run Gradle tests via IDE** — `GradleRunConfiguration` + `setRunAsTest(true)` + `SMTRunnerEventsListener`. Read [mcp-steroid://skill/coding-with-intellij-spring] (section "Gradle projects").
 
-**MANDATORY — before your first Maven or Gradle Bash command**: STOP and read `mcp-steroid://skill/execute-code-maven`. It contains copy-paste patterns for running builds and tests via IntelliJ APIs (MavenRunner, MavenRunConfigurationType + SMTRunnerEventsListener, ProjectTaskManager.build). These are 10-60s faster than `./mvnw` and give structured pass/fail results. Only fall back to Bash `./mvnw` after the IDE pattern has failed.
+**⚠️ MANDATORY — before your first `./mvnw` or `./gradlew` Bash command**: STOP. Read `mcp-steroid://skill/coding-with-intellij-spring` for IDE test runner patterns. Each Bash Maven/Gradle call wastes ~31s on cold JVM startup that the IDE runner avoids. Only fall back to Bash after the IDE pattern has timed out (>2 min).
 
 **Power Features — use these aggressively:**
 - **Debugger:** Set breakpoints, launch debug sessions, suspend at breakpoints, evaluate expressions at any call frame, step over, inspect thread stacks. Full IntelliJ XDebugger API works in all IDEs (IDEA, Rider, GoLand, …). Read `mcp-steroid://prompt/debugger-skill`

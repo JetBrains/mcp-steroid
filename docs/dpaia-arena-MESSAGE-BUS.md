@@ -260,3 +260,21 @@ ANALYSIS: dpaia__piggymetrics-6 — fix=yes exec_code=1 efficiency=medium gap=no
 2026-04-15T07:31:49Z PASS: dpaia__piggymetrics-6 on run 1
 2026-04-15T07:31:49Z SCENARIO[15/17]: dpaia__spring__petclinic__microservices-5 start
 2026-04-15T07:31:49Z RUN[1]: dpaia__spring__petclinic__microservices-5 claude+mcp
+2026-04-15T07:41:27Z RESULT[1]: dpaia__spring__petclinic__microservices-5 fix=True exit=0 duration=468s exec_code=0
+2026-04-15T07:41:27Z PASS: dpaia__spring__petclinic__microservices-5 on run 1
+2026-04-15T07:41:27Z SCENARIO[16/17]: dpaia__spring__petclinic__rest-37 start
+2026-04-15T07:41:27Z RUN[1]: dpaia__spring__petclinic__rest-37 claude+mcp
+2026-04-15T07:45:17Z RESULT[1]: dpaia__spring__petclinic__rest-37 fix=True exit=0 duration=125s exec_code=2
+ANALYSIS: dpaia__spring__petclinic__rest-37 — fix=yes exec_code=2 efficiency=high gap=none
+2026-04-15T07:46:32Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-094152-dpaia__spring__petclinic__rest-37-mcp
+2026-04-15T07:46:32Z PASS: dpaia__spring__petclinic__rest-37 on run 1
+2026-04-15T07:46:32Z SCENARIO[17/17]: dpaia__spring__petclinic-71 start
+2026-04-15T07:46:32Z RUN[1]: dpaia__spring__petclinic-71 claude+mcp
+2026-04-15T08:29:21Z RESULT[1]: dpaia__spring__petclinic-71 fix=True exit=0 duration=2268s exec_code=7
+ANALYSIS: dpaia__spring__petclinic-71 — fix=yes exec_code=7 efficiency=medium gap=exec_code scripts used non-existent IntelliJ APIs (renderTextWithContext, hasScheduledProjects) — skills could document correct APIs for compiler errors and Maven reimport
+2026-04-15T08:31:07Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-094656-dpaia__spring__petclinic-71-mcp
+2026-04-15T08:31:07Z PASS: dpaia__spring__petclinic-71 on run 1
+2026-04-15T08:31:07Z DONE: 16 passed 1 failed out of 17
+2026-04-15T08:31:07Z START: dpaia-arena-runner.sh START_INDEX=0 MAX_RUNS=1
+2026-04-15T08:31:07Z SCENARIO[1/17]: dpaia__empty__maven__springboot3-3 start
+2026-04-15T08:31:07Z RUN[1]: dpaia__empty__maven__springboot3-3 claude+mcp
