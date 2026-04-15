@@ -54,6 +54,26 @@ fun startDockerContainerAndForget(
         if (request.autoRemove) add("--rm")
         add("--add-host=host.docker.internal:host-gateway")
 
+        // Run the container process as the host caller's uid:gid. This is the
+        // standard `docker run --user $(id -u):$(id -g)` pattern — any file
+        // the container writes to a bind-mounted host dir (e.g. /mcp-run-dir)
+        // comes back out owned by the same user that started the test, so:
+        //   * the host can clean up run-dir artifacts without root
+        //   * git / package managers inside the container don't trip the
+        //     "dubious ownership" / EACCES checks against bind-mounted
+        //     volumes (repo-cache, m2, etc. are owned by this uid from the
+        //     outside)
+        // On Docker Desktop (macOS) the virtiofs VM remapped uids anyway so
+        // the feature is visible only on Linux CI agents; setting it
+        // unconditionally is safe because the Dockerfiles don't require
+        // root at runtime.
+        val uid = System.getProperty("test.integration.container.uid") ?: userToUid()
+        val gid = System.getProperty("test.integration.container.gid") ?: userToGid()
+        if (uid != null && gid != null) {
+            add("--user")
+            add("$uid:$gid")
+        }
+
         request.extraEnvVars.forEach { (key, value) ->
             add("-e")
             add("$key=$value")
@@ -97,4 +117,24 @@ fun startDockerContainerAndForget(
         containerId = containerId,
         startRequest = request,
     )
+}
+
+/** Host uid as a string, or null if it can't be determined (non-POSIX JVM). */
+private fun userToUid(): String? = try {
+    ProcessBuilder("id", "-u").redirectErrorStream(true).start().let { p ->
+        val out = p.inputStream.bufferedReader().readText().trim()
+        if (p.waitFor() == 0 && out.isNotEmpty() && out.all { it.isDigit() }) out else null
+    }
+} catch (e: Exception) {
+    null
+}
+
+/** Host gid as a string, or null if it can't be determined. */
+private fun userToGid(): String? = try {
+    ProcessBuilder("id", "-g").redirectErrorStream(true).start().let { p ->
+        val out = p.inputStream.bufferedReader().readText().trim()
+        if (p.waitFor() == 0 && out.isNotEmpty() && out.all { it.isDigit() }) out else null
+    }
+} catch (e: Exception) {
+    null
 }
