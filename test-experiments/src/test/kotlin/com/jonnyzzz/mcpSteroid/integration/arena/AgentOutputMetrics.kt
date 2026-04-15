@@ -107,6 +107,65 @@ fun extractTokenUsage(rawOutput: String): TokenUsage? {
     return null
 }
 
+// ── Decoded log metrics ──────────────────────────────────────────────────────
+
+data class DecodedLogMetrics(
+    /** Number of steroid_execute_code invocations (lines containing "steroid_execute_code"). */
+    val execCodeCalls: Int,
+    /** Number of Read tool invocations (lines starting with ">> Read"). */
+    val readCalls: Int,
+    /** Number of Write tool invocations (lines starting with ">> Write"). */
+    val writeCalls: Int,
+    /** Number of Bash tool invocations (lines starting with ">> Bash"). */
+    val bashCalls: Int,
+)
+
+/**
+ * Parse decoded agent log text and count tool invocation lines.
+ *
+ * The decoded log format (written by [ConsoleAwareAgentSession]) uses `>> ToolName (detail)` lines.
+ * Actual examples from Claude:
+ * - `>> mcp__mcp-steroid__steroid_execute_code (reason text)`
+ * - `>> Read (/path/to/file)`
+ * - `>> Write (/path/to/file)`
+ * - `>> Bash (command)`
+ *
+ * Returns null when the text contains no `>>` tool lines at all (e.g. agent never produced decoded output).
+ */
+fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
+    var execCodeCalls = 0
+    var readCalls = 0
+    var writeCalls = 0
+    var bashCalls = 0
+    var foundAny = false
+
+    for (line in decodedLogText.lines()) {
+        if (!line.startsWith(">> ")) continue
+        foundAny = true
+        when {
+            line.contains("steroid_execute_code") -> execCodeCalls++
+            line.startsWith(">> Read ") || line == ">> Read" -> readCalls++
+            line.startsWith(">> Write ") || line == ">> Write" -> writeCalls++
+            line.startsWith(">> Bash ") || line == ">> Bash" -> bashCalls++
+        }
+    }
+
+    return if (foundAny) DecodedLogMetrics(execCodeCalls, readCalls, writeCalls, bashCalls) else null
+}
+
+/**
+ * Find the most-recently-modified decoded log file in [runDir] whose name matches
+ * `agent-<agentName>-*-decoded.txt`.
+ *
+ * Returns null if no matching file exists.
+ */
+fun findDecodedLogFile(runDir: java.io.File, agentName: String = "claude-code"): java.io.File? {
+    val safeName = agentName.replace(' ', '-').lowercase()
+    return runDir.listFiles { f ->
+        f.name.startsWith("agent-$safeName-") && f.name.endsWith("-decoded.txt")
+    }?.maxByOrNull { it.lastModified() }
+}
+
 /**
  * Extract tool call statistics from Claude NDJSON output.
  *

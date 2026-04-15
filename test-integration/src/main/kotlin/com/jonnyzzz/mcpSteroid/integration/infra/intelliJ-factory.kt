@@ -252,6 +252,14 @@ fun IntelliJContainer.Companion.create(
             put("JB_SPACE_CLIENT_ID", hostPackagesClientId!!)
             put("JB_SPACE_CLIENT_SECRET", hostPackagesClientSecret!!)
         }
+        if (mountDockerSocket) {
+            // Testcontainers creates new containers on the HOST Docker daemon (via the mounted socket).
+            // Those containers expose ports on the host network, not inside this container.
+            // Without this override, Testcontainers connects to "localhost" which is the container
+            // itself — causing connection failures. host.docker.internal resolves to the host gateway
+            // (set via --add-host in docker-container-start.kt), bridging the gap.
+            put("TESTCONTAINERS_HOST_OVERRIDE", "host.docker.internal")
+        }
     }
 
     var container = startDockerContainerAndDispose(

@@ -27,9 +27,9 @@ This guide teaches you how to write effective Kotlin code that executes inside I
 | Find file by exact name | `FilenameIndex.getVirtualFilesByName("UserService.java", scope)` | O(1) indexed lookup |
 | Find all usages of symbol | `ReferencesSearch.search(element, scope)` | Understands code semantics |
 | Manual text replacement | Refactoring APIs | Maintains code correctness |
-| Run Maven tests | `MavenRunConfigurationType.runConfiguration()` | **❌ BANNED otherwise** — ProcessBuilder overflows |
-| Run Gradle tests | `ExternalSystemUtil.runTask()` with `GradleConstants.SYSTEM_ID` | **❌ BANNED otherwise** |
-| Maven dependency sync | `MavenProjectsManager.forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | **❌ BANNED otherwise** |
+| Run Maven tests | `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` | **✅ PRIMARY** — structured pass/fail; Bash `./mvnw test` is LAST-RESORT only |
+| Run Gradle tests | `GradleRunConfiguration` + `setRunAsTest(true)` + `SMTRunnerEventsListener` | **✅ PRIMARY** — structured pass/fail; Bash `./gradlew test` is LAST-RESORT only |
+| Maven dependency sync | `MavenProjectsManager.forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | **✅ Use this** — no CLI equivalent |
 
 **Operations that do NOT need steroid_execute_code — use native agent tools instead:**
 
@@ -40,7 +40,7 @@ This guide teaches you how to write effective Kotlin code that executes inside I
 | Read a file | Read tool | Zero JVM overhead; steroid_execute_code adds ~12s per call |
 | List files | Glob tool | Zero overhead; steroid_execute_code not needed |
 | `grep`/search text | Grep tool | Zero overhead |
-| **Run Maven/Gradle** | **`MavenRunner`/`ExternalSystemUtil` inside steroid_execute_code, or Bash `./mvnw` outside** | ProcessBuilder inside steroid_execute_code is **BANNED** — use IDE runners or Bash tool |
+| **Run Maven/Gradle tests** | **See Quick Reference above — use IDE runners inside steroid_execute_code** | Bash `./mvnw test` / `./gradlew test` is LAST-RESORT only |
 | Docker availability | Bash tool | Just a socket check — no IntelliJ value |
 | Docker inspect/exec | Bash tool | No IntelliJ API equivalent; use Bash directly |
 | Simple file existence | Bash `test -f` | No IntelliJ value for POSIX checks |

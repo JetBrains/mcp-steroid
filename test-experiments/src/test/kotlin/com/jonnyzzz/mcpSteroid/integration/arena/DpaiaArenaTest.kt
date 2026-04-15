@@ -140,6 +140,12 @@ class DpaiaArenaTest {
                 predeployedProjectDir = ideProjectDir,
             )
 
+            val rawOutput = result.agentResult.stdout
+            val tokens = extractTokenUsage(rawOutput)
+            val testMetrics = extractTestMetrics(rawOutput)
+            val decodedLogMetrics = findDecodedLogFile(session.runDirInContainer)
+                ?.let { extractDecodedLogMetrics(it.readText()) }
+
             results.add(
                 RunRecord(
                     instanceId = testCase.instanceId,
@@ -150,10 +156,13 @@ class DpaiaArenaTest {
                     usedMcpSteroid = result.evaluation.usedMcpSteroid,
                     summary = result.evaluation.agentSummary,
                     agentDurationMs = result.agentDurationMs,
+                    tokenUsage = tokens,
+                    testMetrics = testMetrics,
+                    decodedLogMetrics = decodedLogMetrics,
                 )
             )
 
-            writeRunSummary(testCase, agentName, modeLabel, result, session.runDirInContainer)
+            writeRunSummary(testCase, agentName, modeLabel, result, session.runDirInContainer, tokens, testMetrics, decodedLogMetrics)
 
             // Lenient assertion: agent either exited cleanly or claimed a fix.
             check(result.evaluation.agentExitedSuccessfully || result.evaluation.agentClaimedFix) {
@@ -233,6 +242,9 @@ class DpaiaArenaTest {
             modeLabel: String,
             result: ArenaTestResult,
             runDir: File,
+            tokens: TokenUsage? = null,
+            testMetrics: TestMetrics? = null,
+            decodedLogMetrics: DecodedLogMetrics? = null,
         ) {
             val summary = buildJsonObject {
                 put("instance_id", testCase.instanceId)
@@ -243,6 +255,25 @@ class DpaiaArenaTest {
                 put("agent_claimed_fix", result.evaluation.agentClaimedFix)
                 put("used_mcp_steroid", result.evaluation.usedMcpSteroid)
                 put("agent_duration_ms", result.agentDurationMs)
+                tokens?.let { t ->
+                    put("input_tokens", t.inputTokens)
+                    put("output_tokens", t.outputTokens)
+                    put("cache_read_tokens", t.cacheReadTokens)
+                    t.costUsd?.let { put("cost_usd", it) }
+                    t.numTurns?.let { put("num_turns", it) }
+                }
+                testMetrics?.let { m ->
+                    put("tests_run", m.testsRun)
+                    put("tests_pass", m.testsPass)
+                    put("tests_fail", m.testsFail)
+                    m.buildSuccess?.let { put("build_success", it) }
+                }
+                decodedLogMetrics?.let { d ->
+                    put("exec_code_calls", d.execCodeCalls)
+                    put("read_calls", d.readCalls)
+                    put("write_calls", d.writeCalls)
+                    put("bash_calls", d.bashCalls)
+                }
                 put("agent_summary", result.evaluation.agentSummary ?: "")
                 put("timestamp", java.time.Instant.now().toString())
             }
@@ -263,5 +294,8 @@ class DpaiaArenaTest {
         val usedMcpSteroid: Boolean,
         val summary: String?,
         val agentDurationMs: Long,
+        val tokenUsage: TokenUsage? = null,
+        val testMetrics: TestMetrics? = null,
+        val decodedLogMetrics: DecodedLogMetrics? = null,
     )
 }

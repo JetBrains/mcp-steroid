@@ -21,6 +21,10 @@ This is a **stateful** API - everything you do changes the IDE state. The Intell
 - Code navigation: Find usages, go to definition, symbol search
 - Inspections: Run code analysis, get warnings/errors
 - Actions: Trigger any IDE action programmatically
+- **Compile check**: `ProjectTaskManager.getInstance(project).build(*modules).await()` — 2-5s incremental, replaces `./mvnw test-compile` (25-60s)
+- **Run Maven tests**: `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` — structured pass/fail, no 200k-char output overflow. See `mcp-steroid://skill/coding-with-intellij-spring`. **Do NOT use Bash `./mvnw test` as primary approach — it is a LAST-RESORT fallback only.**
+
+**MANDATORY — before your first Maven or Gradle Bash command**: STOP and read `mcp-steroid://skill/execute-code-maven`. It contains copy-paste patterns for running builds and tests via IntelliJ APIs (MavenRunner, MavenRunConfigurationType + SMTRunnerEventsListener, ProjectTaskManager.build). These are 10-60s faster than `./mvnw` and give structured pass/fail results. Only fall back to Bash `./mvnw` after the IDE pattern has failed.
 
 **Power Features — use these aggressively:**
 - **Debugger:** Set breakpoints, launch debug sessions, suspend at breakpoints, evaluate expressions at any call frame, step over, inspect thread stacks. Full IntelliJ XDebugger API works in all IDEs (IDEA, Rider, GoLand, …). Read `mcp-steroid://prompt/debugger-skill`

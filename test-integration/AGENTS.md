@@ -4,6 +4,75 @@
 suite. Experimental / long-running tests live in the sibling `:test-experiments` module, which
 depends on this one for the infrastructure.
 
+## Researching IntelliJ APIs — Use MCP Steroid
+
+**The IntelliJ project is open in the IDE (`~/Work/intellij`).** Use `steroid_execute_code`
+with `project_name="intellij"` to research APIs directly via PSI — this is faster and more
+accurate than file-based search.
+
+**Pattern: Find a class and inspect its methods**
+```
+// steroid_execute_code on project "intellij"
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScope
+val scope = GlobalSearchScope.allScope(project)
+val files = readAction { FilenameIndex.getVirtualFilesByName("MavenRunConfigurationType.java", scope) }
+files.forEach { f ->
+    val lines = String(f.contentsToByteArray(), f.charset).lines()
+    lines.forEachIndexed { idx, line ->
+        if (line.contains("fun runConfiguration") || line.contains("@Deprecated") || line.contains("@ApiStatus")) {
+            println("L${idx+1}: ${line.trim()}")
+            for (i in 1..5) { lines.getOrNull(idx+i)?.let { println("  L${idx+1+i}: ${it.trim()}") } }
+        }
+    }
+}
+```
+
+**Why this is better than file search:**
+- O(1) indexed lookup via `FilenameIndex` — no `find` or `grep` needed
+- Can use PSI to resolve types, find usages, check deprecation annotations
+- Works on ALL open projects (intellij, mcp-steroid, jb-cli)
+- Finds internal/non-exported classes that grep might miss
+
+**Both you and sub-agents MUST use MCP Steroid** for IntelliJ API research — not file search tools.
+
+## RLM Analysis of Arena Runs (run-*/intellij/mcp-steroid/)
+
+Each arena run creates server-side exec_code logs at `run-*/intellij/mcp-steroid/eid_*`. Structure:
+- `reason.txt` — agent's intent for the call
+- `script.kts` / `script-wrapped.kts` — actual Kotlin code executed
+- `output.jsonl` — execution output (each line: `{"text":"..."}`)
+- `success.txt` / `compilation-success.txt` — result status
+- `params.json` — timeout, task_id, etc.
+- `compiled/` — compiled class files
+
+### Execution Pattern (confirmed across 6 scenarios)
+
+Infrastructure calls (task_id: `integration-test`) run during environment setup, OUTSIDE
+the agent measurement window — they are not bottlenecks. Only agent calls count.
+
+**Agent calls (1-3 per scenario, inside measurement window):**
+1. **VCS + env check**: Docker, Maven path, JDK list, VCS-modified files
+2. **Compile check**: `ProjectTaskManager.buildAllModules()` — ALWAYS triggers "Resolving SDKs..." modal
+3. **Error inspection** (optional): Check problem list when build reports errors
+
+### Known Bottleneck: "Resolving SDKs..." Modal Dialog
+
+Every `ProjectTaskManager.buildAllModules()` triggers a `Resolving SDKs...` modal that the
+dialog_killer dismisses. This causes `Build errors: true, aborted: false` even when compilation
+actually succeeded. The agent then wastes an exec_code call checking the empty problem list,
+then falls back to `./mvnw test-compile` via Bash (25-60s).
+
+**Confirmed across ALL 6 scenarios**: modal fires, `Build errors: true`, problem list is empty.
+In 2 of 6 scenarios, `Build errors: false` is correctly reported (modal may have resolved faster).
+
+### Key Findings for Prompt Optimization
+
+1. **Agents never use exec_code for test execution** — only for VCS check + compile check
+2. **Agents never read MCP Steroid skill resources** (0/6 scenarios read `mcp-steroid://` URIs)
+3. **JDK list is printed in first call** but agents still try wrong JDKs via Bash
+4. **"Build errors: true" false positive** wastes 1 exec_code + 1 Bash call per scenario
+
 ## Architecture
 
 ```

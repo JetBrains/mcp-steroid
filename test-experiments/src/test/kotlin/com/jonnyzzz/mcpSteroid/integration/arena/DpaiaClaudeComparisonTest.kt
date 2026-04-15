@@ -124,6 +124,8 @@ class DpaiaClaudeComparisonTest {
         val totalToolCalls: Int? = null,
         /** Number of tool calls that returned is_error=true (null if not parsed). */
         val toolErrorCount: Int? = null,
+        /** Tool usage counts parsed from the decoded agent log file (null if log not available). */
+        val decodedLogMetrics: DecodedLogMetrics? = null,
     ) {
         val modeLabel: String get() = if (withMcp) "MCP" else "NONE"
         val isSuccess: Boolean get() = errorMessage == null && (exitCode == 0 || agentClaimedFix)
@@ -283,17 +285,11 @@ class DpaiaClaudeComparisonTest {
                 val testMetrics = extractTestMetrics(rawOutput)
                 val toolStats = extractToolCallStats(rawOutput)
 
-                // Fallback: count steroid_execute_code from decoded agent log when NDJSON parsing
-                // found no tool calls (e.g. agent failed early or output format was unexpected).
-                val steroidCallsFromLog: Int? = if (toolStats == null) {
-                    session.runDirInContainer.listFiles { f ->
-                        f.name.startsWith("agent-claude-code-") &&
-                                f.name.endsWith("-decoded.txt") &&
-                                f.lastModified() >= startMs
-                    }?.maxByOrNull { it.lastModified() }?.readLines()?.count { line ->
-                        line.startsWith(">>") && line.contains("steroid_execute_code")
-                    }
-                } else null
+                // Parse decoded log for per-tool call counts (Read/Write/Bash/exec_code).
+                // Also used as fallback steroid count when NDJSON parsing found no tool calls.
+                val decodedLogMetrics = findDecodedLogFile(session.runDirInContainer)
+                    ?.let { extractDecodedLogMetrics(it.readText()) }
+                val steroidCallsFromLog: Int? = if (toolStats == null) decodedLogMetrics?.execCodeCalls else null
 
                 println("[CLAUDE-CMP] Completed: ${testCase.instanceId} [$modeLabel]")
                 println("[CLAUDE-CMP]   Total time:   ${totalMs / 1000}s (agent: ${result.agentDurationMs / 1000}s)")
@@ -317,6 +313,9 @@ class DpaiaClaudeComparisonTest {
                 if (toolStats != null) {
                     println("[CLAUDE-CMP]   Tool calls:   total=${toolStats.totalToolCalls} steroid=${toolStats.steroidCallCount} errors=${toolStats.toolErrorCount}")
                 }
+                if (decodedLogMetrics != null) {
+                    println("[CLAUDE-CMP]   Decoded log:  exec_code=${decodedLogMetrics.execCodeCalls} read=${decodedLogMetrics.readCalls} write=${decodedLogMetrics.writeCalls} bash=${decodedLogMetrics.bashCalls}")
+                }
                 println("[CLAUDE-CMP] ========================================")
 
                 return RunRecord(
@@ -335,6 +334,7 @@ class DpaiaClaudeComparisonTest {
                     steroidCallCount = toolStats?.steroidCallCount ?: steroidCallsFromLog,
                     totalToolCalls = toolStats?.totalToolCalls,
                     toolErrorCount = toolStats?.toolErrorCount,
+                    decodedLogMetrics = decodedLogMetrics,
                 )
             } catch (e: Exception) {
                 val totalMs = System.currentTimeMillis() - startMs
@@ -818,6 +818,13 @@ class DpaiaClaudeComparisonTest {
                         if (r.steroidCallCount != null) put("steroidCallCount", r.steroidCallCount)
                         if (r.totalToolCalls != null) put("totalToolCalls", r.totalToolCalls)
                         if (r.toolErrorCount != null) put("toolErrorCount", r.toolErrorCount)
+                        val dl = r.decodedLogMetrics
+                        if (dl != null) {
+                            put("execCodeCalls", dl.execCodeCalls)
+                            put("readCalls", dl.readCalls)
+                            put("writeCalls", dl.writeCalls)
+                            put("bashCalls", dl.bashCalls)
+                        }
                     })
                 }
             }

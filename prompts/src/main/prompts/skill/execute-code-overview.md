@@ -59,14 +59,15 @@ writeAction { VfsUtil.saveText(vf, updated) }  // write INSIDE writeAction
 
 **What's allowed instead:**
 
-| Task | Use instead of ProcessBuilder |
-|------|-------------------------------|
-| Run Maven tests | `MavenRunConfigurationType.runConfiguration()` |
-| Run Gradle tests | `ExternalSystemUtil.runTask()` with `GradleConstants.SYSTEM_ID` |
-| Maven re-import after pom.xml edit | `MavenProjectsManager.scheduleUpdateAllMavenProjects()` + `Observation.awaitConfiguration()` |
-| Check Docker availability | `java.io.File("/var/run/docker.sock").exists()` — no process spawn needed |
-| Docker inspect/exec operations | **Bash tool** (outside steroid_execute_code) — e.g. `docker inspect`, `docker exec` |
-| `dependency:resolve` workaround | `MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()` |
+| Task | Use instead of ProcessBuilder | Details |
+|------|-------------------------------|---------|
+| Run Maven tests | `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` | [Maven patterns](mcp-steroid://skill/execute-code-maven) |
+| Run Gradle tests | `GradleRunConfiguration` + `setRunAsTest(true)` + `SMTRunnerEventsListener` | [Spring/build patterns](mcp-steroid://skill/coding-with-intellij-spring) |
+| Maven sync after pom.xml edit | `MavenProjectsManager.scheduleUpdateAllMavenProjects()` + `Observation.awaitConfiguration()` | [Maven sync](mcp-steroid://skill/execute-code-maven) |
+| Gradle sync after build.gradle.kts edit | `ExternalSystemUtil.refreshProject(path, ImportSpecBuilder(project, GradleConstants.SYSTEM_ID).build())` | [Spring/build patterns](mcp-steroid://skill/coding-with-intellij-spring) |
+| Check Docker availability | `java.io.File("/var/run/docker.sock").exists()` — no process spawn needed | [Spring patterns](mcp-steroid://skill/coding-with-intellij-spring) |
+| Docker inspect/exec operations | **Bash tool** (outside steroid_execute_code) — e.g. `docker inspect`, `docker exec` | — |
+| `dependency:resolve` workaround | `MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | [Maven sync](mcp-steroid://skill/execute-code-maven) |
 
 **`GeneralCommandLine("docker", ...)` and `ProcessBuilder("docker", ...)` inside steroid_execute_code are BANNED** — same reason as `./mvnw`: child process inside IDE JVM causes classpath conflicts. Use the Bash tool outside steroid_execute_code instead.
 

@@ -1387,6 +1387,30 @@ println("Result: passed=$passed")
 
 > **⚠️ Docker / CI environments — use `dialog_killer: true`**: When running `MavenRunConfigurationType.runConfiguration()` in a Docker or CI container, Maven project-reimport dialogs can block the run silently for the full latch timeout (5 minutes wasted). Pass `dialog_killer: true` as the `steroid_execute_code` parameter to auto-dismiss these modals. If the latch still times out after 2-3 minutes despite `dialog_killer: true`, **stop waiting and use `ProcessBuilder("./mvnw", ...)` as a LAST-RESORT fallback** (see "Run Unit Tests via Maven Wrapper" section) — do not wait the full 5 minutes.
 
+#### Gradle Sync after build.gradle.kts Change
+
+After modifying `build.gradle.kts`, trigger a Gradle re-sync and wait for completion before compiling or running tests:
+
+```kotlin[IU]
+import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
+import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
+import com.intellij.platform.backend.observation.Observation
+import org.jetbrains.plugins.gradle.util.GradleConstants
+
+ExternalSystemUtil.refreshProject(
+    project.basePath!!,
+    ImportSpecBuilder(project, GradleConstants.SYSTEM_ID).build()
+)
+Observation.awaitConfiguration(project)
+println("Gradle sync complete — new deps resolved")
+```
+
+**Key notes:**
+- `ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)` creates a Gradle-specific import spec
+- `Observation.awaitConfiguration(project)` suspends until sync + indexing complete
+- Chain `.withCallback(future)` on the builder if you need explicit completion notification
+- Old API `ExternalSystemUtil.refreshProject(project, systemId, path, ...)` is `@Deprecated` — use the 2-arg form above
+
 #### Gradle projects — `GradleRunConfiguration.setRunAsTest(true)`
 
 ```kotlin
@@ -1710,7 +1734,13 @@ println("Docker available: $dockerOk")
 //                  report ARENA_FIX_APPLIED: yes once inspections pass; do NOT investigate Docker further
 ```
 
-> **When to stop investigating Docker failures**: If `./mvnw test` fails with `Could not find a valid Docker environment` AND an existing test (pre-patch) fails with the same error, the environment lacks Docker. This is an **infrastructure constraint, not a code defect**. Do NOT investigate further — use `runInspectionsDirectly` as your final verification and declare your fix complete.
+> **🛑 STOP — Docker Infrastructure Failures**: If ANY of these appear, **STOP Docker investigation immediately**:
+> - `Could not find a valid Docker environment`
+> - `HTTP 400` or `BadRequestException` from Docker API
+> - `docker info` works but Testcontainers fails with connection errors
+> - `DOCKER_HOST` overrides don't help
+>
+> This is an **infrastructure constraint, not a code defect**. Do NOT probe `DOCKER_HOST`, docker socket paths, or retry Docker commands. Instead: verify compilation passes (`ProjectTaskManager.buildAllModules()` or `./mvnw test-compile`) → declare your fix complete. Spending Bash calls debugging Docker wastes 2-8 turns (~1-4 min) with zero benefit.
 
 ### Baseline-vs-Target Infrastructure Probe (Deterministic)
 

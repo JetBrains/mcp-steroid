@@ -188,28 +188,33 @@ println(lines.takeLast(30).joinToString("\n"))
 
 ---
 
-## JAVA_HOME / Multi-JDK Troubleshooting
+## JAVA_HOME / Multi-JDK Selection
+
+### JDK Selection Algorithm (do this BEFORE your first Maven/Gradle command)
+
+When multiple JDKs are available, select the right one immediately — don't trial-and-error:
+
+1. **Read the project's Java version** from `pom.xml` (`<java.version>`, `<maven.compiler.source>`, `<maven.compiler.target>`, or `<release>`) or `build.gradle` (`sourceCompatibility`, `toolchain`).
+2. **List available JDKs**: `ls /usr/lib/jvm/ 2>/dev/null` (Linux) or `ls /Library/Java/JavaVirtualMachines/ 2>/dev/null` (macOS).
+3. **Pick the LOWEST available JDK version >= the project's requirement.** Example: project needs Java 24 → available are temurin-8, 11, 17, 21, 25 → pick **temurin-25** (only one >= 24). Never start with lower JDK versions and work upward.
+4. **Set JAVA_HOME in your FIRST Bash command** — before any Maven/Gradle invocation:
+```
+export JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-arm64
+export PATH=$JAVA_HOME/bin:$PATH
+java -version   # confirm
+```
+
+> **If the first `steroid_execute_code` call already printed available JDKs** (e.g., `JDKs: temurin-8-jdk-arm64, temurin-21-jdk-arm64, temurin-17-jdk-arm64, temurin-11-jdk-arm64, temurin-25-jdk-arm64`), use that list directly — do NOT run `ls /usr/lib/jvm/` again.
+
+### JDK Troubleshooting
 
 When Maven fails with `Fatal error compiling`, `cannot find symbol`, `POM not found for parent`,
 or `Unsupported class file major version`, the root cause is often a JDK version mismatch.
 Fix it BEFORE making any other changes.
 
-**Step 1: Detect available JDKs in the container**
+**Run Maven with explicit JAVA_HOME:**
 ```
-ls /usr/lib/jvm/ 2>/dev/null || ls /Library/Java/JavaVirtualMachines/ 2>/dev/null
-```
-
-**Step 2: Try the correct JDK**
-```
-# Example: project requires Java 17 but default is Java 21 or 25
-export JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-arm64  # or temurin-17-amd64, java-17-openjdk, etc.
-export PATH=$JAVA_HOME/bin:$PATH
-java -version   # confirm JDK version
-```
-
-**Step 3: Run Maven with explicit JAVA_HOME**
-```
-JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-arm64 mvn -pl ts-common install -DskipTests
+JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-arm64 mvn -pl ts-common install -DskipTests
 ```
 
 **When to do this first:**
