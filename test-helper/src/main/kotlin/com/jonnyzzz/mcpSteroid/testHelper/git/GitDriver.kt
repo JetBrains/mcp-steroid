@@ -98,9 +98,17 @@ class GitDriver(
         driver.mkdirs(parent)
 
         println("[GIT] Cloning from bare cache: $bareGuestPath -> $targetDir ...")
+        // Pass -c safe.directory='*' to bypass git's "dubious ownership" check.
+        // The repo-cache mount is owned by the host TC-agent user (uid e.g. 999)
+        // but git inside the container runs as `agent` (uid 1000). Linux bind
+        // mounts don't do UID mapping, so the mismatch would make git refuse
+        // to touch the bare repo with:
+        //   fatal: detected dubious ownership in repository at '/repo-cache/…'
+        // The cache is read-only from the container anyway (/repo-cache:ro),
+        // so trusting any owner here is safe.
         driver.startProcessInContainer {
             this
-                .args("git", "clone", "file://$bareGuestPath", targetDir)
+                .args("git", "-c", "safe.directory=*", "clone", "file://$bareGuestPath", targetDir)
                 .timeoutSeconds(120)
                 .description("git clone from bare cache $bareGuestPath")
         }.awaitForProcessFinish().assertExitCode(0, "git clone from bare cache $bareGuestPath")
