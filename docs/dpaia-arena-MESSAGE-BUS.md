@@ -463,3 +463,8 @@ ANALYSIS: dpaia__spring__petclinic__rest-37 — fix=yes exec_code=2 efficiency=h
 2026-04-15T14:20:08Z PASS: dpaia__spring__petclinic__rest-37 on run 1
 2026-04-15T14:20:08Z SCENARIO[17/17]: dpaia__spring__petclinic-71 start
 2026-04-15T14:20:08Z RUN[1]: dpaia__spring__petclinic-71 claude+mcp
+2026-04-15T14:54:55Z RESULT[1]: dpaia__spring__petclinic-71 fix=False exit=1 duration=1390s exec_code=3
+ANALYSIS: dpaia__spring__petclinic-71 — fix=no exec_code=4 efficiency=low gap=add JPA-to-R2DBC guidance: must fully remove JPA auto-config+annotations when switching to reactive repos; also hit API content filtering block mid-fix
+2026-04-15T14:57:34Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-162034-dpaia__spring__petclinic-71-mcp
+2026-04-15T14:57:34Z FAIL: dpaia__spring__petclinic-71 failed all 1 runs
+2026-04-15T14:57:34Z DONE: 15 passed 2 failed out of 17

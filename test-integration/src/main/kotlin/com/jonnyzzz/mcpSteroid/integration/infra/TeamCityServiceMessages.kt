@@ -37,24 +37,47 @@ object TeamCityServiceMessages {
     }
 
     /**
-     * Publish [runDir] as a single `test/<dirName>.zip` build artifact.
+     * Publish [runDir] as a set of TC build artifacts.
      *
-     * TC interprets `<src> => <dst>.zip` in a `publishArtifacts` spec as "zip the source
-     * directory and upload it under the given archive name". Emitted once per session
-     * right after the run directory is created; TC queues the spec and performs the
-     * actual zip + upload at the end of the build, so partial content from crashed
-     * runs is still captured.
+     * Emits three independent `publishArtifacts` service messages, following
+     * the "Artifact paths" syntax documented at
+     * <https://www.jetbrains.com/help/teamcity/configuring-general-settings.html#Build+Options>:
+     *
+     *  1. `<runDir>/video/** => <runName>/video/` — video recording(s)
+     *     uploaded as plain artifacts so humans can click-preview them in
+     *     the TC build UI without downloading the full zip.
+     *  2. `<runDir>/screenshot/** => <runName>/screenshot/` — per-step
+     *     screenshots uploaded standalone, same rationale as video.
+     *  3. `<runDir>/** => <runName>.zip` — everything (session-info.txt,
+     *     IDE logs, agent NDJSON, decoded logs, video, screenshots)
+     *     archived into a single zip for bulk offline download.
+     *
+     * The `/**` glob is important: a plain `<dir> => <zip>` spec is
+     * interpreted as a literal path, and on an empty-at-message-time
+     * directory TC logs "Artifacts path '…' not found" and moves on.
+     * Using the glob makes TC resolve matching files at publish time.
+     *
+     * Emission site also matters: this is called from a lifetime cleanup
+     * action (see intelliJ-factory.kt), NOT at container creation, so
+     * the runDir is fully populated by the time TC processes the messages.
      *
      * Artifact layout on TC:
-     *   test/run-20260415-123456-arena-dpaia-claude-mcp.zip
-     *
-     * Pattern intentionally uses the run-dir basename as the archive name so a single
-     * build that spins up multiple sessions (e.g. a bucket config running claude+mcp
-     * and claude+none in one test) produces one zip per session, unambiguously named.
+     *   run-20260415-123456-arena-dpaia-claude-mcp/
+     *     video/recording.mp4
+     *     screenshot/step-1.png
+     *     screenshot/step-2.png
+     *   run-20260415-123456-arena-dpaia-claude-mcp.zip   ← everything
      */
     fun publishRunDirArtifact(runDir: File) {
-        val archiveName = "${runDir.name}.zip"
-        val spec = "${runDir.absolutePath} => test/$archiveName"
-        println("##teamcity[publishArtifacts '${escape(spec)}']")
+        val runName = runDir.name
+        val base = runDir.absolutePath
+        // Video — standalone, one file per run under <runName>/video/
+        println("##teamcity[publishArtifacts '${escape("$base/video/** => $runName/video/")}']")
+        // Screenshots — standalone, one folder per run under <runName>/screenshot/
+        println("##teamcity[publishArtifacts '${escape("$base/screenshot/** => $runName/screenshot/")}']")
+        // Everything zipped for bulk download; the video + screenshots are
+        // included in the zip too (duplicates the standalone copies) so the
+        // zip stays a self-contained offline record of the whole session.
+        println("##teamcity[publishArtifacts '${escape("$base/** => $runName.zip")}']")
     }
 }
