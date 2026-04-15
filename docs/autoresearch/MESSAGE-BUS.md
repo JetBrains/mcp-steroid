@@ -117,3 +117,61 @@ IMPLEMENT: applied hypothesis=inline-maven-test-pattern file=prompts/src/main/pr
 
 IMPLEMENT: applied hypothesis=inline-compile-check-pattern file=prompts/src/main/prompts/skill/execute-code-tool-description.md change=Inlined 5-line ProjectTaskManager.buildAllModules() kotlin code block with result checking. Agents see copy-paste compile check on every exec_code call. Contract test passes. Commit 22d7cf04.
 
+## 2026-04-15 Research Pass 3 — Latest 10 Arena Runs (post-Implementation Pass 2)
+
+### Data Summary
+
+67 total runs today. Latest 10 (afternoon batch, after inlined MavenRunner pattern):
+
+| Scenario | exec_code | exec_compile | bash_mvn | bash_gradle | bash_total | maven_runner | resource_reads |
+|----------|-----------|-------------|----------|-------------|------------|-------------|----------------|
+| petclinic-71 | 4 | 3 | 5 | 0 | 5 | 0 | 0 |
+| rest-37 | 3 | 2 | 2 | 0 | 2 | 0 | 0 |
+| microservices | 3 | 2 | 3 | 0 | 4 | 0 | 0 |
+| piggymetrics-6 | 2 | 0 | 6 | 0 | 8 | 0 | 0 |
+| rest-3 | 3 | 1 | 5 | 0 | 6 | 0 | 0 |
+| petclinic-27 | 2 | 2 | 6 | 0 | 6 | 0 | 0 |
+| microshop-2 | 2 | 1 | 0 | 5 | 6 | 0 | 0 |
+| microshop-18 | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
+| ticket-31 | 3 | 2 | 10 | 0 | 11 | 0 | 0 |
+| ticket-1 | 4 | 3 | 15 | 0 | 17 | 0 | 0 |
+| **TOTAL** | **27** | **17** | **52** | **5** | **65** | **0** | **0** |
+
+### Aggregate Metrics (all 67 runs today)
+
+RESEARCH: bash_build_calls=~50 bash_test_calls=~377 exec_code_build=101 exec_code_test=0
+RESEARCH: resource_reads=0 exec_code_failures=8 (kotlinc=6, timeout=unknown)
+RESEARCH: gap=Agents use exec_code ONLY for compile checks, NEVER for test execution. 0/67 runs used MavenRunConfigurationType. 0/67 runs read any MCP resource. The inlined 30-line Maven pattern is completely ignored.
+RESEARCH: hypothesis=The pattern is too long (30 lines with 14 SMTRunnerEventsListener stubs). Agents see simpler Bash path and take it. Three reinforcing failure modes cause permanent Bash fallback.
+
+### Root Cause Analysis (deepened from Pass 2)
+
+**Three triggers that cause permanent Bash fallback:**
+
+1. **exec_code script compilation failure** (petclinic-71): Agent writes Kotlin script to check build errors, script itself fails to compile (`unresolved reference: WolfTheProblemSolver`). Agent says "Let me use Maven to check the build errors directly" → all subsequent operations via Bash. The agent conflates "my Kotlin script failed to compile" with "exec_code can't do this."
+
+2. **exec_code timeout** (petclinic-27, rest-3): `ProjectTaskManager.buildAllModules()` times out (IDE still indexing/resolving SDKs). Agent says "IntelliJ build timed out. Let me use Maven." → permanent Bash fallback. Even if next exec_code would succeed, agent never tries.
+
+3. **Successful compile → Bash test (the default path)** (rest-37, microservices): exec_code compile check succeeds (`Build errors: false`). Agent says "Build is clean. Now let me run the targeted tests." → goes directly to Bash `./mvnw test`. The agent NEVER considers exec_code for test execution. This is the most common pattern and happens even when exec_code is working perfectly.
+
+**Why the inlined MavenRunner pattern (30 lines) doesn't work:**
+- The pattern appears at lines 33-68 of a 127-line tool description
+- It requires implementing 14 interface method stubs (override stubs for SMTRunnerEventsListener)
+- Agents see `./mvnw test -Dtest=MyClass` (1 line) vs the 30-line pattern → Bash always wins
+- The "MANDATORY" warning at line 73 is AFTER the Maven pattern → agents have already planned their approach
+- Only 3/67 runs even mentioned "MANDATORY" — and those were in the exec_code reason field (parroting the task prompt), not acknowledging the tool description warning
+
+**Key observation:** exec_code adoption for compile checks is GOOD (101/67 = ~1.5 per run). The problem is exclusively about test execution. The compile pattern is 5 lines. The test pattern is 30 lines. The complexity gap is the root cause.
+
+### Ranked Hypotheses (updated)
+
+1. **Simplify MavenRunner pattern to <10 lines** — estimated HIGH impact. The 30-line pattern with 14 override stubs is the #1 barrier. Create a helper function in McpScriptContext (e.g., `runMavenTest("MyClass")`) that wraps the boilerplate. Then the tool description pattern becomes 1-3 lines. File: execution code (McpScriptContext.kt) + execute-code-tool-description.md.
+
+2. **Move MANDATORY warning BEFORE all patterns** — estimated MEDIUM impact. Currently at line 73 (after the patterns). Move to line 7, right after "Quick Start." Agents process the tool description top-to-bottom and stop reading early.
+
+3. **Add exec_code test output example** — estimated MEDIUM impact. Show what successful test execution OUTPUT looks like: `Maven test: passed=true`. Agents need to see the success evidence to trust the pattern.
+
+4. **Fix exec_code timeout during initial indexing** — estimated HIGH impact for adoption retention. When exec_code times out, agent permanently abandons it. If the build call returned "still indexing, retry in 10s" instead of timing out, agents would retry instead of switching to Bash.
+
+5. **Reduce SMTRunnerEventsListener boilerplate** — estimated HIGH impact. The 14 empty override stubs are the visual barrier. If Kotlin SAM conversion or a default adapter class existed, the pattern shrinks to ~8 lines. File: execution code.
+
