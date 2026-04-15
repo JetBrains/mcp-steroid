@@ -97,32 +97,39 @@ class GitDriver(
         val parent = targetDir.substringBeforeLast("/")
         driver.mkdirs(parent)
 
-        println("[GIT] Cloning from bare cache: $bareGuestPath -> $targetDir ...")
-        // Whitelist both the specific bare repo path and the wildcard so git's
-        // "dubious ownership" check is bypassed regardless of container git
-        // version. Observed on TC CI:
+        // Bypass git's "dubious ownership" check by seeding the safe.directory
+        // whitelist in the container's ~/.gitconfig BEFORE the clone. Observed
+        // on TC CI:
         //   fatal: detected dubious ownership in repository at
         //     '/repo-cache/dpaia/feature-service.git'
         //   git config --global --add safe.directory /repo-cache/dpaia/…
         //
-        // The /repo-cache bind mount is owned by the host TC-agent user
-        // (uid e.g. 999) while git inside the container runs as `agent`
-        // (uid 1000). Linux bind mounts don't do UID remapping, so git
-        // refuses without an explicit safe.directory entry.
+        // Root cause: the /repo-cache bind mount is owned by the host TC-agent
+        // user (uid e.g. 999) while git inside the container runs as `agent`
+        // (uid 1000). Linux bind mounts don't do UID remapping, so git refuses
+        // without an explicit safe.directory entry.
         //
-        // `safe.directory` is multi-valued: passing `-c safe.directory=<x>`
-        // multiple times adds each to the allowlist. The `*` wildcard
-        // works on git 2.35+ but some older container builds may not
-        // honour it — the explicit path is the belt-and-suspenders
-        // fallback and is what git itself suggests in the error message.
+        // `-c safe.directory=<x>` on the clone command itself was tried first
+        // (both `*` wildcard and the specific path, belt-and-suspenders) and
+        // did NOT work on the TC agents' git version — the in-memory config
+        // set by `-c` apparently isn't honored for the owner check on some
+        // git builds. Running `git config --global --add` in a separate exec
+        // persists the setting to ~/.gitconfig inside the ephemeral container,
+        // which the subsequent clone picks up reliably. The container's home
+        // is wiped when it's torn down so this doesn't leak anywhere.
+        println("[GIT] Registering safe.directory=$bareGuestPath in container ~/.gitconfig")
         driver.startProcessInContainer {
             this
-                .args(
-                    "git",
-                    "-c", "safe.directory=*",
-                    "-c", "safe.directory=$bareGuestPath",
-                    "clone", "file://$bareGuestPath", targetDir,
-                )
+                .args("git", "config", "--global", "--add", "safe.directory", bareGuestPath)
+                .timeoutSeconds(5)
+                .quietly()
+                .description("git config safe.directory for $bareGuestPath")
+        }.awaitForProcessFinish().assertExitCode(0, "git config safe.directory")
+
+        println("[GIT] Cloning from bare cache: $bareGuestPath -> $targetDir ...")
+        driver.startProcessInContainer {
+            this
+                .args("git", "clone", "file://$bareGuestPath", targetDir)
                 .timeoutSeconds(120)
                 .description("git clone from bare cache $bareGuestPath")
         }.awaitForProcessFinish().assertExitCode(0, "git clone from bare cache $bareGuestPath")
