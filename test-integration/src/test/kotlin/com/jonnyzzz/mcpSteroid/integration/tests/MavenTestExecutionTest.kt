@@ -75,7 +75,7 @@ class MavenTestExecutionTest {
 
                         override fun onTestingFinished(testsRoot: com.intellij.execution.testframework.sm.runner.SMTestProxy.SMRootTestProxy) {
                             totalTests = testsRoot.allTests.size
-                            failedTests = testsRoot.allTests.count { it.isFailed }
+                            failedTests = testsRoot.allTests.count { it.isDefect }
                             println("MAVEN_TESTING_FINISHED: total=${'$'}totalTests, failed=${'$'}failedTests")
                             testFinished.complete(true)
                         }
@@ -86,6 +86,8 @@ class MavenTestExecutionTest {
                         override fun onTestIgnored(test: com.intellij.execution.testframework.sm.runner.SMTestProxy) {}
                         override fun onSuiteStarted(suite: com.intellij.execution.testframework.sm.runner.SMTestProxy) {}
                         override fun onSuiteFinished(suite: com.intellij.execution.testframework.sm.runner.SMTestProxy) {}
+                        override fun onTestsCountInSuite(count: Int) {}
+                        override fun onCustomProgressTestsCategory(categoryName: String?, count: Int) {}
                         override fun onCustomProgressTestStarted() {}
                         override fun onCustomProgressTestFinished() {}
                         override fun onCustomProgressTestFailed() {}

@@ -365,3 +365,18 @@ ANALYSIS: dpaia__piggymetrics-6 — fix=yes exec_code=2 efficiency=high gap=none
 2026-04-15T11:07:57Z PASS: dpaia__spring__petclinic__microservices-5 on run 1
 2026-04-15T11:07:57Z SCENARIO[16/17]: dpaia__spring__petclinic__rest-37 start
 2026-04-15T11:07:57Z RUN[1]: dpaia__spring__petclinic__rest-37 claude+mcp
+2026-04-15T11:11:57Z RESULT[1]: dpaia__spring__petclinic__rest-37 fix=True exit=0 duration=126s exec_code=2
+ANALYSIS: dpaia__spring__petclinic__rest-37 — fix=yes exec_code=2 efficiency=high gap=none
+2026-04-15T11:13:07Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-130824-dpaia__spring__petclinic__rest-37-mcp
+2026-04-15T11:13:07Z PASS: dpaia__spring__petclinic__rest-37 on run 1
+2026-04-15T11:13:07Z SCENARIO[17/17]: dpaia__spring__petclinic-71 start
+2026-04-15T11:13:07Z RUN[1]: dpaia__spring__petclinic-71 claude+mcp
+2026-04-15T11:44:26Z RESULT[1]: dpaia__spring__petclinic-71 fix=True exit=0 duration=1574s exec_code=2
+ANALYSIS: dpaia__spring__petclinic-71 — fix=yes exec_code=3 efficiency=high gap=none — complex JPA→R2DBC migration (26 min, $8.29); 49 write/edit calls across entities+repos+controllers; self-caught 2 regressions (missing @NotBlank, async cache) via full test suite
+2026-04-15T11:46:52Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-131333-dpaia__spring__petclinic-71-mcp
+2026-04-15T11:46:52Z PASS: dpaia__spring__petclinic-71 on run 1
+2026-04-15T11:46:52Z DONE: 15 passed 2 failed out of 17
+2026-04-15T11:46:52Z START: dpaia-arena-runner.sh START_INDEX=0 MAX_RUNS=1
+2026-04-15T11:46:52Z SCENARIO[1/17]: dpaia__empty__maven__springboot3-3 start
+2026-04-15T11:46:52Z RUN[1]: dpaia__empty__maven__springboot3-3 claude+mcp
+2026-04-15T11:50:30Z RESULT[1]: dpaia__empty__maven__springboot3-3 fix=True exit=0 duration=105s exec_code=1
