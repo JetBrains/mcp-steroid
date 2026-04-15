@@ -422,6 +422,38 @@ println("[JDK-REGISTER] Newly registered: ${"\$"}registered")
     }
 
     /**
+     * Trigger [UnknownSdkTracker.updateUnknownSdks] and wait for SDK resolution to complete.
+     * This prevents the "Resolving SDKs..." modal from firing during ProjectTaskManager.build(),
+     * which causes false-positive "Build errors: true" in 10/17 arena scenarios.
+     */
+    fun mcpResolveUnknownSdks(projectPath: String) {
+        val projectName = resolveProjectName(projectPath) ?: return
+
+        val code = """
+import com.intellij.openapi.projectRoots.impl.UnknownSdkTracker
+import kotlinx.coroutines.delay
+
+println("[SDK-RESOLVE] Triggering UnknownSdkTracker.updateUnknownSdks()...")
+UnknownSdkTracker.getInstance(project).updateUnknownSdks()
+// Allow time for the background task to fire and complete
+delay(5_000L)
+println("[SDK-RESOLVE] Wait complete — SDKs should now be resolved")
+"done"
+""".trimIndent()
+
+        try {
+            mcpExecuteCode(
+                code = code,
+                projectName = projectName,
+                reason = "Resolve unknown SDKs to prevent false-positive build errors",
+                timeout = 30,
+            )
+        } catch (e: Exception) {
+            println("[SDK-RESOLVE] Warning: SDK resolution failed: ${e.message}")
+        }
+    }
+
+    /**
      * Set the project SDK to a registered JDK by version name (e.g. "21", "17").
      * JDKs must have been registered first via [mcpRegisterJdks].
      */

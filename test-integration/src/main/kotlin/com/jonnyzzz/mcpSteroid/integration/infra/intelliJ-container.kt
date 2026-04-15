@@ -158,6 +158,11 @@ class IntelliJContainer(
         mcpSteroid.mcpTriggerImportAndWait(guestProjectDir, buildSystem)
         console.writeSuccess("Import + indexing complete")
 
+        // Step 6b: Resolve unknown SDKs (prevents "Resolving SDKs..." false positive during build)
+        console.writeStep(6, "Resolving unknown SDKs...")
+        mcpSteroid.mcpResolveUnknownSdks(guestProjectDir)
+        console.writeSuccess("SDK resolution complete")
+
         // Step 7: Install IDE plugins
         console.writeStep(7, "Installing required IDE plugins...")
         mcpSteroid.mcpInstallRequiredPlugins(guestProjectDir)
