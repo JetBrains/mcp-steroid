@@ -349,3 +349,19 @@ ANALYSIS: dpaia__spring__petclinic-27 — fix=yes exec_code=2 efficiency=high ga
 2026-04-15T10:50:25Z PASS: dpaia__spring__petclinic-27 on run 1
 2026-04-15T10:50:25Z SCENARIO[13/17]: dpaia__spring__petclinic__rest-3 start
 2026-04-15T10:50:25Z RUN[1]: dpaia__spring__petclinic__rest-3 claude+mcp
+2026-04-15T10:58:58Z RESULT[1]: dpaia__spring__petclinic__rest-3 fix=True exit=0 duration=396s exec_code=2
+ANALYSIS: dpaia__spring__petclinic__rest-3 — fix=yes exec_code=2 efficiency=high gap=none
+2026-04-15T11:00:54Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-125051-dpaia__spring__petclinic__rest-3-mcp
+2026-04-15T11:00:54Z PASS: dpaia__spring__petclinic__rest-3 on run 1
+2026-04-15T11:00:54Z SCENARIO[14/17]: dpaia__piggymetrics-6 start
+2026-04-15T11:00:54Z RUN[1]: dpaia__piggymetrics-6 claude+mcp
+2026-04-15T11:05:03Z RESULT[1]: dpaia__piggymetrics-6 fix=True exit=0 duration=150s exec_code=1
+ANALYSIS: dpaia__piggymetrics-6 — fix=yes exec_code=2 efficiency=high gap=none — agent followed Docker hint correctly; clean 150s run with parallel edits; used Maven test-compile instead of buildAllModules (acceptable for Maven project)
+2026-04-15T11:07:15Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-130117-dpaia__piggymetrics-6-mcp
+2026-04-15T11:07:15Z PASS: dpaia__piggymetrics-6 on run 1
+2026-04-15T11:07:15Z SCENARIO[15/17]: dpaia__spring__petclinic__microservices-5 start
+2026-04-15T11:07:15Z RUN[1]: dpaia__spring__petclinic__microservices-5 claude+mcp
+2026-04-15T11:07:57Z RESULT[1]: dpaia__spring__petclinic__microservices-5 fix=True exit=0 duration=468s exec_code=0
+2026-04-15T11:07:57Z PASS: dpaia__spring__petclinic__microservices-5 on run 1
+2026-04-15T11:07:57Z SCENARIO[16/17]: dpaia__spring__petclinic__rest-37 start
+2026-04-15T11:07:57Z RUN[1]: dpaia__spring__petclinic__rest-37 claude+mcp

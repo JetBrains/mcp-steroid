@@ -135,6 +135,22 @@ tasks.test {
         filter { includeTestsMatching(pattern) }
     }
 
+    // TEMPORARY DEBUG (mirrors test-integration/build.gradle.kts).
+    doFirst {
+        if (project.hasProperty("testFilter")) {
+            println("[testFilter-debug] pattern: ${project.property("testFilter")}")
+            println("[testFilter-debug] testClassesDirs: ${testClassesDirs.files}")
+            testClassesDirs.files.filter { it.exists() }.forEach { d ->
+                val classes = d.walk().filter { it.isFile && it.name.endsWith(".class") }.toList()
+                println("[testFilter-debug] $d has ${classes.size} .class files")
+                classes.take(30).forEach { println("  ${it.relativeTo(d)}") }
+            }
+            println("[testFilter-debug] filter.includePatterns: ${filter.includePatterns}")
+            println("[testFilter-debug] classpath has junit-platform-launcher: ${classpath.files.any { it.name.contains("junit-platform-launcher") }}")
+            println("[testFilter-debug] classpath has junit-jupiter-engine: ${classpath.files.any { it.name.contains("junit-jupiter-engine") }}")
+        }
+    }
+
     // Prevent this task from being silently triggered by root-level './gradlew test' aggregation.
     // Experimental integration tests require Docker, API keys, and IDE containers — invoke explicitly.
     //
