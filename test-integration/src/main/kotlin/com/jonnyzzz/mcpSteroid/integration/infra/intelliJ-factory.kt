@@ -98,6 +98,11 @@ fun IntelliJContainer.Companion.create(
     }
 
     println("[IDE-AGENT] Run directory: $runDir")
+    // Register the run directory for TC artifact upload. Emitting this early means
+    // the artifact spec is queued up regardless of whether the test finishes cleanly
+    // — TC still zips whatever is on disk at build end, which is exactly what we want
+    // for debugging crashed sessions.
+    TeamCityServiceMessages.publishRunDirArtifact(runDir)
     val imageId = sourceImage ?: run {
         val ideArchive = distribution.resolveAndDownload()
         // Unique suffix ensures parallel test runs each build their own image and context dir,

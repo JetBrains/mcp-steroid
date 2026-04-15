@@ -240,8 +240,10 @@ class ArenaTestRunner(
             appendLine("  //   val c = VfsUtil.loadText(vf); if (c.isEmpty()) { println(\"EMPTY: \$path\"); continue }")
             appendLine("  ```")
             appendLine("  **USE THE PRINTED Maven/Gradlew/JDK paths for ALL subsequent Bash build commands** — never run `find /opt -name mvn` or `ls /usr/lib/jvm/` after this. The first call tells you everything you need.")
+            appendLine("  **JDK SELECTION**: Read pom.xml java.version (or maven.compiler.source) to find the required Java version N. Then from the printed JDK list, pick the LOWEST temurin version >= N. Example: project needs Java 24, JDKs available are 8,11,17,21,25 — use JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-*. NEVER try lower JDKs first.")
             appendLine("  If `dockerOk=false`: still **run the FAIL_TO_PASS tests first via Bash** (many use H2, no Docker needed).")
             appendLine("  Only treat Docker as a blocker if the test explicitly fails with a `DockerException` / `Could not find a valid Docker environment` error.")
+            appendLine("  **HARD STOP ON DOCKER FAILURES**: If ANY test fails with `Could not find a valid Docker environment`, `BadRequestException Status 400`, `HTTP 400`, or `docker.sock` errors — this is an INFRASTRUCTURE problem, NOT your code. Do NOT retry, do NOT investigate DOCKER_HOST, do NOT probe docker.sock, do NOT try environment variables. Instead: verify your code compiles (ProjectTaskManager or ./mvnw test-compile) and output ARENA_FIX_APPLIED: yes. Maximum 2 Bash calls for Docker — after that, STOP.")
         } else {
             appendLine("- IntelliJ MCP tools are unavailable in this run.")
             appendLine("- Use shell commands only (`bash`, `cat`, `find`, `grep`, `$buildWrapper`).")

@@ -278,3 +278,56 @@ ANALYSIS: dpaia__spring__petclinic-71 — fix=yes exec_code=7 efficiency=medium 
 2026-04-15T08:31:07Z START: dpaia-arena-runner.sh START_INDEX=0 MAX_RUNS=1
 2026-04-15T08:31:07Z SCENARIO[1/17]: dpaia__empty__maven__springboot3-3 start
 2026-04-15T08:31:07Z RUN[1]: dpaia__empty__maven__springboot3-3 claude+mcp
+2026-04-15T08:36:03Z RESULT[1]: dpaia__empty__maven__springboot3-3 fix=True exit=0 duration=197s exec_code=3
+ANALYSIS: dpaia__empty__maven__springboot3-3 — fix=yes exec_code=3 efficiency=high gap=none — modal dialog on buildAllModules caused false compile error; agent correctly fell back to Maven; 2 redundant per-class test runs before full suite
+2026-04-15T08:37:50Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-103137-dpaia__empty__maven__springboot3-3-mcp
+2026-04-15T08:37:50Z PASS: dpaia__empty__maven__springboot3-3 on run 1
+2026-04-15T08:37:50Z SCENARIO[2/17]: dpaia__feature__service-125 start
+2026-04-15T08:37:50Z RUN[1]: dpaia__feature__service-125 claude+mcp
+2026-04-15T08:50:25Z RESULT[1]: dpaia__feature__service-125 fix=True exit=0 duration=570s exec_code=3
+ANALYSIS: dpaia__feature__service-125 — fix=yes exec_code=3 efficiency=medium gap=did not run all FAIL_TO_PASS test classes (only 1 of 4); Docker HTTP 400 still triggered 3 wasted probe calls
+2026-04-15T08:52:38Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-103818-dpaia__feature__service-125-mcp
+2026-04-15T08:52:38Z PASS: dpaia__feature__service-125 on run 1
+2026-04-15T08:52:38Z SCENARIO[3/17]: dpaia__empty__maven__springboot3-1 start
+2026-04-15T08:52:38Z RUN[1]: dpaia__empty__maven__springboot3-1 claude+mcp
+2026-04-15T09:06:51Z RESULT[1]: dpaia__empty__maven__springboot3-1 fix=True exit=0 duration=752s exec_code=2
+ANALYSIS: dpaia__empty__maven__springboot3-1 — fix=yes exec_code=2 efficiency=medium gap=none — credential-erasure bug in initial UserDetailsService impl caused 5 extra debug Bash calls; modal dialog on buildAllModules forced Maven fallback (known issue)
+2026-04-15T09:08:21Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-105304-dpaia__empty__maven__springboot3-1-mcp
+2026-04-15T09:08:21Z PASS: dpaia__empty__maven__springboot3-1 on run 1
+2026-04-15T09:08:21Z SCENARIO[4/17]: dpaia__feature__service-25 start
+2026-04-15T09:08:21Z RUN[1]: dpaia__feature__service-25 claude+mcp
+ANALYSIS: dpaia__feature__service-25 — fix=no exec_code=2 efficiency=low gap=Docker-success hint not followed: agent spent 45+ Bash calls debugging Testcontainers Docker connectivity instead of declaring success after compilation passed
+2026-04-15T09:28:52Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-110846-dpaia__feature__service-25-mcp
+2026-04-15T09:28:52Z FAIL: dpaia__feature__service-25 failed all 1 runs
+2026-04-15T09:28:52Z SCENARIO[5/17]: dpaia__spring__petclinic__rest-14 start
+2026-04-15T09:28:52Z RUN[1]: dpaia__spring__petclinic__rest-14 claude+mcp
+2026-04-15T09:32:43Z RESULT[1]: dpaia__spring__petclinic__rest-14 fix=True exit=0 duration=111s exec_code=2
+ANALYSIS: dpaia__spring__petclinic__rest-14 — fix=yes exec_code=2 efficiency=high gap=none — agent tried Edit before Read on 6 files (recovered correctly); all compliance checks pass
+2026-04-15T09:34:03Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-112926-dpaia__spring__petclinic__rest-14-mcp
+2026-04-15T09:34:03Z PASS: dpaia__spring__petclinic__rest-14 on run 1
+2026-04-15T09:34:03Z SCENARIO[6/17]: dpaia__spring__petclinic-36 start
+2026-04-15T09:34:03Z RUN[1]: dpaia__spring__petclinic-36 claude+mcp
+2026-04-15T09:42:48Z RESULT[1]: dpaia__spring__petclinic-36 fix=True exit=0 duration=238s exec_code=2
+ANALYSIS: dpaia__spring__petclinic-36 — fix=yes exec_code=2 efficiency=medium gap=none — missed data.sql on first pass (not in VCS diff); 6 wasted Edit calls (file not read); premature full-suite run before all files updated
+2026-04-15T09:44:58Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-113434-dpaia__spring__petclinic-36-mcp
+2026-04-15T09:44:58Z PASS: dpaia__spring__petclinic-36 on run 1
+2026-04-15T09:44:58Z SCENARIO[7/17]: dpaia__jhipster__sample__app-3 start
+2026-04-15T09:44:58Z RUN[1]: dpaia__jhipster__sample__app-3 claude+mcp
+2026-04-15T09:50:56Z RESULT[1]: dpaia__jhipster__sample__app-3 fix=True exit=0 duration=136s exec_code=3
+2026-04-15T09:57:06Z WARN: analysis sub-agent non-zero exit
+2026-04-15T09:57:06Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-114523-dpaia__jhipster__sample__app-3-mcp
+2026-04-15T09:57:06Z PASS: dpaia__jhipster__sample__app-3 on run 1
+2026-04-15T09:57:06Z SCENARIO[8/17]: dpaia__train__ticket-1 start
+2026-04-15T09:57:06Z RUN[1]: dpaia__train__ticket-1 claude+mcp
+2026-04-15T10:03:02Z RESULT[1]: dpaia__train__ticket-1 fix=True exit=0 duration=246s exec_code=2
+ANALYSIS: dpaia__train__ticket-1 — fix=yes exec_code=2 efficiency=medium gap=add Maven multi-module hint (install -N root POM + install ts-common) and -Djacoco.skip=true to avoid ~10 wasted Bash calls on dependency resolution and JVM crashes
+2026-04-15T10:05:06Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-115729-dpaia__train__ticket-1-mcp
+2026-04-15T10:05:06Z PASS: dpaia__train__ticket-1 on run 1
+2026-04-15T10:05:06Z SCENARIO[9/17]: dpaia__train__ticket-31 start
+2026-04-15T10:05:06Z RUN[1]: dpaia__train__ticket-31 claude+mcp
+2026-04-15T10:12:21Z RESULT[1]: dpaia__train__ticket-31 fix=True exit=0 duration=320s exec_code=2
+ANALYSIS: dpaia__train__ticket-31 — fix=yes exec_code=2 efficiency=medium gap=same as ticket-1: add Maven multi-module hint (install -N + ts-common) and -DforkCount=0 to avoid ~11 wasted Bash calls on deps+fork crashes
+2026-04-15T10:14:19Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-120530-dpaia__train__ticket-31-mcp
+2026-04-15T10:14:19Z PASS: dpaia__train__ticket-31 on run 1
+2026-04-15T10:14:19Z SCENARIO[10/17]: dpaia__spring__boot__microshop-18 start
+2026-04-15T10:14:19Z RUN[1]: dpaia__spring__boot__microshop-18 claude+mcp

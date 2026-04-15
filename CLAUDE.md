@@ -624,6 +624,28 @@ See `mcp-steroid-teamcity/CLAUDE.md` for the full DSL workflow (generate → bac
 
 Store your Personal Access Token at `~/.teamcity` (chmod 600) so REST calls can read it.
 
+### DSL rules for agents
+
+- **Every build configuration must be a checked-in Kotlin file.** The TC DSL runtime is
+  sandboxed and cannot enumerate the filesystem of the mcp-steroid repo, introspect Kotlin
+  classpath entries, or fetch external data. You cannot generate build configs "on the fly"
+  at DSL evaluation time. Every test scenario that deserves its own TC build needs its own
+  explicit `object XxxBuild : BuildType({ … })` declaration, or an explicit `for` loop over
+  a statically-written list inside `settings.kts`. This is also why `SettingsTest` must
+  enumerate the repo's test classes and assert that each has a matching build config — if
+  the DSL itself could discover them, the check would be unnecessary.
+- **Infrastructure-only commits on jb/main.** Only infrastructure / tooling changes should
+  be authored directly on `jb/main`. Everything else (tests, features, bug fixes, new TC
+  configs triggered by code changes) goes to `origin/main` first and reaches `jb/main`
+  through the documented merge-sync procedure above. Direct commits to `jb/main` bypass
+  origin review and are reserved for org-specific infra (compliance edits, TeamCity token
+  rotations, etc.).
+- **Triggering builds via TC MCP or curl.** The `buildserver` MCP tool forces
+  `personal:true` on every queued build. For non-personal CI runs (the default) call
+  the REST API directly with the PAT at `~/.teamcity` — the script `/tmp/tc-trigger.sh`
+  in this repo demonstrates the pattern (POST to `/app/rest/buildQueue` with a plain
+  `{"buildType":{"id":"…"}}` body and no `personal` field).
+
 ### DSL generation
 
 ```bash

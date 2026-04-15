@@ -4,11 +4,19 @@
 suite. Experimental / long-running tests live in the sibling `:test-experiments` module, which
 depends on this one for the infrastructure.
 
-## Researching IntelliJ APIs — Use MCP Steroid
+## Researching IntelliJ APIs — Use MCP Steroid + Debugger
 
 **The IntelliJ project is open in the IDE (`~/Work/intellij`).** Use `steroid_execute_code`
 with `project_name="intellij"` to research APIs directly via PSI — this is faster and more
 accurate than file-based search.
+
+**Use the debugger instead of reading code** — when you need to understand runtime behavior
+(e.g., what `UnknownSdkTracker` actually does, how `MavenRunConfigurationType` launches a process),
+set a breakpoint and step through. This is significantly more effective than reading source:
+- Set breakpoint: `steroid_execute_code` with `XDebuggerUtil.toggleLineBreakpoint()`
+- Launch debug: fire `DebugClass` context action or create a debug run config
+- Evaluate expressions at breakpoint: `XDebugSession.currentStackFrame.evaluateExpression()`
+- See `mcp-steroid://prompt/debugger-skill` for the full workflow
 
 **Pattern: Find a class and inspect its methods**
 ```
