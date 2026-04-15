@@ -160,24 +160,32 @@ fun IntelliJContainer.Companion.create(
         "TEST_INTEGRATION_JB_SPACE_CLIENT_SECRET",
     )
     val hasPackagesEnvCredentials = hostPackagesClientId != null && hostPackagesClientSecret != null
-    val sshAgentSocketFile = if (mountSshAgent) {
-        val sshAuthSock = System.getenv("SSH_AUTH_SOCK")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: error(
-                "mountSshAgent=true but SSH_AUTH_SOCK is not set. " +
-                        "Start ssh-agent on host and export SSH_AUTH_SOCK."
-            )
-        val osName = System.getProperty("os.name").orEmpty().lowercase()
-        val isMacHost = osName.contains("mac")
-        if (isMacHost) {
-            // Docker Desktop provides a stable SSH agent socket proxy that is more reliable
-            // than mounting launchd paths like /private/tmp/com.apple.launchd.../Listeners.
-            File("/run/host-services/ssh-auth.sock")
+    val sshAgentSocketFile: File? = if (mountSshAgent) {
+        val sshAuthSock = System.getenv("SSH_AUTH_SOCK")?.trim()?.takeIf { it.isNotBlank() }
+        if (sshAuthSock == null) {
+            // No ssh-agent on host (typical on TC / CI agents) — skip the forward
+            // rather than hard-failing. Tests that actually need SSH (e.g. git
+            // clone from a private remote) will fail later with a clearer error;
+            // tests that don't (DPAIA arena clones from public HTTPS remotes,
+            // bright scenarios drive Maven/Gradle locally inside the container)
+            // proceed cleanly. Pass `mountSshAgent = false` explicitly to quell
+            // this notice in tests that intentionally run without SSH.
+            println("[IDE-AGENT] SSH_AUTH_SOCK not set — skipping SSH agent socket forward")
+            null
         } else {
-            File(sshAuthSock).also { socket ->
-                require(socket.exists()) {
-                    "mountSshAgent=true but SSH_AUTH_SOCK does not exist: ${socket.absolutePath}"
+            val osName = System.getProperty("os.name").orEmpty().lowercase()
+            val isMacHost = osName.contains("mac")
+            if (isMacHost) {
+                // Docker Desktop provides a stable SSH agent socket proxy that is more reliable
+                // than mounting launchd paths like /private/tmp/com.apple.launchd.../Listeners.
+                File("/run/host-services/ssh-auth.sock")
+            } else {
+                val socket = File(sshAuthSock)
+                if (socket.exists()) {
+                    socket
+                } else {
+                    println("[IDE-AGENT] SSH_AUTH_SOCK points to a missing socket (${socket.absolutePath}) — skipping SSH agent forward")
+                    null
                 }
             }
         }

@@ -11,6 +11,7 @@ better for the entire community.
 ## Contributors
 
 - **Dmitry Batkovich** ([@batya239](https://github.com/batya239)) — exception capture improvements ([#17](https://github.com/jonnyzzz/mcp-steroid/pull/17))
+- **Anton Pikhtin** ([@tgreenwood](https://github.com/tgreenwood)) — arena agent filter ([#21](https://github.com/jonnyzzz/mcp-steroid/pull/21))
 
 ---
 

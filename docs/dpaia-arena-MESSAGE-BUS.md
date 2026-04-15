@@ -380,3 +380,10 @@ ANALYSIS: dpaia__spring__petclinic-71 — fix=yes exec_code=3 efficiency=high ga
 2026-04-15T11:46:52Z SCENARIO[1/17]: dpaia__empty__maven__springboot3-3 start
 2026-04-15T11:46:52Z RUN[1]: dpaia__empty__maven__springboot3-3 claude+mcp
 2026-04-15T11:50:30Z RESULT[1]: dpaia__empty__maven__springboot3-3 fix=True exit=0 duration=105s exec_code=1
+2026-04-15T12:01:49Z RESULT[1]: dpaia__feature__service-125 fix=True exit=0 duration=403s exec_code=2
+ANALYSIS: dpaia__feature__service-125 — fix=yes exec_code=3 efficiency=medium gap=Docker HTTP 400 still triggered ~7 wasted diagnostic Bash calls; hint should ban grep/diagnostic commands once BadRequestException 400 is seen
+2026-04-15T12:04:26Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-135222-dpaia__feature__service-125-mcp
+2026-04-15T12:04:26Z PASS: dpaia__feature__service-125 on run 1
+2026-04-15T12:04:26Z SCENARIO[3/17]: dpaia__empty__maven__springboot3-1 start
+2026-04-15T12:04:26Z RUN[1]: dpaia__empty__maven__springboot3-1 claude+mcp
+2026-04-15T12:09:13Z RESULT[1]: dpaia__empty__maven__springboot3-1 fix=True exit=0 duration=185s exec_code=1
