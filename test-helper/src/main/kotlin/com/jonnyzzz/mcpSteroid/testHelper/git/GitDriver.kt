@@ -98,17 +98,31 @@ class GitDriver(
         driver.mkdirs(parent)
 
         println("[GIT] Cloning from bare cache: $bareGuestPath -> $targetDir ...")
-        // Pass -c safe.directory='*' to bypass git's "dubious ownership" check.
-        // The repo-cache mount is owned by the host TC-agent user (uid e.g. 999)
-        // but git inside the container runs as `agent` (uid 1000). Linux bind
-        // mounts don't do UID mapping, so the mismatch would make git refuse
-        // to touch the bare repo with:
-        //   fatal: detected dubious ownership in repository at '/repo-cache/…'
-        // The cache is read-only from the container anyway (/repo-cache:ro),
-        // so trusting any owner here is safe.
+        // Whitelist both the specific bare repo path and the wildcard so git's
+        // "dubious ownership" check is bypassed regardless of container git
+        // version. Observed on TC CI:
+        //   fatal: detected dubious ownership in repository at
+        //     '/repo-cache/dpaia/feature-service.git'
+        //   git config --global --add safe.directory /repo-cache/dpaia/…
+        //
+        // The /repo-cache bind mount is owned by the host TC-agent user
+        // (uid e.g. 999) while git inside the container runs as `agent`
+        // (uid 1000). Linux bind mounts don't do UID remapping, so git
+        // refuses without an explicit safe.directory entry.
+        //
+        // `safe.directory` is multi-valued: passing `-c safe.directory=<x>`
+        // multiple times adds each to the allowlist. The `*` wildcard
+        // works on git 2.35+ but some older container builds may not
+        // honour it — the explicit path is the belt-and-suspenders
+        // fallback and is what git itself suggests in the error message.
         driver.startProcessInContainer {
             this
-                .args("git", "-c", "safe.directory=*", "clone", "file://$bareGuestPath", targetDir)
+                .args(
+                    "git",
+                    "-c", "safe.directory=*",
+                    "-c", "safe.directory=$bareGuestPath",
+                    "clone", "file://$bareGuestPath", targetDir,
+                )
                 .timeoutSeconds(120)
                 .description("git clone from bare cache $bareGuestPath")
         }.awaitForProcessFinish().assertExitCode(0, "git clone from bare cache $bareGuestPath")
