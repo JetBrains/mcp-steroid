@@ -147,16 +147,19 @@ abstract class DpaiaScenarioBaseTest {
             println("[ARENA]   Prewarm time:   ${record.prewarmMs / 1000}s")
             if (tokens != null) {
                 println("[ARENA]   Tokens in/out:  ${tokens.inputTokens}/${tokens.outputTokens}")
+                println("[ARENA]   Cache create:   ${tokens.cacheCreationTokens}")
                 println("[ARENA]   Cache read:     ${tokens.cacheReadTokens}")
                 println("[ARENA]   Cost:           $${tokens.costUsd ?: "?"}")
                 println("[ARENA]   Turns:          ${tokens.numTurns ?: "?"}")
+                println("[ARENA]   API duration:   ${tokens.durationApiMs?.let { "${it / 1000}s" } ?: "?"}")
             }
             if (testMetrics != null) {
                 println("[ARENA]   Tests:          ${testMetrics.testsRun} run, ${testMetrics.testsFail} fail, BUILD ${if (testMetrics.buildSuccess == true) "SUCCESS" else "FAILURE"}")
             }
             if (decodedLogMetrics != null) {
                 println("[ARENA]   exec_code:      ${decodedLogMetrics.execCodeCalls}")
-                println("[ARENA]   Read/Write/Bash: ${decodedLogMetrics.readCalls}/${decodedLogMetrics.writeCalls}/${decodedLogMetrics.bashCalls}")
+                println("[ARENA]   Read/Edit/Write: ${decodedLogMetrics.readCalls}/${decodedLogMetrics.editCalls}/${decodedLogMetrics.writeCalls}")
+                println("[ARENA]   Glob/Grep/Bash: ${decodedLogMetrics.globCalls}/${decodedLogMetrics.grepCalls}/${decodedLogMetrics.bashCalls}")
             }
             println("[ARENA]   Summary:        ${record.summary ?: "(none)"}")
             println("[ARENA] ════════════════════════════════════════")
@@ -202,7 +205,7 @@ abstract class DpaiaScenarioBaseTest {
             val t = r.tokenUsage
             if (t != null) {
                 println("║   Tokens: ${t.inputTokens}in/${t.outputTokens}out  " +
-                        "Cache: ${t.cacheReadTokens}  " +
+                        "Cache: ${t.cacheCreationTokens}c/${t.cacheReadTokens}r  " +
                         "Cost: $${String.format("%.2f", t.costUsd ?: 0.0)}  " +
                         "Turns: ${t.numTurns ?: "?"}".padEnd(56) + "║")
             }
@@ -239,8 +242,10 @@ abstract class DpaiaScenarioBaseTest {
                 put("input_tokens", t.inputTokens)
                 put("output_tokens", t.outputTokens)
                 put("cache_read_tokens", t.cacheReadTokens)
+                put("cache_creation_tokens", t.cacheCreationTokens)
                 t.costUsd?.let { put("cost_usd", it) }
                 t.numTurns?.let { put("num_turns", it) }
+                t.durationApiMs?.let { put("duration_api_ms", it) }
             }
             record.testMetrics?.let { m ->
                 put("tests_run", m.testsRun)
@@ -252,7 +257,10 @@ abstract class DpaiaScenarioBaseTest {
                 put("exec_code_calls", d.execCodeCalls)
                 put("read_calls", d.readCalls)
                 put("write_calls", d.writeCalls)
+                put("edit_calls", d.editCalls)
                 put("bash_calls", d.bashCalls)
+                put("glob_calls", d.globCalls)
+                put("grep_calls", d.grepCalls)
             }
             put("agent_summary", record.summary ?: "")
             put("timestamp", java.time.Instant.now().toString())
@@ -262,6 +270,21 @@ abstract class DpaiaScenarioBaseTest {
         summaryFile.parentFile.mkdirs()
         summaryFile.writeText(summary.toString())
         println("[ARENA] Run summary written to: ${summaryFile.absolutePath}")
+
+        // Append to comparison CSV
+        val passLabel = System.getProperty("arena.pass.label", "")
+        val csvFile = IdeTestFolders.testOutputDir.resolve("arena-comparison.csv")
+        appendComparisonCsv(
+            csvFile = csvFile,
+            instanceId = testCase.instanceId,
+            passLabel = passLabel,
+            claimedFix = record.claimedFix,
+            durationS = record.agentDurationMs / 1000,
+            tokens = record.tokenUsage,
+            testMetrics = record.testMetrics,
+            decoded = record.decodedLogMetrics,
+        )
+        println("[ARENA] Comparison CSV appended to: ${csvFile.absolutePath}")
     }
 
     // ── Dataset loading ──────────────────────────────────────────────────────

@@ -803,9 +803,11 @@ class DpaiaClaudeComparisonTest {
                             put("inputTokens", u.inputTokens)
                             put("outputTokens", u.outputTokens)
                             put("cacheReadTokens", u.cacheReadTokens)
+                            put("cacheCreationTokens", u.cacheCreationTokens)
                             put("totalTokens", u.totalTokens)
                             put("costUsd", u.costUsd ?: 0.0)
                             put("numTurns", u.numTurns ?: 0)
+                            u.durationApiMs?.let { put("durationApiMs", it) }
                         }
                         val tm = r.testMetrics
                         if (tm != null) {
@@ -823,7 +825,10 @@ class DpaiaClaudeComparisonTest {
                             put("execCodeCalls", dl.execCodeCalls)
                             put("readCalls", dl.readCalls)
                             put("writeCalls", dl.writeCalls)
+                            put("editCalls", dl.editCalls)
                             put("bashCalls", dl.bashCalls)
+                            put("globCalls", dl.globCalls)
+                            put("grepCalls", dl.grepCalls)
                         }
                     })
                 }

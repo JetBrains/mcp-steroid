@@ -72,17 +72,21 @@ class ExtractDecodedLogMetricsTest {
             >> Bash (./mvnw test -Dtest=ReleaseQueryEndpointsIT)
             >> mcp__mcp-steroid__steroid_execute_code (Check compilation after edits)
             >> Bash (./mvnw test)
+            >> Grep (pattern)
         """.trimIndent()
         val metrics = extract(log)
         assertNotNull(metrics)
         assertEquals(2, metrics!!.execCodeCalls)
         assertEquals(2, metrics.readCalls)
         assertEquals(1, metrics.writeCalls)
+        assertEquals(1, metrics.editCalls)
         assertEquals(2, metrics.bashCalls)
+        assertEquals(1, metrics.globCalls)
+        assertEquals(1, metrics.grepCalls)
     }
 
     @Test
-    fun `does not count Edit lines as Write`() {
+    fun `counts Edit lines separately from Write`() {
         val log = """
             >> Edit (/home/agent/project-home/src/main/java/Service.java)
             >> Edit (/home/agent/project-home/src/main/java/Other.java)
@@ -91,6 +95,22 @@ class ExtractDecodedLogMetricsTest {
         assertNotNull(metrics)
         assertEquals(0, metrics!!.writeCalls)
         assertEquals(0, metrics.readCalls)
+        assertEquals(2, metrics.editCalls)
+    }
+
+    @Test
+    fun `counts Glob and Grep tool lines`() {
+        val log = """
+            >> Glob (src/**/*.java)
+            >> Glob (src/**/*.kt)
+            >> Grep (TODO)
+        """.trimIndent()
+        val metrics = extract(log)
+        assertNotNull(metrics)
+        assertEquals(2, metrics!!.globCalls)
+        assertEquals(1, metrics.grepCalls)
+        assertEquals(0, metrics.readCalls)
+        assertEquals(0, metrics.bashCalls)
     }
 
     @Test

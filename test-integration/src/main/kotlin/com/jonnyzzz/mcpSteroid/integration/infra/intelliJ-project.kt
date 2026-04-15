@@ -54,6 +54,11 @@ sealed class IntelliJProject{
         openFile = "DemoRider.Tests/LeaderboardTests.cs",
     )
 
+    object MavenTestProject : ProjectFromRepository(
+        "test-project-maven",
+        openFile = "src/test/java/com/example/demo/CalculatorTest.java",
+    )
+
     object ThisLoggerProject : ProjectFromRepository(
         "thislogger-project",
         openFile = "src/main/kotlin/com/example/util/Logging.kt",

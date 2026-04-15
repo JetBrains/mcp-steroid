@@ -146,8 +146,12 @@ Results as they arrive — pass 1 in progress with improved prompt (build env di
 | train__ticket-1 | 240s | 294s | +23% | 2→2 | 31→21 | 7→7 | 1→1 |
 | train__ticket-31 | 345s | 317s | **-8%** | 5→5 | 22→15 | 11→11 | ~1→0 |
 | spring__boot__microshop-18 | 762s³ | 900s (FAIL) | timeout | 3→1 | 11→0 | 42→43 | 16→14 |
+| spring__boot__microshop-2 | 167s | 161s | -4% | 2→3 | 11→10 | 11→11 | 3→3 |
+| spring__petclinic-27 | 629s | 480s | **-24%** | 3→2 | 2→6 | 12→12 | 5→5 |
+| spring__petclinic__rest-3 | 545s | 385s | **-29%** | 2→2 | 4→3 | 19→10 | 5→4 |
+| piggymetrics-6 | 240s³ | 304s | +27%⁴ | 2→1 | 20→17 | 7→8 | 1→1 |
 
-10/17 complete (9 pass, 1 fail). ³ Original took 3 runs to pass. Key observations:
+14/17 complete (13 pass, 1 fail). ³ Original took 3 runs. ⁴ First-run pass (orig failed runs 1-2). Key observations:
 - **feature-125 (-30%)**: Most dramatic. Agent used printed Maven/JDK paths, never ran discovery commands.
 - **feature-25 (-13%)**: Docker failure recognized quickly. Gap: JDK selection waste.
 - **jhipster-3 (-8%)**: exec_code 5→2 (clean). Agent recognized rename-only task fast.
@@ -159,9 +163,14 @@ Results as they arrive — pass 1 in progress with improved prompt (build env di
 - **train-ticket-31 (-8%)**: Bash 22→15 (-32%). exec_code stayed at 5 (multi-module needs more compile checks).
 - **microshop-18 (FAIL)**: Timed out at 900s with 43 reads, 14 writes — same exploration loop as baseline. With MAX_RUNS=1, no retry. Original needed 3 runs.
 
-**Aggregate (9 passing/17)**: exec_code per scenario avg 3.7→2.4 (-34%), Bash avg 12.0→9.0 (-25%).
+- **microshop-2 (-4%)**: Minimal change, already efficient. Wrong JAVA_HOME on first Gradle attempt (analysis).
+- **petclinic-27 (-24%)**: Big win — 480s vs 629s. exec_code 3→2. Bash went up 2→6 (more test runs needed for 94/94 pass).
+- **petclinic-rest-3 (-29%)**: Another big win — 385s vs 545s. Reads halved (19→10), Bash 4→3. 217/217 tests.
+- **piggymetrics-6 (first-run pass!)**: Original needed 3 runs (Docker pull stall, API 400). Now passes first try in 304s. Docker handling improved.
 
-Pass 1 in progress (10/17 done, scenario 11 next); table updated as results arrive.
+**Aggregate (13 passing/17)**: exec_code per scenario avg 3.2→2.3 (-28%), Bash avg 11.3→8.6 (-24%).
+
+Pass 1 in progress (14/17 done, scenario 15 petclinic-microservices-5 next); table updated as results arrive.
 
 ## Prompt Improvements — Session 3 Candidates (post-3-pass)
 

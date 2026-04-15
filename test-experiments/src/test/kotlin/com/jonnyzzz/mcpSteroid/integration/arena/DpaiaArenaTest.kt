@@ -259,8 +259,10 @@ class DpaiaArenaTest {
                     put("input_tokens", t.inputTokens)
                     put("output_tokens", t.outputTokens)
                     put("cache_read_tokens", t.cacheReadTokens)
+                    put("cache_creation_tokens", t.cacheCreationTokens)
                     t.costUsd?.let { put("cost_usd", it) }
                     t.numTurns?.let { put("num_turns", it) }
+                    t.durationApiMs?.let { put("duration_api_ms", it) }
                 }
                 testMetrics?.let { m ->
                     put("tests_run", m.testsRun)
@@ -272,7 +274,10 @@ class DpaiaArenaTest {
                     put("exec_code_calls", d.execCodeCalls)
                     put("read_calls", d.readCalls)
                     put("write_calls", d.writeCalls)
+                    put("edit_calls", d.editCalls)
                     put("bash_calls", d.bashCalls)
+                    put("glob_calls", d.globCalls)
+                    put("grep_calls", d.grepCalls)
                 }
                 put("agent_summary", result.evaluation.agentSummary ?: "")
                 put("timestamp", java.time.Instant.now().toString())
@@ -282,6 +287,20 @@ class DpaiaArenaTest {
             summaryFile.parentFile.mkdirs()
             summaryFile.writeText(summary.toString())
             println("[ARENA] Run summary written to: ${summaryFile.absolutePath}")
+
+            // Append to comparison CSV
+            val passLabel = System.getProperty("arena.pass.label", "")
+            val csvFile = IdeTestFolders.testOutputDir.resolve("arena-comparison.csv")
+            appendComparisonCsv(
+                csvFile = csvFile,
+                instanceId = testCase.instanceId,
+                passLabel = passLabel,
+                claimedFix = result.evaluation.agentClaimedFix,
+                durationS = result.agentDurationMs / 1000,
+                tokens = tokens,
+                testMetrics = testMetrics,
+                decoded = decodedLogMetrics,
+            )
         }
     }
 

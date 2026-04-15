@@ -570,8 +570,13 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
             BuildSystem.MAVEN -> """
                 try {
                     println("[IMPORT] Triggering Maven import...")
-                    org.jetbrains.idea.maven.project.MavenProjectsManager.getInstance(project)
-                        .forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+                    val mavenManager = org.jetbrains.idea.maven.project.MavenProjectsManager.getInstance(project)
+                    // Enable source + javadoc downloading so agents have full API docs in the IDE
+                    val importSettings = mavenManager.importingSettings
+                    importSettings.isDownloadSourcesAutomatically = true
+                    importSettings.isDownloadDocsAutomatically = true
+                    println("[IMPORT] Maven source/doc download: sources=${'$'}{importSettings.isDownloadSourcesAutomatically} docs=${'$'}{importSettings.isDownloadDocsAutomatically}")
+                    mavenManager.forceUpdateAllProjectsOrFindAllAvailablePomFiles()
                     kotlinx.coroutines.delay(2_000L)
                 } catch (e: Exception) {
                     println("[IMPORT] Maven trigger failed: ${'$'}{e.message}")
@@ -579,6 +584,29 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
             """.trimIndent()
             BuildSystem.GRADLE -> """
                 println("[IMPORT] Gradle auto-import active from project open")
+                // Enable source downloading for Gradle projects
+                try {
+                    val gradleSettings = org.jetbrains.plugins.gradle.settings.GradleSystemSettings.getInstance()
+                    gradleSettings.isDownloadSources = true
+                    println("[IMPORT] Gradle source download: enabled")
+                } catch (e: Exception) {
+                    println("[IMPORT] Gradle source download setting failed: ${'$'}{e.message}")
+                }
+                // Trigger Gradle refresh so source download setting takes effect
+                try {
+                    println("[IMPORT] Triggering Gradle refresh...")
+                    val gradleProjectPath = project.basePath!!
+                    com.intellij.openapi.externalSystem.util.ExternalSystemUtil.refreshProject(
+                        gradleProjectPath,
+                        com.intellij.openapi.externalSystem.importing.ImportSpecBuilder(
+                            project,
+                            org.jetbrains.plugins.gradle.util.GradleConstants.SYSTEM_ID
+                        ).build()
+                    )
+                    kotlinx.coroutines.delay(2_000L)
+                } catch (e: Exception) {
+                    println("[IMPORT] Gradle refresh failed: ${'$'}{e.message}")
+                }
             """.trimIndent()
             BuildSystem.NONE -> """
                 println("[IMPORT] No build system — skipping import trigger")

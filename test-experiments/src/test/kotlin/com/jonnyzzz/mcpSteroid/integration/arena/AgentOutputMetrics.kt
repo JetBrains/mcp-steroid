@@ -22,8 +22,10 @@ data class TokenUsage(
     val inputTokens: Long,
     val outputTokens: Long,
     val cacheReadTokens: Long = 0L,
+    val cacheCreationTokens: Long = 0L,
     val costUsd: Double? = null,
     val numTurns: Int? = null,
+    val durationApiMs: Long? = null,
 ) {
     val totalTokens: Long get() = inputTokens + outputTokens
 }
@@ -100,8 +102,10 @@ fun extractTokenUsage(rawOutput: String): TokenUsage? {
             inputTokens = usage["input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
             outputTokens = usage["output_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
             cacheReadTokens = usage["cache_read_input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
+            cacheCreationTokens = usage["cache_creation_input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L,
             costUsd = (json["total_cost_usd"] ?: json["cost_usd"])?.jsonPrimitive?.doubleOrNull,
             numTurns = json["num_turns"]?.jsonPrimitive?.intOrNull,
+            durationApiMs = json["duration_api_ms"]?.jsonPrimitive?.longOrNull,
         )
     }
     return null
@@ -114,10 +118,16 @@ data class DecodedLogMetrics(
     val execCodeCalls: Int,
     /** Number of Read tool invocations (lines starting with ">> Read"). */
     val readCalls: Int,
-    /** Number of Write tool invocations (lines starting with ">> Write"). */
+    /** Number of Write or Edit tool invocations. */
     val writeCalls: Int,
     /** Number of Bash tool invocations (lines starting with ">> Bash"). */
     val bashCalls: Int,
+    /** Number of Glob tool invocations (lines starting with ">> Glob"). */
+    val globCalls: Int = 0,
+    /** Number of Grep tool invocations (lines starting with ">> Grep"). */
+    val grepCalls: Int = 0,
+    /** Number of Edit tool invocations (lines starting with ">> Edit"). */
+    val editCalls: Int = 0,
 )
 
 /**
@@ -137,6 +147,9 @@ fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
     var readCalls = 0
     var writeCalls = 0
     var bashCalls = 0
+    var globCalls = 0
+    var grepCalls = 0
+    var editCalls = 0
     var foundAny = false
 
     for (line in decodedLogText.lines()) {
@@ -146,11 +159,22 @@ fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
             line.contains("steroid_execute_code") -> execCodeCalls++
             line.startsWith(">> Read ") || line == ">> Read" -> readCalls++
             line.startsWith(">> Write ") || line == ">> Write" -> writeCalls++
+            line.startsWith(">> Edit ") || line == ">> Edit" -> editCalls++
             line.startsWith(">> Bash ") || line == ">> Bash" -> bashCalls++
+            line.startsWith(">> Glob ") || line == ">> Glob" -> globCalls++
+            line.startsWith(">> Grep ") || line == ">> Grep" -> grepCalls++
         }
     }
 
-    return if (foundAny) DecodedLogMetrics(execCodeCalls, readCalls, writeCalls, bashCalls) else null
+    return if (foundAny) DecodedLogMetrics(
+        execCodeCalls = execCodeCalls,
+        readCalls = readCalls,
+        writeCalls = writeCalls,
+        bashCalls = bashCalls,
+        globCalls = globCalls,
+        grepCalls = grepCalls,
+        editCalls = editCalls,
+    ) else null
 }
 
 /**
@@ -225,4 +249,66 @@ fun extractToolCallStats(rawOutput: String): ToolCallStats? {
     }
 
     return if (foundAny) ToolCallStats(steroidCount, totalCount, errorCount) else null
+}
+
+// ── CSV comparison writer ───────────────────────────────────────────────────
+
+private const val CSV_HEADER = "timestamp,instance_id,pass_label,agent_claimed_fix,duration_s," +
+        "exec_code_calls,bash_calls,read_calls,write_calls,edit_calls,glob_calls,grep_calls," +
+        "num_turns,total_input_tokens,total_output_tokens,total_cache_creation_tokens," +
+        "total_cache_read_tokens,duration_api_ms,estimated_cost_usd,tests_pass,tests_run"
+
+/**
+ * Append a row to the arena comparison CSV file.
+ *
+ * Creates the file with a header if it doesn't exist yet. Thread-safe via synchronized write.
+ *
+ * @param csvFile the target CSV file (e.g. `testOutputDir/arena-comparison.csv`)
+ * @param instanceId the DPAIA scenario instance ID
+ * @param passLabel a label for the current pass (from `-Darena.pass.label` system property)
+ * @param claimedFix whether the agent claimed to have fixed the issue
+ * @param durationS agent wall-clock duration in seconds
+ * @param tokens extracted token usage (nullable)
+ * @param testMetrics extracted test metrics (nullable)
+ * @param decoded extracted decoded log metrics (nullable)
+ */
+@Synchronized
+fun appendComparisonCsv(
+    csvFile: java.io.File,
+    instanceId: String,
+    passLabel: String,
+    claimedFix: Boolean,
+    durationS: Long,
+    tokens: TokenUsage?,
+    testMetrics: TestMetrics?,
+    decoded: DecodedLogMetrics?,
+) {
+    csvFile.parentFile?.mkdirs()
+    if (!csvFile.exists()) {
+        csvFile.writeText(CSV_HEADER + "\n")
+    }
+    val row = listOf(
+        java.time.Instant.now().toString(),
+        instanceId,
+        passLabel,
+        claimedFix.toString(),
+        durationS.toString(),
+        (decoded?.execCodeCalls ?: "").toString(),
+        (decoded?.bashCalls ?: "").toString(),
+        (decoded?.readCalls ?: "").toString(),
+        (decoded?.writeCalls ?: "").toString(),
+        (decoded?.editCalls ?: "").toString(),
+        (decoded?.globCalls ?: "").toString(),
+        (decoded?.grepCalls ?: "").toString(),
+        (tokens?.numTurns ?: "").toString(),
+        (tokens?.inputTokens ?: "").toString(),
+        (tokens?.outputTokens ?: "").toString(),
+        (tokens?.cacheCreationTokens ?: "").toString(),
+        (tokens?.cacheReadTokens ?: "").toString(),
+        (tokens?.durationApiMs ?: "").toString(),
+        tokens?.costUsd?.let { String.format("%.4f", it) } ?: "",
+        (testMetrics?.testsPass ?: "").toString(),
+        (testMetrics?.testsRun ?: "").toString(),
+    ).joinToString(",")
+    csvFile.appendText(row + "\n")
 }

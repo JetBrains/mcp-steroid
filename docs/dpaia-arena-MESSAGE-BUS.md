@@ -242,3 +242,21 @@ ANALYSIS: dpaia__spring__boot__microshop-2 — fix=yes exec_code=2 efficiency=me
 2026-04-15T06:59:12Z PASS: dpaia__spring__boot__microshop-2 on run 1
 2026-04-15T06:59:12Z SCENARIO[12/17]: dpaia__spring__petclinic-27 start
 2026-04-15T06:59:12Z RUN[1]: dpaia__spring__petclinic-27 claude+mcp
+2026-04-15T07:11:54Z RESULT[1]: dpaia__spring__petclinic-27 fix=True exit=0 duration=480s exec_code=2
+ANALYSIS: dpaia__spring__petclinic-27 — fix=yes exec_code=2 efficiency=high gap=read budget violated (16 reads before first write); budget too tight for multi-file feature implementation requiring 5 new files across controllers+repositories
+2026-04-15T07:14:02Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-085937-dpaia__spring__petclinic-27-mcp
+2026-04-15T07:14:02Z PASS: dpaia__spring__petclinic-27 on run 1
+2026-04-15T07:14:02Z SCENARIO[13/17]: dpaia__spring__petclinic__rest-3 start
+2026-04-15T07:14:02Z RUN[1]: dpaia__spring__petclinic__rest-3 claude+mcp
+2026-04-15T07:22:24Z RESULT[1]: dpaia__spring__petclinic__rest-3 fix=True exit=0 duration=385s exec_code=2
+ANALYSIS: dpaia__spring__petclinic__rest-3 — fix=yes exec_code=2 efficiency=high gap=none
+2026-04-15T07:23:54Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-091428-dpaia__spring__petclinic__rest-3-mcp
+2026-04-15T07:23:54Z PASS: dpaia__spring__petclinic__rest-3 on run 1
+2026-04-15T07:23:54Z SCENARIO[14/17]: dpaia__piggymetrics-6 start
+2026-04-15T07:23:54Z RUN[1]: dpaia__piggymetrics-6 claude+mcp
+2026-04-15T07:30:29Z RESULT[1]: dpaia__piggymetrics-6 fix=True exit=0 duration=304s exec_code=1
+ANALYSIS: dpaia__piggymetrics-6 — fix=yes exec_code=1 efficiency=medium gap=none — agent followed Docker hint correctly; code changes compile; infrastructure blocks actual test pass
+2026-04-15T07:31:49Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-092419-dpaia__piggymetrics-6-mcp
+2026-04-15T07:31:49Z PASS: dpaia__piggymetrics-6 on run 1
+2026-04-15T07:31:49Z SCENARIO[15/17]: dpaia__spring__petclinic__microservices-5 start
+2026-04-15T07:31:49Z RUN[1]: dpaia__spring__petclinic__microservices-5 claude+mcp
