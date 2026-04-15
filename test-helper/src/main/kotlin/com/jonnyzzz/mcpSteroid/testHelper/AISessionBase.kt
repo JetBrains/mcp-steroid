@@ -65,24 +65,13 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
             "$displayName API key not found ($apiKeyHint)"
         }
 
-        // On TeamCity, skip the test instead of failing the build.
-        // Two different mechanisms needed depending on the test runner:
-        // - test-helper:test uses useJUnitPlatform() (JUnit 5 Jupiter): TestAbortedException → aborted
-        // - ij-plugin:integrationTest uses useJUnit() (JUnit 4 native): TestAbortedException is
-        //   an unrecognized exception → test FAILS. Must use Assume.assumeTrue(false) which throws
-        //   AssumptionViolatedException, recognized by the JUnit 4 runner as "skipped".
-        // Detect by checking if JUnit Platform classes are on the call stack.
-        if (System.getenv("TEAMCITY_VERSION") != null) {
-            val isJUnit5Platform = Thread.currentThread().stackTrace.any {
-                it.className.startsWith("org.junit.platform.")
-            }
-            if (isJUnit5Platform) {
-                throw org.opentest4j.TestAbortedException(message)
-            } else {
-                org.junit.Assume.assumeTrue(message, false)
-            }
-        }
-
+        // BANNED pattern (per CLAUDE.md): detecting a failure and skipping
+        // the test. CI tests MUST stay failing so the infrastructure issue
+        // is visible and gets fixed. Earlier revisions of this method
+        // threw TestAbortedException / Assume.assumeTrue on TC when the
+        // credentialsJSON reference wasn't resolved — that masked a real
+        // TC credentials misconfiguration as "0 failed, 20 ignored" for
+        // weeks. Don't bring that back.
         error(message)
     }
 

@@ -643,11 +643,68 @@ Store your Personal Access Token at `~/.teamcity` (chmod 600) so REST calls can 
   through the documented merge-sync procedure above. Direct commits to `jb/main` bypass
   origin review and are reserved for org-specific infra (compliance edits, TeamCity token
   rotations, etc.).
-- **Triggering builds via TC MCP or curl.** The `buildserver` MCP tool forces
-  `personal:true` on every queued build. For non-personal CI runs (the default) call
-  the REST API directly with the PAT at `~/.teamcity` — the script `/tmp/tc-trigger.sh`
-  in this repo demonstrates the pattern (POST to `/app/rest/buildQueue` with a plain
-  `{"buildType":{"id":"…"}}` body and no `personal` field).
+- **Triggering builds via TC MCP / curl.** The `buildserver` MCP tool forces
+  `personal=true` on every queued build. For non-personal CI runs, POST directly to
+  `/app/rest/buildQueue` with PAT from `~/.teamcity` (no `personal` field in body). The
+  helper `/tmp/tc-trigger.sh` captures the pattern.
+- **Reading build logs — use the TC MCP `teamcity_build_log` tool** with `filter=errors`/
+  `warnings` and `start`/`count` for pagination. `/downloadBuildLog.html` redirects to
+  interactive OAuth; PAT auth doesn't work for it.
+- **Declare shared secrets at the root project** via `params { param("env.X", Ref(…).toString()) }`
+  in `settings.kts`. TC param inheritance is parent → child only (NOT peer-to-peer), so
+  declaring a `credentialsJSON:UUID` on a single build leaves peers failing with
+  "unresolved TeamCity reference". When a build's `properties.property` REST field shows
+  the literal `%credentialsJSON:…%` value instead of `******`, the substitution failed and
+  the test will see the placeholder string — tests MUST fail hard in that state (no
+  `TestAbortedException` / `Assume.assumeTrue` to paper over it).
+- **`BuildType.requireLinuxDocker()` helper (`utils/LinuxDocker.kt`).** Every build that
+  shells out to `docker` applies this bundle — `exists("docker.version")` + Linux_amd64
+  + `dockerSupport { loginToRegistry = on(PROJECT_EXT_789) }`. The registry login routes
+  base-image pulls through `registry.jetbrains.team`, avoiding the daemon-level mirror
+  that occasionally 503s.
+- **`freeDiskSpace { requiredSpace = "20gb"; failBuild = true }`** on every Docker-based
+  test build. IDE image (~1.5 GB) + plugin + base layer + per-test run-dir content
+  easily hit 15 GB+; without the gate, mid-build ENOSPC shows up as cryptic `docker cp:
+  Could not find the file …` errors against `/mcp-run-dir` mount.
+- **`publishArtifacts` emission pattern.** Emit AT TEARDOWN (lifetime cleanup action),
+  NOT at container creation — TC processes the service message immediately, not at
+  end-of-build. Use the recursive-glob form (`<path>/<star><star> => <dest>`) so TC
+  resolves matching files at publish time; a literal `<dir> => <zip>` spec on an empty
+  directory yields "Artifacts path '…' not found". Publish video + screenshots as
+  **standalone artifacts** (under per-run folders) IN ADDITION to the zip, so TC's
+  in-browser MP4 / image preview works without downloading the zip.
+- **`-PtestFilter=<pattern>` in build.gradle.kts**, NOT `--tests` on the CLI. TC's Gradle
+  runner emits `gradleParams` BEFORE task names in the final invocation, which detaches
+  `--tests` from its task. A project-property applied programmatically via `Test#filter`
+  is task-position-independent and survives every runner configuration.
+- **`gradleParams` values are NOT shell-quoted.** TC passes gradleParams tokens directly
+  to gradle (no intermediate shell). Wrapping a value in single quotes (e.g.
+  `"-PtestFilter='*X'"`) makes the project property contain literal quotes, which never
+  match anything. Patterns must be whitespace-free single tokens — no quoting needed.
+
+### Linux bind-mount gotchas (for Docker-based tests)
+
+- **Bind mounts do NOT remap UIDs** on Linux. A host directory owned by the TC-agent user
+  (uid e.g. 999) is still owned by that uid inside the container, so a container user
+  `agent` (uid 1000) cannot write to `/mcp-run-dir`. On macOS/Docker Desktop the virtiofs
+  VM handles UID mapping transparently, hiding the issue locally.
+- **Fix pattern:** call `File.setReadable(true, false)` / `setWritable(true, false)` /
+  `setExecutable(true, false)` on the host dir after `mkdirs()` and before the container
+  starts. Ownership still mismatches; mode bits 777 let any uid write.
+- **git's "dubious ownership" check** fires on the same UID mismatch when a read-only
+  bind mount is a git repo (e.g. `/repo-cache`). Workarounds tried:
+  * `git -c safe.directory=*` — worked locally, rejected by TC agent's git build
+  * `git -c safe.directory=<explicit-path>` — same
+  * `git config --global --add safe.directory <path>` as a SEPARATE exec before the clone — **works**
+  The container's `~/.gitconfig` is ephemeral so this doesn't leak anywhere.
+- **`escapeShellArgs` must quote glob/meta chars.** Args passed through
+  `docker exec … bash -c "<joined args>"` are subject to shell word-splitting; `*`, `?`,
+  `[`, `]`, `$`, `;`, `&`, `|`, `<`, `>`, `(`, `)`, `!` — quote every one of them or
+  tokens get rewritten silently (e.g. `safe.directory=*` → `safe.directory=<cwd-file-1>`).
+- **SSH_AUTH_SOCK is NOT set on CI agents.** Tests that default `mountSshAgent = true`
+  must fall back gracefully (log + skip the mount) when `SSH_AUTH_SOCK` is unset,
+  rather than hard-failing. None of the DPAIA arena / debugger / bright-scenario tests
+  actually need SSH (public HTTPS clones, local Maven/Gradle drivers).
 
 ### DSL generation
 
