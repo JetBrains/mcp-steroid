@@ -593,7 +593,10 @@ This clone has two remotes — they are **not** the same branch and must be sync
 | `origin` | `git@github.com:jonnyzzz/mcp-steroid` | Day-to-day development fork; source of truth for new commits |
 | `jb` | `git@github.com:JetBrains/mcp-steroid.git` | Canonical JetBrains-org mirror; consumed by TeamCity (`mcp_steroid` project on `buildserver.labs.intellij.net`) |
 
-**Never fast-forward-push `main` straight to `jb`.** `jb/main` carries commits that are **not** on `origin/main` (e.g. org-specific tooling / compliance edits). Doing `git push jb main:main` would lose them.
+**Sync direction rules:**
+- **origin → jb**: always via merge (the `jb-merge` procedure below)
+- **jb → origin**: always via cherry-pick (pick individual commits, resolve conflicts manually)
+- **Never fast-forward-push `main` straight to `jb`** — `jb/main` carries org-specific commits that would be lost
 
 The correct sync procedure — always a merge commit, always from a throwaway `jb-merge` branch:
 

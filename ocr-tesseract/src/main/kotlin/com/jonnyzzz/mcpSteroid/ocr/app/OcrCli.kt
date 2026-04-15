@@ -262,6 +262,7 @@ private fun ensureNativeLibraries() {
             try {
                 val kernel32 = com.sun.jna.Native.load("kernel32", Kernel32SetDllDir::class.java)
                 kernel32.SetDllDirectoryW(com.sun.jna.WString(nativePath))
+                System.err.println("[OCR] SetDllDirectoryW set to $nativePath")
             } catch (e: Exception) {
                 System.err.println("[OCR] SetDllDirectoryW failed: ${e.message}")
             }
