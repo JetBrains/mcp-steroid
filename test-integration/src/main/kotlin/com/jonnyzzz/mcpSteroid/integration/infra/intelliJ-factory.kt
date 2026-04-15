@@ -115,11 +115,17 @@ fun IntelliJContainer.Companion.create(
     }
 
     println("[IDE-AGENT] Run directory: $runDir")
-    // Register the run directory for TC artifact upload. Emitting this early means
-    // the artifact spec is queued up regardless of whether the test finishes cleanly
-    // — TC still zips whatever is on disk at build end, which is exactly what we want
-    // for debugging crashed sessions.
-    TeamCityServiceMessages.publishRunDirArtifact(runDir)
+    // Register a cleanup action that emits the TC artifact-publish service
+    // message AT TEARDOWN, once the run directory has been populated with
+    // session-info.txt, IDE logs, agent NDJSON, decoded logs, screenshots
+    // and the video recording. Emitting it at creation-time was a no-op on
+    // TC because `publishArtifacts` is processed immediately and found the
+    // runDir empty ("Artifacts path … not found" warning). Registering
+    // a cleanup action ensures the spec is emitted on every close path:
+    // test pass, test fail, or exception during setup.
+    lifetime.registerCleanupAction {
+        TeamCityServiceMessages.publishRunDirArtifact(runDir)
+    }
     val imageId = sourceImage ?: run {
         val ideArchive = distribution.resolveAndDownload()
         // Unique suffix ensures parallel test runs each build their own image and context dir,
