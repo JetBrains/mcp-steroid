@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
@@ -50,6 +51,11 @@ class NpxToolVisibilityTest {
     }
 
     @Test
+    @Disabled(
+        "NPX proxy layer is being redone — test depends on prepareNpxProxyForUrl() " +
+            "which requires npm credentials in the test container. Re-enable once the " +
+            "replacement publishing mechanism is in place (see TODO*.md)."
+    )
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
     fun `all IDE tools visible through NPX proxy and no proxy_ tools`() = runWithCloseableStack { lifetime ->
         // 1. Start IntelliJ container with MCP Steroid plugin
