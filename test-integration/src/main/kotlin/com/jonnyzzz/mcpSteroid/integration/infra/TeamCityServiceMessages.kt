@@ -39,34 +39,31 @@ object TeamCityServiceMessages {
     /**
      * Publish [runDir] as a set of TC build artifacts.
      *
-     * Emits three independent `publishArtifacts` service messages, following
-     * the "Artifact paths" syntax documented at
-     * <https://www.jetbrains.com/help/teamcity/configuring-general-settings.html#Build+Options>:
+     * Emits three independent `publishArtifacts` service messages, using
+     * the recursive-glob form `<pattern>/<star><star> => <dest>` from the
+     * "Artifact paths" syntax documented at
+     * <https://www.jetbrains.com/help/teamcity/configuring-general-settings.html#Build+Options>
+     * (the literal two-star-slash is avoided in this KDoc because the
+     * Kotlin comment parser treats `<star><star>/` as end-of-comment —
+     * see the source of this method for the actual emitted strings):
      *
-     *  1. `<runDir>/video/** => <runName>/video/` — video recording(s)
-     *     uploaded as plain artifacts so humans can click-preview them in
-     *     the TC build UI without downloading the full zip.
-     *  2. `<runDir>/screenshot/** => <runName>/screenshot/` — per-step
-     *     screenshots uploaded standalone, same rationale as video.
-     *  3. `<runDir>/** => <runName>.zip` — everything (session-info.txt,
-     *     IDE logs, agent NDJSON, decoded logs, video, screenshots)
-     *     archived into a single zip for bulk offline download.
+     *  1. Video recording(s) published standalone under `<runName>/video/`
+     *     so humans can click-preview them directly in the TC build UI
+     *     without downloading the full zip.
+     *  2. Screenshots published standalone under `<runName>/screenshot/`,
+     *     same rationale as video.
+     *  3. Everything (session-info.txt, IDE logs, agent NDJSON, decoded
+     *     logs, video, screenshots) archived into a single `<runName>.zip`
+     *     for bulk offline download.
      *
-     * The `/**` glob is important: a plain `<dir> => <zip>` spec is
-     * interpreted as a literal path, and on an empty-at-message-time
-     * directory TC logs "Artifacts path '…' not found" and moves on.
-     * Using the glob makes TC resolve matching files at publish time.
+     * The recursive-glob form is important: a plain `<dir> => <zip>`
+     * spec is interpreted as a literal path, and on an empty-at-emission
+     * directory TC logs `Artifacts path '…' not found` and moves on.
+     * Using a glob makes TC resolve matching files at publish time.
      *
      * Emission site also matters: this is called from a lifetime cleanup
      * action (see intelliJ-factory.kt), NOT at container creation, so
      * the runDir is fully populated by the time TC processes the messages.
-     *
-     * Artifact layout on TC:
-     *   run-20260415-123456-arena-dpaia-claude-mcp/
-     *     video/recording.mp4
-     *     screenshot/step-1.png
-     *     screenshot/step-2.png
-     *   run-20260415-123456-arena-dpaia-claude-mcp.zip   ← everything
      */
     fun publishRunDirArtifact(runDir: File) {
         val runName = runDir.name
