@@ -387,3 +387,63 @@ ANALYSIS: dpaia__feature__service-125 — fix=yes exec_code=3 efficiency=medium 
 2026-04-15T12:04:26Z SCENARIO[3/17]: dpaia__empty__maven__springboot3-1 start
 2026-04-15T12:04:26Z RUN[1]: dpaia__empty__maven__springboot3-1 claude+mcp
 2026-04-15T12:09:13Z RESULT[1]: dpaia__empty__maven__springboot3-1 fix=True exit=0 duration=185s exec_code=1
+2026-04-15T12:20:14Z RESULT[1]: dpaia__feature__service-25 fix=True exit=0 duration=321s exec_code=2
+ANALYSIS: dpaia__feature__service-25 — fix=yes exec_code=3 efficiency=high gap=JDK selection: agent wasted 2 Bash calls trying JDK 21 before JDK 25; add hint to pick highest JDK when project release target exceeds 21
+2026-04-15T12:23:09Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-141203-dpaia__feature__service-25-mcp
+2026-04-15T12:23:09Z PASS: dpaia__feature__service-25 on run 1
+2026-04-15T12:23:09Z SCENARIO[5/17]: dpaia__spring__petclinic__rest-14 start
+2026-04-15T12:23:09Z RUN[1]: dpaia__spring__petclinic__rest-14 claude+mcp
+2026-04-15T12:27:16Z RESULT[1]: dpaia__spring__petclinic__rest-14 fix=True exit=0 duration=131s exec_code=1
+ANALYSIS: dpaia__spring__petclinic__rest-14 — fix=yes exec_code=2 efficiency=high gap=none — agent tried Edit before Read on 7 files (recovered correctly); no separate buildAllModules but Maven test covers compilation
+2026-04-15T12:29:09Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-142338-dpaia__spring__petclinic__rest-14-mcp
+2026-04-15T12:29:09Z PASS: dpaia__spring__petclinic__rest-14 on run 1
+2026-04-15T12:29:09Z SCENARIO[6/17]: dpaia__spring__petclinic-36 start
+2026-04-15T12:29:09Z RUN[1]: dpaia__spring__petclinic-36 claude+mcp
+2026-04-15T12:38:39Z RESULT[1]: dpaia__spring__petclinic-36 fix=True exit=0 duration=251s exec_code=2
+ANALYSIS: dpaia__spring__petclinic-36 — fix=yes exec_code=2 efficiency=high gap=none — messages.properties double-pass (16 redundant calls) but otherwise clean linear workflow; 251s for 33 edits across 19 files
+2026-04-15T12:40:33Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-142939-dpaia__spring__petclinic-36-mcp
+2026-04-15T12:40:33Z PASS: dpaia__spring__petclinic-36 on run 1
+2026-04-15T12:40:33Z SCENARIO[7/17]: dpaia__jhipster__sample__app-3 start
+2026-04-15T12:40:33Z RUN[1]: dpaia__jhipster__sample__app-3 claude+mcp
+2026-04-15T12:46:47Z RESULT[1]: dpaia__jhipster__sample__app-3 fix=True exit=0 duration=138s exec_code=2
+ANALYSIS: dpaia__jhipster__sample__app-3 — fix=yes exec_code=2 efficiency=high gap=none — clean linear workflow: 9 files renamed in parallel batches, 139s, 47/47 tests pass
+2026-04-15T12:48:21Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-144102-dpaia__jhipster__sample__app-3-mcp
+2026-04-15T12:48:21Z PASS: dpaia__jhipster__sample__app-3 on run 1
+2026-04-15T12:48:21Z SCENARIO[8/17]: dpaia__train__ticket-1 start
+2026-04-15T12:48:21Z RUN[1]: dpaia__train__ticket-1 claude+mcp
+2026-04-15T12:56:44Z RESULT[1]: dpaia__train__ticket-1 fix=True exit=0 duration=380s exec_code=3
+ANALYSIS: dpaia__train__ticket-1 — fix=yes exec_code=3 efficiency=medium gap=add Maven multi-module hint (install -N root POM + ts-common) and -Djacoco.skip=true -DargLine="-Xmx512m" to avoid ~10 wasted Bash calls; exec_code compile script used unavailable WolfTheProblemSolver API
+2026-04-15T12:59:10Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-144849-dpaia__train__ticket-1-mcp
+2026-04-15T12:59:10Z PASS: dpaia__train__ticket-1 on run 1
+2026-04-15T12:59:10Z SCENARIO[9/17]: dpaia__train__ticket-31 start
+2026-04-15T12:59:10Z RUN[1]: dpaia__train__ticket-31 claude+mcp
+ANALYSIS: dpaia__train__ticket-31 — fix=yes exec_code=3 efficiency=medium gap=same as ticket-1: add Maven multi-module hint (install -N root POM + ts-common) and -Djacoco.skip=true to avoid ~8 wasted Bash calls on deps+fork crashes
+2026-04-15T13:04:27Z RESULT[1]: dpaia__train__ticket-31 fix=True exit=0 duration=207s exec_code=2
+2026-04-15T13:07:15Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-145935-dpaia__train__ticket-31-mcp
+2026-04-15T13:07:15Z PASS: dpaia__train__ticket-31 on run 1
+2026-04-15T13:07:15Z SCENARIO[10/17]: dpaia__spring__boot__microshop-18 start
+2026-04-15T13:07:15Z RUN[1]: dpaia__spring__boot__microshop-18 claude+mcp
+2026-04-15T13:24:23Z RESULT[1]: dpaia__spring__boot__microshop-18 fix=False exit=-1 duration=900s exec_code=1
+ANALYSIS: dpaia__spring__boot__microshop-18 — fix=no exec_code=1 efficiency=low gap=HARD STOP read budget violated again (35+ reads before first edit); add "after writes, IMMEDIATELY compile — no more reads" rule
+2026-04-15T13:26:43Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-150741-dpaia__spring__boot__microshop-18-mcp
+2026-04-15T13:26:43Z FAIL: dpaia__spring__boot__microshop-18 failed all 1 runs
+2026-04-15T13:26:43Z SCENARIO[11/17]: dpaia__spring__boot__microshop-2 start
+2026-04-15T13:26:43Z RUN[1]: dpaia__spring__boot__microshop-2 claude+mcp
+2026-04-15T13:31:27Z RESULT[1]: dpaia__spring__boot__microshop-2 fix=True exit=0 duration=175s exec_code=1
+ANALYSIS: dpaia__spring__boot__microshop-2 — fix=yes exec_code=2 efficiency=high gap=none — agent used Bash for builds instead of exec_code buildAllModules; 4 redundant intermediate test runs before final full suite
+2026-04-15T13:33:23Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-152711-dpaia__spring__boot__microshop-2-mcp
+2026-04-15T13:33:23Z PASS: dpaia__spring__boot__microshop-2 on run 1
+2026-04-15T13:33:23Z SCENARIO[12/17]: dpaia__spring__petclinic-27 start
+2026-04-15T13:33:23Z RUN[1]: dpaia__spring__petclinic-27 claude+mcp
+2026-04-15T13:42:35Z RESULT[1]: dpaia__spring__petclinic-27 fix=True exit=0 duration=282s exec_code=2
+ANALYSIS: dpaia__spring__petclinic-27 — fix=yes exec_code=2 efficiency=high gap=none — clean 283s run; read budget slightly exceeded (12 before first write) but justified for 5-file feature; exec_code compile timed out, fell back to Maven correctly
+2026-04-15T13:44:19Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-153348-dpaia__spring__petclinic-27-mcp
+2026-04-15T13:44:19Z PASS: dpaia__spring__petclinic-27 on run 1
+2026-04-15T13:44:19Z SCENARIO[13/17]: dpaia__spring__petclinic__rest-3 start
+2026-04-15T13:44:19Z RUN[1]: dpaia__spring__petclinic__rest-3 claude+mcp
+2026-04-15T13:53:03Z RESULT[1]: dpaia__spring__petclinic__rest-3 fix=True exit=0 duration=419s exec_code=2
+ANALYSIS: dpaia__spring__petclinic__rest-3 — fix=yes exec_code=3 efficiency=high gap=none — exec_code compile timed out, Maven fallback correct; read budget slightly exceeded (23 reads) but justified for complex 3-class feature
+2026-04-15T13:55:51Z ANALYSIS[1]: done run_dir=/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260415-154442-dpaia__spring__petclinic__rest-3-mcp
+2026-04-15T13:55:51Z PASS: dpaia__spring__petclinic__rest-3 on run 1
+2026-04-15T13:55:51Z SCENARIO[14/17]: dpaia__piggymetrics-6 start
+2026-04-15T13:55:51Z RUN[1]: dpaia__piggymetrics-6 claude+mcp
