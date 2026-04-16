@@ -62,6 +62,7 @@
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.VisionInputToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler"/>
+        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.FetchResourceToolHandler"/>
         <!-- Resource and prompt registrar using generated index classes -->
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ResourceRegistrar"/>
 

@@ -51,6 +51,7 @@ class GradleTestExecutionTest {
 
         console.writeStep(1, "Executing Gradle tests via GradleRunConfiguration + SMTRunner")
         val result = session.mcpSteroid.mcpExecuteCode(
+            dialogKiller = true,
             code = """
                 import com.intellij.execution.ProgramRunnerUtil
                 import com.intellij.execution.RunManager
