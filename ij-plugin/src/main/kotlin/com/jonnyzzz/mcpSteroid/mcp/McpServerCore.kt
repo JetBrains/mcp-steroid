@@ -170,6 +170,7 @@ class McpServerCore(
 
     private fun handleResourcesList(id: JsonElement): String {
         val resources = resourceRegistry.listResources()
+        log.info("MCP resources/list: ${resources.size} resources")
         val result = ResourcesListResult(resources = resources)
         return encodeResult(id, McpJson.encodeToJsonElement(result))
     }
@@ -217,6 +218,8 @@ class McpServerCore(
 
         val result = resourceRegistry.readResource(readParams.uri)
             ?: return encodeError(id, JsonRpcErrorCodes.INVALID_PARAMS, "Resource not found: ${readParams.uri}")
+
+        log.info("MCP resource read: ${readParams.uri}")
 
         return encodeResult(id, McpJson.encodeToJsonElement(result))
     }

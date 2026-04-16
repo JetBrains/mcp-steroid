@@ -15,4 +15,10 @@ Use this MCP to access IntelliJ-based IDE and manipulate the code like a profess
 2. Use `steroid_execute_code` for any IDE automation task
 3. Use dedicated tools when they match your need exactly
 
-📖 **COMPLETE GUIDE**: mcp-steroid://skill/coding-with-intellij
+📖 **GUIDES — read these with `ReadMcpResourceTool` before starting work:**
+- `mcp-steroid://skill/coding-with-intellij` — comprehensive guide (patterns, PSI, VFS, threading)
+- `mcp-steroid://prompt/test-skill` — running tests via IDE (not Bash)
+- `mcp-steroid://prompt/skill` — power user patterns
+- `mcp-steroid://prompt/debugger-skill` — debugger workflows
+
+Use `ListMcpResourcesTool` to browse all 84 available resources with copy-paste code examples for: builds, tests, refactoring, inspections, debugging, VCS, and LSP operations.
