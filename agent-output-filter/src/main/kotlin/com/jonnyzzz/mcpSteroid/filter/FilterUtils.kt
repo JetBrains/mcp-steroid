@@ -78,6 +78,11 @@ internal fun toolDetail(toolName: String, input: JsonObject?): String {
             if (uri.isNotEmpty()) " ($uri)" else ""
         }
 
+        toolName == "ListMcpResourcesTool" || simpleName == "list_mcp_resources" -> {
+            val server = input["server"]?.jsonPrimitive?.contentOrNull ?: ""
+            if (server.isNotEmpty()) " (server=$server)" else ""
+        }
+
         simpleName == "steroid_list_projects" || simpleName == "steroid_list_windows"
                 || simpleName == "steroid_take_screenshot" || simpleName == "steroid_action_discovery" -> ""
 

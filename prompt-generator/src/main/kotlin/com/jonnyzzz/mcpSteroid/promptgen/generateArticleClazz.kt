@@ -572,7 +572,7 @@ fun PromptGenerationContext.generateTocArticleClazz(
     val displayName = folderToDisplayName(folder)
     val uri = "mcp-steroid://$uriPrefix"
     val tocName = "$displayName Resources"
-    val tocDescription = "Table of contents for all $displayName resources"
+    val tocDescription = "Table of contents for all $displayName resources. Read any resource below with ReadMcpResourceTool(uri=...)"
 
     val classType = ClassName(packageName, displayName.replace(" ", "") + "TocArticle")
 
