@@ -71,8 +71,19 @@ class ModalityStateMonitor(
     private val listener = object : ModalityStateListener {
         override fun beforeModalityStateChanged(entering: Boolean, modalEntity: Any) {
             if (!isMonitoring || !cancelOnModality) return
+            if (!entering) return
 
-            if (entering) {
+            // Coroutine-based modal progress (runWithModalProgressBlocking) enters modal context
+            // via a JobProvider entity, not a UI dialog. Maven's MavenShCommandLineState.startProcess()
+            // uses this wrapper; Gradle does not. Cancelling execution on these would kill the
+            // run-configuration's own startup coroutine before SMTRunnerEventsListener fires.
+            // DialogWrapper does NOT implement JobProvider, so genuine UI dialogs still cancel.
+            if (modalEntity is com.intellij.openapi.application.impl.JobProvider) {
+                log.info("Skipping JobProvider modal entity (coroutine progress, not UI dialog) during execution $executionId: $modalEntity")
+                return
+            }
+
+            run {
                 log.info("Modal dialog detected during execution $executionId: $modalEntity")
 
                 // Send info immediately without screenshot to ensure fast notification

@@ -918,3 +918,53 @@ Rider uses a fundamentally different test execution model from IntelliJ IDEA:
 
 To run .NET tests programmatically, use `dotnet test` CLI or fire
 `RiderUnitTestRunSolutionAction` / `RiderUnitTestRunContextAction` actions.
+
+## Prompt Optimization (Autoresearch)
+
+MCP Steroid serves prompt resources (`mcp-steroid://` URIs) that guide AI agents. Optimizing
+these prompts is an iterative process documented in `docs/autoresearch-findings.md`.
+
+### Key Findings (from 51 arena runs + 2 autoresearch cycles)
+
+- **MCP server instructions** (`prompts/src/main/prompts/mcp-steroid-info.md`) are metadata context,
+  not behavioral directives — agents don't follow them during planning
+- **Tool descriptions** are schema reference — MANDATORY warnings in them don't change behavior
+- **MCP resources** (84 available via `ReadMcpResourceTool`) are never read (0/69 runs)
+- **Arena prompt recipes** DO work — agents follow first-call exec_code recipes verbatim
+- **exec_code output** drives next-step decisions — agents act on compile results immediately
+
+### Where Agent Information Lives (priority order)
+
+1. **User prompt** (arena task) — agents follow this. Put recipes here.
+2. **exec_code output** — agents act on results. Put suggestions here.
+3. **System prompt** (MCP server instructions) — background context only
+4. **Tool schema description** — reference material, not directives
+5. **MCP resources** — never accessed by agents
+
+### Running Arena Experiments
+
+```bash
+# Single scenario (fast, ~5 min)
+./gradlew :test-experiments:test --tests '*DpaiaPetclinicRest37Test.claude with mcp' --rerun-tasks
+
+# Full 3-pass run
+SKIP_IMPROVE=1 MAX_RUNS=1 bash docs/dpaia-arena-runner.sh 0
+```
+
+See `docs/arena-3pass-results.md` for full comparison table and `docs/autoresearch/` for
+the Karpathy-style optimization loop prompts.
+
+### Prompt Files
+
+| File | What it controls | Impact |
+|------|-----------------|--------|
+| `prompts/src/main/prompts/mcp-steroid-info.md` | MCP server instructions (system prompt) | Low — ignored by agents |
+| `prompts/src/main/prompts/skill/execute-code-tool-description.md` | steroid_execute_code description | Medium — read as reference |
+| `test-experiments/.../arena/ArenaTestRunner.kt` (`buildPrompt()`) | Arena task prompt | High — agents follow recipes |
+| `prompts/src/main/prompts/skill/*.md` | MCP resources | Low — never read by agents |
+
+### Git Remotes Sync
+
+**Sync direction rules:**
+- **origin → jb**: always via merge (the `jb-merge` procedure)
+- **jb → origin**: always via cherry-pick (individual commits, manual conflict resolution)
