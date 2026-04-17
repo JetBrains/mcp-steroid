@@ -104,7 +104,10 @@ class ActionDiscoveryToolHandler : McpRegistrar {
     override fun register(server: McpServerCore) {
         server.toolRegistry.registerTool(
             name = "steroid_action_discovery",
-            description = "Discover available editor actions, quick-fixes, and gutter actions for a file and caret offset.",
+            description = "Discover what IDE actions are available at a file location before invoking them via steroid_execute_code. " +
+                    "Use BEFORE applying quick-fixes, refactorings, or running gutter actions (Run/Debug) when you don't know the exact action ID. " +
+                    "Returns action IDs (pass to ActionManager.getAction(id) in exec_code), intention names, error fixes, and gutter icon actions. " +
+                    "Workflow: (1) call this with file + caret offset, (2) pick action from results, (3) invoke via steroid_execute_code.",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {

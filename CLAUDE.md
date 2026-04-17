@@ -17,6 +17,7 @@ Never include AI as co-author or mention AI in commit messages.
 - **BANNED:** Production code and tests must never reference or depend on `run-agent.sh` or `docs/run-agent.sh`. These scripts are tools for humans and AI agents to use manually during development (peer reviews, research, etc.), not for programmatic execution from project code. Code should implement agent integrations directly using CLI flags and arguments. `run-agent.sh` must **never** be installed inside Docker containers (no `COPY run-agent.sh` or `RUN chmod +x ... run-agent.sh` in Dockerfiles)
 - **BANNED:** Gradle build files must never reach into another subproject's `build/` directory directly. Use Gradle dependency configurations to share artifacts between subprojects. Fail fast with a clear `require()`/`error()` — no silent fallbacks that hide misconfiguration
 - **BANNED:** Do NOT use `append("\n")` or `append("...\n")` tricks to work around the `NoLargeInlineStringsTest` lint rule. When a `buildString { }` block exceeds the consecutive-`appendLine` limit, the correct fix is to move the content to `src/main/prompts/` resource files and reference them via article URIs — not to sprinkle `append("\n")` calls to artificially break the line count.
+- **BANNED:** Do NOT hardcode `mcp-steroid://...` resource URIs as string literals in production Kotlin code. Use the generated prompt article class instead: `XxxPromptArticle().uri` (from `com.jonnyzzz.mcpSteroid.prompts.generated.*`). This ensures URIs stay in sync with prompt files and break at compile time if renamed. Enforced by `NoHardcodedMcpSteroidUriUsageTest`. See `FetchResourceToolHandler.kt` for the correct pattern.
 - Log new ideas/tasks in TODO* files (TODO.md, TODO-*.md)
 - **No infrastructure workarounds**: when tests fail due to infrastructure limitations (missing Docker socket, missing CLI, wrong JDK, missing native libraries), fix the infrastructure — mount Docker socket, install Docker CLI, configure JDK, install the dependency. Do NOT add code that detects the limitation and silently skips tests or changes behavior. A failing test that reveals a real problem is better than a passing test that hides it.
 - **BANNED: detecting failures and skipping tests.** Tests exist to show problems. When a test fails, it stays failing and gets escalated to humans. Never add `try { } catch { skip() }`, `TestAbortedException` on error detection, `Assumptions.assumeTrue(isAvailable)`, or any pattern that turns a real failure into a skip. The only acceptable test skip is at the **Gradle task level** (`enabled = !condition`) when an entire test suite is structurally incompatible with the platform (e.g., native-only tests disabled on an OS that cannot run them). Individual test-level runtime skips that hide failures are forbidden.
@@ -363,6 +364,7 @@ rm -rf ij-plugin/build/idea-sandbox/
 | `KtCompilationTest` fails with `-Werror` | Deprecated API used in `.kt` section | Replace deprecated call (see MEMORY.md) |
 | `KtBlocksCompilationTest` fails | Non-compilable code in ` ```kotlin ``` ` fence | Change fence to ` ```text ``` ` in `.md` |
 | `MarkdownArticleContractTest` fails | Title >80 chars, desc >200 chars, or bare code outside fences | Fix the article header/body |
+| `NoHardcodedMcpSteroidUriUsageTest` fails | Hardcoded `mcp-steroid://...` URI in production Kotlin | Replace with generated article class: `XxxPromptArticle().uri` (see `FetchResourceToolHandler.kt` for examples) |
 
 ## Key Types
 
@@ -452,7 +454,7 @@ copies to a build dir, cleans with `git clean -fdx`, applies version patches via
 
 ### IntelliJ Platform Gradle Plugin — Snapshot Resolution
 
-The plugin (v2.11.0 in project, v2.14.0 latest) resolves IDEs in two modes:
+The plugin (v2.13.1 in project, v2.14.0 latest) resolves IDEs in two modes:
 - **Installer mode** (`useInstaller = true`, default): Downloads `.zip`/`.dmg` from `download.jetbrains.com`. Works for releases only.
 - **Maven mode** (`useInstaller = false`): Resolves from Maven repos (`snapshots()`, `nightly()`). Required for snapshot/nightly versions.
 

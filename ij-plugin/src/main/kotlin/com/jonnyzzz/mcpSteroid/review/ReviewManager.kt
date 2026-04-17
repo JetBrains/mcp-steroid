@@ -4,7 +4,7 @@ package com.jonnyzzz.mcpSteroid.review
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -67,7 +67,7 @@ class ReviewManager(private val project: Project) {
         val codeForReview = execCodeParams.code
         val reviewFile = project.executionStorage.writeCodeReviewFile(executionId, codeForReview)
         val vFile = withContext(Dispatchers.EDT) {
-            writeAction {
+            edtWriteAction {
                 LocalFileSystem.getInstance().refreshAndFindFileByNioFile(reviewFile)
             }
         }
@@ -112,7 +112,7 @@ class ReviewManager(private val project: Project) {
                             resultBuilder.reportFailed("Code was rejected by user during review.")
 
                             withContext(Dispatchers.EDT) {
-                                writeAction {
+                                edtWriteAction {
                                     FileDocumentManager.getInstance().saveAllDocuments()
                                 }
                             }

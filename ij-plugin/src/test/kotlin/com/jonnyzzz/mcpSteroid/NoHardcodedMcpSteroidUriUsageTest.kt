@@ -8,13 +8,56 @@ import java.nio.file.Path
 import java.util.stream.Collectors
 
 /**
- * Enforces that `mcp-steroid://` resource URIs in ij-plugin Kotlin code are constructed
- * from generated prompt article classes (e.g. `TestSkillPromptArticle().uri`) rather than
- * hardcoded as string literals. This ensures URIs stay in sync with the prompt file structure
- * and are caught at compile time if a resource is renamed or removed.
+ * Enforces that `mcp-steroid://` resource URIs in production Kotlin code are constructed
+ * from generated prompt article classes rather than hardcoded as string literals.
  *
- * If a file legitimately needs the URI protocol prefix (e.g. in a comment, KDoc, or protocol
- * handling code that doesn't reference a specific resource), add it to [ALLOWED_FILES] below.
+ * ## Why this exists
+ *
+ * Prompt resource files in `src/main/prompts/` are compiled at build time into typed Kotlin
+ * classes (e.g. `TestSkillPromptArticle`, `DebuggerSkillPromptArticle`) in the package
+ * `com.jonnyzzz.mcpSteroid.prompts.generated.*`. Each class has a `.uri` property that
+ * returns the canonical `mcp-steroid://...` URI for that resource. When code uses these
+ * generated classes, URIs stay in sync with the prompt file structure and any rename or
+ * removal is caught at compile time.
+ *
+ * Hardcoding `"mcp-steroid://prompt/test-skill"` as a raw string bypasses this safety net —
+ * if the prompt file is renamed, the string silently becomes a broken reference.
+ *
+ * ## How to fix a violation
+ *
+ * When this test fails, it prints the file and line number of each offending literal.
+ * Replace the hardcoded URI string with the corresponding generated article class:
+ *
+ * ```kotlin
+ * // BAD — hardcoded URI, breaks silently if prompt file is renamed
+ * val uri = "mcp-steroid://prompt/test-skill"
+ *
+ * // GOOD — compile-time safe, breaks at build time if prompt is renamed/removed
+ * val uri = TestSkillPromptArticle().uri
+ * ```
+ *
+ * Generated article classes live in `com.jonnyzzz.mcpSteroid.prompts.generated.*`.
+ * To find the right class for a URI, search for the prompt file name in
+ * `prompts/build/generated/source/` or look at existing usages in `FetchResourceToolHandler.kt`.
+ *
+ * ## What the regex matches
+ *
+ * The pattern `mcp-steroid://\w` matches URIs that reference a specific resource path
+ * (e.g. `mcp-steroid://prompt/...`, `mcp-steroid://skill/...`). It does NOT match the bare
+ * protocol prefix `mcp-steroid://` followed by non-word characters — mentioning the protocol
+ * scheme in code that does URI matching/registration is fine.
+ *
+ * ## Scope
+ *
+ * Only production Kotlin sources are scanned (`src/main/kotlin` in ij-plugin, prompts,
+ * prompt-generator). Test sources are excluded — tests may legitimately hardcode URIs for
+ * assertions. Prompt `.md` files are excluded — they ARE the resource content.
+ *
+ * ## ALLOWED_FILES
+ *
+ * If a file legitimately needs the URI protocol prefix for protocol-level handling (not
+ * referencing a specific resource), add it to [ALLOWED_FILES] below with a comment explaining
+ * why.
  */
 class NoHardcodedMcpSteroidUriUsageTest : BasePlatformTestCase() {
 
@@ -22,7 +65,10 @@ class NoHardcodedMcpSteroidUriUsageTest : BasePlatformTestCase() {
         /**
          * Files allowed to contain `mcp-steroid://` literals.
          * Each entry is a path relative to the project root.
-         * Add files here ONLY when the URI is protocol-level (not a specific resource reference).
+         *
+         * Add files here ONLY when the URI is protocol-level (e.g. URI scheme matching,
+         * prefix stripping) — NOT when referencing a specific resource. For specific
+         * resources, use the generated article class: `XxxPromptArticle().uri`.
          */
         private val ALLOWED_FILES = setOf(
             // McpResourceRegistry uses the protocol prefix for URI matching/registration

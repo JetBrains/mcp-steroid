@@ -25,7 +25,8 @@ class DockerReaperTest {
         // Give the reaper a chance to kill any containers registered by a previous test run
         try {
             DockerReaper.shutdown()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            System.err.println("DockerReaper.shutdown() failed during setUp: ${e.message}")
         }
     }
 

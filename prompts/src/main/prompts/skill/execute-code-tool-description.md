@@ -5,9 +5,8 @@ MCP tool description for the steroid_execute_code tool.
 ###_NO_AUTO_TOC_###
 Execute Kotlin code directly in IntelliJ's runtime with full API access — builds, tests, refactoring, inspections, debugging, navigation.
 
-**Before your first call, read the guide for your task** with `ReadMcpResourceTool`:
-- Building/compiling → `mcp-steroid://prompt/test-skill`
-- Running tests → `mcp-steroid://prompt/test-skill`
+**Before your first call, read the guide for your task** with `steroid_fetch_resource`:
+- Building/testing → `mcp-steroid://prompt/test-skill`
 - Debugging → `mcp-steroid://prompt/debugger-skill`
 - Any IDE task → `mcp-steroid://prompt/skill`
 

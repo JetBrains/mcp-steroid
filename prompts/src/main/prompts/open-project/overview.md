@@ -16,8 +16,7 @@ Opens a project in the IDE. This tool initiates the project opening process and 
 - `project_path` (required): Absolute path to the project directory
 - `task_id` (required): Task identifier for logging
 - `reason` (required): Why you are opening the project
-- `trust_project` (optional): If true, trust the project before opening (default: false)
-- `force_new_frame` (optional): If true, always open in a new window (default: false)
+- `trust_project` (optional): If true, trust the project before opening (default: true)
 
 ## Important: Project Opening is Asynchronous
 
@@ -164,7 +163,7 @@ return immediately with a message indicating the project is already open.
 - Check `steroid_list_windows()` for `projectInitialized` status
 - Wait for `indexingInProgress` to become false
 - The project may need additional configuration
-- Check if all required plugins are installed via `steroid_capabilities()`
+- Check if all required plugins are installed via `steroid_execute_code`
 - Some projects require specific SDKs to be configured
 
 ### Modal dialog is blocking

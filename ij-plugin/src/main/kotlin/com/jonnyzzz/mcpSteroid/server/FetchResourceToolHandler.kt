@@ -28,12 +28,11 @@ class FetchResourceToolHandler : McpRegistrar {
 
         server.toolRegistry.registerTool(
             name = "steroid_fetch_resource",
-            description = "Fetch an MCP Steroid guide/recipe by URI. Returns markdown with copy-paste code patterns. " +
-                    "Read skill guides before starting work: " +
-                    "$testSkillUri (tests), " +
-                    "$debuggerUri (debug), " +
-                    "$skillUri (power user), " +
-                    "$codingGuideUri (full guide).",
+            description = "Fetch a mcp-steroid:// skill guide by URI. Returns markdown with copy-paste Kotlin code recipes for steroid_execute_code. " +
+                    "Running tests? → $testSkillUri | " +
+                    "Debugging? → $debuggerUri | " +
+                    "Any IDE task? → $skillUri | " +
+                    "Full reference? → $codingGuideUri",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {

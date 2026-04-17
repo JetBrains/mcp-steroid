@@ -11,20 +11,19 @@ Execute Kotlin code directly in IntelliJ IDEA's runtime with full access to the 
 
 **Learning Curve**: Writing working code for IntelliJ APIs may require several attempts. This is normal! The API is vast and powerful. Keep trying - each attempt teaches you more about the available APIs. Use `printException()` to see stack traces when errors occur.
 
-**Comparison to LSP**: This MCP server provides functionality similar to LSP (Language Server Protocol) tools, but uses IntelliJ's native APIs instead. IntelliJ APIs are often more powerful and feature-rich than standard LSP, offering:
-- Deeper code understanding via PSI (Program Structure Interface)
-- Access to IDE-specific features (inspections, refactorings, intentions)
-- Full project model with module dependencies
-- Platform-specific indices for fast code search
+**Drop-in replacement for LSP**: This MCP server replaces LSP (Language Server Protocol) tools with IntelliJ's native APIs — same operations, deeper understanding:
+- PSI (Program Structure Interface) instead of LSP document symbols — full semantic analysis
+- IntelliJ inspections, refactorings, intentions instead of LSP code actions
+- Full project model with module dependencies instead of workspace folders
+- Platform-specific indices for O(1) code search instead of filesystem scans
 
 ## Quickstart Flow
 
 ```
 1. steroid_list_projects → get list of open projects
 2. Pick a project_name from the list
-3. steroid_capabilities → list installed plugins and languages (optional)
-4. steroid_execute_code → run Kotlin code with that project
-5. steroid_execute_feedback → report success/failure for tracking
+3. steroid_execute_code → run Kotlin code with that project
+4. steroid_execute_feedback → report success/failure for tracking
 ```
 
 **Example session:**
@@ -59,12 +58,6 @@ List all open projects. Returns IDE metadata and project names for use with `ste
 ### `steroid_list_windows`
 List open IDE windows and their associated projects. Some windows may not be tied to a project and a project can have multiple windows.
 Use this in multi-window setups to pick the correct `project_name` and `window_id` for screenshot/input tools.
-
-### `steroid_capabilities`
-List IDE capabilities such as installed plugins and registered languages.
-
-**Parameters:**
-- `include_disabled_plugins` (optional): Include disabled plugins in the response (default: false)
 
 ### `steroid_action_discovery`
 Discover available editor actions, quick-fixes, and gutter actions for a file and caret context.
@@ -141,8 +134,7 @@ Open a project in the IDE. This tool initiates the project opening process and r
 - `project_path` (required): Absolute path to the project directory to open
 - `task_id` (required): Task identifier for logging
 - `reason` (required): Why you are opening the project
-- `trust_project` (optional): If true, trust the project path before opening (skips trust dialog). Default: false
-- `force_new_frame` (optional): If true, always open in a new window. Default: false
+- `trust_project` (optional): If true, trust the project path before opening (skips trust dialog). Default: true
 
 **Workflow:**
 1. Call `steroid_open_project` with the project path
@@ -156,8 +148,8 @@ Open a project in the IDE. This tool initiates the project opening process and r
 This server exposes built-in resources through the MCP resource APIs. These are the fastest way to load full examples and guides without guessing or copy/pasting from the web.
 
 **How to access resources:**
-1. Call `list_mcp_resources` to discover available resources.
-2. Call `read_mcp_resource` with the resource URI to load the content.
+1. Call `steroid_fetch_resource` with a `mcp-steroid://` URI to load the content.
+2. Or use `list_mcp_resources` to browse all available resources.
 
 **Key resources provided by this server:**
 - `mcp-steroid://prompt/skill` - This guide as a resource.

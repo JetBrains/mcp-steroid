@@ -22,7 +22,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import javax.swing.SwingUtilities
-import kotlin.math.log
 
 private val log = logger<ListWindowsToolHandler>()
 /**
