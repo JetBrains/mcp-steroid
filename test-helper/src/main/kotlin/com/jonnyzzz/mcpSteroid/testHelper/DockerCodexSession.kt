@@ -101,7 +101,7 @@ class DockerCodexSession(
 
     companion object : AIAgentCompanion<DockerCodexSession>("codex-cli") {
         /** Default Codex model for all test runs. Override via system property `codex.model`. */
-        const val DEFAULT_MODEL = "gpt-5.4-xhigh"
+        const val DEFAULT_MODEL = "gpt-5.4"
 
         override val displayName = "Codex"
         override val outputFilter get() = CodexOutputFilter()
