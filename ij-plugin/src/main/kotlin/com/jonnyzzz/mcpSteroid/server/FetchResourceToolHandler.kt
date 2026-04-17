@@ -5,10 +5,14 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.DebuggerSkillPromptArticle
+import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
+import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.TestSkillPromptArticle
+import com.jonnyzzz.mcpSteroid.prompts.generated.skill.CodingWithIntelliJPromptArticle
 import kotlinx.serialization.json.*
 
 /**
- * Simple tool that fetches any `mcp-steroid://` resource by URI and returns its markdown content.
+ * Simple tool that fetches any MCP Steroid resource by URI and returns its markdown content.
  * Agents can call this instead of ReadMcpResourceTool — it's a purpose-built MCP tool
  * visible in the tool list, making resource discovery more natural.
  */
@@ -17,20 +21,25 @@ class FetchResourceToolHandler : McpRegistrar {
     private val log = thisLogger()
 
     override fun register(server: McpServerCore) {
+        val testSkillUri = TestSkillPromptArticle().uri
+        val debuggerUri = DebuggerSkillPromptArticle().uri
+        val skillUri = SkillPromptArticle().uri
+        val codingGuideUri = CodingWithIntelliJPromptArticle().uri
+
         server.toolRegistry.registerTool(
             name = "steroid_fetch_resource",
             description = "Fetch an MCP Steroid guide/recipe by URI. Returns markdown with copy-paste code patterns. " +
                     "Read skill guides before starting work: " +
-                    "mcp-steroid://prompt/test-skill (tests), " +
-                    "mcp-steroid://prompt/debugger-skill (debug), " +
-                    "mcp-steroid://prompt/skill (power user), " +
-                    "mcp-steroid://skill/coding-with-intellij (full guide).",
+                    "$testSkillUri (tests), " +
+                    "$debuggerUri (debug), " +
+                    "$skillUri (power user), " +
+                    "$codingGuideUri (full guide).",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("uri") {
                         put("type", "string")
-                        put("description", "The mcp-steroid:// URI to fetch")
+                        put("description", "The resource URI to fetch (from ListMcpResourcesTool or MCP server instructions)")
                     }
                 }
                 putJsonArray("required") { add("uri") }

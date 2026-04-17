@@ -39,35 +39,48 @@ object TeamCityServiceMessages {
     /**
      * Publish [runDir] as a set of TC build artifacts.
      *
-     * Emits three independent `publishArtifacts` service messages, using
-     * the recursive-glob form `<pattern>/<star><star> => <dest>` from the
-     * "Artifact paths" syntax documented at
+     * Behaviour depends on whether [TeamCityArtifactPostProcess] ran and
+     * produced the `<runDir>/publish/` tree (only happens on TC, gated by
+     * `TEAMCITY_VERSION`):
+     *
+     *  * **With** `publish/` (TC mode): publish the trimmed tree only —
+     *    the 1080p re-encoded video as a standalone `<runName>/video/`
+     *    and everything else as a single `<runName>.zip` drawn from
+     *    `publish/bundle/` (no video inside the zip, no screenshots at
+     *    all). Slim, TC-friendly, ~95% smaller than the raw runDir.
+     *
+     *  * **Without** `publish/` (local dev, or post-process skipped):
+     *    keep the legacy three-message behaviour — standalone video,
+     *    standalone screenshots, and a full-runDir zip with everything
+     *    duplicated inside.
+     *
+     * Uses the recursive-glob form `<pattern>/<star><star> => <dest>` from
+     * the "Artifact paths" syntax documented at
      * <https://www.jetbrains.com/help/teamcity/configuring-general-settings.html#Build+Options>
-     * (the literal two-star-slash is avoided in this KDoc because the
-     * Kotlin comment parser treats `<star><star>/` as end-of-comment —
-     * see the source of this method for the actual emitted strings):
+     * (the literal two-star-slash is avoided in KDoc because the Kotlin
+     * comment parser treats `<star><star>/` as end-of-comment). A plain
+     * `<dir> => <zip>` is interpreted as a literal path and TC logs
+     * `Artifacts path '…' not found` on an empty dir — the glob makes
+     * TC resolve matching files at publish time.
      *
-     *  1. Video recording(s) published standalone under `<runName>/video/`
-     *     so humans can click-preview them directly in the TC build UI
-     *     without downloading the full zip.
-     *  2. Screenshots published standalone under `<runName>/screenshot/`,
-     *     same rationale as video.
-     *  3. Everything (session-info.txt, IDE logs, agent NDJSON, decoded
-     *     logs, video, screenshots) archived into a single `<runName>.zip`
-     *     for bulk offline download.
-     *
-     * The recursive-glob form is important: a plain `<dir> => <zip>`
-     * spec is interpreted as a literal path, and on an empty-at-emission
-     * directory TC logs `Artifacts path '…' not found` and moves on.
-     * Using a glob makes TC resolve matching files at publish time.
-     *
-     * Emission site also matters: this is called from a lifetime cleanup
-     * action (see intelliJ-factory.kt), NOT at container creation, so
-     * the runDir is fully populated by the time TC processes the messages.
+     * Emission site matters: this is called from a lifetime cleanup action
+     * (see intelliJ-factory.kt), AFTER the post-process has built `publish/`
+     * and the container has stopped — so TC sees the final tree.
      */
     fun publishRunDirArtifact(runDir: File) {
         val runName = runDir.name
         val base = runDir.absolutePath
+        val publishDir = File(runDir, TeamCityArtifactPostProcess.PUBLISH_SUBDIR)
+        if (TeamCityArtifactPostProcess.isTeamCity() && publishDir.isDirectory) {
+            val pBase = publishDir.absolutePath
+            // Compressed video (h264 High, 1080p) standalone for browser preview.
+            println("##teamcity[publishArtifacts '${escape("$pBase/video/** => $runName/video/")}']")
+            // Bundle = everything except video / screenshots. Drives the zip
+            // with no duplicated video bytes.
+            println("##teamcity[publishArtifacts '${escape("$pBase/bundle/** => $runName.zip")}']")
+            return
+        }
+        // Local-dev fallback: publish the full, uncompressed run-dir.
         // Video — standalone, one file per run under <runName>/video/
         println("##teamcity[publishArtifacts '${escape("$base/video/** => $runName/video/")}']")
         // Screenshots — standalone, one folder per run under <runName>/screenshot/

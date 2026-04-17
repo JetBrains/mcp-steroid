@@ -30,7 +30,12 @@ class IntelliJDriver(
     private val configGuestDir = "$guestDir/ide-config"
     private val systemGuestDir = "/home/agent/ide-system"
     private val logsGuestDir = "$guestDir/ide-log"
-    private val pluginsGuestDir = "$guestDir/ide-plugins"
+    // Plugins live OFF the /mcp-run-dir bind mount — same rationale as
+    // systemGuestDir. The unpacked plugin tree (~185 MB, dominated by
+    // kotlin-compiler.jar and the bundled prompts) would otherwise be
+    // dragged into every TC artifact and run-*.zip. Keeping it container-
+    // local costs nothing (fresh unzip per run) and keeps CI artifacts slim.
+    private val pluginsGuestDir = "/home/agent/ide-plugins"
     private val steroidGuestDir = "$guestDir/mcp-steroid"
 
     fun getGuestProjectDir() = projectGuestDir
@@ -447,7 +452,9 @@ $entries  </component>
     }
 
     fun deployPluginToContainer(pluginZipPath: File) {
-        val containerTempDir = "$guestDir/temp"
+        // Staging location is container-local — NOT on the /mcp-run-dir bind
+        // mount. Keeps plugin.zip (~185 MB) out of the TC artifact zip.
+        val containerTempDir = "/home/agent/ide-plugin-staging"
         val containerTempZip = "$containerTempDir/plugin.zip"
         println("[IDE-AGENT] Deploying plugin to container: $pluginZipPath")
 
@@ -455,6 +462,17 @@ $entries  </component>
 
         driver.mkdirs(pluginsGuestDir)
         driver.mkdirs(containerTempDir)
+        // Clear any previous plugin tree before unzipping. When we reuse a
+        // warmed snapshot image, the previous plugin version is baked into
+        // /home/agent/ide-plugins — unzipping over it leaves a mixture of
+        // old + new plugin files which IDEA happily picks up and crashes on.
+        driver.startProcessInContainer {
+            this
+                .args("bash", "-c", "rm -rf '$pluginsGuestDir'/* '$containerTempDir'/*")
+                .timeoutSeconds(30)
+                .quietly()
+                .description("clear $pluginsGuestDir before plugin deploy")
+        }.assertExitCode(0) { "Failed to clear $pluginsGuestDir" }
         driver.copyToContainer(pluginZipPath, containerTempZip)
         driver.startProcessInContainer {
             this
@@ -464,6 +482,14 @@ $entries  </component>
                 .quietly()
                 .description("unzip plugin to $pluginsGuestDir")
         }.assertExitCode(0) { "$containerTempZip failed to unpack: $pluginZipPath" }
+        // Drop the staged zip — the unpacked tree is the only thing IDEA needs.
+        driver.startProcessInContainer {
+            this
+                .args("rm", "-f", containerTempZip)
+                .timeoutSeconds(10)
+                .quietly()
+                .description("remove staged $containerTempZip")
+        }.assertExitCode(0) { "Failed to remove $containerTempZip" }
     }
 
 }

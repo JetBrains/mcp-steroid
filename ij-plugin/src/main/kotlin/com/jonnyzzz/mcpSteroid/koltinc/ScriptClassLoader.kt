@@ -2,8 +2,8 @@
 package com.jonnyzzz.mcpSteroid.koltinc
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginMainDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.contentModules
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.util.text.StringHash
@@ -44,9 +44,7 @@ class ScriptClassLoaderFactory {
                 // Plugins are split into content modules with separate PluginClassLoader instances.
                 // Without including these, kotlinc cannot compile scripts that reference classes
                 // from content modules (e.g. AnnotatedElementsSearch from intellij.java.indexing).
-                if (descriptor is PluginMainDescriptor) {
-                    loaders += descriptor.contentModules.mapNotNull { it.pluginClassLoader }
-                }
+                loaders += descriptor.contentModules.mapNotNull { it.pluginClassLoader }
                 loaders.asSequence()
             }
             .filterIsInstance<UrlClassLoader>()

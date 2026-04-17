@@ -310,6 +310,24 @@ fun IntelliJContainer.Companion.create(
             ),
     )
 
+    // Register the TC artifact post-process AFTER the container has been
+    // started (so its cleanup is also registered — container teardown runs
+    // BEFORE this callback in LIFO) but BEFORE the video driver is started
+    // (so the video-finalize cleanup is registered LATER and therefore
+    // runs AFTER this callback in LIFO). Resulting cleanup order:
+    //
+    //   1. (latest-registered callbacks — screenshot/rsync drivers, …)
+    //   2. video ffmpeg stop + copy-out to /mcp-run-dir/video/recording.mp4
+    //   3. <this post-process>  ← final mp4 is on the mount, container still alive
+    //   4. container stop + remove
+    //   5. publishRunDirArtifact(runDir)  ← sees <runDir>/publish/ tree
+    //
+    // The post-process is a no-op outside TeamCity; it gates on
+    // `TEAMCITY_VERSION` internally so local dev keeps the raw runDir.
+    lifetime.registerCleanupAction {
+        TeamCityArtifactPostProcess.buildPublishTree(container, containerMountedPath)
+    }
+
     if (
         hasPackagesEnvCredentials ||
         hostNetrcFile != null ||

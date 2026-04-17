@@ -2,8 +2,8 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
-import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass
 import com.intellij.ide.DataManager
@@ -14,6 +14,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.ScrollType
+import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.DumbService
@@ -234,10 +235,12 @@ class ActionDiscoveryToolHandler : McpRegistrar {
             fileType = psiFile.fileType.name,
             actionGroups = actionGroupInfo,
             intentions = IntentionsPayload(
-                intentions = intentionsInfo.intentionsToShow.map(::toIntentionActionInfo),
-                errorFixes = intentionsInfo.errorFixesToShow.map(::toIntentionActionInfo),
-                inspectionFixes = intentionsInfo.inspectionFixesToShow.map(::toIntentionActionInfo),
-                notificationActions = intentionsInfo.notificationActionsToShow.map(::toIntentionActionInfo),
+                // Severity is inferred from list membership instead of calling @Internal
+                // IntentionActionDescriptor.isError()/isInformation() methods
+                intentions = intentionsInfo.intentionsToShow.map { toIntentionActionInfo(it, isError = false, isInformation = true) },
+                errorFixes = intentionsInfo.errorFixesToShow.map { toIntentionActionInfo(it, isError = true, isInformation = false) },
+                inspectionFixes = intentionsInfo.inspectionFixesToShow.map { toIntentionActionInfo(it, isError = false, isInformation = false) },
+                notificationActions = intentionsInfo.notificationActionsToShow.map { toIntentionActionInfo(it, isError = false, isInformation = false) },
                 gutterActions = intentionsInfo.guttersToShow.map { toActionInfo(it, null) }
             ),
             gutterIcons = gutterIcons,
@@ -354,7 +357,16 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         dataContext: DataContext,
         maxActions: Int,
     ): List<GutterIconInfo> {
-        val lineMarkers = readAction { DaemonCodeAnalyzerImpl.getLineMarkers(document, project) }
+        // Use public MarkupModel API instead of @Internal DaemonCodeAnalyzerImpl.getLineMarkers()
+        val lineMarkers = readAction {
+            val markupModel = DocumentMarkupModel.forDocument(document, project, true)
+            markupModel.allHighlighters
+                .filter { it.isValid }
+                .mapNotNull { highlighter ->
+                    (highlighter.gutterIconRenderer as? LineMarkerInfo.LineMarkerGutterIconRenderer<*>)
+                        ?.lineMarkerInfo
+                }
+        }
         return lineMarkers.mapNotNull { marker ->
             val renderer = marker.createGutterRenderer() ?: return@mapNotNull null
             val clickAction = renderer.clickAction?.let { toActionInfo(it, null) }
@@ -375,15 +387,19 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         }
     }
 
-    private fun toIntentionActionInfo(descriptor: HighlightInfo.IntentionActionDescriptor): IntentionActionInfo {
+    private fun toIntentionActionInfo(
+        descriptor: HighlightInfo.IntentionActionDescriptor,
+        isError: Boolean,
+        isInformation: Boolean,
+    ): IntentionActionInfo {
         val action = descriptor.action
         return IntentionActionInfo(
             text = action.text,
             familyName = action.familyName,
             displayName = descriptor.displayName,
             className = action.javaClass.name,
-            isError = descriptor.isError,
-            isInformation = descriptor.isInformation
+            isError = isError,
+            isInformation = isInformation,
         )
     }
 

@@ -6,7 +6,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
@@ -32,7 +32,7 @@ import kotlinx.coroutines.sync.withPermit
  * 6. Logs all actions to the IDE log
  */
 
-suspend inline fun dialogKiller() = serviceAsync<DialogKiller>()
+fun dialogKiller(): DialogKiller = service()
 
 @Service(Service.Level.APP)
 class DialogKiller {

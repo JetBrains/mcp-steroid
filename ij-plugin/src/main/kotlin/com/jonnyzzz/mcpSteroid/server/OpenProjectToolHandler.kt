@@ -151,12 +151,12 @@ class OpenProjectToolHandler : McpRegistrar {
             // Using runConfigurators=true ensures modules and project structure are loaded
             withContext(Dispatchers.EDT) {
                 try {
-                    val task = OpenProjectTask {
-                        forceOpenInNewFrame = true
-                        showWelcomeScreen = false
-                        projectToClose = null
-                        runConfigurators = true  // Critical: ensures modules are loaded properly
-                    }
+                    val task = OpenProjectTask.build().copy(
+                        forceOpenInNewFrame = true,
+                        showWelcomeScreen = false,
+                        projectToClose = null,
+                        runConfigurators = true,  // Critical: ensures modules are loaded properly
+                    )
                     val result = ProjectManagerEx.getInstanceExAsync().openProject(projectPath, task)
                     if (result != null) {
                         log.info("Project opened successfully: ${result.name}")

@@ -51,7 +51,8 @@ class FetchResourceToolTest : BasePlatformTestCase() {
         server.startServerIfNeeded()
 
         val sessionId = initializeSession(server)
-        val result = callFetchResource(server, sessionId, "mcp-steroid://prompt/skill")
+        val skillUri = com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle().uri
+        val result = callFetchResource(server, sessionId, skillUri)
 
         assertFalse("steroid_fetch_resource should succeed", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
@@ -87,7 +88,8 @@ class FetchResourceToolTest : BasePlatformTestCase() {
         server.startServerIfNeeded()
 
         val sessionId = initializeSession(server)
-        val result = callFetchResource(server, sessionId, "mcp-steroid://nonexistent/resource")
+        // Use a URI that follows the protocol but doesn't match any registered resource
+        val result = callFetchResource(server, sessionId, "mcp-steroid://nonexistent/resource-that-does-not-exist")
 
         assertTrue("Should return error for non-existent resource", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }

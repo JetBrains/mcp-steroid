@@ -409,7 +409,7 @@ class IntelliJContainer(
         val snapshot = scope.commitContainerToImage(imageTag)
         console.writeSuccess(
             "Docker snapshot created: ${snapshot.imageIdToLog} " +
-                    "(full container filesystem committed; mounted ide-config/ide-plugins remain on host volume)"
+                    "(full container filesystem committed; mounted ide-config/ide-log remain on host volume)"
         )
         return snapshot
     }
