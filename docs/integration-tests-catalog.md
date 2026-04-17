@@ -41,3 +41,25 @@
 
 17 scenarios × 3 agents (claude, codex, gemini) × 2 modes (mcp, none).
 See `docs/arena-3pass-results.md` for full comparison table.
+
+## Update (2026-04-17): ModalityStateMonitor Fix Validated
+
+The `JobProvider` skip in `ModalityStateMonitor` works correctly:
+- Log confirms: "Skipping JobProvider modal entity (coroutine progress, not UI dialog)"
+- Maven execution starts successfully (no longer killed by dialog_killer)
+- New failure: exec_code timeout (5 min) — Maven test execution takes >5 min in Docker
+- The Maven test project needs a simpler test (current Calculator tests may be slow due to Maven cold start + Spring context)
+
+## Update (2026-04-17): Maven Test — Async Fix Applied, Project Import Issue Remains
+
+ModalityStateMonitor fix validated: "Skipping JobProvider modal entity" logged correctly.
+ProgramRunnerUtil async launch applied (no more invokeAndWait blocking).
+
+Remaining issue: SMTRunnerEventsListener.onTestingStarted never fires in 8 min.
+Maven run configuration is created but tests don't execute. Likely cause:
+test-project-maven is not properly imported as a Maven project in IntelliJ
+before the test runs. The MavenRunConfigurationType.createRunnerAndConfigurationSettings
+may need the Maven project to be fully imported (MavenProjectsManager.forceUpdate).
+
+The dialog_killer fix (JobProvider skip) is CORRECT and DONE.
+The GradleTestExecutionTest PASSES — Gradle approach is fully validated.
