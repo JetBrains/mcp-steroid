@@ -40,8 +40,8 @@ disableKinds = ['taxonomy', 'term']
     url = "/docs/strategy/"
     weight = 4
   [[menus.main]]
-    name = "Support"
-    url = "https://jonnyzzz.com/support/"
+    name = "PoC & Support"
+    url = "/#support"
     weight = 5
   [[menus.main]]
     name = "Discord"

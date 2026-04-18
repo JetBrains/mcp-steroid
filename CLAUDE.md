@@ -846,10 +846,18 @@ than GitHub-hosted runners.
 | Workflow | File | What it does |
 |----------|------|-------------|
 | Build Plugin | `build-plugin.yml` | `build-number` job → `build-plugin` job (Docker, `buildPluginOnCI`), uploads `.zip` artifact |
+| Deploy to GitHub Pages | `github-pages.yml` | Builds Hugo website, generates `updatePlugins.xml` from GitHub release, deploys to Pages |
 
-Plugin tests are intentionally NOT mirrored — they take 15+ min on `ubuntu-latest` and
-regularly get cancelled by `cancel-in-progress` before completing. PR commits don't
-auto-trigger; use `workflow_dispatch` on the PR's head branch for explicit builds.
+**Build Plugin** — Plugin tests are intentionally NOT mirrored — they take 15+ min on
+`ubuntu-latest` and regularly get cancelled by `cancel-in-progress` before completing.
+PR commits don't auto-trigger; use `workflow_dispatch` on the PR's head branch.
+
+**Deploy to GitHub Pages** — triggers on: push to `main` touching `website/**` or
+`VERSION`, `release: published` events, and `workflow_dispatch`. The `release: published`
+trigger is the primary path for releases — the website build queries the GitHub release
+for the plugin ZIP download URL, so it must run after the release is created. The
+push-triggered build from the website page commit may fail (release doesn't exist yet);
+the `release: published` trigger handles the retry automatically.
 
 ## Website
 
