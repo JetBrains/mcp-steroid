@@ -46,9 +46,6 @@ Use this in multi-window setups to pick the right `project_name` and `window_id`
 
 Use the modality/indexing fields and `backgroundTasks` to poll for project readiness after `steroid_open_project`.
 
-### `steroid_capabilities`
-List installed plugins and registered languages. Use this to verify language support or required plugins.
-
 ### `steroid_action_discovery`
 Discover available editor actions, quick-fixes, and gutter actions for a file and caret context.
 

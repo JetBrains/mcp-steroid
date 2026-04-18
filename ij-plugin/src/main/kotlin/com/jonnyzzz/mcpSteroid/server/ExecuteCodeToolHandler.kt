@@ -78,7 +78,7 @@ class ExecuteCodeToolHandler : McpRegistrar {
                         put(
                             "description",
                             "Optional list of required plugin IDs (example: com.intellij.database). " +
-                                "Use steroid_capabilities to list installed plugins."
+                                "Check installed plugins via steroid_execute_code with PluginManagerCore.getPluginSet().enabledPlugins."
                         )
                     }
                 }
@@ -116,7 +116,7 @@ class ExecuteCodeToolHandler : McpRegistrar {
         if (missingPlugins.isNotEmpty()) {
             return errorResult(
                 "Missing required plugins: ${missingPlugins.joinToString(", ")}. " +
-                    "Use steroid_capabilities to list installed plugins."
+                    "Check installed plugins via steroid_execute_code with PluginManagerCore.getPluginSet().enabledPlugins."
             )
         }
 
