@@ -12,11 +12,11 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Integration test validating that AI agents read MCP Steroid resources
- * (via ListMcpResourcesTool / ReadMcpResourceTool) during their work.
+ * via either the MCP protocol (ReadMcpResourceTool / resources/read) or
+ * the dedicated steroid_fetch_resource tool.
  *
- * Analysis of 68 arena runs showed 0% of agents ever called these tools.
- * The MCP server instructions (mcp-steroid-info.md) have been updated to
- * explicitly guide agents to read resources. This test verifies that works.
+ * Analysis of 196 arena runs (April 2026) showed 0% of agents ever read
+ * any MCP resource. This test verifies that explicit prompting works.
  */
 class ResourceReadingTest {
 
@@ -73,18 +73,20 @@ class ResourceReadingTest {
                 || combined.contains("list_mcp_resources", ignoreCase = false)
         console.writeInfo("ListMcpResourcesTool used: $usedListResources")
 
-        // Check for ReadMcpResourceTool usage in decoded log
+        // Check for resource reading via any tool (ReadMcpResourceTool, resources/read, or steroid_fetch_resource)
         val usedReadResources = combined.contains("ReadMcpResourceTool", ignoreCase = false)
                 || combined.contains("resources/read", ignoreCase = false)
                 || combined.contains("read_mcp_resource", ignoreCase = false)
-        console.writeInfo("ReadMcpResourceTool used: $usedReadResources")
+                || combined.contains("steroid_fetch_resource", ignoreCase = false)
+        console.writeInfo("Resource read tool used: $usedReadResources")
 
-        // Count ReadMcpResourceTool calls
+        // Count resource read calls (any tool)
         val readResourceCalls = combined.lines().count { line ->
             line.contains("ReadMcpResourceTool", ignoreCase = false)
                     || line.contains("read_mcp_resource", ignoreCase = false)
+                    || line.contains("steroid_fetch_resource", ignoreCase = false)
         }
-        console.writeInfo("ReadMcpResourceTool call count: $readResourceCalls")
+        console.writeInfo("Resource read call count: $readResourceCalls")
 
         // Check for RESOURCES_READ marker in output
         val resourcesReadMarker = findMarkerValue(output, "RESOURCES_READ", "Resources read")
@@ -114,10 +116,10 @@ class ResourceReadingTest {
 
         check(usedReadResources) {
             buildString {
-                appendLine("Agent must call ReadMcpResourceTool (or resources/read) to read at least one resource.")
+                appendLine("Agent must read resources via ReadMcpResourceTool, resources/read, or steroid_fetch_resource.")
                 appendLine()
                 appendLine("The prompt explicitly asked the agent to read resources, but no")
-                appendLine("ReadMcpResourceTool calls were found in the decoded log.")
+                appendLine("resource read calls were found in the decoded log.")
                 appendLine()
                 appendLine("Output:\n${combined.take(3000)}")
             }
@@ -146,7 +148,7 @@ class ResourceReadingTest {
             appendLine("# Task: Run the tests in this project")
             appendLine()
             appendLine("The MCP server has guides at mcp-steroid://prompt/test-skill — read it first")
-            appendLine("to learn the best approach for running tests via the IDE.")
+            appendLine("using steroid_fetch_resource or ReadMcpResourceTool to learn the best approach for running tests via the IDE.")
             appendLine()
             appendLine("After reading the resource, use steroid_execute_code to list the test classes")
             appendLine("in the project. You do not need to actually run the tests.")
@@ -164,11 +166,12 @@ class ResourceReadingTest {
 
         console.writeStep(2, "Validating test-skill resource read")
 
-        // Check the agent read a resource containing "test-skill"
+        // Check the agent read a resource containing "test-skill" (via any resource tool)
         val readTestSkill = combined.contains("test-skill", ignoreCase = false)
                 && (combined.contains("ReadMcpResourceTool", ignoreCase = false)
                 || combined.contains("resources/read", ignoreCase = false)
-                || combined.contains("read_mcp_resource", ignoreCase = false))
+                || combined.contains("read_mcp_resource", ignoreCase = false)
+                || combined.contains("steroid_fetch_resource", ignoreCase = false))
         console.writeInfo("Read test-skill resource: $readTestSkill")
 
         // Check for RESOURCE_READ marker
@@ -186,7 +189,7 @@ class ResourceReadingTest {
 
         check(readTestSkill) {
             buildString {
-                appendLine("Agent must read mcp-steroid://prompt/test-skill via ReadMcpResourceTool.")
+                appendLine("Agent must read mcp-steroid://prompt/test-skill via ReadMcpResourceTool or steroid_fetch_resource.")
                 appendLine()
                 appendLine("The prompt explicitly pointed to this resource URI, but no evidence")
                 appendLine("of reading it was found in the decoded log.")

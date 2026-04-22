@@ -32,50 +32,7 @@ class SteroidsMcpServerStartupActivity : ProjectActivity {
 
         DemoModeService.getInstance(project).startDemoNotifications()
 
-        openInitialFile(project)
-
         analyticsBeacon.runHeartbeat()
         analyticsBeacon.capture("plugin_startup_per_project")
-    }
-
-    /**
-     * Open README.md on project startup so agents and users can orient themselves immediately.
-     * Falls back to the first text file found in the project if README.md is absent.
-     *
-     * Uses [LocalFileSystem.refreshAndFindFileByPath] so the VFS content is loaded from disk —
-     * files created outside IntelliJ's file watcher (e.g. via git clone) may otherwise have
-     * an empty content cache, resulting in a blank editor.
-     */
-    private suspend fun openInitialFile(project: Project) {
-        val basePath = project.basePath ?: return
-
-        val readmeFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("$basePath/README.md")
-        val fileToOpen = if (readmeFile != null && readmeFile.exists()) {
-            readmeFile
-        } else {
-            val firstTextFile = File(basePath).walkTopDown()
-                .filter { it.isFile && isTextFile(it) }
-                .firstOrNull()
-            firstTextFile?.let { LocalFileSystem.getInstance().refreshAndFindFileByPath(it.absolutePath) }
-        }
-
-        if (fileToOpen != null) {
-            withContext(Dispatchers.EDT) {
-                FileEditorManager.getInstance(project).openFile(fileToOpen, false)
-            }
-        }
-    }
-
-    private fun isTextFile(file: File): Boolean {
-        val ext = file.extension.lowercase()
-        return ext in TEXT_EXTENSIONS
-    }
-
-    companion object {
-        private val TEXT_EXTENSIONS = setOf(
-            "md", "txt", "rst", "adoc",
-            "kt", "kts", "java", "py", "js", "ts", "go", "rs", "rb", "cpp", "c", "h",
-            "xml", "json", "yaml", "yml", "toml", "properties", "gradle",
-        )
     }
 }

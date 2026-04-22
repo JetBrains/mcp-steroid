@@ -246,6 +246,110 @@ abstract class CliIntegrationTestBase : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * Runs the Serena project's self-evaluation prompt against the MCP Steroid tools.
+     *
+     * The prompt body is reproduced verbatim from Serena and stored locally at
+     * `ij-plugin/src/integrationTest/resources/serena/self-eval-prompt.md`. It asks the
+     * agent to compare a tool augmentation layer against its built-ins on a real codebase
+     * and produce a structured delta report. Attribution and refresh instructions live in
+     * the resource file's header.
+     *
+     * The prompt targets Serena by name, but the methodology is tool-agnostic. This test
+     * wraps the verbatim prompt in a short preamble that (a) redirects the evaluation
+     * subject to MCP Steroid's `steroid_*` tools and (b) overrides the "write report to
+     * `serena-evaluation.md`" instruction so the agent prints the report to stdout between
+     * recognizable markers. The wrapped execution costs real API tokens and minutes of
+     * wall-clock time, so the test is part of the Docker-only `:ij-plugin:integrationTest`
+     * suite and never runs as part of default `./gradlew test`.
+     */
+    open fun testSerenaSelfEvalPrompt(): Unit = timeoutRunBlocking(1800.seconds) {
+        val session = newAiSession()
+
+        val serenaPromptBody = loadSerenaSelfEvalPromptBody()
+
+        val preamble = """
+            You are running a tool-vs-built-ins evaluation inside MCP Steroid's integration test harness.
+
+            The evaluation prompt below is reproduced VERBATIM from the Serena project
+            (https://github.com/oraios/serena). It targets Serena by name, but the methodology is
+            tool-agnostic. For this run, substitute "Serena" -> "MCP Steroid" and "Serena's tools" ->
+            "MCP Steroid's steroid_* MCP tools" everywhere it appears. Evaluate what MCP Steroid's
+            steroid_* tools add on top of your built-ins.
+
+            Use only the MCP server named "intellij" for MCP tool calls. Do not call list_mcp_resources.
+            When you invoke steroid_execute_code, pass project_name=${project.name}.
+
+            OVERRIDE: do NOT write a file. Instead print the full evaluation report to stdout,
+            framed between these markers:
+
+            EVAL_REPORT_START
+            <report body>
+            EVAL_REPORT_END
+
+            The report body MUST include these literal section headings on their own lines
+            (one per section): "### 1.", "### 2.", "### 3.", "### 4.", "### 5.", "### 6.",
+            "### 7.", "### 8.", "### 9.". Each of those nine sections MUST end with a line
+            starting with "**Verdict:**".
+
+            If the test fixture codebase is too small for some tasks, report "no suitable candidate"
+            for that task as the prompt allows, but still emit every section heading with at least
+            a one-line note and the required Verdict line.
+
+            ----- BEGIN VERBATIM SERENA EVALUATION PROMPT -----
+            $serenaPromptBody
+            ----- END VERBATIM SERENA EVALUATION PROMPT -----
+            """.trimIndent()
+
+        val result = session.runPrompt(preamble, timeoutSeconds = 1500)
+            .assertExitCode(0) { "self-eval prompt run" }
+
+        val combinedOutput = result.stdout + "\n" + result.stderr
+
+        println("=== AGENT OUTPUT (testSerenaSelfEvalPrompt) ===")
+        println(combinedOutput)
+        println("=== END ===")
+
+        assertTrue(
+            "report must be framed by EVAL_REPORT_START / EVAL_REPORT_END markers\n$combinedOutput",
+            combinedOutput.contains("EVAL_REPORT_START") && combinedOutput.contains("EVAL_REPORT_END"),
+        )
+
+        val reportBody = combinedOutput
+            .substringAfter("EVAL_REPORT_START")
+            .substringBefore("EVAL_REPORT_END")
+
+        for (sectionNumber in 1..9) {
+            assertTrue(
+                "report must contain section heading '### $sectionNumber.'\n$reportBody",
+                Regex("""###\s*$sectionNumber\.""").containsMatchIn(reportBody),
+            )
+        }
+
+        // Agents inconsistently format the verdict tag as either `**Verdict:**` (colon
+        // inside bold) or `**Verdict**:` (colon outside). Accept both — the prompt only
+        // cares that each section has a recognizable verdict line.
+        val verdictCount = Regex("""\*\*Verdict\*\*:|\*\*Verdict:\*\*""").findAll(reportBody).count()
+        assertTrue(
+            "report must contain at least 9 verdict lines, found $verdictCount\n$reportBody",
+            verdictCount >= 9,
+        )
+    }
+
+    private fun loadSerenaSelfEvalPromptBody(): String {
+        val resourcePath = "/serena/self-eval-prompt.md"
+        val raw = requireNotNull(javaClass.getResource(resourcePath)) {
+            "Missing test resource $resourcePath"
+        }.readText()
+
+        // The resource file starts with an attribution header followed by a '---' line.
+        // Strip the header so we hand the model the verbatim upstream prompt body only.
+        val separator = "\n---\n"
+        val idx = raw.indexOf(separator)
+        require(idx >= 0) { "Expected attribution header and '---' separator in $resourcePath" }
+        return raw.substring(idx + separator.length).trimEnd()
+    }
+
     open fun testExecSessionReset(): Unit = timeoutRunBlocking(360.seconds) {
         val session = newAiSession()
 

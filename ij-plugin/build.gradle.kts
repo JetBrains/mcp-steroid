@@ -269,7 +269,15 @@ dependencies {
     ocrToolDist(project(":ocr-tesseract"))
 }
 
-listOf(tasks.prepareSandbox, tasks.prepareTestSandbox).forEach { r ->
+// Apply the same plugin-content wiring (ocr-tesseract, kotlinc, EULA) to every sandbox
+// that runs the plugin: production (prepareSandbox), default test (prepareTestSandbox),
+// and the dedicated integrationTest sandbox created by
+// `intellijPlatformTesting.testIde { register("integrationTest") }` above.
+// Without the integrationTest entry, steroid_execute_code fails at runtime with
+// "Kotlinc executable not found: .../plugins_integrationTest/mcp-steroid/kotlinc/bin/kotlinc".
+val prepareSandbox_integrationTest = tasks.named<Sync>("prepareSandbox_integrationTest")
+
+listOf(tasks.prepareSandbox, tasks.prepareTestSandbox, prepareSandbox_integrationTest).forEach { r ->
     r.configure {
         from(ocrToolDist) {
             into(intellijPlatform.projectName.map { "$it/ocr-tesseract" })
