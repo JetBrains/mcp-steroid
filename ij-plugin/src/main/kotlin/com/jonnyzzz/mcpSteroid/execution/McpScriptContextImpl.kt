@@ -417,4 +417,13 @@ class McpScriptContextImpl(
         val basePath = project.basePath ?: return null
         return findPsiFile("$basePath/$relativePath")
     }
+
+    override suspend fun applyPatch(block: ApplyPatchBuilder.() -> Unit): ApplyPatchResult {
+        val builder = ApplyPatchBuilder()
+        builder.block()
+        // Reuse findFile so apply-patch handles every VFS flavour the rest of the
+        // script context handles (LocalFileSystem in production, temp:// in unit
+        // tests, mock VFS in fixtures) — no hard-coded LocalFileSystem.
+        return executeApplyPatch(project, builder.hunks) { path -> findFile(path) }
+    }
 }

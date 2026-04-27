@@ -32,6 +32,11 @@ import kotlin.time.Duration.Companion.seconds
  */
 @Suppress("GrazieInspection", "GrazieInspectionRunner")
 class McpServerIntegrationTest : BasePlatformTestCase() {
+    private companion object {
+        val DebugJson = Json(McpJson) {
+            prettyPrint = true
+        }
+    }
 
     private lateinit var client: HttpClient
 
@@ -1647,7 +1652,7 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         val execRpc = McpJson.decodeFromString<JsonRpcResponse>(execResponse.bodyAsText())
         assertNull("JSON-RPC should not have protocol error", execRpc.error)
 
-        val debug = Json { prettyPrint = true }.encodeToString(execRpc)
+        val debug = DebugJson.encodeToString(execRpc)
         println("The whole output: $debug")
 
         val execResult = McpJson.decodeFromJsonElement<ToolCallResult>(execRpc.result!!)

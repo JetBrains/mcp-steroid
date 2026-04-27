@@ -1,0 +1,2 @@
+run_dir,agent,mcp_share,mcp_steroid_calls,native_calls,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_total,calls_total,exec_code_calls,exec_code_lines_avg,exec_code_lines_max,native_edit_calls,fetch_resource_calls,retries,errors,apply_patch_called,apply_patch_hunks
+/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260423-074538-dpaia__feature__service-125-mcp,codex,0.075,3,37,1744023,16825,1528192,0,3289040,40,3,9.0,17,18,0,1,6,0,0

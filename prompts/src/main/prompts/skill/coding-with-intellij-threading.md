@@ -21,7 +21,8 @@ Any PSI access (`JavaPsiFacade`, `PsiShortNamesCache`, `PsiManager.findFile`, `P
 
 Your code is a **suspend function body** (never use `runBlocking`):
 - Use `readAction { }` for PSI/VFS reads, `writeAction { }` for modifications
-- `waitForSmartMode()` runs automatically before your script
+- Use `smartReadAction { }` for index-dependent PSI reads
+- Use `Observation.awaitConfiguration(project)` after project import/sync/configuration
 - Available: `project`, `println()`, `printJson()`, `printException()`, `progress()`
 
 **⚠️ Helper functions that call `readAction`/`writeAction` MUST be `suspend fun`** — a regular `fun` that calls these gets a compile error: `"suspension functions can only be called within coroutine body"`. This applies to ALL suspend-context APIs: `readAction`, `writeAction`, `smartReadAction`, `waitForSmartMode`, `runInspectionsDirectly`.
@@ -36,7 +37,22 @@ Calling `readAction { }` or ANY suspend function inside `writeAction { }` throws
 
 ### Smart Mode
 
-During indexing, the IDE is in "dumb mode" — many APIs are unavailable. Use `smartReadAction` when you need both smart mode and read access. `waitForSmartMode()` is called automatically before your script starts.
+During indexing, the IDE is in "dumb mode" — many APIs are unavailable. Use `smartReadAction`
+when you need both smart mode and read access. `waitForSmartMode()` is called automatically before
+your script starts, but it is only a point-in-time wait: IntelliJ may enter dumb mode again before
+the next statement. For initial project import/sync/configuration, await `Observation.awaitConfiguration(project)`,
+then keep the indexed query inside `smartReadAction`.
+
+```kotlin[IU]
+import com.intellij.platform.backend.observation.Observation
+import com.intellij.psi.JavaPsiFacade
+
+Observation.awaitConfiguration(project)
+val psiClass = smartReadAction {
+    JavaPsiFacade.getInstance(project).findClass("com.example.MyService", allScope())
+}
+println("Class found: ${psiClass != null}")
+```
 
 ### Modal Dialogs and ModalityState
 
@@ -133,7 +149,7 @@ writeAction {
     ).joinToString("\n"))
 }
 println("File created")
-// After bulk file creation: call waitForSmartMode() before runInspectionsDirectly or ReferencesSearch
+// After bulk file creation: await configuration, then use smartReadAction for ReferencesSearch
 ```
 
 ### ModalityState Usage

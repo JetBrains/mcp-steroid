@@ -76,4 +76,24 @@ class SkillReferenceHintTest : BasePlatformTestCase() {
             hint.contains("Use plain return")
         )
     }
+
+    fun testHintForIndexNotReadyException() {
+        val error = """
+            com.intellij.openapi.project.IndexNotReadyException: Please change caller according to com.intellij.openapi.project.IndexNotReadyException documentation
+        """.trimIndent()
+
+        val hint = project.executionSuggestionService.computeHint(error)
+        assertTrue(
+            "Hint should recommend smartReadAction for indexed PSI work:\n$hint",
+            hint.contains("smartReadAction")
+        )
+        assertTrue(
+            "Hint should recommend Observation.awaitConfiguration after project configuration:\n$hint",
+            hint.contains("Observation.awaitConfiguration")
+        )
+        assertTrue(
+            "Hint should explain that waitForSmartMode is point-in-time only:\n$hint",
+            hint.contains("point-in-time")
+        )
+    }
 }

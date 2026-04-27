@@ -116,6 +116,11 @@ class CliCodexIntegrationTest : CliIntegrationTestBase() {
         super.testSerenaSelfEvalPrompt()
     }
 
+    override fun testApplyPatchRecipeEvaluation() {
+        //needed to make test runner work
+        super.testApplyPatchRecipeEvaluation()
+    }
+
     override fun testExecSessionReset() {
         timeoutRunBlocking(360.seconds) {
             val firstSession = newAiSession()

@@ -379,11 +379,12 @@ class ActionDiscoveryToolHandler : McpRegistrar {
             } else {
                 emptyList()
             }
+            val tooltipText = readAction { renderer.tooltipText }
             GutterIconInfo(
                 line = document.getLineNumber(marker.startOffset) + 1,
                 startOffset = marker.startOffset,
                 endOffset = marker.endOffset,
-                tooltip = renderer.tooltipText,
+                tooltip = tooltipText,
                 clickAction = clickAction,
                 popupActions = popupActions
             )

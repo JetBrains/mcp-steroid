@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.server
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager.getInstance
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
@@ -96,20 +97,15 @@ class ExecuteFeedbackToolHandler : McpRegistrar {
     private suspend fun handle(params: ToolCallParams): ToolCallResult {
         val args = params.arguments ?: return errorResult("Missing arguments")
 
-        val projectName = args["project_name"]?.jsonPrimitive?.contentOrNull
-            ?: return errorResult("Missing required parameter: project_name")
-        val taskId = args["task_id"]?.jsonPrimitive?.contentOrNull
-            ?: return errorResult("Missing required parameter: task_id")
+        val aggregated = validate(args)
+        if (aggregated != null) return errorResult(aggregated)
+        // Past this point, validate() guarantees every required field is non-null.
+        val projectName = args["project_name"]!!.jsonPrimitive.content
+        val taskId = args["task_id"]!!.jsonPrimitive.content
+        val successRating = args["success_rating"]!!.jsonPrimitive.double
+        val explanation = args["explanation"]!!.jsonPrimitive.content
         // execution_id is optional — noted for context but value is not currently used
-        val successRating = args["success_rating"]?.jsonPrimitive?.doubleOrNull
-            ?: return errorResult("Missing required parameter: success_rating")
-        val explanation = args["explanation"]?.jsonPrimitive?.contentOrNull
         val code = args["code"]?.jsonPrimitive?.contentOrNull
-
-        // Validate success_rating
-        if (successRating !in 0.0..1.0) {
-            return errorResult("success_rating must be between 0.00 and 1.00")
-        }
 
         log.info("Feedback is submitted: " + json.encodeToString(params.rawArguments))
 
@@ -117,16 +113,18 @@ class ExecuteFeedbackToolHandler : McpRegistrar {
             getInstance().openProjects.find { it.name == projectName }
         } ?: return errorResult("Project not found: $projectName")
 
-        runCatching {
+        try {
             val executionStorage = project.service<ExecutionStorage>()
             val executionId = executionStorage.writeExecutionFeedback(taskId = taskId, params)
             if (code != null) {
                 executionStorage.writeCodeExecutionData(executionId, "script.kts", code)
             }
 
-            if (explanation != null) {
-                executionStorage.writeCodeExecutionData(executionId, "explanation.txt", explanation)
-            }
+            executionStorage.writeCodeExecutionData(executionId, "explanation.txt", explanation)
+        } catch (e: ProcessCanceledException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("Failed to store execution feedback for task_id=$taskId", e)
         }
 
         // Capture feedback event
@@ -135,7 +133,7 @@ class ExecuteFeedbackToolHandler : McpRegistrar {
             project = project,
             properties = mapOf(
                 "success_rating" to successRating,
-                "has_explanation" to (explanation != null),
+                "has_explanation" to explanation.isNotBlank(),
                 "has_code" to (code != null)
             )
         )
@@ -160,4 +158,47 @@ class ExecuteFeedbackToolHandler : McpRegistrar {
         content = listOf(ContentItem.Text(text = message)),
         isError = true
     )
+
+    internal companion object {
+        /**
+         * Aggregate every validation problem in [args] into one message, or return
+         * null when the input is fully valid. Surfaced as an internal function so
+         * `ExecuteFeedbackToolHandlerTest` can assert the contract without standing
+         * up the whole MCP transport. See the INFRA-REPORT note at the call site
+         * in `handle()` for the rationale (agents were losing 3+ round-trips on
+         * sequential rejections).
+         */
+        internal fun validate(args: JsonObject): String? {
+            val problems = mutableListOf<String>()
+
+            val projectName = args["project_name"]?.jsonPrimitive?.contentOrNull
+            if (projectName.isNullOrBlank()) {
+                problems += "project_name is required (from steroid_list_projects)"
+            }
+
+            val taskId = args["task_id"]?.jsonPrimitive?.contentOrNull
+            if (taskId.isNullOrBlank()) {
+                problems += "task_id is required (same id you passed to steroid_execute_code)"
+            }
+
+            val successRating = args["success_rating"]?.jsonPrimitive?.doubleOrNull
+            if (successRating == null) {
+                problems += "success_rating is required (number in 0.00..1.00 — do NOT send `rating`)"
+            } else if (successRating !in 0.0..1.0) {
+                problems += "success_rating=$successRating is out of range (must be 0.00..1.00)"
+            }
+
+            val explanation = args["explanation"]?.jsonPrimitive?.contentOrNull
+            if (explanation.isNullOrBlank()) {
+                problems += "explanation is required (free-form: what worked, what didn't, what you'll try next)"
+            }
+
+            if (problems.isEmpty()) return null
+            return buildString {
+                appendLine("steroid_execute_feedback: ${problems.size} validation problem${if (problems.size == 1) "" else "s"}:")
+                problems.forEach { appendLine("  - $it") }
+                append("Required: project_name, task_id, success_rating, explanation. Optional: execution_id, code.")
+            }
+        }
+    }
 }

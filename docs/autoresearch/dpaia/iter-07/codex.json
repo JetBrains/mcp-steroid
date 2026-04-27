@@ -1,0 +1,43 @@
+{
+  "run_dir": "/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260423-074538-dpaia__feature__service-125-mcp",
+  "agent": "codex",
+  "tokens": {
+    "input": 1744023,
+    "output": 16825,
+    "cache_read": 1528192,
+    "cache_creation": 0,
+    "total": 3289040
+  },
+  "calls": {
+    "total": 40,
+    "mcp_steroid": 3,
+    "native": 37,
+    "mcp_share": 0.075,
+    "mcp_share_edit_basis": 0.056,
+    "by_name": {
+      "steroid_execute_code": 3,
+      "command_execution": 33,
+      "file_change": 4,
+      "file_change_paths_total": 18
+    },
+    "errors_by_name": {}
+  },
+  "complexity": {
+    "exec_code_calls": 3,
+    "exec_code_lines_total": 27,
+    "exec_code_lines_avg": 9.0,
+    "exec_code_lines_p50": 5,
+    "exec_code_lines_max": 17
+  },
+  "ease_of_use": {
+    "fetch_resource_calls": 0,
+    "native_edit_calls": 18,
+    "exec_code_retries": 1,
+    "native_bash_calls": 33
+  },
+  "errors": 6,
+  "apply_patch": {
+    "called": false,
+    "hunks_estimate": 0
+  }
+}

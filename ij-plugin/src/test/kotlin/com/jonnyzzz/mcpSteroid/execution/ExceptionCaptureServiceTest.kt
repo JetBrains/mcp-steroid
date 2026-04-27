@@ -58,4 +58,30 @@ class ExceptionCaptureServiceTest : BasePlatformTestCase() {
         service.dispose()
         assertEquals(handlersBefore.size, rootLogger.handlers.size)
     }
+
+    fun testJulSevereErrorWithNullParametersIsCaptured(): Unit = timeoutRunBlocking(100.seconds) {
+        val service = ExceptionCaptureService()
+        val failure = IllegalStateException("missing params")
+
+        try {
+            val logger = Logger.getLogger("${ExceptionCaptureServiceTest::class.java.name}.nullParameters")
+            val flow = service.exceptions
+            val capturedException = async(start = CoroutineStart.UNDISPATCHED) {
+                flow.first { it.throwable === failure }
+            }
+
+            val record = LogRecord(Level.SEVERE, "Failure with null parameters").apply {
+                thrown = failure
+                parameters = null
+            }
+            logger.log(record)
+
+            val captured = capturedException.await()
+            assertSame("The original throwable should be preserved", failure, captured.throwable)
+            assertEquals("Failure with null parameters: missing params", captured.message)
+            assertTrue(captured.stacktrace.contains("IllegalStateException: missing params"))
+        } finally {
+            service.dispose()
+        }
+    }
 }

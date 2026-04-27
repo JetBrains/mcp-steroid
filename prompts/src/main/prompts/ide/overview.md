@@ -13,6 +13,7 @@ that go beyond LSP capabilities. Each example is a complete script for `steroid_
 
 | Resource | Operation | Description |
 |----------|-----------|-------------|
+| `mcp-steroid://ide/apply-patch` | Apply Patch (multi-site edit) | Atomic N-site literal-text replacement across one or more files, in one undoable command |
 | `mcp-steroid://ide/extract-method` | Extract Method | Extract selected statements into a new method |
 | `mcp-steroid://ide/introduce-variable` | Introduce Variable | Extract expression into a new local variable |
 | `mcp-steroid://ide/inline-method` | Inline Method | Inline method body at call sites |

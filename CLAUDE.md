@@ -23,6 +23,13 @@ Never include AI as co-author or mention AI in commit messages.
 - **BANNED: detecting failures and skipping tests.** Tests exist to show problems. When a test fails, it stays failing and gets escalated to humans. Never add `try { } catch { skip() }`, `TestAbortedException` on error detection, `Assumptions.assumeTrue(isAvailable)`, or any pattern that turns a real failure into a skip. The only acceptable test skip is at the **Gradle task level** (`enabled = !condition`) when an entire test suite is structurally incompatible with the platform (e.g., native-only tests disabled on an OS that cannot run them). Individual test-level runtime skips that hide failures are forbidden.
 - **Prefer Kotlin Coroutines native APIs over Java threading primitives**: use `CompletableDeferred<T>` + `withTimeout(duration) { deferred.await() }` instead of `CountDownLatch`. Use `Channel<T>` for streaming. Use `suspendCancellableCoroutine` for one-shot callbacks. `CountDownLatch` / `Semaphore` / `Object.wait()` are banned in new coroutine code — they block threads and are not cancellation-aware.
 - **NEVER run `test-integration` or `test-experiments` tests in parallel** — each test starts a full Docker IntelliJ container. Running two or more concurrently exhausts RAM/CPU (IDE windows never appear, containers OOM). Always run one `./gradlew :test-integration:test --tests '...'` (or `:test-experiments:test --tests '...'`) at a time. Wait for it to finish completely before starting the next. This applies to all Docker-based tests: DPAIA arena, debugger demo, playground, CLI agent tests.
+- **BANNED: `./gradlew test` at the root.** It fans out to every module — `:prompts:test` alone runs ~80 `KtBlocksCompilationTest` classes × 8 IDEs (external kotlinc processes) and can take hours after any cache-invalidating change. Always scope to the module(s) you touched: `./gradlew :ij-plugin:test`, `./gradlew :kotlin-cli:test`, `./gradlew :prompts:test --tests '<specific-class>'`. See the per-module guidance under "Test Task Isolation Rules".
+- **Diagnose a stuck/slow test with JDK tooling BEFORE killing it.** `jps -l | grep GradleWorkerMain` → `jcmd <pid> Thread.print > /tmp/dump.txt` while the JVM is alive; then `grep '<YourTest>Test' /tmp/dump.txt -A 5` to find the blocked method. Killing first throws away the evidence and forces a guess-and-retry loop. See "Live JVM Thread/Coroutine Dumps". Once you have the stuck test's name, **iterate on just that test** (`./gradlew :ij-plugin:test --tests 'com.example.StuckTest'` with `--rerun-tasks`) — don't re-run the whole module.
+- **Running an integration test: start a 1-minute timer; past that, investigate, don't just wait.** Any `:test-integration` or `:test-experiments` test case that hasn't printed a PASS / FAIL marker within ~60 s of reaching `> Task :*:test` is suspicious — the IDE inside the container is usually blocked on a dialog, an indexing stall, or a background task that will never finish on its own. Don't keep waiting. **Capture evidence in the container and analyze it before deciding what to do next:**
+  - **Latest screenshot** — every Docker IDE test writes PNGs into `test-integration/build/test-logs/test/run-<timestamp>-<name>/screenshot/screen-*.png`. `ls -t .../screenshot/*.png | head -1` gives the most recent frame; `Read` it for a visual check — modal dialogs, "Invalid Gradle JVM configuration" banners, and onboarding pop-ups are all visible here.
+  - **In-container thread dump** — `docker ps` → find the IDE container → `docker exec <id> jps -l` → `docker exec <id> jcmd <PID> Thread.print > /tmp/<name>-dump.txt`. Grep for `AWT-EventQueue-0`, `Observation.awaitConfiguration`, `SdkLookup`, `UnknownSdk*`, `collectConsent` to identify what's blocking. Full recipe + symptom→cause table in `test-integration/AGENTS.md` under "Debugging a stuck/hung Docker test".
+
+  The cost of one 5-second thread-dump is tiny next to sitting through a 15-minute timeout; the recipes above have already proven this workflow for the Corretto-consent modal and the `CompilerDriverUnknownSdkTracker` `Resolving SDKs…` modal (see commits `46254df5`, `21522330`).
 
 ## Workflow
 
@@ -145,6 +152,16 @@ private fun testExecParams(code: String, timeout: Int = 30) = ExecCodeParams(
 ```
 
 ### Test Task Isolation Rules
+
+**Prefer per-project `:module:test` over root `./gradlew test`.** Running the entire root suite blindly is almost always useless for stabilization work — it churns through ~100+ tests (many unrelated to the change at hand), can take 45+ minutes end-to-end, and buries a single real failure under noise from every other module. Only reach for root `test` when doing a pre-release green-sweep. For every other case:
+
+- After touching `ij-plugin` production code: `./gradlew :ij-plugin:test` (or with `--tests '<pattern>'` for a subset).
+- After touching `prompts/src/main/prompts/**`: `./gradlew :prompts:test --tests '<relevant KtBlocksCompilationTest>'`.
+- After touching `kotlin-cli` (e.g., `CodeWrapperForCompilation`): `./gradlew :kotlin-cli:test`.
+- After touching `buildSrc` codegen: `./gradlew :prompt-generator:test :prompts:generatePrompts` (the regeneration is the real validation).
+- When a test fails under root `test`, re-run just that module first — much faster, same signal.
+
+This repository's per-module split (`:ij-plugin`, `:prompts`, `:kotlin-cli`, `:prompts-api`, `:test-helper`, `:test-integration`, `:test-experiments`) is intentional and each module stands alone.
 
 - **`./gradlew :ij-plugin:test`** — runs only unit/in-process tests. Docker CLI tests are excluded by default.
   - Docker CLI tests (require Docker + API keys): run explicitly with `--tests '*CliClaudeIntegrationTest*'` etc.
@@ -365,6 +382,10 @@ rm -rf ij-plugin/build/idea-sandbox/
 | `KtBlocksCompilationTest` fails | Non-compilable code in ` ```kotlin ``` ` fence | Change fence to ` ```text ``` ` in `.md` |
 | `MarkdownArticleContractTest` fails | Title >80 chars, desc >200 chars, or bare code outside fences | Fix the article header/body |
 | `NoHardcodedMcpSteroidUriUsageTest` fails | Hardcoded `mcp-steroid://...` URI in production Kotlin | Replace with generated article class: `XxxPromptArticle().uri` (see `FetchResourceToolHandler.kt` for examples) |
+| `:test-integration` hangs with `Blocking modal dialog detected` | Stale local `test-project/.idea/` pins `project-jdk-name`/`gradleJvm` to a name not in `ProjectJdkTable` → `SdkLookup` fires download-consent modal | Either sanitize the pins out of your local `.idea/` (it's gitignored, so only you hit this) or add the name to `mcpRegisterJdks` aliases; see "SDK-lookup modal paths" in MEMORY.md |
+| `:test-integration` hangs with `MODAL DIALOG DETECTED — Resolving SDKs…` during `ProjectTaskManager.build()` | Third `unknown.sdk*` registry key missing: `-Dunknown.sdk.modal.jps=false` (gates `CompilerDriverUnknownSdkTracker.fixSdkSettings`) | Add the flag to `intelliJ.kt` `generateVmOptions()` alongside `unknown.sdk` / `unknown.sdk.auto` |
+| `unresolved reference 'JavaSdk'` when running a PyCharm/GoLand/WebStorm/Rider test | Factory's early-JDK hook fires for IDEs without `com.intellij.java` on script classpath | Check `IdeProduct.hasJavaSdk` is true only for `IntelliJIdea`; new IDE products must set it truthfully |
+| `ContentModuleClasspathTest` fails with "JAR(s) on filesystem but not in classpath" after an IDE upgrade | IDE release bundled a new unloaded content module (e.g. `tailwindcss.ruby.jar` in 2026.1.1) | Add the JAR path to `UNLOADED_CONTENT_MODULES_IU_261` with a one-line rationale |
 
 ## Key Types
 
@@ -972,6 +993,127 @@ the Karpathy-style optimization loop prompts.
 | `prompts/src/main/prompts/skill/execute-code-tool-description.md` | steroid_execute_code description | Medium — read as reference |
 | `test-experiments/.../arena/ArenaTestRunner.kt` (`buildPrompt()`) | Arena task prompt | High — agents follow recipes |
 | `prompts/src/main/prompts/skill/*.md` | MCP resources | Low — never read by agents |
+
+### Active DPAIA Working Notes
+
+- Use `TASKS.md` for the active DPAIA/autoresearch task list and `MEMORY.md` for factual handoff notes.
+- New DPAIA ideas must also be logged in a TODO-style file; current pointer is `TODO-DPAIA.md`.
+- Direction changes require 3 `run-agent.sh` reviews and consensus before selecting the next low-hanging fruit.
+- Current consensus (2026-04-26): prune contradictory DPAIA MCP prompt guidance in
+  `ArenaTestRunner.buildPrompt()` first; keep Gradle-specific prompt resources as a larger follow-up.
+- Follow-up 3-agent review (2026-04-27, `/tmp/mcp-steroid-review/runs-next-20260427/`) selected
+  global apply-patch prompt-resource routing before Gradle-resource work. The issue: the arena prompt
+  used dedicated `steroid_apply_patch`, but `execute-code-tool-description.md` still taught the slower
+  `steroid_execute_code` + script-context `applyPatch` DSL as the default.
+- Apply-patch persistence fix (2026-04-27): `steroid_apply_patch` now saves every touched document before
+  returning, and `ApplyPatchToolIntegrationTest` verifies success and failure cases through the actual MCP
+  HTTP tool with direct disk reads. Reference checked in `~/Work/intellij`: IntelliJ's patch path saves the
+  document after changing it.
+- Latest measured Gradle run (2026-04-27 UTC, run dir
+  `run-20260427-115129-dpaia__spring__boot__microshop-2-mcp`): `DpaiaMicroshop2Test.claude with mcp`
+  fixed the task in 136s and the full Gradle suite passed. First MCP call printed
+  `Recommended JAVA_HOME: /usr/lib/jvm/temurin-25-jdk-arm64`; both Bash Gradle calls used that path, with
+  no Java 21 dead-end and no `invalid source release: 24`. Metrics: 15 total tool calls, 3 `steroid_execute_code`,
+  1 `steroid_apply_patch` with 8 hunks, 0 native Edit, 3 Read, 3 Write, 2 Glob, 2 Bash, 0 tool errors, 979,647 tokens.
+  Delta versus the 171s baseline: Bash 4 -> 2 and agent time 171s -> 136s. Copyable Gradle prompt examples now
+  include `JAVA_HOME=<Recommended JAVA_HOME>`, and decoded-log regression coverage flags Gradle Bash calls that drift
+  back to Java 21, omit JAVA_HOME, use wildcard JAVA_HOME assignments, or use unsafe absolute wrapper paths.
+- IntelliJ monorepo lookup note (2026-04-27): for MCP scripts that need indexed reads after initial import,
+  prefer `Observation.awaitConfiguration(project)` followed by one `smartReadAction(project)` around the whole query.
+  `waitForSmartMode()` is not a stable handoff; IntelliJ source explicitly says another dumb mode can begin before
+  the next statement. The green regression test is `IntelliJThisLoggerLookupTest`. MCP server/resource guidance now
+  routes `IndexNotReadyException` and indexed PSI reads to that pattern.
+- Follow-up fixes from that monorepo run (2026-04-27): `ExceptionCaptureService` now handles JUL severe records with
+  null `LogRecord.parameters` without masking the original IDE error, and IntelliJ checkout setup now honors explicit
+  configured ZIPs/checkouts before reusing the cached TeamCity archive, while preserving the checkout's real `origin`
+  remote for in-container fetches.
+- FIR follow-up from that monorepo run (2026-04-27): `IntelliJThisLoggerLookupTest` now fails if lookup-time logs contain
+  the known Kotlin FIR severe signatures. The test avoids triggering `KaFirReferenceResolver` on the whole monorepo by
+  using `CacheManager.getVirtualFilesWithWord(..., UsageSearchContext.IN_CODE, ...)` plus Kotlin PSI `KtCallExpression`
+  filtering for actual `thisLogger()` call sites; the fixed run found 2670 calls across 1522 files with no FIR severe
+  logs after the lookup started.
+- Historical review consensus for the earlier exception-capture/checkout fixes selected Gradle/JDK prompt guidance as
+  the next item; that Gradle/JDK work is now complete. Do not treat that historical note as the current next task.
+- Current review consensus for the FIR follow-up: Claude/Codex/Gemini approved the diff after Codex-requested cleanup.
+  The selected Gradle-focused MCP prompt resource is now implemented as `mcp-steroid://skill/execute-code-gradle`.
+  It routes Gradle sync/test work inside `steroid_execute_code` to IntelliJ ExternalSystem APIs, keeps Bash `./gradlew`
+  outside `steroid_execute_code`, and keeps `ProcessBuilder("./gradlew")` banned inside `steroid_execute_code`.
+- Gradle resource review (2026-04-27, `/tmp/mcp-steroid-review/gradle-prompt-resource-20260427/runs/`):
+  Claude, Codex, and Gemini approved. The next low-hanging item by 2/3 reviewers is to measure
+  `DpaiaMicroshop2Test.claude with mcp` against the 136s JDK-fixed baseline and check whether the new resource reduces
+  Gradle Bash calls or hand-rolled Gradle snippets; Gemini's alternate candidate was a PSI refactoring recipe resource.
+- Gradle resource measurement (2026-04-27, run dir
+  `run-20260427-135940-dpaia__spring__boot__microshop-2-mcp`): the host test passed and the agent emitted
+  `ARENA_FIX_APPLIED: yes`, but it fetched 0 MCP resources and did not use `mcp-steroid://skill/execute-code-gradle`.
+  Metrics regressed versus the 136s JDK-fixed baseline: 170.8s agent time, 28 total calls, 5 Bash calls, 2 tool errors,
+  and 1,458,578 tokens. The agent used `steroid_apply_patch`, then an IDE build returned `Build errors: false, aborted: true`,
+  then it fell back to Bash Gradle with the correct JDK. Treat this as evidence that the resource content is OK but
+  discoverability/routing is the next problem.
+- Gradle resource routing fix (2026-04-27): after review under
+  `/tmp/mcp-steroid-review/gradle-resource-measurement-20260427/runs/`, Gradle arena prompts now explicitly call
+  `steroid_fetch_resource` for `mcp-steroid://skill/execute-code-gradle`, Maven prompts route build-abort sync to
+  `mcp-steroid://skill/execute-code-maven`, and execute-code prompt resources tell agents to sync before Bash fallback
+  on `errors=false, aborted=true`. Validation passed for `ArenaPromptContractTest` plus changed prompt KtBlocks and
+  `MarkdownArticleContractTest`. Next measurement should rerun Microshop-2 and first check `fetch_resource_calls >= 1`;
+  do not over-interpret runtime from a single Microshop-2 run because recent variance is wide.
+- Gradle resource routing measurement (2026-04-27, run dir
+  `run-20260427-142637-dpaia__spring__boot__microshop-2-mcp`): the host test passed and the full Gradle suite passed
+  in 142.0s agent time, with 10 total calls, 4 MCP calls, 2 Bash calls, 0 tool errors, and 764,238 tokens. This improved
+  over the 170.8s post-resource run, but `fetch_resource_calls` was still 0. The decoded log shows the agent saw
+  `Build errors: false, aborted: true`, mentioned Gradle sync, then chose Bash directly. Next low-hanging fix:
+  result-boundary guidance from `steroid_execute_code` for aborted builds, using generated Maven/Gradle prompt article
+  classes rather than hardcoded MCP URI strings.
+- Aborted-build result-boundary guidance (2026-04-27): `ExecuteCodeToolHandler` now appends a `HINT` when tool output
+  contains `Build errors: false, aborted: true` or `Compile errors: false, aborted: true`. The hint points agents to
+  `steroid_fetch_resource` for the detected Gradle/Maven resource before Bash fallback. Production code uses
+  `ExecuteCodeGradlePromptArticle().uri` and `ExecuteCodeMavenPromptArticle().uri`; `ExecuteCodeBuildAbortGuidanceTest`
+  covers Gradle, Maven, mixed/unknown/null roots, successful-build no-op, and result preservation. Review under
+  `/tmp/mcp-steroid-review/build-abort-guidance-20260427/runs/` approved by Claude/Codex/Gemini; scoped `:ij-plugin:test`
+  with that test plus `NoHardcodedMcpSteroidUriUsageTest` passed. Next measurement is Microshop-2 with
+  `fetch_resource_calls >= 1` as the first criterion.
+- Aborted-build boundary measurement (2026-04-27): first run
+  `run-20260427-144355-dpaia__spring__boot__microshop-2-mcp` failed before the agent ran because the Docker IDE
+  container disappeared during repository setup. Valid run `run-20260427-150914-dpaia__spring__boot__microshop-2-mcp`
+  passed the full Gradle suite in 169.6s agent time. The new hint was visible directly after
+  `Build errors: false, aborted: true`, but Claude still made 0 `steroid_fetch_resource` calls and used 3 Bash calls.
+  Metrics: 15 total calls, 4 MCP calls, 0 tool errors, 985,678 tokens. Treat the fetch-only boundary hint as a failed
+  hypothesis; next low-hanging correction needs stronger actionability, such as an exact next tool call name or an
+  inline minimal Gradle sync recipe.
+- Explicit aborted-build boundary hint (2026-04-27): review under
+  `/tmp/mcp-steroid-review/build-abort-boundary-measurement-20260427/runs/` reached 3/3 consensus to try exact
+  Claude tool-name wording first. Commit `c29e13b4` changed the hint to `REQUIRED ACTION` / `NEXT TOOL CALL must be
+  mcp__mcp-steroid__steroid_fetch_resource` and prepended a newline before appended guidance so decoded logs do not
+  show `trueHINT`. Focused `:ij-plugin:test` for `ExecuteCodeBuildAbortGuidanceTest` plus
+  `NoHardcodedMcpSteroidUriUsageTest` passed through the IntelliJ Gradle runner.
+- Explicit hint measurement (2026-04-27): run
+  `run-20260427-151926-dpaia__spring__boot__microshop-2-mcp` passed the full Gradle suite in 174.0s agent time, but
+  still made 0 `steroid_fetch_resource` calls. The decoded log shows the separate-line `REQUIRED ACTION` at line 744,
+  followed by Bash Gradle at line 747. Metrics: 19 total calls, 4 MCP calls, 2 Bash calls, 1 native Read error,
+  1,255,211 tokens. Stop iterating on fetch-only wording for this scenario; next review should choose inline minimal
+  Gradle sync guidance at the boundary versus removing/replacing the failed hint.
+- Gradle abort root-cause fix (2026-04-27): review under
+  `/tmp/mcp-steroid-review/gradle-jdk24-finaltasks-20260427/runs/` approved by Claude/Codex/Gemini. Gradle import
+  setup now sets the linked Gradle JVM from the configured project SDK and waits for
+  `ProjectDataImportListener.onFinalTasksFinished` before smart mode; this follows IntelliJ's own Gradle wait pattern.
+  DPAIA Microshop Gradle cases now use JDK 24 because Gradle 8.14.3 rejects Java 25 as the daemon JVM, and the Docker
+  IDE base installs Temurin 24. Validation: `GradleCompileTest` passed with `GRADLE_JVM=25`, `BUILD_ERRORS=false`,
+  `BUILD_ABORTED=false`; Microshop-2 MCP run `run-20260427-161050-dpaia__spring__boot__microshop-2-mcp` passed with
+  `Recommended JAVA_HOME: /usr/lib/jvm/temurin-24-jdk-arm64` and `Build errors: false, aborted: false`.
+- Gradle IDE guidance update (2026-04-27): review under
+  `/tmp/mcp-steroid-review/gradle-ide-guidance-20260427/runs/` approved by Claude/Codex/Gemini.
+  `execute-code-gradle.md` now uses `ProjectDataImportListener.onFinalTasksFinished` as the Gradle sync boundary,
+  and Gradle arena prompts inline an IDE-native `ProjectTaskManager.build(*modules).await()` check before Bash fallback.
+  Validation passed for the scoped prompt tests and `ArenaPromptContractTest`.
+- Gradle IDE guidance measurement (2026-04-27): Microshop-2 MCP run
+  `run-20260427-185422-dpaia__spring__boot__microshop-2-mcp` passed with `ARENA_FIX_APPLIED: yes`,
+  `Build errors: false, aborted: false`, and full Gradle suite success. Metrics: 1,370,218 tokens, 26 calls,
+  4 MCP calls, 22 native calls, 12 Read, 4 Glob, 3 Write, 2 Bash, 0 errors, 0 resource fetches. Delta versus the
+  post-JDK24/final-tasks baseline: tokens 1,773,570 -> 1,370,218, calls 36 -> 26, Bash 5 -> 2.
+- Current next low-hanging item from the follow-up measurement review
+  (`/tmp/mcp-steroid-review/gradle-ide-guidance-measurement-20260427/runs/`): batch source discovery and related file
+  reads with IDE/VFS APIs in one `steroid_execute_code` call before falling back to native `Glob`/`Read`. All three
+  reviewers approved the current patch and picked this same next target.
+- Constraints for this track: do not add `McpSteroid*` interface methods and do not add MCP tools.
 
 ### Git Remotes Sync
 

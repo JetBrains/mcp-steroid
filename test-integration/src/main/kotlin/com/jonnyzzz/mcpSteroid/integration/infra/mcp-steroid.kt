@@ -30,6 +30,25 @@ data class McpWindowInfo(
     val projectInitialized: Boolean?,
 )
 
+/** One entry in IntelliJ's global [ProjectJdkTable]. `homePath` may be null if the JDK is a stub. */
+data class JdkInfo(
+    val name: String,
+    val homePath: String?,
+    val versionString: String?,
+)
+
+internal fun ProcessResult.resolveJavaHomeLookup(jdkVersion: String): String {
+    val javaHome = stdout.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith("/") }
+    if (javaHome != null) return javaHome
+
+    require(exitCode == 0) {
+        "[COMPILE] JDK $jdkVersion not found under /usr/lib/jvm; stdout=${stdout.take(500)} stderr=${stderr.take(500)}"
+    }
+    error("[COMPILE] JDK $jdkVersion lookup returned no path; stdout=${stdout.take(500)} stderr=${stderr.take(500)}")
+}
+
 class McpSteroidDriver(
     private val driver: ContainerDriver,
     private val ijDriver: IntelliJDriver,
@@ -181,7 +200,7 @@ class McpSteroidDriver(
      * Open a project directory in IntelliJ IDEA via steroid_open_project.
      * Call this during the pre-warm phase (before the measured agent run).
      */
-    fun mcpOpenProject(projectPath: String) {
+    fun mcpOpenProject(projectPath: String, trustProject: Boolean? = true) {
         val sessionId = mcpInitialize()
         val request = buildJsonObject {
             put("jsonrpc", "2.0")
@@ -193,7 +212,9 @@ class McpSteroidDriver(
                     put("task_id", "prewarm-open-project")
                     put("project_path", projectPath)
                     put("reason", "Pre-warm: open arena project before measured agent run")
-                    put("trust_project", true)
+                    if (trustProject != null) {
+                        put("trust_project", trustProject)
+                    }
                 }
             }
         }.toString()
@@ -331,9 +352,10 @@ if (toInstall.isEmpty()) {
     /**
      * Apply the project JDK (if not already set) and wait for Maven/Gradle import to complete.
      *
-     * JDKs are pre-registered in jdk.table.xml before the IDE starts (see [IntelliJDriver.writeJdkTable]).
+     * JDKs are registered via [mcpRegisterJdks] from `IntelliJ_factoryKt.create` right after
+     * `waitForMcpReady`, so by the time this function runs the `ProjectJdkTable` is populated.
      * This function:
-     * 1. Finds the pre-registered SDK matching JAVA_HOME (or any valid one)
+     * 1. Finds the registered SDK matching JAVA_HOME (or any valid one)
      * 2. Sets it as the project SDK if not already configured
      * 3. Triggers Maven re-sync if JDK was just applied (initial import may have failed without JDK)
      * 4. Waits for Maven/Gradle configuration to complete via Observation.awaitConfiguration
@@ -343,101 +365,184 @@ if (toInstall.isEmpty()) {
      * @param projectPath Guest project directory (used to resolve the project name from [mcpListProjects]).
      */
     /**
-     * Register all Temurin JDKs found in `/usr/lib/jvm/` into IntelliJ's [ProjectJdkTable]
-     * using the IntelliJ API (`SdkConfigurationUtil.createAndAddSDK`).
+     * Return every entry currently in IntelliJ's global [ProjectJdkTable] that has
+     * `SdkType == JavaSdk`.
      *
-     * This replaces the pre-written `jdk.table.xml` approach which was fragile:
-     * IntelliJ sometimes ignored the XML entries. Using the API ensures the IDE
-     * properly indexes each JDK's classpath, sources, and annotations.
+     * The server-side script emits one `[JDK-LIST] name=… home=… version=…` line per
+     * entry and a final `[JDK-LIST] count=N`. Parsing is line-anchored (not regex-heavy)
+     * because JDK names never contain spaces in our fixtures.
+     */
+    fun mcpListJdks(projectName: String = resolveProjectName()): List<JdkInfo> {
+        val code = $$"""
+            import com.intellij.openapi.projectRoots.JavaSdk
+            import com.intellij.openapi.projectRoots.ProjectJdkTable
+
+            val sdks = ProjectJdkTable.getInstance().getSdksOfType(JavaSdk.getInstance())
+            for (sdk in sdks.sortedBy { it.name }) {
+                val home = sdk.homePath ?: ""
+                val ver = sdk.versionString ?: ""
+                println("[JDK-LIST]\tname=${sdk.name}\thome=$home\tversion=$ver")
+            }
+            println("[JDK-LIST]\tcount=${sdks.size}")
+        """.trimIndent()
+
+        val result = mcpExecuteCode(
+            code = code,
+            projectName = projectName,
+            reason = "List registered JDKs",
+            timeout = 30,
+        ).assertExitCode(0) { "mcpListJdks failed: $stdout" }
+
+        return result.stdout.lineSequence()
+            .mapNotNull { line ->
+                val fields = line.substringAfter("[JDK-LIST]\t", missingDelimiterValue = "").split("\t")
+                if (fields.isEmpty() || !fields[0].startsWith("name=")) return@mapNotNull null
+                val map = fields.associate { it.substringBefore("=") to it.substringAfter("=", "") }
+                JdkInfo(
+                    name = map["name"].orEmpty(),
+                    homePath = map["home"]?.takeIf { it.isNotEmpty() },
+                    versionString = map["version"]?.takeIf { it.isNotEmpty() },
+                )
+            }
+            .toList()
+    }
+
+    /**
+     * Register one JDK under the requested [name] pointing at [homePath].
      *
-     * SDK names use the major version number ("8", "11", "17", "21", "25").
+     * Uses the shortest IntelliJ-native registration path that still lets us pick the
+     * exact `ProjectJdkTable` entry name:
+     *   1. `JavaSdk.createJdk(name, homePath, isJre=false)` — builds the [Sdk] and runs
+     *      `JavaSdkImpl.setupSdkPaths` for classpath/jrt wiring. No UI involvement.
+     *   2. `ProjectJdkTable.addJdk(sdk)` inside [writeAction] — the one write IntelliJ
+     *      requires for a global SDK-table mutation.
      *
-     * @param projectPath Guest project directory (for project name resolution).
+     * `SdkConfigurationUtil.createAndAddSDK(path, sdkType)` is a one-liner alternative
+     * but auto-generates a unique name (e.g. `21-ea-1758`). We need exact names like
+     * `corretto-21` so `.idea/misc.xml` with `project-jdk-name="corretto-21"` resolves
+     * without firing `SdkLookup`'s downloader modal.
+     *
+     * Idempotent — if [name] already exists in the table, this is a no-op.
+     */
+    fun mcpAddJdk(projectName: String = resolveProjectName(), name: String, homePath: String) {
+        val code = $$"""
+            import com.intellij.openapi.application.writeAction
+            import com.intellij.openapi.projectRoots.JavaSdk
+            import com.intellij.openapi.projectRoots.ProjectJdkTable
+
+            val javaSdkType = JavaSdk.getInstance()
+            val table = ProjectJdkTable.getInstance()
+            if (table.findJdk("$$name") != null) {
+                println("[JDK-ADD]\talready-registered\tname=$$name")
+            } else {
+                val homeFile = java.io.File("$$homePath")
+                require(java.io.File(homeFile, "bin/java").isFile) { "Not a JDK home: $$homePath" }
+                val sdk = javaSdkType.createJdk("$$name", "$$homePath", false)
+                writeAction { table.addJdk(sdk) }
+                println("[JDK-ADD]\tregistered\tname=${sdk.name}\thome=${sdk.homePath}\tversion=${sdk.versionString}")
+            }
+        """.trimIndent()
+
+        mcpExecuteCode(
+            code = code,
+            projectName = projectName,
+            reason = "Register JDK name=$name home=$homePath",
+            timeout = 60,
+        ).assertExitCode(0) { "mcpAddJdk(name=$name, home=$homePath) failed: $stdout" }
+    }
+
+    /**
+     * Discover every Temurin JDK under `/usr/lib/jvm/` in the container and register it
+     * under three aliases each: bare version (`"21"`), `"corretto-21"`, `"temurin-21"`.
+     *
+     * Why three aliases: projects checked into VCS often pin `project-jdk-name="corretto-21"`
+     * or `gradleJvm="corretto-25"` in their `.idea` XML files. If no `ProjectJdkTable`
+     * entry with that exact name exists when the project opens, IntelliJ's `SdkLookup`
+     * proposes a download and blocks the EDT on a YesNo consent modal. Pre-registering
+     * the vendor aliases (all pointing at the same Temurin install) short-circuits it.
+     *
+     * Discovery lives here (Gradle-side shell) rather than inside the script so that the
+     * script has nothing to scan — each `mcpAddJdk` call targets a known path.
      */
     fun mcpRegisterJdks(projectPath: String) {
         val projectName = resolveProjectName(projectPath) ?: return
+        val existingNames = mcpListJdks(projectName).map { it.name }.toSet()
+        println("[JDK-REGISTER] Existing JDKs in ProjectJdkTable: $existingNames")
 
-        val code = """
-import com.intellij.openapi.projectRoots.JavaSdk
-import com.intellij.openapi.projectRoots.ProjectJdkTable
-// JavaSdk.createJdk() + ProjectJdkTable.addJdk() — no modal dialogs
+        val discovered = driver.startProcessInContainer {
+            this
+                .args("bash", "-c", "ls -1d /usr/lib/jvm/temurin-*-jdk-* 2>/dev/null || true")
+                .timeoutSeconds(10)
+                .quietly()
+                .description("list Temurin JDKs in /usr/lib/jvm")
+        }.awaitForProcessFinish()
 
-// Discover Temurin JDK dirs in /usr/lib/jvm/
-val jvmDir = java.io.File("/usr/lib/jvm")
-val temurinDirs = jvmDir.listFiles { f -> f.isDirectory && f.name.startsWith("temurin-") && f.name.contains("-jdk-") }
-    ?.sortedBy { it.name }
-    ?: emptyList()
+        val temurinDirs = discovered.stdout.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .sorted()
+        println("[JDK-REGISTER] Discovered Temurin dirs: $temurinDirs")
 
-println("[JDK-REGISTER] Found ${"\$"}{temurinDirs.size} Temurin JDK dirs: ${"\$"}{temurinDirs.map { it.name }}")
-
-val javaSdkType = JavaSdk.getInstance()
-val existingSdks = ProjectJdkTable.getInstance().getSdksOfType(javaSdkType)
-val existingNames = existingSdks.map { it.name }.toSet()
-println("[JDK-REGISTER] Already registered: ${"\$"}existingNames")
-
-var registered = 0
-for (dir in temurinDirs) {
-    val javaFile = java.io.File(dir, "bin/java")
-    if (!javaFile.exists()) {
-        println("[JDK-REGISTER] Skipping ${"\$"}{dir.name} — no bin/java")
-        continue
-    }
-    // Extract version number: "temurin-21-jdk-arm64" -> "21"
-    val version = dir.name.removePrefix("temurin-").substringBefore("-jdk")
-    if (version in existingNames) {
-        println("[JDK-REGISTER] Already registered: ${"\$"}version")
-        continue
-    }
-
-    // Use JavaSdk.createJdk() which sets up classpath without modal dialogs,
-    // then add to ProjectJdkTable in a write action.
-    try {
-        val sdk = javaSdkType.createJdk(version, dir.absolutePath, false)
-        com.intellij.openapi.application.writeAction {
-            ProjectJdkTable.getInstance().addJdk(sdk)
-        }
-        println("[JDK-REGISTER] Registered: ${"\$"}version at ${"\$"}{dir.absolutePath}")
-        registered++
-    } catch (e: Exception) {
-        println("[JDK-REGISTER] FAILED to register ${"\$"}version at ${"\$"}{dir.absolutePath}: ${"\$"}{e.message}")
-    }
-}
-
-val finalSdks = ProjectJdkTable.getInstance().getSdksOfType(javaSdkType)
-println("[JDK-REGISTER] Final SDK count: ${"\$"}{finalSdks.size} — ${"\$"}{finalSdks.map { "${"\$"}{it.name}@${"\$"}{it.homePath}" }}")
-println("[JDK-REGISTER] Newly registered: ${"\$"}registered")
-"done"
-""".trimIndent()
-
-        try {
-            mcpExecuteCode(
-                code = code,
-                projectName = projectName,
-                reason = "Register Temurin JDKs into ProjectJdkTable via IntelliJ API",
-                timeout = 120,
-            )
-        } catch (e: Exception) {
-            println("[JDK-REGISTER] Warning: JDK registration failed: ${e.message}")
+        for (dir in temurinDirs) {
+            // "/usr/lib/jvm/temurin-21-jdk-arm64" -> "21"
+            val version = dir.substringAfter("temurin-").substringBefore("-jdk")
+            for (alias in listOf(version, "corretto-$version", "temurin-$version")) {
+                if (alias in existingNames) {
+                    println("[JDK-REGISTER] Skip $alias — already in table")
+                    continue
+                }
+                try {
+                    mcpAddJdk(projectName, alias, dir)
+                } catch (e: Exception) {
+                    println("[JDK-REGISTER] Failed to add $alias at $dir: ${e.message}")
+                }
+            }
         }
     }
 
     /**
-     * Trigger [UnknownSdkTracker.updateUnknownSdks] and wait for SDK resolution to complete.
-     * This prevents the "Resolving SDKs..." modal from firing during ProjectTaskManager.build(),
-     * which causes false-positive "Build errors: true" in 10/17 arena scenarios.
+     * Resolve unknown module SDK references to already-registered `ProjectJdkTable`
+     * entries WITHOUT ever offering to download a new JDK.
+     *
+     * Why not `UnknownSdkTracker.updateUnknownSdks()`: that API runs every fixer
+     * extension point, including ones whose `UnknownSdkFixActionDownloadBase.
+     * collectConsent` shows a modal "Download Amazon Corretto?" dialog via
+     * `MessageDialogBuilder.YesNo.ask`. In headless Docker tests there is no user
+     * to click "Yes" and the EDT deadlocks indefinitely (observed in
+     * DialogKillerIntegrationTest at >10 min hang, April 2026).
+     *
+     * Instead: collect unknown SDK names via `UnknownSdkCollector`, then run
+     * `SdkLookup.newLookupBuilder()` per SDK with `onDownloadableSdkSuggested {
+     * SdkLookupDecision.STOP }` so the download path is never taken. If no local
+     * `ProjectJdkTable` entry matches, the SDK stays unresolved — preferred over
+     * a UI deadlock.
      */
     fun mcpResolveUnknownSdks(projectPath: String) {
         val projectName = resolveProjectName(projectPath) ?: return
 
-        val code = """
-import com.intellij.openapi.projectRoots.impl.UnknownSdkTracker
+        val code = $$"""
+import com.intellij.openapi.projectRoots.impl.UnknownSdkCollector
+import com.intellij.openapi.roots.ui.configuration.SdkLookup
+import com.intellij.openapi.roots.ui.configuration.SdkLookupDecision
 import kotlinx.coroutines.delay
 
-println("[SDK-RESOLVE] Triggering UnknownSdkTracker.updateUnknownSdks()...")
-UnknownSdkTracker.getInstance(project).updateUnknownSdks()
-// Allow time for the background task to fire and complete
-delay(5_000L)
-println("[SDK-RESOLVE] Wait complete — SDKs should now be resolved")
+println("[SDK-RESOLVE] Collecting unknown SDKs (download fixes REJECTED)...")
+val snapshot = readAction { UnknownSdkCollector(project).collectSdksBlocking() }
+val unknowns = snapshot.resolvableSdks
+println("[SDK-RESOLVE] Unknown SDKs: ${unknowns.joinToString { it.sdkName ?: "<null>" }}")
+
+for (unknown in unknowns) {
+    val sdkName = unknown.sdkName ?: continue
+    println("[SDK-RESOLVE] Looking up '$sdkName' (local only)...")
+    SdkLookup.newLookupBuilder()
+        .withProject(project)
+        .withSdkName(sdkName)
+        .onDownloadableSdkSuggested { SdkLookupDecision.STOP }
+        .onLocalSdkSuggested { SdkLookupDecision.CONTINUE }
+        .executeLookup()
+}
+delay(500L)
+println("[SDK-RESOLVE] Wait complete — resolved via local ProjectJdkTable only")
 "done"
 """.trimIndent()
 
@@ -455,6 +560,7 @@ println("[SDK-RESOLVE] Wait complete — SDKs should now be resolved")
 
     /**
      * Set the project SDK to a registered JDK by version name (e.g. "21", "17").
+     * If the project already has a different SDK, replace it with the requested version.
      * JDKs must have been registered first via [mcpRegisterJdks].
      */
     fun mcpSetProjectSdk(projectPath: String, jdkVersion: String) {
@@ -468,18 +574,27 @@ import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.application.edtWriteAction
 
 val currentSdk = ProjectRootManager.getInstance(project).projectSdk
-if (currentSdk != null) {
+val requestedVersion = "$jdkVersion"
+fun matchesRequestedVersion(sdkName: String): Boolean =
+    sdkName == requestedVersion ||
+            sdkName == "temurin-${'$'}requestedVersion" ||
+            sdkName == "corretto-${'$'}requestedVersion"
+
+if (currentSdk != null && matchesRequestedVersion(currentSdk.name)) {
     println("[SDK] Project SDK already set: ${'$'}{currentSdk.name}")
 } else {
     val javaSdks = ProjectJdkTable.getInstance().getSdksOfType(JavaSdk.getInstance())
     println("[SDK] Available SDKs: ${'$'}{javaSdks.map { it.name }}")
-    val sdk = javaSdks.firstOrNull { it.name == "$jdkVersion" }
-        ?: javaSdks.firstOrNull { it.name.contains("$jdkVersion") }
+    val sdk = javaSdks.firstOrNull { matchesRequestedVersion(it.name) }
     if (sdk != null) {
-        println("[SDK] Applying SDK: ${'$'}{sdk.name} at ${'$'}{sdk.homePath}")
+        if (currentSdk == null) {
+            println("[SDK] Applying SDK: ${'$'}{sdk.name} at ${'$'}{sdk.homePath}")
+        } else {
+            println("[SDK] Replacing project SDK ${'$'}{currentSdk.name} with ${'$'}{sdk.name} at ${'$'}{sdk.homePath}")
+        }
         edtWriteAction { JavaSdkUtil.applyJdkToProject(project, sdk) }
     } else {
-        println("[SDK] WARNING: No SDK matching version $jdkVersion found")
+        error("[SDK] No SDK matching version $jdkVersion found")
     }
 }
 "done"
@@ -493,7 +608,8 @@ if (currentSdk != null) {
                 timeout = 30,
             )
         } catch (e: Exception) {
-            println("[SDK] Warning: Project SDK setup failed: ${e.message}")
+            println("[SDK] Project SDK setup failed: ${e.message}")
+            throw e
         }
     }
 
@@ -590,14 +706,17 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
      * Trigger Maven or Gradle import and wait for it to complete.
      *
      * For Maven: calls `forceUpdateAllProjectsOrFindAllAvailablePomFiles()`
-     * For Gradle: relies on IntelliJ auto-import (triggered by project open)
+     * For Gradle: configures the linked Gradle JVM, triggers refresh, and waits for import events
      * For NONE: only waits for `Observation.awaitConfiguration`
      *
-     * Waits via `Observation.awaitConfiguration(project)` + `waitForSmartMode()`.
+     * Maven/NONE wait via `Observation.awaitConfiguration(project)` + `waitForSmartMode()`.
+     * Gradle waits via `ProjectDataImportListener` + `waitForSmartMode()` because
+     * `Observation.awaitConfiguration(project)` can stay suspended after Gradle sync finishes.
      */
     fun mcpTriggerImportAndWait(projectPath: String, buildSystem: BuildSystem) {
         val projectName = resolveProjectName(projectPath) ?: return
 
+        val waitForConfigurationWithObservation = buildSystem != BuildSystem.GRADLE
         val triggerCode = when (buildSystem) {
             BuildSystem.MAVEN -> """
                 try {
@@ -612,6 +731,7 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
                     kotlinx.coroutines.delay(2_000L)
                 } catch (e: Exception) {
                     println("[IMPORT] Maven trigger failed: ${'$'}{e.message}")
+                    throw e
                 }
             """.trimIndent()
             BuildSystem.GRADLE -> """
@@ -624,10 +744,52 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
                 } catch (e: Exception) {
                     println("[IMPORT] Gradle source download setting failed: ${'$'}{e.message}")
                 }
-                // Trigger Gradle refresh so source download setting takes effect
+
+                val gradleProjectPath = project.basePath!!
+                val projectSdk = com.intellij.openapi.roots.ProjectRootManager.getInstance(project).projectSdk
+                    ?: error("Project SDK is not configured; cannot configure Gradle JVM")
+                val gradleSettings = org.jetbrains.plugins.gradle.settings.GradleSettings.getInstance(project)
+                val linkedGradleSettings = gradleSettings.getLinkedProjectSettings(gradleProjectPath)
+                    ?: org.jetbrains.plugins.gradle.settings.GradleProjectSettings(gradleProjectPath).also { gradleSettings.linkProject(it) }
+                val previousGradleJvm = linkedGradleSettings.gradleJvm
+                if (previousGradleJvm != projectSdk.name) {
+                    linkedGradleSettings.gradleJvm = projectSdk.name
+                }
+                println("[IMPORT] Gradle JVM: ${'$'}previousGradleJvm -> ${'$'}{linkedGradleSettings.gradleJvm} (${'$'}{projectSdk.homePath})")
+
+                val importDone = kotlinx.coroutines.CompletableDeferred<Unit>()
+                val importConnection = project.messageBus.connect(disposable)
+                fun isCurrentGradleProject(path: String?): Boolean =
+                    path == null || path == gradleProjectPath
+                fun completeGradleImport(path: String?, event: String) {
+                    if (isCurrentGradleProject(path) && importDone.complete(Unit)) {
+                        println("[IMPORT] Gradle ${'$'}event: ${'$'}path")
+                    }
+                }
+                importConnection.subscribe(
+                    com.intellij.openapi.externalSystem.service.project.manage.ProjectDataImportListener.TOPIC,
+                    object : com.intellij.openapi.externalSystem.service.project.manage.ProjectDataImportListener {
+                        override fun onImportFinished(projectPath: String?) {
+                            if (isCurrentGradleProject(projectPath)) {
+                                println("[IMPORT] Gradle import finished: ${'$'}projectPath")
+                            }
+                        }
+
+                        override fun onFinalTasksFinished(projectPath: String?) =
+                            completeGradleImport(projectPath, "final tasks finished")
+
+                        override fun onImportFailed(projectPath: String?, t: Throwable) {
+                            if (isCurrentGradleProject(projectPath) && importDone.completeExceptionally(t)) {
+                                println("[IMPORT] Gradle import failed for ${'$'}projectPath: ${'$'}{t.message}")
+                            }
+                        }
+                    }
+                )
+                importDone.invokeOnCompletion { importConnection.disconnect() }
+
+                // Trigger Gradle refresh so source download and JVM settings take effect.
                 try {
                     println("[IMPORT] Triggering Gradle refresh...")
-                    val gradleProjectPath = project.basePath!!
                     com.intellij.openapi.externalSystem.util.ExternalSystemUtil.refreshProject(
                         gradleProjectPath,
                         com.intellij.openapi.externalSystem.importing.ImportSpecBuilder(
@@ -638,6 +800,10 @@ println(if (configured == null) "[JDK-SETUP] WARNING: Configuration timed out af
                     kotlinx.coroutines.delay(2_000L)
                 } catch (e: Exception) {
                     println("[IMPORT] Gradle refresh failed: ${'$'}{e.message}")
+                    throw e
+                }
+                kotlinx.coroutines.withTimeout(8 * 60 * 1000L) {
+                    importDone.await()
                 }
             """.trimIndent()
             BuildSystem.NONE -> """
@@ -653,12 +819,16 @@ import kotlinx.coroutines.delay
 println("[IMPORT] Build system: $buildSystem")
 $triggerCode
 
-println("[IMPORT] Waiting for project configuration...")
-val configured = withTimeoutOrNull(8 * 60 * 1000L) {
-    Observation.awaitConfiguration(project)
+if ($waitForConfigurationWithObservation) {
+    println("[IMPORT] Waiting for project configuration...")
+    val configured = withTimeoutOrNull(8 * 60 * 1000L) {
+        Observation.awaitConfiguration(project)
+    }
+    println(if (configured == null) "[IMPORT] WARNING: Configuration timed out after 8 minutes"
+            else "[IMPORT] Configuration complete")
+} else {
+    println("[IMPORT] Configuration complete")
 }
-println(if (configured == null) "[IMPORT] WARNING: Configuration timed out after 8 minutes"
-        else "[IMPORT] Configuration complete")
 
 waitForSmartMode()
 println("[IMPORT] Smart mode reached — import + indexing complete")
@@ -673,7 +843,8 @@ println("[IMPORT] Smart mode reached — import + indexing complete")
                 timeout = 600,
             )
         } catch (e: Exception) {
-            println("[IMPORT] Warning: import trigger failed: ${e.message}")
+            println("[IMPORT] Import trigger failed: ${e.message}")
+            throw e
         }
     }
 
@@ -684,24 +855,34 @@ println("[IMPORT] Smart mode reached — import + indexing complete")
      * For Gradle: `./gradlew testClasses`
      * For NONE: skip
      *
-     * Runs inside the container with the correct JAVA_HOME.
+     * Runs inside the container with the configured JAVA_HOME when [javaHomeVersion] is set.
      * This is a pre-agent warmup step — ensures all sources compile and deps are downloaded.
      */
-    fun mcpCompileProject(projectPath: String, buildSystem: BuildSystem) {
+    fun mcpCompileProject(projectPath: String, buildSystem: BuildSystem, javaHomeVersion: String? = "21") {
         if (buildSystem == BuildSystem.NONE) {
             println("[COMPILE] Build system is NONE — skipping compilation")
             return
         }
 
-        // Resolve JAVA_HOME from the temurin-21 JDK dir
-        val javaHome = try {
+        val javaHome = javaHomeVersion?.let { jdkVersion ->
             driver.startProcessInContainer {
-                this.args("ls", "-d", "/usr/lib/jvm/temurin-21-*")
+                this.args(
+                    "bash",
+                    "-c",
+                    """
+                    for dir in /usr/lib/jvm/temurin-$jdkVersion-* /usr/lib/jvm/java-$jdkVersion-* /usr/lib/jvm/corretto-$jdkVersion-*; do
+                      if [ -x "${'$'}dir/bin/javac" ]; then
+                        printf '%s\n' "${'$'}dir"
+                        exit 0
+                      fi
+                    done
+                    printf 'JDK $jdkVersion not found under /usr/lib/jvm\n' >&2
+                    exit 1
+                    """.trimIndent(),
+                )
                     .timeoutSeconds(5)
-                    .description("Find JDK 21 path")
-            }.awaitForProcessFinish().stdout.trim().lines().first()
-        } catch (_: Exception) {
-            "/usr/lib/jvm/java-21-default"
+                    .description("Find JDK $jdkVersion path")
+            }.awaitForProcessFinish().resolveJavaHomeLookup(jdkVersion)
         }
         println("[COMPILE] JAVA_HOME=$javaHome, buildSystem=$buildSystem")
 
@@ -714,7 +895,7 @@ println("[IMPORT] Smart mode reached — import + indexing complete")
 
         val compileResult = driver.startProcessInContainer {
             this
-                .args("bash", "-c", "export JAVA_HOME=$javaHome && $command")
+                .args("bash", "-c", "${if (javaHome == null) "" else "export JAVA_HOME=$javaHome && "}$command")
                 .workingDirInContainer(projectPath)
                 .timeoutSeconds(600)
                 .description("Compile project ($buildSystem)")
@@ -954,8 +1135,8 @@ withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
                 timeout = 15,
                 dialogKiller = false,
             )
-        } catch (_: Exception) {
-            // Best-effort — don't fail the wait loop if dialog killing fails
+        } catch (e: Exception) {
+            driver.log("[startup-dialog-killer] Failed to kill startup blocking dialogs: ${e.message}")
         }
     }
 

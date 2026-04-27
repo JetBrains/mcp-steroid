@@ -40,25 +40,36 @@ fun intelliJGitCloneZipInCache(cacheDir: File): File =
  * Cache layout:
  * - {cacheDir}/intellij-master-git-clone/ultimate-git-clone-linux.zip
  *
- * We intentionally do not re-download when the ZIP already exists: updating in-container via
- * `git fetch` against configured remotes is much cheaper than refetching the full archive.
+ * Explicit overrides are honored before cache reuse. When a caller sets a ZIP path or checkout
+ * directory, that input should not silently lose to an older cached TeamCity archive.
+ *
+ * Without explicit overrides, we intentionally do not re-download when the ZIP already exists:
+ * updating in-container via `git fetch` against configured remotes is much cheaper than
+ * refetching the full archive.
  */
 fun ensureIntelliJGitCloneZipInCache(
     cacheDir: File,
     zipUrl: String = INTELLIJ_MASTER_GIT_CLONE_LINUX_ZIP_URL,
 ): File {
     val zipFile = intelliJGitCloneZipInCache(cacheDir)
-    if (zipFile.isFile) {
-        println("[INTELLIJ-GIT] Using cached archive: $zipFile")
-        return zipFile
-    }
-
     zipFile.parentFile.mkdirs()
 
     val configuredZip = resolveConfiguredZipPath()
     if (configuredZip != null) {
         println("[INTELLIJ-GIT] Using configured IntelliJ ZIP: $configuredZip")
         copyZipToCache(configuredZip, zipFile)
+        return zipFile
+    }
+
+    val localCheckout = resolveConfiguredCheckoutDir()
+    if (localCheckout != null) {
+        println("[INTELLIJ-GIT] Building IntelliJ ZIP from configured local checkout: $localCheckout")
+        buildZipFromLocalCheckout(localCheckout, zipFile, branch = INTELLIJ_MASTER_BRANCH)
+        return zipFile
+    }
+
+    if (zipFile.isFile) {
+        println("[INTELLIJ-GIT] Using cached archive: $zipFile")
         return zipFile
     }
 
@@ -76,13 +87,6 @@ fun ensureIntelliJGitCloneZipInCache(
     } catch (e: Exception) {
         println("[INTELLIJ-GIT] Download failed: ${e.message}")
         e
-    }
-
-    val localCheckout = resolveConfiguredCheckoutDir()
-    if (localCheckout != null) {
-        println("[INTELLIJ-GIT] Building IntelliJ ZIP from local checkout: $localCheckout")
-        buildZipFromLocalCheckout(localCheckout, zipFile, branch = INTELLIJ_MASTER_BRANCH)
-        return zipFile
     }
 
     error(
@@ -288,9 +292,9 @@ private fun buildZipFromLocalCheckout(sourceCheckout: File, destinationZip: File
         "Cannot build IntelliJ ZIP from invalid checkout: ${sourceCheckout.absolutePath}"
     }
 
+    val sourceOriginUrl = resolveSourceOriginUrl(sourceCheckout)
     val tempCloneDir = Files.createTempDirectory("intellij-master-zip-source-").toFile()
     try {
-        val sourceUri = sourceCheckout.toURI().toString()
         runCommand(
             command = listOf(
                 "git",
@@ -298,16 +302,35 @@ private fun buildZipFromLocalCheckout(sourceCheckout: File, destinationZip: File
                 "--depth", "1",
                 "--single-branch",
                 "--branch", branch,
-                sourceUri,
+                sourceCheckout.toPath().toUri().toString(),
                 tempCloneDir.absolutePath,
             ),
             description = "Clone IntelliJ checkout for ZIP packaging",
             timeoutSeconds = 3_600,
         )
+        runCommand(
+            command = listOf("git", "remote", "set-url", "origin", sourceOriginUrl),
+            description = "Preserve source checkout origin in packaged IntelliJ ZIP",
+            timeoutSeconds = 30,
+            workDir = tempCloneDir,
+        )
         zipDirectory(tempCloneDir, destinationZip)
     } finally {
         tempCloneDir.deleteRecursively()
     }
+}
+
+private fun resolveSourceOriginUrl(sourceCheckout: File): String {
+    val output = runCommandForOutput(
+        command = listOf("git", "remote", "get-url", "origin"),
+        description = "Read IntelliJ checkout origin remote",
+        timeoutSeconds = 30,
+        workDir = sourceCheckout,
+    ).trim()
+    require(output.isNotEmpty()) {
+        "Configured IntelliJ checkout must have an origin remote: ${sourceCheckout.absolutePath}"
+    }
+    return output
 }
 
 private fun zipDirectory(sourceDir: File, destinationZip: File) {
@@ -363,6 +386,33 @@ private fun runCommand(
     require(exitCode == 0) {
         "Failed '$description' with exit code $exitCode: ${command.joinToString(" ")}"
     }
+}
+
+private fun runCommandForOutput(
+    command: List<String>,
+    description: String,
+    timeoutSeconds: Long,
+    workDir: File? = null,
+): String {
+    val processBuilder = ProcessBuilder(command)
+        .redirectErrorStream(true)
+
+    if (workDir != null) {
+        processBuilder.directory(workDir)
+    }
+
+    val process = processBuilder.start()
+    val output = process.inputStream.bufferedReader().readText()
+    val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+    require(finished) {
+        process.destroyForcibly()
+        "Timed out while running '$description' after ${timeoutSeconds}s: ${command.joinToString(" ")}"
+    }
+    val exitCode = process.exitValue()
+    require(exitCode == 0) {
+        "Failed '$description' with exit code $exitCode: ${command.joinToString(" ")}\n$output"
+    }
+    return output
 }
 
 private fun parsePathList(raw: String?): List<File> {

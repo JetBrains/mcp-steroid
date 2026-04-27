@@ -30,6 +30,7 @@ class GradleCompileTest {
                 consoleTitle = "Gradle Compile",
             ).waitForProjectReady(
                 buildSystem = BuildSystem.GRADLE,
+                projectJdkVersion = "25",
             )
         }
 
@@ -51,10 +52,20 @@ class GradleCompileTest {
                 import com.intellij.task.ProjectTaskManager
                 import com.intellij.openapi.module.ModuleManager
                 import org.jetbrains.concurrency.await
+                import org.jetbrains.plugins.gradle.settings.GradleSettings
 
                 val modules = ModuleManager.getInstance(project).modules
                 println("MODULES=${'$'}{modules.size}")
                 modules.forEach { println("  module: ${'$'}{it.name}") }
+
+                val linkedGradleProject = GradleSettings.getInstance(project)
+                    .getLinkedProjectSettings(project.basePath!!)
+                    ?: error("Gradle linked project settings not found")
+                val gradleJvm = linkedGradleProject.gradleJvm ?: "<null>"
+                println("GRADLE_JVM=${'$'}gradleJvm")
+                require(gradleJvm.contains("25")) {
+                    "Gradle JVM should use the configured JDK 25, but was ${'$'}gradleJvm"
+                }
 
                 val result = ProjectTaskManager.getInstance(project).build(*modules).await()
                 println("BUILD_ERRORS=${'$'}{result.hasErrors()}")
@@ -67,7 +78,9 @@ class GradleCompileTest {
         )
 
         result.assertExitCode(0, "Gradle compile via ProjectTaskManager should succeed")
+        result.assertOutputContains("GRADLE_JVM=", message = "Gradle JVM setting should be printed")
         result.assertOutputContains("BUILD_ERRORS=false", message = "Gradle compilation should have no errors")
+        result.assertOutputContains("BUILD_ABORTED=false", message = "Gradle compilation should not abort")
 
         console.writeSuccess("Gradle project compilation via ProjectTaskManager works")
     }

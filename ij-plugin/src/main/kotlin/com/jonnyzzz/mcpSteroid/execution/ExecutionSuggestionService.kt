@@ -27,8 +27,8 @@ class ExecutionSuggestionService(
     private val criticalRules = buildString {
         appendLine("CRITICAL RULES:")
         appendLine("1. Code runs as a suspend script body")
-        appendLine("2. waitForSmartMode() runs automatically before your script; call it again only if you trigger indexing")
-        appendLine("3. Use readAction {} for PSI/VFS reads")
+        appendLine("2. Use smartReadAction {} for index-dependent PSI reads")
+        appendLine("3. After project import/sync/configuration, await Observation.awaitConfiguration(project)")
         append("4. Never use runBlocking - you're already in a coroutine context")
     }
 
@@ -87,8 +87,12 @@ class ExecutionSuggestionService(
             errorMessage.contains("Unresolved reference", ignoreCase = true) ->
                 "TIP: Add missing top-level imports if needed. Imports are optional but must appear before code statements."
 
-            errorMessage.contains("Dumb mode") || errorMessage.contains("smart mode") ->
-                "TIP: waitForSmartMode() runs before the script, but call it again after triggering indexing."
+            errorMessage.contains("Dumb mode") ||
+                errorMessage.contains("smart mode") ||
+                errorMessage.contains("IndexNotReadyException") ->
+                "TIP: For indexed PSI queries, use smartReadAction { ... } around the whole query. " +
+                    "After opening/importing/syncing a project, call Observation.awaitConfiguration(project) first; " +
+                    "waitForSmartMode() is only a point-in-time wait."
 
             errorMessage.contains("Read access") || errorMessage.contains("Write access") ->
                 "TIP: Wrap PSI/VFS access in readAction {} or writeAction {}."

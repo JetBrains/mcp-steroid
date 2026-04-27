@@ -103,6 +103,7 @@ class DpaiaComparisonTest {
                 mountDockerSocket = true,
             ).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
+                projectJdkVersion = caseConfig.projectJdkVersion,
                 buildSystem = BuildSystem.NONE,
             )
 

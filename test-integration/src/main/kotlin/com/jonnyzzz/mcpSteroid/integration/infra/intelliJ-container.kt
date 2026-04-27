@@ -140,7 +140,9 @@ class IntelliJContainer(
         console.writeSuccess("Window layout applied")
 
         // Step 3: Register JDKs (earliest — before any import)
-        if (projectJdkVersion != null) {
+        // Only for Java-capable IDEs: `mcpRegisterJdks` / `mcpSetProjectSdk` use
+        // `JavaSdk` which isn't on the script classpath in PyCharm/GoLand/WebStorm/Rider.
+        if (projectJdkVersion != null && intellijDriver.ideProduct.hasJavaSdk) {
             console.writeStep(3, "Registering JDKs via IntelliJ API...")
             mcpSteroid.mcpRegisterJdks(guestProjectDir)
             console.writeSuccess("JDK registration complete")
@@ -149,6 +151,8 @@ class IntelliJContainer(
             console.writeStep(4, "Setting project SDK to JDK $projectJdkVersion...")
             mcpSteroid.mcpSetProjectSdk(guestProjectDir, projectJdkVersion)
             console.writeSuccess("Project SDK set to $projectJdkVersion")
+        } else if (projectJdkVersion != null) {
+            console.writeStep(3, "Skipping JDK setup — ${intellijDriver.ideProduct.displayName} has no Java plugin")
         } else {
             console.writeStep(3, "Skipping JDK setup (projectJdkVersion=null)")
         }
@@ -171,7 +175,7 @@ class IntelliJContainer(
         // Step 8: Compile project (optional)
         if (compileProject) {
             console.writeStep(8, "Compiling project ($buildSystem)...")
-            mcpSteroid.mcpCompileProject(guestProjectDir, buildSystem)
+            mcpSteroid.mcpCompileProject(guestProjectDir, buildSystem, projectJdkVersion)
             console.writeSuccess("Compilation complete")
         }
 
@@ -193,7 +197,6 @@ class IntelliJContainer(
         requireIndexingComplete: Boolean,
         waitLabel: String,
     ) {
-        var lastDialogKillMs = 0L
         val startedAt = System.currentTimeMillis()
         var lastStatus = "no project windows found"
         var projectReady = false
@@ -216,18 +219,19 @@ class IntelliJContainer(
 
             val modalDialogPresent = projectWindows.any { it.modalDialogShowing }
             if (modalDialogPresent) {
-                val nowMs = System.currentTimeMillis()
-                if (nowMs - lastDialogKillMs > 5_000) {
-                    lastDialogKillMs = nowMs
-                    console.writeError(
-                        "Blocking modal dialog detected while waiting for $waitLabel. " +
-                                problemDetailsWithScreenshot("projectWindows=${projectWindows.size}")
-                    )
-                    mcpSteroid.killStartupDialogs(guestProjectDir)
-                }
-                lastStatus = "modal dialog present"
-                Thread.sleep(pollIntervalMillis)
-                continue
+                // Fail fast — retrying past an unexpected modal hides real problems. Every
+                // startup modal in our tests is an infrastructure bug (unknown SDK →
+                // "download Corretto?" consent, "Open or Import?" prompt, etc.) that must
+                // be fixed by pre-configuring the IDE so the dialog never fires in the
+                // first place. `killStartupDialogs` was a workaround that let failures
+                // linger; now the test surfaces them immediately with a screenshot.
+                error(
+                    "Blocking modal dialog detected while waiting for $waitLabel. " +
+                            "This is an infrastructure bug — modals must be prevented up-front (e.g. seed " +
+                            "`ProjectJdkTable` via `mcpRegisterJdks` in the factory, pre-write trusted paths, " +
+                            "suppress welcome dialogs), not killed reactively. " +
+                            problemDetailsWithScreenshot("projectWindows=${projectWindows.size}")
+                )
             }
 
             val readyWindow = projectWindows.any { window ->
@@ -270,7 +274,6 @@ class IntelliJContainer(
         console.writeStep(0, "Waiting for warm snapshot startup (indexing must stay off)...")
         val guestProjectDir = intellijDriver.getGuestProjectDir()
         val startedAt = System.currentTimeMillis()
-        var lastDialogKillMs = 0L
         var lastPollError: String? = null
 
         while (System.currentTimeMillis() - startedAt < timeoutMillis) {
@@ -285,17 +288,15 @@ class IntelliJContainer(
 
             if (projectWindows.isNotEmpty()) {
                 if (projectWindows.any { it.modalDialogShowing }) {
-                    val nowMs = System.currentTimeMillis()
-                    if (nowMs - lastDialogKillMs > 5_000) {
-                        lastDialogKillMs = nowMs
-                        console.writeError(
-                            "Blocking modal dialog detected during warm snapshot startup. " +
-                                    problemDetailsWithScreenshot("projectWindows=${projectWindows.size}")
-                        )
-                        mcpSteroid.killStartupDialogs(guestProjectDir)
-                    }
-                    Thread.sleep(pollIntervalMillis)
-                    continue
+                    // Fail fast — see the comment at the modal-detection check in
+                    // `waitForIdeWindow`. Warm snapshots especially should have zero modals
+                    // since the snapshot was built green; any modal on replay is a regression.
+                    error(
+                        "Blocking modal dialog detected during warm snapshot startup. " +
+                                "Infrastructure regression — the snapshot must have shipped with all dialogs " +
+                                "pre-suppressed. " +
+                                problemDetailsWithScreenshot("projectWindows=${projectWindows.size}")
+                    )
                 }
 
                 if (projectWindows.any { it.indexingInProgress == true }) {

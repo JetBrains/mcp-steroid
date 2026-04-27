@@ -77,6 +77,16 @@ fun IntelliJContainer.Companion.create(
      * Use together with warm snapshot images that already contain project checkout + ide-system.
      */
     reuseProjectFromImage: Boolean = false,
+    /**
+     * Default true keeps ordinary Docker tests immune to trust prompts. Tests that validate
+     * project-trust behavior can set this false and rely on explicit trusted paths.
+     */
+    disableProjectTrustChecks: Boolean = true,
+    /**
+     * Default true mirrors the historical test image setup that trusts every path. Tests that
+     * need an actually-untrusted secondary project can set this false.
+     */
+    trustAllProjectPaths: Boolean = true,
 ): IntelliJContainer {
     val ideProduct = distribution.product
     val selectedDockerBase = if (dockerFileBase == "ide-agent") ideProduct.dockerImageBase else dockerFileBase
@@ -565,6 +575,8 @@ fun IntelliJContainer.Companion.create(
         "$containerMountedPath/intellij",
         ideProduct,
         skipChangedFilesScanOnStartup = reuseProjectFromImage,
+        disableProjectTrustChecks = disableProjectTrustChecks,
+        trustAllProjectPaths = trustAllProjectPaths,
     )
     console.writeInfo("Deploying MCP Steroid plugin...")
     ijDriver.deployPluginToContainer(IdeTestFolders.pluginZip)
@@ -656,6 +668,29 @@ fun IntelliJContainer.Companion.create(
     val mcpSteroidDriver = McpSteroidDriver(container, ijDriver)
     console.writeInfo("Waiting for MCP Steroid server...")
     mcpSteroidDriver.waitForMcpReady()
+
+    // Register JDKs as early as possible — racing against IntelliJ's async `SdkLookup`
+    // which fires when project-open's `UnknownSdkStartupChecker` + Gradle auto-import
+    // activities run. If `SdkLookup.findJdk(sdkName)` runs before our JDK registration
+    // hits `ProjectJdkTable`, it proposes a download and blocks the EDT on a
+    // `MessageDialogBuilder$YesNo.ask` consent modal — making the test un-runnable.
+    // Only runs for Java-capable IDEs: `mcpListJdks`/`mcpAddJdk` import
+    // `com.intellij.openapi.projectRoots.JavaSdk`, which is only on the classpath
+    // when the target IDE bundles `com.intellij.java` (see IdeProduct.hasJavaSdk).
+    if (ideProduct.hasJavaSdk) {
+        console.writeInfo("Registering JDKs early (racing project-open SdkLookup)...")
+        try {
+            waitFor(30_000L, "project appears in MCP list") {
+                mcpSteroidDriver.mcpListProjects().any { it.path == ijDriver.getGuestProjectDir() }
+            }
+            mcpSteroidDriver.mcpRegisterJdks(ijDriver.getGuestProjectDir())
+            console.writeSuccess("Early JDK registration complete")
+        } catch (e: Throwable) {
+            console.writeInfo("Early JDK registration failed: ${e.message} (will retry in waitForProjectReady)")
+        }
+    } else {
+        console.writeInfo("Skipping early JDK registration — ${ideProduct.displayName} has no Java plugin (IdeProduct.hasJavaSdk=false)")
+    }
 
     val resolvedMcpConnectionMode: McpConnectionMode = mcpConnectionMode ?: when (aiMode) {
         AiMode.NONE -> McpConnectionMode.None

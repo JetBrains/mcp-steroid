@@ -169,6 +169,11 @@ class DpaiaClaudeComparisonTest {
             }
         }
 
+        private val setupCaseConfig: DpaiaCuratedCases.CaseConfig by lazy {
+            DpaiaCuratedCases.CASE_CONFIGS[setupTestCase.instanceId]
+                ?: DpaiaCuratedCases.CaseConfig()
+        }
+
         /**
          * Container where Claude is registered with MCP Steroid (HTTP transport).
          *
@@ -194,6 +199,7 @@ class DpaiaClaudeComparisonTest {
                 ),
                 mountDockerSocket = true,
             ).waitForProjectReady(
+                projectJdkVersion = setupCaseConfig.projectJdkVersion,
                 buildSystem = when (setupTestCase.buildSystem) {
                     "maven" -> BuildSystem.MAVEN
                     "gradle" -> BuildSystem.GRADLE
@@ -225,6 +231,7 @@ class DpaiaClaudeComparisonTest {
                 ),
                 mountDockerSocket = true,
             ).waitForProjectReady(
+                projectJdkVersion = setupCaseConfig.projectJdkVersion,
                 buildSystem = when (setupTestCase.buildSystem) {
                     "maven" -> BuildSystem.MAVEN
                     "gradle" -> BuildSystem.GRADLE

@@ -7,6 +7,14 @@ enum class IdeProduct(
     val launcherExecutable: String,
     val displayName: String,
     val jetbrainsProductCode: String,
+    /**
+     * True iff the IDE bundles `com.intellij.java` — which makes
+     * `com.intellij.openapi.projectRoots.JavaSdk` resolvable from
+     * `steroid_execute_code`. `mcpListJdks` / `mcpAddJdk` / `mcpRegisterJdks`
+     * all import `JavaSdk` and will fail to compile in IDEs that don't bundle
+     * the Java plugin (PyCharm/GoLand/WebStorm/Rider).
+     */
+    val hasJavaSdk: Boolean,
 ) {
     IntelliJIdea(
         id = "idea",
@@ -14,6 +22,7 @@ enum class IdeProduct(
         launcherExecutable = "idea",
         displayName = "IntelliJ IDEA",
         jetbrainsProductCode = "IIU",
+        hasJavaSdk = true,
     ),
     PyCharm(
         id = "pycharm",
@@ -21,6 +30,7 @@ enum class IdeProduct(
         launcherExecutable = "pycharm",
         displayName = "PyCharm",
         jetbrainsProductCode = "PCP",
+        hasJavaSdk = false,
     ),
     GoLand(
         id = "goland",
@@ -28,6 +38,7 @@ enum class IdeProduct(
         launcherExecutable = "goland",
         displayName = "GoLand",
         jetbrainsProductCode = "GO",
+        hasJavaSdk = false,
     ),
     WebStorm(
         id = "webstorm",
@@ -35,6 +46,7 @@ enum class IdeProduct(
         launcherExecutable = "webstorm",
         displayName = "WebStorm",
         jetbrainsProductCode = "WS",
+        hasJavaSdk = false,
     ),
     Rider(
         id = "rider",
@@ -42,6 +54,7 @@ enum class IdeProduct(
         launcherExecutable = "rider",
         displayName = "Rider",
         jetbrainsProductCode = "RD",
+        hasJavaSdk = false,
     );
 
     companion object {

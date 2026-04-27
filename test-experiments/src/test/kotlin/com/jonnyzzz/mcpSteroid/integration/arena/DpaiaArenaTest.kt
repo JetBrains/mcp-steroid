@@ -126,6 +126,7 @@ class DpaiaArenaTest {
                 mountDockerSocket = true,
             ).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
+                projectJdkVersion = caseConfig.projectJdkVersion,
                 buildSystem = when (testCase.buildSystem) {
                     "maven" -> BuildSystem.MAVEN
                     "gradle" -> BuildSystem.GRADLE

@@ -122,6 +122,7 @@ class ContentModuleClasspathTest {
                 "plugins/fullLine/lib/modules/intellij.fullLine.ruby.local.jar",
                 "plugins/fullLine/lib/modules/intellij.fullLine.rust.local.jar",
                 "plugins/fullLine/lib/modules/intellij.fullLine.terraform.local.jar",
+                "plugins/fullLine/lib/modules/intellij.fullLine.yaml.jar",
                 "plugins/fullLine/lib/modules/intellij.ml.llm.chat.completion.jar",
                 "plugins/fullLine/lib/modules/intellij.ml.llm.cpp.completion.jar",
                 "plugins/fullLine/lib/modules/intellij.ml.llm.css.completion.jar",
@@ -205,6 +206,10 @@ class ContentModuleClasspathTest {
                 "plugins/spring-boot-plugin/lib/modules/intellij.spring.boot.rewrite.jar",
                 // Station AI assistant — loaded on demand
                 "plugins/station-plugin/lib/modules/intellij.station.aia.jar",
+                // Tailwind CSS Ruby integration — loaded only when the Ruby plugin is
+                // active (e.g. in RubyMine or IU with Ruby plugin installed). IU has
+                // no Ruby plugin bundled, so this module stays unloaded.
+                "plugins/tailwindcss/lib/modules/intellij.tailwindcss.ruby.jar",
                 // YAML Helm support — loaded when Helm files are detected
                 "plugins/yaml/lib/modules/intellij.yaml.helm.jar",
             ))

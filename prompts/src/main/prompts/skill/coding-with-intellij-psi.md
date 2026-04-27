@@ -55,7 +55,7 @@ readAction {
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.idea.stubindex.KotlinClassShortNameIndex
 
-// smartReadAction = waitForSmartMode() + readAction { } in one call
+// smartReadAction runs the indexed read under IntelliJ's smart-mode read constraint
 smartReadAction {
     val classes = KotlinClassShortNameIndex.get("MyService", project, projectScope())
 

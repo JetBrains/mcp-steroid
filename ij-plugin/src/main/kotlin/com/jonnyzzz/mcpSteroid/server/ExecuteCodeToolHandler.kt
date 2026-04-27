@@ -14,9 +14,13 @@ import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.updates.analyticsBeacon
+import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeGradlePromptArticle
+import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeMavenPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeToolDescriptionPromptArticle
+import com.jonnyzzz.mcpSteroid.updates.analyticsBeacon
 import kotlinx.serialization.json.*
+import java.nio.file.Files
+import java.nio.file.Path
 
 data class ExecCodeParams(
     val taskId: String,
@@ -151,7 +155,10 @@ class ExecuteCodeToolHandler : McpRegistrar {
             )
         }
 
-        return result
+        return ExecuteCodeBuildAbortGuidance.appendTo(
+            result = result,
+            projectBasePath = project.basePath?.let(Path::of),
+        )
     }
 
     private fun errorResult(message: String) = ToolCallResult(
@@ -168,4 +175,61 @@ class ExecuteCodeToolHandler : McpRegistrar {
         }
     }
 
+}
+
+internal object ExecuteCodeBuildAbortGuidance {
+    private const val CLAUDE_FETCH_RESOURCE_TOOL = "mcp__mcp-steroid__steroid_fetch_resource"
+
+    private val abortedWithoutErrorsPattern = Regex(
+        pattern = """(?im)\b(?:Build|Compile)\s+errors:\s*false,\s*aborted:\s*true\b"""
+    )
+
+    fun appendTo(result: ToolCallResult, projectBasePath: Path?): ToolCallResult {
+        val outputText = result.content
+            .filterIsInstance<ContentItem.Text>()
+            .joinToString("\n") { it.text }
+        val guidance = guidanceFor(outputText, projectBasePath) ?: return result
+        return result.copy(content = result.content + ContentItem.Text("\n$guidance"))
+    }
+
+    fun guidanceFor(outputText: String, projectBasePath: Path?): String? {
+        if (!abortedWithoutErrorsPattern.containsMatchIn(outputText)) return null
+
+        val resourceTarget = resourceTargetText(projectBasePath)
+        return "REQUIRED ACTION: IDE build was aborted without compiler errors. " +
+            "NEXT TOOL CALL must be $CLAUDE_FETCH_RESOURCE_TOOL with URI $resourceTarget before using Bash. " +
+            "Then run the fetched sync/configuration pattern and retry the IDE build/test. " +
+            "Use Bash only if sync fails or times out."
+    }
+
+    private fun resourceTargetText(projectBasePath: Path?): String {
+        val resourceUris = detectBuildResourceUris(projectBasePath)
+        return if (resourceUris.size == 1) {
+            resourceUris.single()
+        } else {
+            "the matching resource (${resourceUris.joinToString(" or ")})"
+        }
+    }
+
+    private fun detectBuildResourceUris(projectBasePath: Path?): List<String> {
+        val gradleUri = ExecuteCodeGradlePromptArticle().uri
+        val mavenUri = ExecuteCodeMavenPromptArticle().uri
+        if (projectBasePath == null) return listOf(gradleUri, mavenUri)
+
+        val hasGradle = listOf(
+            "settings.gradle",
+            "settings.gradle.kts",
+            "build.gradle",
+            "build.gradle.kts",
+            "gradlew",
+        ).any { Files.isRegularFile(projectBasePath.resolve(it)) }
+        val hasMaven = Files.isRegularFile(projectBasePath.resolve("pom.xml"))
+
+        return buildList {
+            if (hasGradle) add(gradleUri)
+            if (hasMaven) add(mavenUri)
+        }.ifEmpty {
+            listOf(gradleUri, mavenUri)
+        }
+    }
 }

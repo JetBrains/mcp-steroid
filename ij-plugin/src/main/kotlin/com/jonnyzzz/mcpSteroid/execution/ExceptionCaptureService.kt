@@ -92,13 +92,30 @@ class ExceptionCaptureService : Disposable {
     }
 
     private fun captureException(record: LogRecord) {
+        try {
+            doCaptureException(record)
+        } catch (e: ProcessCanceledException) {
+            throw e
+        } catch (e: Exception) {
+            System.err.println("Failed to capture IDE exception from JUL record: ${record.message}")
+            e.printStackTrace(System.err)
+        }
+    }
+
+    private fun doCaptureException(record: LogRecord) {
         val throwable = record.thrown ?: return
         val stacktrace = ExceptionUtil.getThrowableText(throwable)
 
         // Try to find the plugin that caused the exception
-        val pluginId = runCatching {
+        val pluginId = try {
             PluginUtil.getInstance().findPluginId(throwable)?.idString
-        }.getOrNull()
+        } catch (e: ProcessCanceledException) {
+            throw e
+        } catch (e: Exception) {
+            System.err.println("Failed to resolve plugin id for captured IDE exception: ${throwable::class.java.name}")
+            e.printStackTrace(System.err)
+            null
+        }
 
         var msg = ""
         record.message?.let {
@@ -110,8 +127,9 @@ class ExceptionCaptureService : Disposable {
         throwable.message?.let {
             msg += it
         }
-        if (record.parameters.isNotEmpty()) {
-            msg += "\n" + record.parameters.joinToString(", ")
+        val parameters = record.parameters
+        if (!parameters.isNullOrEmpty()) {
+            msg += "\n" + parameters.joinToString(", ")
         }
 
         val captured = CapturedIdeException(

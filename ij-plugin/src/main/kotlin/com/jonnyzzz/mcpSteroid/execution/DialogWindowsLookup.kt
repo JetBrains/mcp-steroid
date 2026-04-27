@@ -44,7 +44,7 @@ class DialogWindowsLookup {
     private suspend fun canPumpEdtNonModal(): Boolean {
         if (ApplicationManager.getApplication().isHeadlessEnvironment) return true
         return try {
-            withContext(Dispatchers.IO + CoroutineName("DialogWindowsLookup#check")) {
+            withContext(CoroutineName("DialogWindowsLookup#check")) {
                 withTimeout(100) {
                     async(Dispatchers.EDT) { true }.await()
                 }
@@ -90,12 +90,23 @@ class DialogWindowsLookup {
     }
 
     /**
-     * Check modality state without enumerating dialog windows.
+     * Check whether a modal **dialog window** is currently showing.
      * Used by [ListWindowsToolHandler][com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler]
      * where only the boolean flag is needed.
      *
+     * Semantics: true iff there is at least one [DialogWrapperDialog] window
+     * currently visible whose `DialogWrapper.isModal` is true. Background activities
+     * that merely elevate `ModalityState.current()` (e.g. indexing / `Task.Modal`
+     * progress / write-action tasks) do NOT count as a modal dialog — they are
+     * progress indicators, not user-consent prompts. Conflating the two was a
+     * real bug: the former version reported `isModalShowing=true` during
+     * plain indexing, which made callers like
+     * [`waitForIdeWindow`](../../integration/infra/intelliJ-container.kt)'s
+     * fail-fast path abort every test as soon as indexing kicked in.
+     *
      * 1. Tries [canPumpEdtNonModal] — if EDT is responsive, calls [action] with `false`.
-     * 2. Otherwise, dispatches to EDT with [ModalityState.any] to check modality state.
+     * 2. Otherwise, dispatches to EDT with [ModalityState.any] and enumerates
+     *    actual [DialogWrapperDialog] windows. If any is showing and modal → true.
      * 3. Calls [action] with the result.
      */
     suspend fun <T> withModalityCheck(
@@ -109,11 +120,15 @@ class DialogWindowsLookup {
             return action(false)
         }
 
-        val isModal = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            ModalityState.current() != ModalityState.nonModal()
+        val hasModalDialogWindow = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+            Window.getWindows().any { w ->
+                w.isShowing &&
+                        w is DialogWrapperDialog &&
+                        (w.dialogWrapper?.isModal == true)
+            }
         }
 
-        return action(isModal)
+        return action(hasModalDialogWindow)
     }
 
     /**

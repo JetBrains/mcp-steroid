@@ -1,0 +1,47 @@
+{
+  "run_dir": "test-experiments/build/test-logs/test/run-20260423-090416-dpaia__spring__boot__microshop-2-mcp/",
+  "agent": "claude-code",
+  "tokens": {
+    "input": 59,
+    "output": 2062,
+    "cache_read": 1777379,
+    "cache_creation": 93360,
+    "total": 1872860
+  },
+  "calls": {
+    "total": 44,
+    "mcp_steroid": 2,
+    "native": 42,
+    "mcp_share": 0.045,
+    "by_name": {
+      "ToolSearch": 1,
+      "mcp__mcp-steroid__steroid_execute_code": 2,
+      "Read": 15,
+      "Glob": 7,
+      "Bash": 8,
+      "Write": 3,
+      "Edit": 8
+    },
+    "errors_by_name": {
+      "toolu_01QXkQy3oS8FuzkMUWgQ2ktk": 1
+    }
+  },
+  "complexity": {
+    "exec_code_calls": 2,
+    "exec_code_lines_total": 70,
+    "exec_code_lines_avg": 35.0,
+    "exec_code_lines_p50": 35.0,
+    "exec_code_lines_max": 55
+  },
+  "ease_of_use": {
+    "fetch_resource_calls": 0,
+    "native_edit_calls": 8,
+    "exec_code_retries": 0,
+    "native_bash_calls": 8
+  },
+  "errors": 1,
+  "apply_patch": {
+    "called": true,
+    "hunks_estimate": 8
+  }
+}

@@ -87,13 +87,23 @@ class ExecutionManager(
                     log.info("Review result for $executionId: $finalResult")
                     yield()
 
-                    // Run execution with progress reporting
-                    project.scriptExecutor.executeWithProgress(
-                        executionId,
-                        exec,
-                        builder
-                    )
-                    log.info("Execution $executionId completed")
+                    try {
+                        // Run execution with progress reporting
+                        project.scriptExecutor.executeWithProgress(
+                            executionId,
+                            exec,
+                            builder
+                        )
+                        log.info("Execution $executionId completed")
+                    } finally {
+                        // Fire-and-forget VFS refresh — runs in every path (success, error,
+                        // cancellation). Any file the script (or a peer process) may have
+                        // written since the last refresh gets re-anchored to disk so the next
+                        // semantic query sees fresh PSI. Non-blocking: this MCP response
+                        // returns immediately; the refresh runs on the RefreshQueue thread.
+                        // See VfsRefreshService for threading + coalescing rationale.
+                        project.vfsRefreshService.scheduleAsyncRefresh()
+                    }
                 } catch (t: Throwable) {
                     log.warn("Unexpected error: ${t.message}", t)
                     builder.logException("Unexpected error", t)

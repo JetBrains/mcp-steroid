@@ -56,6 +56,16 @@ class CodeEvalManager(
         try {
             log.info("Compiling script $executionId")
 
+            // Pre-compile VFS refresh: await until IntelliJ's VFS has re-ingested
+            // any on-disk changes since the previous exec_code tail refresh or any
+            // peer process edits. Compilation inputs (script source + classpath)
+            // MUST be up-to-date — a user who edited a library JAR between calls
+            // would otherwise get stale compilation against the old contents.
+            // This is intentionally a BLOCKING await (not fire-and-forget): the
+            // 30-second cap in VfsRefreshService guards against a pathological
+            // hang. See VfsRefreshService.awaitRefresh / scheduleAsyncRefresh.
+            project.vfsRefreshService.awaitRefresh()
+
             val compileClasspath = scriptClassLoaderFactory.ideClasspath()
             val compilerDir = project.executionStorage.createCompilerOutputDir(executionId)
 

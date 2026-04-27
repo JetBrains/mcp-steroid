@@ -177,6 +177,41 @@ fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
     ) else null
 }
 
+/** Extract Bash command details from decoded `>> Bash (...)` tool lines. */
+fun extractDecodedBashCommands(decodedLogText: String): List<String> {
+    return decodedLogText.lines().mapNotNull { rawLine ->
+        val line = rawLine.trim()
+        when {
+            line == ">> Bash" -> ""
+            line.startsWith(">> Bash (") && line.endsWith(")") ->
+                line.removePrefix(">> Bash (").removeSuffix(")")
+            else -> null
+        }
+    }
+}
+
+/**
+ * Find decoded Gradle Bash commands that do not use [expectedJavaHomePrefix].
+ *
+ * This guards DPAIA Gradle runs against two measured failure modes:
+ * using a lower JDK such as `temurin-21`, and using a literal wildcard assignment
+ * such as `JAVA_HOME=/usr/lib/jvm/temurin-24-jdk-*` (Bash does not expand globs in
+ * assignment words).
+ */
+fun findDecodedGradleCommandsWithUnexpectedJavaHome(
+    decodedLogText: String,
+    expectedJavaHomePrefix: String,
+): List<String> {
+    val javaHomeRegex = Regex("""(?:^|\s)JAVA_HOME=([^\s]+)""")
+    val gradleWrapperRegex = Regex("""(?:^|\s)(?:\S*/)?gradlew(?:\s|$)""")
+    return extractDecodedBashCommands(decodedLogText)
+        .filter { command -> gradleWrapperRegex.containsMatchIn(command) }
+        .filter { command ->
+            val javaHome = javaHomeRegex.find(command)?.groupValues?.get(1)
+            javaHome == null || javaHome.contains('*') || !javaHome.startsWith(expectedJavaHomePrefix)
+        }
+}
+
 /**
  * Find the most-recently-modified decoded log file in [runDir] whose name matches
  * `agent-<agentName>-*-decoded.txt`.

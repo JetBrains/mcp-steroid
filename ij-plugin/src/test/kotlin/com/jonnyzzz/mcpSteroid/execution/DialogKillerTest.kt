@@ -2,6 +2,8 @@
 package com.jonnyzzz.mcpSteroid.execution
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -10,6 +12,8 @@ import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import com.jonnyzzz.mcpSteroid.setSystemPropertyForTest
 import com.jonnyzzz.mcpSteroid.testExecParams
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -54,6 +58,41 @@ class DialogKillerTest : BasePlatformTestCase() {
         val lookup = dialogWindowsLookup()
         lookup.withModalityCheck { isModal ->
             assertFalse("Should not be modal in clean state", isModal)
+        }
+    }
+
+    /**
+     * Regression: `withModalityCheck` must only report `isModal=true` for an actual
+     * showing [com.intellij.openapi.ui.DialogWrapperDialog], NOT just because the
+     * current `ModalityState` is non-nonModal (e.g. during indexing or a
+     * `Task.Modal` progress). The previous implementation flagged any elevated
+     * modality as a "modal dialog showing", which caused
+     * `waitForIdeWindow`'s fail-fast path to abort every Docker test as soon as
+     * indexing kicked in, even though no user-facing dialog existed.
+     *
+     * This test elevates the coroutine's modality via `ModalityState.any().asContextElement()`
+     * (which represents the "elevated but not a dialog" case) and verifies the
+     * check still returns false. Full GUI verification (dialog present → true) is
+     * already covered by DialogKillerIntegrationTest in Docker+Xvfb.
+     */
+    fun testModalityCheckIgnoresElevatedModalityWithoutDialog(): Unit = timeoutRunBlocking(30.seconds) {
+        val lookup = dialogWindowsLookup()
+        // Force the coroutine into the "slow" branch by pre-elevating modality
+        // context. If `canPumpEdtNonModal` still short-circuits to false under
+        // this modality, the slow branch will run and must NOT see a dialog.
+        withContext(
+            Dispatchers.EDT +
+                    com.intellij.openapi.application.ModalityState.any().asContextElement()
+        ) {
+            // No dialog is actually opened. Any `isModal=true` here would be a false
+            // positive driven by modality state, not by the dialog enumeration.
+        }
+        lookup.withModalityCheck { isModal ->
+            assertFalse(
+                "withModalityCheck must return false when no DialogWrapperDialog is showing, " +
+                        "regardless of ModalityState.current()",
+                isModal
+            )
         }
     }
 

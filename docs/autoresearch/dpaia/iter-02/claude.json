@@ -1,0 +1,44 @@
+{
+  "run_dir": "/Users/jonnyzzz/Work/mcp-steroid/test-experiments/build/test-logs/test/run-20260422-231251-dpaia__spring__petclinic__rest-37-mcp",
+  "agent": "claude-code",
+  "tokens": {
+    "input": 27,
+    "output": 400,
+    "cache_read": 654833,
+    "cache_creation": 71493,
+    "total": 726753
+  },
+  "calls": {
+    "total": 11,
+    "mcp_steroid": 1,
+    "native": 10,
+    "mcp_share": 0.091,
+    "by_name": {
+      "ToolSearch": 2,
+      "mcp__mcp-steroid__steroid_execute_code": 1,
+      "Read": 2,
+      "Grep": 1,
+      "Edit": 2,
+      "Bash": 3
+    },
+    "errors_by_name": {}
+  },
+  "complexity": {
+    "exec_code_calls": 1,
+    "exec_code_lines_total": 17,
+    "exec_code_lines_avg": 17.0,
+    "exec_code_lines_p50": 17,
+    "exec_code_lines_max": 17
+  },
+  "ease_of_use": {
+    "fetch_resource_calls": 0,
+    "native_edit_calls": 2,
+    "exec_code_retries": 0,
+    "native_bash_calls": 3
+  },
+  "errors": 0,
+  "apply_patch": {
+    "called": false,
+    "hunks_estimate": 0
+  }
+}

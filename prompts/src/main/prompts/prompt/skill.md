@@ -178,9 +178,11 @@ delay(1000)         // coroutine delay - works directly
 ```
 **NEVER use `runBlocking`** - it causes deadlocks.
 
-**NEVER re-probe `waitForSmartMode()` before every operation.** Once the first call completes
-(which happens automatically before your script starts), smart mode is confirmed for the duration
-of your task. Only call `waitForSmartMode()` again if you explicitly trigger re-indexing mid-script.
+**NEVER re-probe `waitForSmartMode()` before every operation.** The automatic wait before script
+start is only a point-in-time check; IntelliJ may enter dumb mode again before the next statement.
+For index-dependent PSI queries, wrap the whole query in `smartReadAction { }`. After project
+open/import/sync/configuration, first await `Observation.awaitConfiguration(project)`, then use
+`smartReadAction { }`.
 
 ### 2. Imports Are Optional
 
@@ -199,7 +201,7 @@ val data = readAction { project.name }
 // Modifying PSI/VFS/documents
 writeAction { /* modifications here */ }
 
-// Combines wait + read in one call
+// Runs index-dependent PSI work under IntelliJ's smart-mode read constraint
 val smart = smartReadAction { /* PSI operations */ }
 ```
 

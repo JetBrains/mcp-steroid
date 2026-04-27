@@ -231,7 +231,10 @@ class LspExamplesExecutionTest : BasePlatformTestCase() {
         )
 
         val result = executeExample("rename", code)
-        assertExampleResult(result, "Rename Analysis")
+        // Recipe rewritten in iter-02 (commit ed24e475) from a regex-based
+        // `document.replaceString` pass to a semantic RenameProcessor. The old heading
+        // was "Rename Analysis"; the new heading is "Rename (semantic, PSI-backed): ...".
+        assertExampleResult(result, "Rename (semantic, PSI-backed)")
         val updatedText = readAction {
             val vf = VfsUtil.findFile(Paths.get(sampleFilePath), true) ?: return@readAction ""
             val document = FileDocumentManager.getInstance().getDocument(vf) ?: return@readAction ""

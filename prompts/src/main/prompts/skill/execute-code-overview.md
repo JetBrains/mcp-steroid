@@ -2,26 +2,31 @@ Execute Code: Additional Rules
 
 File creation, Edit tool constraint, ProcessBuilder ban, JDK/plugin restrictions, and required imports for steroid_execute_code.
 
-## ⚡ File Creation: Use the Write Tool (NOT steroid_execute_code)
+## ⚡ File Creation: Stay inside steroid_execute_code
 
-**Creating files via steroid_execute_code (`writeAction { VfsUtil.saveText(...) }`) is measured +47% slower**
-than using the native Write tool — IntelliJ VFS overhead dominates file creation time.
-
-**Use the Write tool for all file creation.** After writing files, trigger a VFS refresh
-if you need IntelliJ to index them for PSI/compilation:
+Create files via `writeAction { … VfsUtil.saveText(vf, content) }` inside
+`steroid_execute_code`. This indexes the new file immediately — the next PSI
+query, inspection, or compile-check sees it without a refresh round-trip.
+The post-call fire-and-forget VFS refresh that MCP Steroid schedules on
+every exec_code tail catches any peer-process writes, so you never have to
+schedule a refresh by hand.
 
 ```kotlin
-// ONE steroid_execute_code call to refresh after bulk file creation via Write tool:
-import com.intellij.openapi.vfs.VfsUtil
-import com.intellij.openapi.vfs.LocalFileSystem
-VfsUtil.markDirtyAndRefresh(false, true, true,
-    LocalFileSystem.getInstance().findFileByPath(project.basePath!!)
-)
-println("VFS refreshed — IntelliJ now sees new files")
+val parentRel = "src/main/java/com/example"
+val name = "NewService.java"
+val body = "package com.example;\n\npublic class NewService { }\n"
+writeAction {
+    val root = LocalFileSystem.getInstance().findFileByPath(project.basePath!!)!!
+    val dir = VfsUtil.createDirectoryIfMissing(root, parentRel)!!
+    val vf = dir.findChild(name) ?: dir.createChildData(this, name)
+    VfsUtil.saveText(vf, body)
+}
 ```
 
-**Exception**: Use steroid_execute_code VFS file creation ONLY when you must create a file AND
-immediately use PSI on it in the same steroid_execute_code call (e.g., create + run inspections atomically).
+If the agent harness has already routed a file-creation through the native
+`Write` tool for some reason, a single follow-up `steroid_execute_code` call
+with `VfsUtil.markDirtyAndRefresh(async = true, recursive = true, reloadChildren = true, base)`
+re-syncs IntelliJ's VFS. This is a recovery path, not the preferred path.
 
 ---
 
@@ -47,6 +52,18 @@ writeAction { VfsUtil.saveText(vf, updated) }  // write INSIDE writeAction
 
 ---
 
+## Multi-Site Literal Edits: Use `steroid_apply_patch`
+
+When you need two or more literal substitutions in one file or across many files, use the dedicated
+`steroid_apply_patch` MCP tool instead of chaining native `Edit` calls or compiling a
+`steroid_execute_code` script just to call the older script-context apply-patch DSL.
+
+`steroid_apply_patch` validates all hunks before writing, applies them as one undoable IDE command,
+commits PSI, and avoids kotlinc compile overhead. Read
+`mcp-steroid://skill/apply-patch-tool-description` for the JSON schema.
+
+---
+
 ## ❌ BANNED: ProcessBuilder for Builds and Tests
 
 **`ProcessBuilder("./mvnw", ...)` and `ProcessBuilder("./gradlew", ...)` inside `steroid_execute_code` are BANNED** for build and test execution.
@@ -62,10 +79,11 @@ writeAction { VfsUtil.saveText(vf, updated) }  // write INSIDE writeAction
 | Task | Use instead of ProcessBuilder | Details |
 |------|-------------------------------|---------|
 | Run Maven tests | `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` | [Maven patterns](mcp-steroid://skill/execute-code-maven) |
-| Run Gradle tests | `GradleRunConfiguration` + `setRunAsTest(true)` + `SMTRunnerEventsListener` | [Spring/build patterns](mcp-steroid://skill/coding-with-intellij-spring) |
+| Run Gradle tests | `ExternalSystemUtil.runTask()` or `GradleRunConfiguration` through the IDE runner | [Gradle patterns](mcp-steroid://skill/execute-code-gradle) |
 | Maven sync after pom.xml edit | `MavenProjectsManager.scheduleUpdateAllMavenProjects()` + `Observation.awaitConfiguration()` | [Maven sync](mcp-steroid://skill/execute-code-maven) |
-| Gradle sync after build.gradle.kts edit | `ExternalSystemUtil.refreshProject(path, ImportSpecBuilder(project, GradleConstants.SYSTEM_ID).build())` | [Spring/build patterns](mcp-steroid://skill/coding-with-intellij-spring) |
+| Gradle sync after build.gradle.kts edit | `ExternalSystemUtil.refreshProject(path, ImportSpecBuilder(project, GradleConstants.SYSTEM_ID).build())` | [Gradle patterns](mcp-steroid://skill/execute-code-gradle) |
 | Check Docker availability | `java.io.File("/var/run/docker.sock").exists()` — no process spawn needed | [Spring patterns](mcp-steroid://skill/coding-with-intellij-spring) |
+| Build aborted with `errors=false, aborted=true` | Run the matching Maven/Gradle sync pattern before Bash fallback | [Maven sync](mcp-steroid://skill/execute-code-maven), [Gradle patterns](mcp-steroid://skill/execute-code-gradle) |
 | Docker inspect/exec operations | **Bash tool** (outside steroid_execute_code) — e.g. `docker inspect`, `docker exec` | — |
 | `dependency:resolve` workaround | `MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | [Maven sync](mcp-steroid://skill/execute-code-maven) |
 
@@ -94,15 +112,40 @@ println("Plugin installed: $installed")
 
 ---
 
-## ⚠️ NO AUTO-IMPORTS — Every IntelliJ Class Must Be Imported Explicitly
+## ⚠️ Imports: What's Auto-Added vs What You Still Write
 
-A missing import produces `unresolved reference` (sometimes misleadingly as a type-inference error) and wastes a full retry turn. Common imports not auto-added by the preprocessor:
+The preprocessor (`CodeWrapperForCompilation`) already adds these imports to every script, so **do not repeat them** in your code — they cost tokens without adding anything:
+
 ```kotlin[IU]
-import com.intellij.psi.search.FilenameIndex        // getVirtualFilesByName, getAllFilesByExt
-import com.intellij.psi.search.GlobalSearchScope    // projectScope(), allScope()
-import com.intellij.openapi.roots.ProjectRootManager // contentSourceRoots
-import com.intellij.openapi.vfs.VfsUtil              // saveText(), createDirectoryIfMissing()
-import com.intellij.psi.search.PsiShortNamesCache   // allClassNames
-import com.intellij.psi.search.searches.AnnotatedElementsSearch
-import com.intellij.psi.search.searches.ReferencesSearch
+// Auto-imported — DO NOT repeat in your script:
+import com.intellij.openapi.project.*                 // Project, ProjectManager
+import com.intellij.openapi.application.*             // ApplicationManager, ModalityState, runReadAction, …
+import com.intellij.openapi.application.readAction    // suspend read action
+import com.intellij.openapi.application.writeAction   // suspend write action
+import com.intellij.openapi.vfs.*                     // VirtualFile, VfsUtil, VfsUtilCore, LocalFileSystem
+import com.intellij.openapi.editor.*                  // Editor, Document, EditorFactory
+import com.intellij.openapi.fileEditor.*              // FileEditorManager, FileDocumentManager
+import com.intellij.openapi.command.*                 // CommandProcessor, WriteCommandAction
+import com.intellij.psi.*                             // PsiFile, PsiElement, PsiManager, PsiDocumentManager, …
+import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.minutes
 ```
+
+**You still need to add these explicitly** — they sit outside the auto-import glob and a missing one throws `unresolved reference`, wasting a retry turn:
+
+```kotlin[IU]
+import com.intellij.psi.search.FilenameIndex         // getVirtualFilesByName, getAllFilesByExt
+import com.intellij.psi.search.GlobalSearchScope     // projectScope(), allScope()
+import com.intellij.psi.search.PsiShortNamesCache    // allClassNames
+import com.intellij.psi.search.searches.ReferencesSearch
+import com.intellij.psi.search.searches.AnnotatedElementsSearch
+import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.openapi.roots.ProjectRootManager  // contentSourceRoots
+import com.intellij.refactoring.rename.RenameProcessor
+import com.intellij.refactoring.safeDelete.SafeDeleteProcessor
+import com.intellij.refactoring.move.moveClassesOrPackages.MoveClassesOrPackagesProcessor
+// … plus whichever specific refactoring/search API your script uses
+```
+
+Rule of thumb: `com.intellij.openapi.*` sub-packages in the auto-import list above are free; everything under `com.intellij.psi.search.*`, `com.intellij.refactoring.*`, and non-standard `openapi` roots (`roots.`, `wm.`, `module.`, `externalSystem.`) needs an explicit import.

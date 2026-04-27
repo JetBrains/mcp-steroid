@@ -1,0 +1,49 @@
+{
+  "run_dir": "test-experiments/build/test-logs/test/run-20260423-094307-dpaia__feature__service-125-mcp/",
+  "agent": "claude-code",
+  "tokens": {
+    "input": 93,
+    "output": 1258,
+    "cache_read": 6189012,
+    "cache_creation": 328308,
+    "total": 6518671
+  },
+  "calls": {
+    "total": 50,
+    "mcp_steroid": 3,
+    "native": 47,
+    "mcp_share": 0.06,
+    "by_name": {
+      "ToolSearch": 2,
+      "mcp__mcp-steroid__steroid_execute_code": 2,
+      "Read": 20,
+      "Glob": 2,
+      "Write": 8,
+      "mcp__mcp-steroid__steroid_apply_patch": 1,
+      "Edit": 3,
+      "Bash": 12
+    },
+    "errors_by_name": {
+      "toolu_01KPhpFRzmKc75KesP9SJuY5": 1,
+      "toolu_01VqvgNbEkhdjYi3vGGiiRtQ": 1
+    }
+  },
+  "complexity": {
+    "exec_code_calls": 2,
+    "exec_code_lines_total": 30,
+    "exec_code_lines_avg": 15.0,
+    "exec_code_lines_p50": 15.0,
+    "exec_code_lines_max": 21
+  },
+  "ease_of_use": {
+    "fetch_resource_calls": 0,
+    "native_edit_calls": 3,
+    "exec_code_retries": 0,
+    "native_bash_calls": 12
+  },
+  "errors": 2,
+  "apply_patch": {
+    "called": true,
+    "hunks_estimate": 3
+  }
+}

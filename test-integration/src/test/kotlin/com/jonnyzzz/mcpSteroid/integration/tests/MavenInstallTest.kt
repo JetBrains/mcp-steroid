@@ -53,8 +53,8 @@ class MavenInstallTest {
             code = """
                 import org.jetbrains.idea.maven.execution.MavenRunConfigurationType
                 import org.jetbrains.idea.maven.execution.MavenRunnerParameters
-                import com.intellij.execution.process.ProcessAdapter
                 import com.intellij.execution.process.ProcessEvent
+                import com.intellij.execution.process.ProcessListener
                 import kotlinx.coroutines.CompletableDeferred
                 import kotlinx.coroutines.withTimeout
                 import kotlin.time.Duration.Companion.minutes
@@ -73,7 +73,7 @@ class MavenInstallTest {
                     /* settings (MavenGeneralSettings) = */ null,
                     /* runnerSettings (MavenRunnerSettings) = */ null,
                 ) { descriptor ->
-                    descriptor?.processHandler?.addProcessListener(object : ProcessAdapter() {
+                    descriptor?.processHandler?.addProcessListener(object : ProcessListener {
                         override fun processTerminated(event: ProcessEvent) {
                             done.complete(event.exitCode)
                         }

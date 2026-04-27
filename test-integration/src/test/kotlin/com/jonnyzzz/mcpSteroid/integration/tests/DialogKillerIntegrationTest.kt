@@ -30,7 +30,16 @@ class DialogKillerIntegrationTest {
 
     companion object {
         val lifetime by lazy { CloseableStackHost(this::class.java.simpleName) }
-        val session by lazy { IntelliJContainer.create(lifetime, "ide-agent", consoleTitle = "Dialog Killer") }
+        // `waitForProjectReady()` is required: `IntelliJContainer.create` only starts the
+        // IDE process, it does NOT wait for `ProjectManager.openProjects` to populate.
+        // Test bodies here issue `mcpExecuteCode` straight away, and without an explicit
+        // wait they race the project open and fail with `No project found`. Previously
+        // the Corretto-consent modal (fixed in `mcpResolveUnknownSdks`) happened to
+        // block long enough to mask the race; no such accidental delay now.
+        val session by lazy {
+            IntelliJContainer.create(lifetime, "ide-agent", consoleTitle = "Dialog Killer")
+                .waitForProjectReady()
+        }
         val console get() = session.console
 
         @AfterAll

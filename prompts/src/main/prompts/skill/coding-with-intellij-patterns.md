@@ -101,7 +101,10 @@ println("Base path: ${project.basePath}")
 println("Smart mode: ${!com.intellij.openapi.project.DumbService.isDumb(project)}")
 ```
 
-> **Once smart mode is confirmed, do NOT re-probe before each subsequent operation.** Combine the readiness check with your first real action to save round-trips (~20s each). Only re-probe if you triggered a Maven import or other index-invalidating step.
+> **Treat this as a connectivity probe, not an index-readiness lease.** Do not re-probe
+> `waitForSmartMode()` before every operation. For index-dependent PSI queries, put the real
+> work inside `smartReadAction { }`; after Maven/Gradle import or other project configuration,
+> await `Observation.awaitConfiguration(project)` before the indexed read.
 
 ---
 

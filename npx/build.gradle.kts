@@ -12,6 +12,7 @@ node {
     version.set("20.20.0")
 }
 
+val packageVersion = version.toString()
 val preparePackageFiles = tasks.register("preparePackageFiles") {
     group = "npx"
     description = "Copy package.json and package-lock.json to build/package/ with patched version"
@@ -21,7 +22,7 @@ val preparePackageFiles = tasks.register("preparePackageFiles") {
     val sourceLockJson = projectDir.resolve("package-lock.json")
     val outputDir = layout.buildDirectory.dir("package")
 
-    inputs.property("projectVersion", project.version.toString())
+    inputs.property("projectVersion", packageVersion)
     inputs.file(sourcePackageJson)
     inputs.file(sourceLockJson)
     outputs.dir(outputDir)
@@ -30,14 +31,12 @@ val preparePackageFiles = tasks.register("preparePackageFiles") {
         val dir = outputDir.get().asFile
         dir.mkdirs()
 
-        val version = project.version.toString()
-
         // Patch package.json version
         val pkgJson = sourcePackageJson.readText()
         dir.resolve("package.json").writeText(
             pkgJson.replace(
                 Regex(""""version"\s*:\s*"[^"]*""""),
-                """"version": "$version""""
+                """"version": "$packageVersion""""
             )
         )
 
@@ -46,7 +45,7 @@ val preparePackageFiles = tasks.register("preparePackageFiles") {
         dir.resolve("package-lock.json").writeText(
             lockJson.replace(
                 Regex(""""version"\s*:\s*"0\.0\.0-dev""""),
-                """"version": "$version""""
+                """"version": "$packageVersion""""
             )
         )
     }

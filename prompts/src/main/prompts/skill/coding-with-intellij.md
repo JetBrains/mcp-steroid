@@ -19,33 +19,32 @@ This guide teaches you how to write effective Kotlin code that executes inside I
 
 ## Quick Reference
 
-**The IDE knows the code better than any file search tool. Use it only where it adds value.**
+**The IDE knows the code better than any file search tool. `steroid_execute_code` is the default edit/navigate path — native tools only where the IDE genuinely does not apply.**
 
-| Operation | Use IntelliJ API (steroid_execute_code) | Why? |
-|-----------|------------------------------|------|
-| Find files by extension | `FilenameIndex.getAllFilesByExt(project, "java", scope)` | O(1) indexed vs O(n) filesystem scan |
-| Find file by exact name | `FilenameIndex.getVirtualFilesByName("UserService.java", scope)` | O(1) indexed lookup |
-| Find all usages of symbol | `ReferencesSearch.search(element, scope)` | Understands code semantics |
-| Manual text replacement | Refactoring APIs | Maintains code correctness |
-| Run Maven tests | `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` | **✅ PRIMARY** — structured pass/fail; Bash `./mvnw test` is LAST-RESORT only |
-| Run Gradle tests | `GradleRunConfiguration` + `setRunAsTest(true)` + `SMTRunnerEventsListener` | **✅ PRIMARY** — structured pass/fail; Bash `./gradlew test` is LAST-RESORT only |
-| Maven dependency sync | `MavenProjectsManager.forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | **✅ Use this** — no CLI equivalent |
+| Operation | IDE path (inside `steroid_execute_code`) | Why |
+|-----------|------------------------------------------|------|
+| Find files by extension | `FilenameIndex.getAllFilesByExt(project, "java", projectScope())` | O(1) indexed, index is canonical |
+| Find file by exact name | `FilenameIndex.getVirtualFilesByName("UserService.java", projectScope())` | O(1) indexed lookup |
+| Find all usages of symbol | `ReferencesSearch.search(element, projectScope())` | Type-aware, no false positives from strings/comments |
+| Read a file | `String(findProjectFile("…")!!.contentsToByteArray(), charset)` | Stays inside the IDE; no separate Read-before-Edit contract to satisfy |
+| List files | `FilenameIndex.getAllFilesByExt(project, "java", projectScope())` or PSI directory traversal | Same index backing |
+| **Grep text content** | `FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> /* indexOf / Regex.findAll on vf.text */ }` | Works over the VFS so subsequent semantic queries see the same state you searched |
+| **Multi-site literal edit** (any number of files) | `steroid_apply_patch` | One undoable command, atomic pre-flight, PSI commit in-place, no kotlinc compile cycle — see `mcp-steroid://skill/apply-patch-tool-description` |
+| **In-place single-file edit** | `val vf = findProjectFile(…)!!; val updated = String(vf.contentsToByteArray(), vf.charset).replace(OLD, NEW); check(updated != …); writeAction { VfsUtil.saveText(vf, updated) }` | Same IDE-side read+write+VFS-refresh in one call; payload shape identical to `Edit(old,new)` |
+| Create new files | `writeAction { VfsUtil.createDirectoryIfMissing(root, parentRel)!!.createChildData(this, name).also { VfsUtil.saveText(it, content) } }` | VFS creates the index entry immediately so PSI can parse the file without a refresh round-trip |
+| Run Maven tests | `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` | Structured pass/fail; Bash `./mvnw test` cold-starts ~31 s per run |
+| Run Gradle tests | `ExternalSystemUtil.runTask()` or `GradleRunConfiguration` through the IDE runner | See `mcp-steroid://skill/execute-code-gradle`; same cold-start cost applies |
+| Maven dependency sync | `MavenProjectsManager.forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | No CLI equivalent |
 
-**Operations that do NOT need steroid_execute_code — use native agent tools instead:**
+**Native tools only where MCP Steroid genuinely does not apply** — keep this list tight, and prefer the IDE whenever the operation touches the project model:
 
-| Operation | Native Tool | Why NOT steroid_execute_code? |
-|-----------|-------------|-------------------|
-| **Create new files** | **Write tool** | steroid_execute_code file creation is **+47% slower** (A/B measured) |
-| **Small in-place edit (1–3 lines)** | **Edit tool** | Edit ships ~100 bytes (old_string + new_string). A PSI/document-based steroid_execute_code script for the same change is ~500+ bytes of boilerplate (findFile, getDocument, writeAction, replaceString) — **~4× more payload with no semantic benefit** for a localized text change. Use PSI only when the edit needs type-aware reasoning (e.g., a rename that must update references across files). |
-| **Single-file private rename** | **Grep + Edit(replace_all=true)** | For a symbol used only inside one file, `Grep` confirms the scope in 1 call and `Edit(replace_all=true)` rewrites it atomically within that file — ~2 calls, ~100 bytes. PSI rename refactoring adds ~400 bytes of script overhead without improving correctness at this scope. Switch to the PSI rename path (`RefactoringFactory.createRename`) only when the symbol has cross-file references. |
-| **Create directories** | **Bash `mkdir -p`** | `VfsUtil.createDirectoryIfMissing` adds ~8s JVM overhead; `mkdir -p` is instant |
-| Read a file | Read tool | Zero JVM overhead; steroid_execute_code adds ~12s per call |
-| List files | Glob tool | Zero overhead; steroid_execute_code not needed |
-| `grep`/search text | Grep tool | Zero overhead |
-| **Run Maven/Gradle tests** | **See Quick Reference above — use IDE runners inside steroid_execute_code** | Bash `./mvnw test` / `./gradlew test` is LAST-RESORT only |
-| Docker availability | Bash tool | Just a socket check — no IntelliJ value |
-| Docker inspect/exec | Bash tool | No IntelliJ API equivalent; use Bash directly |
-| Simple file existence | Bash `test -f` | No IntelliJ value for POSIX checks |
+| Operation | Native Tool | Why |
+|-----------|-------------|-------|
+| Docker inspect / exec | Bash tool | Docker CLI is outside the IDE's scope; spawning `docker` inside the IDE JVM via `GeneralCommandLine` is banned |
+| Shell commands / git / package managers | Bash tool | The IDE does not own these processes |
+| Docker availability probe | `java.io.File("/var/run/docker.sock").exists()` **inside** `steroid_execute_code` | Pure JVM, no process spawn — keeps you inside the IDE call |
+
+Everything else — reads, edits, greps, renames, refactors, test runs, compile checks, inspections — goes through `steroid_execute_code`. The IDE's VFS + PSI stay authoritative and the next semantic query sees the state you just wrote.
 
 ## ❌ BANNED Anti-Patterns: ProcessBuilder for Builds
 

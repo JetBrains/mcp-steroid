@@ -39,7 +39,7 @@ RUN apt-get update && \
 RUN sed -i 's/# en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-# Install JDK 8, 11, 17, 21, 25 (Eclipse Temurin via Adoptium APT)
+# Install JDK 8, 11, 17, 21, 24, 25 (Eclipse Temurin via Adoptium APT)
 # Multiple versions ensure IntelliJ can detect a system JDK regardless of which candidate
 # path it searches (amd64/arm64 arch suffix, exact version), and make multi-version
 # SDK selection available to AI agents working on the project.
@@ -52,6 +52,7 @@ RUN curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gp
         temurin-11-jdk \
         temurin-17-jdk \
         temurin-21-jdk \
+        temurin-24-jdk \
         temurin-25-jdk && \
     rm -rf /var/lib/apt/lists/*
 

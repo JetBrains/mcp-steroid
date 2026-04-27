@@ -6,6 +6,7 @@ import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URLEncoder
 import java.util.*
 
 plugins {
@@ -339,6 +340,7 @@ artifacts {
 }
 
 // Verify bundled libraries in plugin/lib folder
+val pluginVersion = version.toString()
 val verifyBundledLibraries by tasks.registering {
     group = "verification"
     description = "List and verify libraries bundled in plugin lib folder"
@@ -382,20 +384,20 @@ val verifyBundledLibraries by tasks.registering {
         check(ocrFiles.contains("ocr-tesseract/bin/ocr-tesseract.bat")) { "ocr-tesseract must be included in " + ocrFiles.joinToString { "\n $it" } }
         check(ocrFiles.contains("ocr-tesseract/tessdata/eng.traineddata")) { "ocr-tesseract must be included in " + ocrFiles.joinToString { "\n $it" } }
         check(ocrFiles.contains("ocr-tesseract/tessdata/osd.traineddata")) { "ocr-tesseract must be included in " + ocrFiles.joinToString { "\n $it" } }
-        check(ocrFiles.any { it.startsWith("ocr-tesseract/lib/ocr-common-${project.version}.jar") }) { "ocr-common jar must be included in ocr-tesseract" }
-        check(ocrFiles.any { it.startsWith("ocr-tesseract/lib/ocr-tesseract-${project.version}.jar") }) { "ocr-tesseract jar must be included in ocr-tesseract" }
+        check(ocrFiles.any { it.startsWith("ocr-tesseract/lib/ocr-common-$pluginVersion.jar") }) { "ocr-common jar must be included in ocr-tesseract" }
+        check(ocrFiles.any { it.startsWith("ocr-tesseract/lib/ocr-tesseract-$pluginVersion.jar") }) { "ocr-tesseract jar must be included in ocr-tesseract" }
 
         allFiles = (allFiles - ocrFiles).toCollection(sortedSetOf())
 
         // Assert expected libraries - update this list when dependencies change
         val expectedFiles = sortedSetOf(
             //our binaires
-            "lib/ai-agents-${project.version}.jar",
-            "lib/ij-plugin-${project.version}.jar",
-            "lib/kotlin-cli-${project.version}.jar",
-            "lib/ocr-common-${project.version}.jar",
-            "lib/prompts-api-${project.version}.jar",
-            "lib/prompts-${project.version}.jar",
+            "lib/ai-agents-$pluginVersion.jar",
+            "lib/ij-plugin-$pluginVersion.jar",
+            "lib/kotlin-cli-$pluginVersion.jar",
+            "lib/ocr-common-$pluginVersion.jar",
+            "lib/prompts-api-$pluginVersion.jar",
+            "lib/prompts-$pluginVersion.jar",
 
             //libraries
             "lib/config-1.4.3.jar",
@@ -474,21 +476,25 @@ val deployPlugin by tasks.registering {
                 lines[0] to lines[1]
             }?.distinctBy { it.first } ?: emptyList()
 
-        if (endpoints.isEmpty()) { println("No running IDEs found"); return@doLast }
+        require(endpoints.isNotEmpty()) { "No running IDEs found" }
 
         endpoints.forEach { (url, token) ->
-            println("\n→ $url")
-            val conn = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"; doOutput = true
+            val encodedPath = URLEncoder.encode(zip.absolutePath, Charsets.UTF_8)
+            val fileUrl = "$url?local-disk-file=$encodedPath"
+            println("\n→ $fileUrl")
+            val conn = (URI(fileUrl).toURL().openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"; doOutput = false; doInput = true
                 setRequestProperty("Authorization", token)
-                setRequestProperty("Content-Type", "application/octet-stream")
                 connectTimeout = 5000; readTimeout = 300000
             }
-            conn.outputStream.use { out -> zip.inputStream().use { it.copyTo(out) } }
-            if (conn.responseCode in 200..299) {
-                conn.inputStream.bufferedReader().forEachLine { println("  $it") }
+            val responseLines = if (conn.responseCode in 200..299) {
+                conn.inputStream.bufferedReader().readLines()
             } else {
-                println("  ✗ HTTP ${conn.responseCode}")
+                conn.errorStream?.bufferedReader()?.readLines().orEmpty()
+            }
+            responseLines.forEach { println("  $it") }
+            require(conn.responseCode in 200..299 && responseLines.lastOrNull() == "SUCCESS") {
+                "Deploy failed (HTTP ${conn.responseCode}): ${responseLines.lastOrNull()}"
             }
         }
     }

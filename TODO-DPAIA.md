@@ -1,0 +1,34 @@
+# TODO DPAIA
+
+- [ ] Keep `TASKS.md` as the active DPAIA/autoresearch task list.
+- [ ] Keep `MEMORY.md` as the short factual handoff for the current DPAIA optimization thread.
+- [ ] After each measured DPAIA iteration, record the hypothesis, changed files, validation command, and metric delta.
+- [x] Measure the corrected `steroid_apply_patch` prompt on `DpaiaPetclinicRest37Test.claude with mcp` and compare native Edit count against the 2026-04-26 baseline of 2.
+- [x] Tighten DPAIA verification guidance to reduce duplicate Maven/Bash runs while preserving 184/184 pass behavior.
+- [x] Measure the DPAIA verification-guidance tweak on `DpaiaPetclinicRest37Test.claude with mcp`; target Bash <=2, Edit 0, apply_patch true, 184/184 tests.
+- [x] Add a prompt regression test for the DPAIA arena MCP block after the verification-guidance measurement.
+- [x] Run 3-agent review for the next low-hanging fruit after arena prompt regression; consensus is to fix global apply-patch prompt-resource routing before Gradle-resource work.
+- [x] Measure the dedicated apply-patch routing resource change on `DpaiaPetclinicRest37Test.claude with mcp`.
+- [x] Add disk-persistence integration tests for `steroid_apply_patch` success/failure cases.
+- [x] Pick the next Gradle DPAIA scenario and measure it before changing Gradle guidance.
+- [x] Add a real IntelliJ Ultimate monorepo `thisLogger` lookup regression test using `Observation.awaitConfiguration` plus `smartReadAction`.
+- [x] Update MCP server/resource indexing guidance to use `Observation.awaitConfiguration(project)` plus `smartReadAction { }` instead of treating `waitForSmartMode()` as a stable handoff.
+- [x] Tighten Gradle/JDK prompt guidance so DPAIA agents use the configured JDK path before the first Bash Gradle call.
+- [x] Fix the `ExceptionCaptureService` null-parameters crash observed during the green IntelliJ monorepo `thisLogger` lookup.
+- [x] Review IntelliJ checkout ZIP/cache precedence so `MCP_STEROID_INTELLIJ_CHECKOUT_DIR` does not silently lose to an older cached TeamCity ZIP when a local checkout was explicitly configured.
+- [x] Investigate the remaining severe Kotlin FIR resolve logs observed during the green IntelliJ monorepo `thisLogger` lookup.
+- [x] Add decoded-log regression coverage so Microshop-2 MCP runs do not use Java 21 or wildcard JAVA_HOME assignments for Gradle.
+- [x] Add a Gradle-focused MCP prompt resource modeled after the Maven patterns.
+- [x] Measure the Gradle-focused MCP prompt resource on `DpaiaMicroshop2Test.claude with mcp` against the 136s JDK-fixed baseline.
+- [x] Review the Microshop-2 measurement and improve Gradle resource discovery/routing so agents actually fetch or receive `mcp-steroid://skill/execute-code-gradle` before falling back to Bash Gradle.
+- [x] Rerun `DpaiaMicroshop2Test.claude with mcp` after Gradle resource routing; target full-suite pass and `fetch_resource_calls >= 1` for `mcp-steroid://skill/execute-code-gradle`.
+- [x] Add result-boundary guidance for `steroid_execute_code` build results with `errors=false, aborted=true`, because prompt-only routing still produced 0 `steroid_fetch_resource` calls.
+- [x] Rerun `DpaiaMicroshop2Test.claude with mcp` after result-boundary guidance; target full-suite pass and `fetch_resource_calls >= 1`.
+- [x] Run 3-agent review of the failed fetch-resource boundary measurement and select the next low-hanging correction.
+- [x] Make aborted-build guidance name Claude's exact `mcp__mcp-steroid__steroid_fetch_resource` tool and render on its own line.
+- [x] Rerun `DpaiaMicroshop2Test.claude with mcp` after the explicit boundary hint; target `fetch_resource_calls >= 1`.
+- [x] Run 3-agent review of the explicit-hint failure and choose inline Gradle sync guidance versus removing/replacing the failed fetch-only hint.
+- [x] Update Gradle arena/resource guidance so agents use the now-working IDE-native Gradle build/sync path instead of Bash compile fallback.
+- [x] Rerun `DpaiaMicroshop2Test.claude with mcp` after the Gradle guidance update; result: fewer native Read/Glob/Bash calls, no build abort, and no tool errors.
+- [x] Run 3-agent review of the Gradle guidance measurement and choose the next low-hanging correction.
+- [ ] Reduce native source discovery/read calls in Gradle DPAIA prompts/resources with a batched IDE/VFS `steroid_execute_code` recipe.

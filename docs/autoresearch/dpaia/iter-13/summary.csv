@@ -1,0 +1,2 @@
+run_dir,agent,mcp_share,mcp_steroid_calls,native_calls,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_total,calls_total,exec_code_calls,exec_code_lines_avg,exec_code_lines_max,native_edit_calls,fetch_resource_calls,retries,errors,apply_patch_called,apply_patch_hunks
+test-experiments/build/test-logs/test/run-20260423-094307-dpaia__feature__service-125-mcp/,claude-code,0.06,3,47,93,1258,6189012,328308,6518671,50,2,15.0,21,3,0,0,2,1,3

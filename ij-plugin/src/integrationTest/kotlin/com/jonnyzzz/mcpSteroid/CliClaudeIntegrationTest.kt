@@ -101,4 +101,9 @@ class CliClaudeIntegrationTest : CliIntegrationTestBase() {
         //needed to make test runner work
         super.testSerenaSelfEvalPrompt()
     }
+
+    override fun testApplyPatchRecipeEvaluation() {
+        //needed to make test runner work
+        super.testApplyPatchRecipeEvaluation()
+    }
 }

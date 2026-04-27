@@ -1,0 +1,43 @@
+{
+  "run_dir": "test-experiments/build/test-logs/test/run-20260423-102456-dpaia__spring__petclinic__rest-3-mcp/",
+  "agent": "codex",
+  "tokens": {
+    "input": 1058002,
+    "output": 10649,
+    "cache_read": 884608,
+    "cache_creation": 0,
+    "total": 1953259
+  },
+  "calls": {
+    "total": 23,
+    "mcp_steroid": 2,
+    "native": 21,
+    "mcp_share": 0.087,
+    "mcp_share_edit_basis": 0.067,
+    "by_name": {
+      "steroid_execute_code": 2,
+      "command_execution": 20,
+      "file_change": 1,
+      "file_change_paths_total": 8
+    },
+    "errors_by_name": {}
+  },
+  "complexity": {
+    "exec_code_calls": 2,
+    "exec_code_lines_total": 22,
+    "exec_code_lines_avg": 11.0,
+    "exec_code_lines_p50": 11.0,
+    "exec_code_lines_max": 17
+  },
+  "ease_of_use": {
+    "fetch_resource_calls": 0,
+    "native_edit_calls": 8,
+    "exec_code_retries": 0,
+    "native_bash_calls": 20
+  },
+  "errors": 2,
+  "apply_patch": {
+    "called": false,
+    "hunks_estimate": 0
+  }
+}

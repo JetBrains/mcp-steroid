@@ -189,7 +189,10 @@ abstract class KtBlockCompilationTestBase {
             val ijSourcesDir = System.getProperty("mcp.steroid.ij.sources")
                 ?: error("Missing system property 'mcp.steroid.ij.sources'")
             val executionDir = Path.of(ijSourcesDir, "com", "jonnyzzz", "mcpSteroid", "execution")
-            listOf("McpScriptContext.kt", "McpScriptBuilder.kt").map { fileName ->
+            // ApplyPatch.kt defines ApplyPatchBuilder / ApplyPatchResult / ApplyPatchException,
+            // which McpScriptContext.kt references at its `applyPatch { }` extension — must be
+            // supplied to kotlinc alongside so fenced-block scripts that use the DSL compile.
+            listOf("McpScriptContext.kt", "McpScriptBuilder.kt", "ApplyPatch.kt").map { fileName ->
                 val file = executionDir.resolve(fileName)
                 require(file.isRegularFile()) { "ij-plugin source file not found: $file" }
                 file

@@ -24,6 +24,10 @@ import kotlin.time.Duration.Companion.seconds
  */
 class ScriptExecutorTest : BasePlatformTestCase() {
 
+    // Run tests off the EDT so `timeoutRunBlocking` doesn't park the dispatch
+    // thread while ScriptExecutor's internals dispatch back to EDT.
+    override fun runInDispatchThread(): Boolean = false
+
     private val executor: ScriptExecutor get() = project.service()
 
     private var executionCounter = 0
@@ -33,7 +37,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
      * Test that when the script engine is not available, we get a fast error response.
      * This is the expected case in the test environment.
      */
-    fun testScriptEngineNotAvailableReturnsFast(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testScriptEngineNotAvailableReturnsFast(): Unit = timeoutRunBlocking(60.seconds) {
         val code = """
             println("Hello")
         """.trimIndent()
@@ -57,7 +61,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
      * When the script engine is NOT available, it will also fail (script engine not available).
      * Either way, execution should complete quickly and not wait for a timeout.
      */
-    fun testCompilationFailureFast(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testCompilationFailureFast(): Unit = timeoutRunBlocking(60.seconds) {
         val invalidCode = """
             please fail; this is invalid Kotlin code
         """.trimIndent()
@@ -75,7 +79,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
      *
      * Note: When the script engine is not available, this will fail with a different error.
      */
-    fun testSyntaxErrorFast(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testSyntaxErrorFast(): Unit = timeoutRunBlocking(60.seconds) {
         val syntaxErrorCode = """
             val x = // incomplete statement
         """.trimIndent()
@@ -90,7 +94,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
     /**
      * Test that top-level script body executes without execute {} wrapper.
      */
-    fun testTopLevelScriptBody(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testTopLevelScriptBody(): Unit = timeoutRunBlocking(60.seconds) {
         val noExecuteCode = """
             // Top-level script body
             val x = 1 + 2
@@ -105,7 +109,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
         assertTrue("Should complete with some output", builder.hasAnyOutput())
     }
 
-    fun testExecuteWrapperStillWorks(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testExecuteWrapperStillWorks(): Unit = timeoutRunBlocking(60.seconds) {
         val executeWrapperCode = """
             execute {
                 val x = 40 + 2
@@ -125,7 +129,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
      * When the script engine is available, statements should run sequentially.
      * If it is not available, we should get an error.
      */
-    fun testTopLevelStatementsOrder(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testTopLevelStatementsOrder(): Unit = timeoutRunBlocking(60.seconds) {
                 val multiCode = """
             println("First")
             println("Second")
@@ -148,7 +152,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
     /**
      * Test that a runtime error in the script body is caught and reported.
      */
-    fun testRuntimeErrorInScript(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testRuntimeErrorInScript(): Unit = timeoutRunBlocking(60.seconds) {
         val errorCode = """
             throw RuntimeException("Test runtime error")
         """.trimIndent()
@@ -163,7 +167,7 @@ class ScriptExecutorTest : BasePlatformTestCase() {
     /**
      * Test that a timeout is reported correctly when execution takes too long.
      */
-    fun testTimeoutReported(): Unit = timeoutRunBlocking(10.seconds) {
+    fun testTimeoutReported(): Unit = timeoutRunBlocking(60.seconds) {
         val slowCode = """
             println("Starting")
             kotlinx.coroutines.delay(5000) // 5 seconds

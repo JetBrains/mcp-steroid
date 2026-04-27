@@ -107,23 +107,30 @@ This applies to ALL suspend context APIs: `readAction { }`, `writeAction { }`, `
 
 ### Automatic Smart Mode
 
-`waitForSmartMode()` is called **automatically before your script starts**. You only need to call it again if you trigger indexing mid-script.
+`waitForSmartMode()` is called **automatically before your script starts**, but it is not a
+stable lease on smart mode. IntelliJ may enter dumb mode again before the next statement. Use
+`smartReadAction { }` for index-dependent PSI reads, and use `Observation.awaitConfiguration(project)`
+after project import/sync/configuration.
 ```kotlin[IU]
-// Smart mode already waited - safe to use indices immediately
-val classes = readAction {
+// Index-dependent PSI query: keep the whole query inside smartReadAction
+val classes = smartReadAction {
     JavaPsiFacade.getInstance(project)
         .findClass("com.example.MyClass", allScope())
 }
 
-// Only call again if you trigger re-indexing
-// (rare - most operations don't trigger indexing)
+// After import/sync/configuration:
+// import com.intellij.platform.backend.observation.Observation
+// Observation.awaitConfiguration(project)
+// val result = smartReadAction { /* indexed PSI query */ }
 ```
 
 > **Bulk file creation triggers re-indexing**: Writing new files via `writeAction { VfsUtil.saveText(...) }` causes IntelliJ to re-index those files.
-> - **In a subsequent steroid_execute_code call**: Safe — `waitForSmartMode()` runs automatically at script start, so PSI is up-to-date by the time your code runs.
-> - **In the same steroid_execute_code call** (create files then immediately inspect them): call `waitForSmartMode()` explicitly after the `writeAction` block and before any `runInspectionsDirectly` / `ReferencesSearch` / `JavaPsiFacade.findClass()` calls on the new files.
+> - **In a subsequent steroid_execute_code call**: usually safe, but keep index-dependent PSI queries inside `smartReadAction { }`.
+> - **In the same steroid_execute_code call** (create files then immediately inspect them): call `Observation.awaitConfiguration(project)` after the `writeAction` block, then use `smartReadAction { }` for `ReferencesSearch` / `JavaPsiFacade.findClass()` calls on the new files.
 >
 ```kotlin
+import com.intellij.platform.backend.observation.Observation
+
 // Pattern: create files AND inspect in the SAME steroid_execute_code call
 writeAction {
     val root = LocalFileSystem.getInstance().findFileByPath(project.basePath!!)!!
@@ -131,13 +138,13 @@ writeAction {
     val f = dir.findChild("MyService.java") ?: dir.createChildData(this, "MyService.java")
     VfsUtil.saveText(f, "package com.example;\npublic class MyService {}")
 }
-waitForSmartMode()  // ← flush PSI index before inspecting the newly created file
+Observation.awaitConfiguration(project)
 val vf = findProjectFile("src/main/java/com/example/MyService.java")!!
 val problems = runInspectionsDirectly(vf)
 println(if (problems.isEmpty()) "OK" else problems.toString())
 ```
 >
-> **Best practice**: Create files in one steroid_execute_code call, then inspect in a separate steroid_execute_code call — `waitForSmartMode()` runs automatically between calls.
+> **Best practice**: Create files in one steroid_execute_code call, then inspect in a separate steroid_execute_code call. Use `smartReadAction { }` for indexed PSI reads.
 >
 > **⚠️ Create one file per steroid_execute_code call** when possible. Bundling multiple file creations in a single call makes error attribution hard: if the call throws an exception midway, it's unclear which files were created and which failed. Create files one at a time, verify existence (`findProjectFile(path) != null`), then proceed to the next.
 
