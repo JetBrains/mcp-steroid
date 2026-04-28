@@ -57,7 +57,6 @@
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ActionDiscoveryToolHandler"/>
         <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandler"/>
