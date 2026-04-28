@@ -10,7 +10,6 @@ import com.jonnyzzz.mcpSteroid.testHelper.DockerGeminiSession
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
 import org.junit.Assert
-import org.junit.Assume
 import kotlin.time.Duration.Companion.seconds
 
 /**

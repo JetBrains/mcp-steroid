@@ -47,6 +47,20 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
      */
     protected abstract fun readApiKey(): String?
 
+    /**
+     * `true` when [readApiKey] returns a real key (not `null`, not an unresolved
+     * `%credentialsJSON:…%` TeamCity reference). Used by JUnit 3 / `BasePlatformTestCase`
+     * tests via `UsefulTestCase.shouldRunTest()` — the JUnit 4 `@Rule` chain there
+     * recognises `AssumptionViolatedException` thrown from a Rule and reports the test
+     * as ignored, unlike exceptions thrown from inside `TestCase.runTest()` which the
+     * JUnit 3↔4 bridge converts to failures. Callers in JUnit 5 paths just rely on
+     * [skipTestWhenKeyMissing] + [requireApiKey].
+     */
+    fun isApiKeyAvailable(): Boolean {
+        val key = readApiKey() ?: return false
+        return !key.startsWith("%")
+    }
+
     /** Human-readable description of where the key can come from (for error/skip messages). */
     protected abstract val apiKeyHint: String
 
