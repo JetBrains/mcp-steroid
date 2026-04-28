@@ -98,6 +98,11 @@ class DockerGeminiSession(
 
         override val apiKeyHint = "set env GEMINI_API_KEY, GOOGLE_API_KEY, or ~/.vertex"
 
+        // The TeamCity server does not have a Gemini credentialsJSON token configured
+        // and there is no plan to add one — Gemini-using tests should be reported as
+        // ignored rather than failed when the key is absent. See [AIAgentCompanion.skipTestWhenKeyMissing].
+        override val skipTestWhenKeyMissing = true
+
         override fun readApiKey(): String? {
             System.getenv("GEMINI_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
             System.getenv("GOOGLE_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
