@@ -63,16 +63,6 @@ class CliGeminiIntegrationTest : CliIntegrationTestBase() {
         super.testCompilationWarningsDelivered()
     }
 
-    override fun testSerenaSelfEvalPrompt() {
-        //needed to make test runner work
-        super.testSerenaSelfEvalPrompt()
-    }
-
-    override fun testApplyPatchRecipeEvaluation() {
-        //needed to make test runner work
-        super.testApplyPatchRecipeEvaluation()
-    }
-
     override fun testExecSessionReset() {
         //the test is ignored
         //needed to make test runner work
