@@ -200,12 +200,27 @@ class IntelliJContainer(
         val startedAt = System.currentTimeMillis()
         var lastStatus = "no project windows found"
         var projectReady = false
+        var lastHeartbeatAt = startedAt
+
+        // Surface poll status every ~10 s so silent multi-minute waits do not
+        // look identical to a hung wait. CLAUDE.md's "1-minute investigate"
+        // rule depends on operators seeing some output between polls.
+        fun heartbeatIfDue() {
+            val now = System.currentTimeMillis()
+            if (now - lastHeartbeatAt >= 10_000L) {
+                console.writeInfo(
+                    "Still waiting for $waitLabel: $lastStatus (elapsed=${(now - startedAt) / 1000}s)"
+                )
+                lastHeartbeatAt = now
+            }
+        }
 
         while (System.currentTimeMillis() - startedAt < timeoutMillis) {
             val windows = try {
                 mcpSteroid.mcpListWindows(timeoutSeconds = 120)
             } catch (e: Exception) {
                 lastStatus = "mcpListWindows failed: ${e.message}"
+                heartbeatIfDue()
                 Thread.sleep(pollIntervalMillis)
                 continue
             }
@@ -213,6 +228,7 @@ class IntelliJContainer(
 
             if (projectWindows.isEmpty()) {
                 lastStatus = "no project windows found"
+                heartbeatIfDue()
                 Thread.sleep(pollIntervalMillis)
                 continue
             }
@@ -251,6 +267,7 @@ class IntelliJContainer(
             val initialized = projectWindows.any { it.projectInitialized == true }
             val indexing = projectWindows.any { it.indexingInProgress == true }
             lastStatus = "projectInitialized=$initialized, indexingInProgress=$indexing, windows=${projectWindows.size}"
+            heartbeatIfDue()
             Thread.sleep(pollIntervalMillis)
         }
 

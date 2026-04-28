@@ -240,3 +240,98 @@ Current focus: make MCP Steroid measurably better than vanilla agent runs on DPA
 - [ ] PR #26 needs fixes before merge.
   - `npx/build.gradle.kts`: include `package-lock.json` and likely `tsconfig.json` as `npmBuild` inputs.
   - `ocr-tesseract/build.gradle.kts`: make tessdata download skipping version-aware.
+
+## RLM Code Review (v0.93.0..HEAD, 2026-04-28)
+
+Scope: 195 files / ~14K LOC / 125 commits between tag `v0.93.0` and commit
+`47e03ef2` (the disable-apply-patch commit on `main`). Review followed RLM
+partition+map+reduce: 4 parallel sub-agents each owned a slice (production,
+tests, integration/experiments, prompts+kotlin-cli); orchestrator verified
+each non-trivial claim with `grep`/file reads before logging.
+
+Apply-patch–specific findings live in `TODO-APPLY-PATCH.md` so the main
+DPAIA / autoresearch flow stays focused.
+
+### Fixed (2026-04-28)
+
+- [x] **`test-experiments/.../arena/DpaiaArenaTest.kt`** — removed the
+  `Assumptions.assumeTrue` filter and the matching `arena.test.agents`
+  system-property kdoc. Subset selection now runs through Gradle's
+  `--tests` pattern matching, which already covered the same surface
+  (`--tests '*DpaiaArenaTest.claude with mcp'` etc.). No more runtime
+  test-skip pattern. (was MAJOR.)
+- [x] **`test-integration/.../infra/intelliJ-container.kt`** —
+  `waitForIdeWindow` now emits a `console.writeInfo` heartbeat every
+  ~10 s (`elapsed=Ns`, last status). Long polls are no longer
+  indistinguishable from hangs — the CLAUDE.md "1-minute investigate"
+  rule now sees diagnostic output between polls. (was MAJOR.)
+- [x] **`ij-plugin/.../execution/DialogWindowsLookup.kt`** — added a
+  three-line comment in `canPumpEdtNonModal` explaining that the outer
+  `withContext(CoroutineName(...))` deliberately stays on the caller's
+  dispatcher; the inner `async(Dispatchers.EDT)` does the dispatch. No
+  behavioral change. (was MINOR.)
+- [x] **`ij-plugin/.../test/.../ScriptExecutorTest.kt`** — refreshed the
+  stale "10-second timeout versus 60-second exec timeout" comment near
+  line 73 to describe the current 60 s `timeoutRunBlocking` rationale.
+  (was MINOR.)
+- [x] **`ij-plugin/.../test/.../ExecuteFeedbackToolHandlerTest.kt`** —
+  `assertEquals(true, err!!.contains(...))` → `assertTrue(...)`; dropped
+  the now-unused `assertEquals` import. (was MINOR.)
+
+Verification: `:ij-plugin:compileKotlin :ij-plugin:compileTestKotlin
+:test-experiments:compileTestKotlin :test-integration:compileKotlin` all
+green; `:ij-plugin:test --tests '*ScriptExecutor*' '*ExecuteFeedbackToolHandler*'
+'*DialogKiller*' '*VfsRefreshService*'` ran 25/25 (8+7+6+4) on the touched
+suites, fresh timestamps.
+
+### Re-evaluated, no longer flagged
+
+- `test-integration/.../OpenProjectTrustIntegrationTest.kt:101` —
+  re-reading the code: line 88 already passes `mcpListWindows(timeoutSeconds = 120)`,
+  so the per-iteration MCP call IS bounded; the agent's claim of
+  unbounded silent hang was wrong. The outer poll uses `Thread.sleep`
+  with a fixed 180 s budget, which is acceptable for a JUnit poll
+  (not a coroutine).
+- `test-integration/.../IntelliJContainerTest.kt:28` — `Thread.sleep(3000)`
+  is a deliberate post-creation hold to let the IDE settle; the
+  `@Timeout(value = 15, unit = MINUTES)` already protects against hang.
+  Pre-existing and harmless.
+- `ij-plugin/.../test/.../VfsRefreshServiceTest.kt:68-73` — the test
+  documents its own limitation (cannot null out `basePath` on a light
+  fixture without reflection). The null-base-path branch is exercised
+  by integration tests that close projects. Coverage is acceptable.
+
+### IntelliJ inspections — automated run blocked
+
+- [ ] **N/A automated.** Three approaches tried via `steroid_execute_code`:
+  (1) `InspectionEngine.runInspectionOnFile` — failed with API
+      signature mismatch (it now takes a single `InspectionToolWrapper` and
+      a `GlobalInspectionContext`, not a list + `ProgressIndicator`).
+  (2) `DaemonCodeAnalyzerImpl.runMainPasses` directly — fails the
+      `assertUnderDaemonProgress()` check at
+      `community/platform/lang-impl/src/com/intellij/codeInsight/daemon/impl/DaemonCodeAnalyzerImpl.java:485`
+      because the script runs without a `DaemonProgressIndicator`.
+  (3) `MainPassesRunner.runMainPasses(files, severity)` — the canonical
+      wrapper IntelliJ itself uses (e.g. `CodeSmellDetectorImpl.java:130`).
+      Compiles and is the right API per the IntelliJ source agent
+      reviewed at `~/Work/intellij`, but times out from
+      `steroid_execute_code` even with 3 small files at 240 s. Likely
+      cause: it pumps EDT internally and the suspend script holds
+      resources that prevent forward progress.
+  Manual workaround for full IntelliJ-inspection coverage of the
+  changed Kotlin files: open each in the IDE, then
+  **Code → Inspect Code… → Custom Scope: changed files since v0.93.0**,
+  and triage results into this section. The agent-review findings above
+  already covered the banned-pattern + stability surface that IntelliJ
+  inspections would flag.
+
+### Verification notes
+
+- All 9 `ApplyPatchTest` engine-level tests pass on `main` after disable
+  (verified: `:ij-plugin:test --tests '*ApplyPatchTest*'` 9/9).
+- All 30 `McpServerIntegrationTest` cases pass on `main`; `tools/list`
+  results no longer include `steroid_apply_patch`. No other test referenced
+  the removed tool.
+- The `apply-patch` branch retains the full feature surface for re-enable.
+- No force-push was used; `origin/main` and `jb/main` are fast-forwards
+  from `349d649c` to `47e03ef2`.

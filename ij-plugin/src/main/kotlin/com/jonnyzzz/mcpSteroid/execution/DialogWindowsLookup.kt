@@ -44,6 +44,9 @@ class DialogWindowsLookup {
     private suspend fun canPumpEdtNonModal(): Boolean {
         if (ApplicationManager.getApplication().isHeadlessEnvironment) return true
         return try {
+            // Stay on the caller's dispatcher; the inner async(Dispatchers.EDT)
+            // does the dispatch and `await()` only suspends here. CoroutineName
+            // is a diagnostics tag, not a dispatcher switch.
             withContext(CoroutineName("DialogWindowsLookup#check")) {
                 withTimeout(100) {
                     async(Dispatchers.EDT) { true }.await()

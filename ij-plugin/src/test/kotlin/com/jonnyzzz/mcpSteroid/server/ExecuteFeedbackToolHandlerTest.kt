@@ -4,7 +4,6 @@ package com.jonnyzzz.mcpSteroid.server
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -121,9 +120,8 @@ class ExecuteFeedbackToolHandlerTest {
             }
         )
         assertNotNull(err)
-        assertEquals(
+        assertTrue(
             "footer must list required + optional field names",
-            true,
             err!!.contains("Required: project_name, task_id, success_rating, explanation"),
         )
     }

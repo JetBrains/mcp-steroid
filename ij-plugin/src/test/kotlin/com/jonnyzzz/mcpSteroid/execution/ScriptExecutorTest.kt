@@ -69,8 +69,9 @@ class ScriptExecutorTest : BasePlatformTestCase() {
         val builder = TestResultBuilder()
         executor.executeWithProgress(nextExecutionId(), testExecParams(invalidCode), builder)
 
-        // Either failed, has messages, or has exceptions logged
-        // The test verifies fast completion (10-second timeout versus 60-second exec timeout)
+        // Either failed, has messages, or has exceptions logged.
+        // The 60s timeoutRunBlocking guards against a runaway compile loop;
+        // a healthy compile-failure path returns in well under a second.
         assertTrue("Should complete with some output", builder.hasAnyOutput())
     }
 
