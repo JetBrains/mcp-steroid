@@ -4,6 +4,7 @@ import com.jonnyzzz.mcpSteroid.gradle.*
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
@@ -213,6 +214,28 @@ intellijPlatformTesting {
                 // already wired up, then add this source set's classes and its runtime deps
                 // on top for our own tests (testcontainers, ktor-client, :test-helper, …).
                 classpath += integrationTest.output + integrationTest.runtimeClasspath
+
+                // Skip the Gemini CLI integration tests when no key source is available
+                // (env GEMINI_API_KEY/GOOGLE_API_KEY or ~/.vertex). The TeamCity server
+                // has no Gemini token configured and there is no plan to add one — see
+                // the documented exception in CLAUDE.md "BANNED: detecting failures and
+                // skipping tests". This is a Gradle-task-level filter (the only test-skip
+                // mechanism CLAUDE.md permits). The matching JUnit 5 test in
+                // :test-helper:test handles the same case via AssumptionViolatedException
+                // on AIAgentCompanion.skipTestWhenKeyMissing — that path is honored by
+                // JUnit 5 but NOT by the JUnit 3↔4 bridge in BasePlatformTestCase, which
+                // converts the exception to a failure. Filtering here sidesteps the
+                // bridge problem entirely.
+                val hasGeminiKey =
+                    !System.getenv("GEMINI_API_KEY").isNullOrBlank() ||
+                    !System.getenv("GOOGLE_API_KEY").isNullOrBlank() ||
+                    File(System.getProperty("user.home"), ".vertex").exists()
+                if (!hasGeminiKey) {
+                    filter {
+                        excludeTestsMatching("*CliGeminiIntegrationTest*")
+                        isFailOnNoMatchingTests = false
+                    }
+                }
             }
         }
     }
