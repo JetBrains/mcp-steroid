@@ -139,6 +139,40 @@ class SkillReferenceHintTest : BasePlatformTestCase() {
         )
     }
 
+    fun testReadActionHintEnumeratesCommonWrapTargets() {
+        val hint = project.executionSuggestionService.computeHint(
+            "Read access is allowed from inside read-action only (see Application.runReadAction())"
+        )
+        for (api in listOf(
+            "FilenameIndex.*",
+            "PsiManager.findFile(vf)",
+            "psiFile.text",
+            "vf.children",
+            "FileDocumentManager.getDocument(vf)",
+            "ProjectRootManager.contentRoots",
+            "ChangeListManager.allChanges",
+        )) {
+            assertTrue(
+                "Read-action hint must enumerate $api as a wrap target:\n$hint",
+                hint.contains(api)
+            )
+        }
+    }
+
+    fun testReadActionHintLinksToThreadingArticle() {
+        val hint = project.executionSuggestionService.computeHint(
+            "Read access is allowed from inside read-action only"
+        )
+        assertTrue(
+            "Read-action hint must surface the coding-with-intellij-threading article URI:\n$hint",
+            hint.contains("mcp-steroid://skill/coding-with-intellij-threading")
+        )
+        assertTrue(
+            "Read-action hint must remind that the wrap is required on EVERY script:\n$hint",
+            hint.contains("EVERY script") || hint.contains("every script")
+        )
+    }
+
     fun testGenerateSuggestionsBackwardCompatWhenUserOutputCountUnknown() {
         val service = project.executionSuggestionService
         // The default -1 must keep the old behavior: success + no error => no hint.

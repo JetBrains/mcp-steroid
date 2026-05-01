@@ -8,6 +8,31 @@ IntelliJ threading model, read/write action patterns, smart mode, VFS mutation r
 
 Any PSI access (`JavaPsiFacade`, `PsiShortNamesCache`, `PsiManager.findFile`, `ProjectRootManager.contentSourceRoots`, module roots, annotations, etc.) **MUST** be wrapped in `readAction { }`. Modifications require `writeAction { }`. Threading violations throw immediately at runtime — they are not silently ignored. **This applies to ALL PSI calls including your very first exploration call** (e.g. listing source roots). This is the most common first-attempt error.
 
+### API → wrap quick lookup
+
+If you are about to write any of these in a `steroid_execute_code` script, you owe `readAction { }` (or `writeAction { }` for mutations). Each row is verified against IntelliJ 2025.3+ runtime threading assertions:
+
+| API call | Wrap in |
+|---|---|
+| `FilenameIndex.getAllFilesByExt(...)` / `getVirtualFilesByName(...)` / `processAllFileNames(...)` | `readAction { }` (prefer `smartReadAction { }` if indexes were just rebuilt) |
+| `JavaPsiFacade.getInstance(project).findClass(...)` / `findClasses(...)` / `findPackage(...)` | `readAction { }` (or `smartReadAction { }`) |
+| `PsiManager.getInstance(project).findFile(vf)` / `findDirectory(vf)` | `readAction { }` |
+| `psiFile.text` / `psiFile.firstChild` / `psiFile.children` / `psiFile.containingFile` | `readAction { }` |
+| `PsiSearchHelper.*`, `ReferencesSearch.*`, `ClassInheritorsSearch.*`, `MethodReferencesSearch.*` | `readAction { }` (or `smartReadAction { }` for index-dependent searches) |
+| `vf.children` / `vf.parent` / `vf.findChild(name)` / recursive `walk { }` over a `VirtualFile` | `readAction { }` |
+| `FileDocumentManager.getInstance().getDocument(vf)` and reading `document.text` / `lineCount` | `readAction { }` |
+| `ProjectRootManager.getInstance(project).contentRoots` / `contentSourceRoots` / `projectSdk` | `readAction { }` |
+| `ModuleRootManager.getInstance(module).*` / `LibraryTable.*` | `readAction { }` |
+| `ChangeListManager.getInstance(project).allChanges` | `readAction { }` |
+| `vf.createChildData(...)` / `createChildDirectory(...)` / `delete(...)` / `rename(...)` / `move(...)` | `writeAction { }` |
+| `VfsUtil.saveText(vf, text)` / `VfsUtil.createDirectoryIfMissing(parent, rel)` | `writeAction { }` |
+| `PsiDocumentManager.getInstance(project).commitAllDocuments()` | `writeAction { }` |
+| Refactoring processor `.run()` (Rename / Move / SafeDelete / Inline / ChangeSignature / Extract*) | `writeIntentReadAction { }` (NOT `writeAction` — deadlocks) |
+
+**Safe outside any wrap:** `LocalFileSystem.getInstance().findFileByPath(path)` (resolution only), `findProjectFile(relPath)` helper, `vf.path` / `vf.name` / `vf.isDirectory` (cached metadata), and plain `java.io.File` / `Files.*` / `Path.*` operations. The wrap becomes mandatory the moment you read the file's *structure* or hand it to a PSI API.
+
+**Symptom of skipping the wrap:** the runtime emits `SEVERE` `ThreadingAssertions` log lines and — in stricter modes — throws `RuntimeExceptionWithAttachments: Read access is allowed from inside read-action only`. Even when assertions only log, the IDE may produce stale or partial results, so wrap eagerly.
+
 ### IntelliJ Threading Model
 
 1. **EDT (Event Dispatch Thread)** — UI updates only

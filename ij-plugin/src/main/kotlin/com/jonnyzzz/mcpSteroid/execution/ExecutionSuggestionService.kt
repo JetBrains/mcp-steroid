@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.jonnyzzz.mcpSteroid.prompts.generated.debugger.OverviewPromptArticle as DebuggerOverview
+import com.jonnyzzz.mcpSteroid.prompts.generated.skill.CodingWithIntelliJThreadingPromptArticle
 
 inline val Project.executionSuggestionService: ExecutionSuggestionService get() = service()
 
@@ -108,7 +109,7 @@ class ExecutionSuggestionService(
                     "waitForSmartMode() is only a point-in-time wait."
 
             errorMessage.contains("Read access") || errorMessage.contains("Write access") ->
-                "TIP: Wrap PSI/VFS access in readAction {} or writeAction {}."
+                "TIP: Wrap PSI/VFS access in readAction {} or writeAction {}. The wrap is required EVERY script — the previous turn's coroutine context does not carry over. Common wrap targets: `FilenameIndex.*`, `PsiManager.findFile(vf)`, `psiFile.text`, `vf.children` traversal, `FileDocumentManager.getDocument(vf)`, `ProjectRootManager.contentRoots`, `ChangeListManager.allChanges`. For the full API → wrap quick lookup, fetch ${CodingWithIntelliJThreadingPromptArticle().uri}."
 
             errorMessage.contains("EDT", ignoreCase = true) ->
                 "TIP: This operation requires EDT. Use: withContext(Dispatchers.EDT) { }"

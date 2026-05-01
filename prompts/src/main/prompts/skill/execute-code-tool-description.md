@@ -59,6 +59,9 @@ The wrap is required on EVERY new script — the IDE forgets the previous script
 | Read any PSI element / walk a PSI tree / navigate references | `readAction { }` |
 | Use `FilenameIndex.*` (`getAllFilesByExt`, `getVirtualFilesByName`, `processAllFileNames`) | `readAction { }` |
 | Use `PsiSearchHelper.*`, `ReferencesSearch.*`, `ClassInheritorsSearch.*` | `readAction { }` |
+| Walk a VFS tree — `vf.children`, `vf.parent`, `vf.findChild(name)`, recursive `walk { }` | `readAction { }` |
+| Resolve `PsiManager.getInstance(project).findFile(vf)` / `findDirectory(vf)` and read `psiFile.text` / `firstChild` / `name` | `readAction { }` |
+| Get a `Document` from a `VirtualFile` via `FileDocumentManager.getInstance().getDocument(vf)` and read its text | `readAction { }` |
 | Read `ProjectRootManager.contentRoots` / `ModuleRootManager.*` / `LibraryTable.*` | `readAction { }` |
 | Touch `ChangeListManager.allChanges` / VCS model | `readAction { }` |
 | Write to a VFS file (`VfsUtil.saveText`, `vf.setBinaryContent`) | `writeAction { }` |
@@ -67,6 +70,31 @@ The wrap is required on EVERY new script — the IDE forgets the previous script
 | Use a `CommandProcessor.executeCommand { … }` block (undo-grouping) | put the command inside the appropriate read/write action — `executeCommand` itself is *not* an action |
 
 A correctly-wrapped call produces the right result on the first try. An incorrectly-wrapped call throws `Read access is allowed from inside read-action only` or hangs indefinitely — both waste a retry turn.
+
+`LocalFileSystem.getInstance().findFileByPath(path)` itself is safe outside `readAction { }` — it just resolves the `VirtualFile`. The wrap is required as soon as you start reading the file's *structure* (children, document, PSI) or accessing the PSI of any other model.
+
+**Inside `steroid_execute_code` always go through the IntelliJ API.** The following are NOT correct shortcuts — they bypass the IDE's VFS, leave subsequent semantic queries (PSI, indexes, inspections) seeing stale content, and are explicitly out of scope for this tool:
+
+- `java.io.File("…").walk()` / `listFiles()` / `exists()` — use `FilenameIndex.*` (or `LocalFileSystem.findFileByPath` + `vf.children` inside `readAction { }`).
+- `java.nio.file.Files.*`, `Path.toFile()`, `Files.walk(...)` — same reason, same replacement.
+- Spawning external processes from inside the script (`ProcessBuilder("…").start()`, `Runtime.exec(...)`) — banned in `steroid_execute_code` for classpath/lock-isolation reasons.
+- Reading file content via `FileReader` / `BufferedReader.readText()` — use `String(vf.contentsToByteArray(), vf.charset)` so the IDE's VFS stays the source of truth.
+
+The correct shape for "list test files" inside `steroid_execute_code`:
+
+```kotlin
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScope
+
+val testFiles = readAction {
+    FilenameIndex.getAllFilesByExt(project, "java", GlobalSearchScope.projectScope(project))
+        .filter { it.path.contains("/core/src/test/") && it.name.endsWith("Test.java") }
+        .map { it.path }
+        .take(20)
+        .toList()
+}
+println(testFiles.joinToString("\n"))
+```
 
 **Compile check** (use after every edit — do NOT use `./mvnw compile`):
 
