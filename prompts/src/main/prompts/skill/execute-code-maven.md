@@ -304,6 +304,23 @@ language-level mismatches and re-import failures.
 
 ---
 
+## Multi-module: missing in-tree sibling artifact
+
+When `mvn -pl <target>` fails with `The POM for io.example:sibling-module:jar:X-SNAPSHOT is missing` or `Could not resolve artifact io.example:sibling-module:jar:X-SNAPSHOT`, the target depends on a sibling Maven module in the same reactor that has not been installed to your local `~/.m2` yet. The fix is one extra command: install ONLY that single sibling, then retry the targeted test.
+
+**Do NOT use `-am` (also-make).** It walks the full upstream graph (often dozens of modules) and OOM-kills the container. Install exactly one module:
+
+```
+JAVA_HOME=<picked-jdk> ./mvnw install -pl <missing-module> -DskipTests -Dspotless.check.skip=true
+JAVA_HOME=<picked-jdk> ./mvnw -pl <target-module> test -Dtest=<TestClass>#<method> -DskipITs -Dspotless.check.skip=true
+```
+
+If the second command fails again with a *different* missing sibling, repeat the install once for that one too. Stop after at most 2 such installs — if more are needed, the project genuinely requires a top-level `mvn install -DskipTests`, and you should escalate rather than chain installs.
+
+This is the only valid form of `mvn install` in this codebase: single sibling, `-DskipTests`, no `-am`.
+
+---
+
 ## What NOT to Do
 
 - **❌ `ProcessBuilder("./mvnw")` as primary pattern** — banned. Use `MavenRunner` or `MavenRunConfigurationType`.

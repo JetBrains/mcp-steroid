@@ -23,11 +23,11 @@ Pre-flight catches missing or non-unique anchors before any edit lands, so keep 
 |---|---|
 | **Two or more literal-text edits, same or different files** | `steroid_apply_patch` — atomic undo, pre-flight validation, PSI commit, no kotlinc compile cycle. Use whenever an `Edit`/`Edit`/`Edit` chain is tempting. |
 | **One literal-text edit, single file** | `val vf = findProjectFile(p)!!; writeAction { VfsUtil.saveText(vf, String(vf.contentsToByteArray(), vf.charset).replace(OLD, NEW)) }` |
-| **Find files by extension** | `FilenameIndex.getAllFilesByExt(project, "java", projectScope())` — not `Bash find … -name "*.java"` |
-| **Find files by exact name** | `FilenameIndex.getVirtualFilesByName("UserService.java", projectScope())` |
-| **Find all references to a symbol** | `ReferencesSearch.search(psiElement, projectScope())` — type-aware; Grep over source text is a fallback |
+| **Find files by extension** | `readAction { FilenameIndex.getAllFilesByExt(project, "java", projectScope()) }` — not `Bash find … -name "*.java"` |
+| **Find files by exact name** | `readAction { FilenameIndex.getVirtualFilesByName("UserService.java", projectScope()) }` |
+| **Find all references to a symbol** | `readAction { ReferencesSearch.search(psiElement, projectScope()).findAll() }` — type-aware; Grep over source text is a fallback |
 | **Read file content (any size)** | `String(findProjectFile(p)!!.contentsToByteArray(), charset)` — stays inside the IDE; the next semantic query sees what you read |
-| **Grep content inside project files** | `FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> Regex(pat).findAll(String(vf.contentsToByteArray(), vf.charset)) … }` in ONE call |
+| **Grep content inside project files** | `readAction { FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> Regex(pat).findAll(String(vf.contentsToByteArray(), vf.charset)) … } }` in ONE call |
 | **Run Maven / Gradle tests** | IDE runner — see `mcp-steroid://skill/execute-code-maven` and `mcp-steroid://skill/execute-code-gradle`; Bash is only for shell-level final verification or IDE-runner fallback |
 | **IDE build aborted (`errors=false, aborted=true`)** | Fetch `mcp-steroid://skill/execute-code-gradle` or `mcp-steroid://skill/execute-code-maven` and run the matching sync pattern before Bash fallback. |
 | **Compile check after an edit** | `ProjectTaskManager.getInstance(project).buildAllModules().await()` |
@@ -45,11 +45,22 @@ If your next instinct is a native `Read` / `Edit` / `Grep` / `Glob` / `Bash` cal
 - `waitForSmartMode()` runs automatically
 - Available: `project`, `println()`, `printJson()`, `progress()`
 
+**Output rules — the #1 reason agents think a call "returned empty":**
+- The last expression's value is NOT auto-printed (this is a Kotlin script, not a REPL).
+- To surface anything to the caller, wrap it in `println(value)` for plain text or `printJson(value)` for structured data.
+- A script that ends with `myList` (or any bare expression) prints nothing — you will see only `execution_id: …` in the response, identical to a script that returned no value at all. Always end with an explicit `println(...)` or `printJson(...)` of what the agent needs to see.
+
 **Threading rules — apply preventively, not after an error:**
+
+The wrap is required on EVERY new script — the IDE forgets the previous script's coroutine context. A `readAction { }` block in script #1 does not exempt the same API call in script #2.
 
 | You are about to… | Wrap the call in… |
 |---|---|
 | Read any PSI element / walk a PSI tree / navigate references | `readAction { }` |
+| Use `FilenameIndex.*` (`getAllFilesByExt`, `getVirtualFilesByName`, `processAllFileNames`) | `readAction { }` |
+| Use `PsiSearchHelper.*`, `ReferencesSearch.*`, `ClassInheritorsSearch.*` | `readAction { }` |
+| Read `ProjectRootManager.contentRoots` / `ModuleRootManager.*` / `LibraryTable.*` | `readAction { }` |
+| Touch `ChangeListManager.allChanges` / VCS model | `readAction { }` |
 | Write to a VFS file (`VfsUtil.saveText`, `vf.setBinaryContent`) | `writeAction { }` |
 | Invoke a refactoring processor's `.run()` (Rename / Move / SafeDelete / Inline / ChangeSignature / Extract*) | `writeIntentReadAction { }` — NOT `writeAction`; the processor manages its own actions internally, and `writeAction` deadlocks |
 | Commit pending document edits to PSI | `writeAction { PsiDocumentManager.getInstance(project).commitAllDocuments() }` (usually as the line *after* the refactor) |
@@ -100,7 +111,7 @@ For deeper patterns (SMTRunner listeners that block until tests finish + emit st
 - `Write access is allowed from write thread only` → wrap in `writeAction { }`
 - `Read access is allowed from inside read-action only` → wrap in `readAction { }`
 
-**File discovery**: `FilenameIndex.getAllFilesByExt(project, ext, projectScope())` or `FilenameIndex.getVirtualFilesByName(name, projectScope())` inside `steroid_execute_code` — O(1) indexed lookup over the same VFS your next write will touch.
+**File discovery**: `readAction { FilenameIndex.getAllFilesByExt(project, ext, projectScope()) }` or `readAction { FilenameIndex.getVirtualFilesByName(name, projectScope()) }` inside `steroid_execute_code` — O(1) indexed lookup over the same VFS your next write will touch. The `readAction { }` wrap is mandatory; without it the call throws `Read access is allowed from inside read-action only` and the script aborts.
 **File reading**: `String(findProjectFile(relPath)!!.contentsToByteArray(), charset)` inside `steroid_execute_code` — single call, stays inside the IDE so PSI is consistent if you read the same file again later. The native `Read` tool is a valid alternative but imposes the Read-before-Edit contract only it tracks; staying inside `steroid_execute_code` avoids that coupling entirely.
 **In-place file editing (ANY size, 1–1000+ lines)**: use steroid_execute_code — do NOT use the native `Edit` tool. The native `Edit` writes to disk bypassing IntelliJ, leaving VFS + PSI stale; every following semantic query sees the old content until you force a refresh. The IDE-side recipe below is ~5 lines of real code, same payload shape as `Edit(old, new)`, reads+writes inside one call, and the VFS auto-refreshes so PSI stays consistent:
 

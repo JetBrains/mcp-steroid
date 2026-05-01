@@ -77,6 +77,81 @@ class SkillReferenceHintTest : BasePlatformTestCase() {
         )
     }
 
+    fun testEmptyOutputHintFiresOnSuccessfulSilentScript() {
+        val service = project.executionSuggestionService
+        val suggestions = service.generateSuggestions(
+            isFailed = false,
+            errorMessages = emptyList(),
+            userOutputCount = 0,
+        )
+        assertEquals(
+            "Successful but silent script must yield exactly one hint:\n$suggestions",
+            1, suggestions.size
+        )
+        val hint = suggestions.single()
+        assertTrue(
+            "Hint must call out the missing println(...) explicitly:\n$hint",
+            hint.contains("println(value)")
+        )
+        assertTrue(
+            "Hint must mention printJson for structured data:\n$hint",
+            hint.contains("printJson(value)")
+        )
+        assertTrue(
+            "Hint must explain that the last expression is not auto-printed:\n$hint",
+            hint.contains("NOT auto-printed")
+        )
+    }
+
+    fun testEmptyOutputHintStaysQuietWhenScriptPrinted() {
+        val service = project.executionSuggestionService
+        val suggestions = service.generateSuggestions(
+            isFailed = false,
+            errorMessages = emptyList(),
+            userOutputCount = 3,
+        )
+        assertTrue(
+            "Successful script with output must produce no suggestions:\n$suggestions",
+            suggestions.isEmpty()
+        )
+    }
+
+    fun testEmptyOutputHintIsNotEmittedOnFailure() {
+        val service = project.executionSuggestionService
+        // Failed execution that ALSO printed nothing must surface the failure-side hint,
+        // never the empty-output one (the failure is the actionable signal).
+        val suggestions = service.generateSuggestions(
+            isFailed = true,
+            errorMessages = listOf("Read access is allowed from inside read-action only"),
+            userOutputCount = 0,
+        )
+        assertEquals(
+            "Failure path must produce exactly the failure hint:\n$suggestions",
+            1, suggestions.size
+        )
+        assertFalse(
+            "Failure path must not surface the empty-output hint:\n${suggestions.single()}",
+            suggestions.single().contains("NOT auto-printed")
+        )
+        assertTrue(
+            "Failure hint must still steer toward readAction:\n${suggestions.single()}",
+            suggestions.single().contains("readAction")
+        )
+    }
+
+    fun testGenerateSuggestionsBackwardCompatWhenUserOutputCountUnknown() {
+        val service = project.executionSuggestionService
+        // The default -1 must keep the old behavior: success + no error => no hint.
+        val suggestions = service.generateSuggestions(
+            isFailed = false,
+            errorMessages = emptyList(),
+        )
+        assertTrue(
+            "Default userOutputCount must NOT trigger the empty-output hint:\n$suggestions",
+            suggestions.isEmpty()
+        )
+    }
+
     fun testHintForIndexNotReadyException() {
         val error = """
             com.intellij.openapi.project.IndexNotReadyException: Please change caller according to com.intellij.openapi.project.IndexNotReadyException documentation

@@ -39,8 +39,14 @@ class TestResultBuilder : ExecutionResultBuilder {
     val images = mutableListOf<TestImage>()
     private var failed = false
     var failureMessage: String? = null
+    private var _userOutputCount = 0
 
     override val isFailed: Boolean get() = failed
+    override val userOutputCount: Int get() = _userOutputCount
+
+    override fun noteUserOutput() {
+        _userOutputCount++
+    }
 
     override fun logMessage(message: String) {
         messages += message

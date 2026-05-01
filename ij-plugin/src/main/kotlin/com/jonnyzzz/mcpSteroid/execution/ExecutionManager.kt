@@ -22,11 +22,20 @@ import com.intellij.openapi.application.asContextElement
 
 interface ExecutionResultBuilder {
     val isFailed: Boolean
+    /**
+     * Number of user-script `println(...)` / `printJson(...)` invocations.
+     * Framework messages (execution_id, dialog killer, hints) are NOT counted.
+     * Used to detect "script ran but printed nothing" — the most common reason
+     * agents see an empty MCP result and assume the call was broken.
+     */
+    val userOutputCount: Int
     fun logMessage(message: String)
     fun logProgress(message: String)
     fun logImage(mimeType: String, data: String, fileName: String)
     fun logException(message: String, throwable: Throwable)
     fun reportFailed(message: String)
+    /** Called from McpScriptContextImpl.println/printJson to mark genuine user output. */
+    fun noteUserOutput()
 }
 
 /**
@@ -119,6 +128,7 @@ class ExecutionManager(
                     .generateSuggestions(
                         isFailed = builder.isFailed,
                         errorMessages = builder.errorMessages,
+                        userOutputCount = builder.userOutputCount,
                     )
                 for (suggestion in suggestions) {
                     builder.logMessage("HINT: $suggestion")
@@ -151,12 +161,20 @@ class ExecutionManager(
         )
         private var failed = false
         private val _errorMessages = mutableListOf<String>()
+        private var _userOutputCount = 0
 
         override val isFailed: Boolean
             get() = failed
 
+        override val userOutputCount: Int
+            get() = _userOutputCount
+
         val errorMessages: List<String>
             get() = _errorMessages
+
+        override fun noteUserOutput() {
+            _userOutputCount++
+        }
 
         suspend fun build(): ToolCallResult {
             // Wait for all storage writes to complete before returning the result

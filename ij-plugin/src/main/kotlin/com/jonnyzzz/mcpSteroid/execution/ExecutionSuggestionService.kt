@@ -43,8 +43,15 @@ class ExecutionSuggestionService(
     fun generateSuggestions(
         isFailed: Boolean,
         errorMessages: List<String>,
+        userOutputCount: Int = -1,
     ): List<String> {
-        if (!isFailed) return emptyList()
+        if (!isFailed) {
+            // Successful execution that printed NOTHING is the #1 reason agents
+            // think `steroid_execute_code` is broken: their last expression's value
+            // is not auto-printed (Kotlin script != REPL). Tell them once, plainly.
+            if (userOutputCount == 0) return listOf(emptyOutputHint)
+            return emptyList()
+        }
 
         val combined = errorMessages.joinToString("\n")
         if (combined.isBlank()) return emptyList()
@@ -52,6 +59,12 @@ class ExecutionSuggestionService(
         val hint = computeHint(combined)
         return if (hint.isNotBlank()) listOf(hint) else emptyList()
     }
+
+    /**
+     * Hint shown when a script SUCCEEDED but produced zero user output.
+     * Public for unit tests; pattern-matched on the `println(...)` substring.
+     */
+    val emptyOutputHint: String = "TIP: Script ran with NO output. The last expression's value is NOT auto-printed in steroid_execute_code (this is a Kotlin script, not a REPL). Wrap your final value in `println(value)` for plain text or `printJson(value)` for structured data, otherwise the agent sees an empty result."
 
     /**
      * Returns error-specific hint based on pattern matching against the error message.

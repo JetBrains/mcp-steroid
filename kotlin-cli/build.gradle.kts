@@ -27,7 +27,7 @@ tasks.test {
 val kotlincVersion = "2.3.10"
 val kotlincUrl = "https://github.com/JetBrains/kotlin/releases/download/v${kotlincVersion}/kotlin-compiler-${kotlincVersion}.zip"
 val kotlincSha256Url = "$kotlincUrl.sha256"
-val kotlincDownloadDir = layout.buildDirectory.dir("kotlinc-zip")
+val kotlincDownloadDir = layout.buildDirectory.dir("kotlinc-zip/$kotlincVersion")
 val kotlincDir = layout.buildDirectory.dir("kotlinc-unpack")
 
 fun Download.configureReliableDownload() {
@@ -35,6 +35,7 @@ fun Download.configureReliableDownload() {
     connectTimeout(30_000)
     readTimeout(15 * 60_000)
     retries(5)
+    tempAndMove(true)
 }
 
 val downloadKotlinc by tasks.registering {
@@ -73,11 +74,13 @@ val downloadKotlinc by tasks.registering {
 }
 
 listOf(kotlincUrl, kotlincSha256Url).forEach { url ->
+    val fileName = url.substringAfterLast("/")
     val task = tasks.register<Download>("downloadKotlinc_" + url.substringAfterLast(".")) {
         group = "kotlinc"
         src(url)
         dest(kotlincDownloadDir)
         configureReliableDownload()
+        onlyIf { !kotlincDownloadDir.get().asFile.resolve(fileName).exists() }
     }
     downloadKotlinc.configure { dependsOn(task) }
 }

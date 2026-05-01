@@ -90,6 +90,7 @@ class McpScriptContextImpl(
     override fun println(vararg values: Any?) {
         checkDisposed()
         resultBuilder.logMessage(values.joinToString(" ") { it?.toString() ?: "null" })
+        resultBuilder.noteUserOutput()
     }
 
     override fun printException(message: String, throwable: Throwable) {
@@ -106,6 +107,7 @@ class McpScriptContextImpl(
                 else -> objectMapper.writeValueAsString(obj)
             }
             resultBuilder.logMessage(jsonString)
+            resultBuilder.noteUserOutput()
         } catch (e: Exception) {
             resultBuilder.logMessage("Failed to serialize to JSON: ${e.message}")
         }

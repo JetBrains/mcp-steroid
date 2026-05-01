@@ -55,6 +55,12 @@ val npmBuild = tasks.register<NpmTask>("npmBuild") {
     group = "npx"
     npmCommand.set(listOf("run", "build"))
     dependsOn(tasks.npmInstall)
+    inputs.files(fileTree(projectDir.resolve("src")))
+    inputs.file(projectDir.resolve("esbuild.config.mjs"))
+    inputs.file(projectDir.resolve("package.json"))
+    inputs.file(projectDir.resolve("package-lock.json"))
+    inputs.file(projectDir.resolve("tsconfig.json"))
+    outputs.dir(projectDir.resolve("dist"))
 }
 
 val npmBuildTest = tasks.register<NpmTask>("npmBuildTest") {

@@ -13,7 +13,6 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 import kotlin.math.absoluteValue
-import kotlin.random.Random
 
 abstract class GenerateMetadataTask : DefaultTask() {
     @get:Input
@@ -24,7 +23,11 @@ abstract class GenerateMetadataTask : DefaultTask() {
 
     @TaskAction
     fun generate() {
-        val baseMagic = (Random.nextInt().absoluteValue + 237) % 19456
+        // Seed from the version string so encoding is deterministic for identical inputs.
+        // A random seed would make the output differ on every run even if the version didn't
+        // change, defeating Gradle's up-to-date checks and forcing full recompilation every
+        // time (observed: +20 s per TDD iteration with a random seed).
+        val baseMagic = (versionString.get().hashCode().absoluteValue + 237) % 19456
 
         fun String.toEncodedSequence(): List<Int> {
             return reversed().map { it.code * baseMagic }

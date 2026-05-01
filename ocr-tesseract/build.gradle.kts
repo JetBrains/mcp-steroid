@@ -70,7 +70,7 @@ tasks.test {
 }
 
 // Tessdata download configuration
-val tessdataDownloadDir = layout.buildDirectory.dir("tessdata-download")
+val tessdataDownloadDir = layout.buildDirectory.dir("tessdata-download/$tessdataVersion")
 val tessdataDir = layout.buildDirectory.dir("tessdata-data")
 val downloadConnectTimeoutMs = 30_000
 val downloadReadTimeoutMs = 15 * 60_000
@@ -81,6 +81,9 @@ fun Download.configureReliableDownload() {
     connectTimeout(downloadConnectTimeoutMs)
     readTimeout(downloadReadTimeoutMs)
     retries(downloadRetryCount)
+    // Used for atomic download under name "${dest}.part" and rename to the final name only on success.
+    // necessary for not using corrupted downloaded artifacts
+    tempAndMove(true)
 }
 
 // Download tessdata files
@@ -92,10 +95,16 @@ listOf(
     "https://github.com/tesseract-ocr/tessdata/raw/$tessdataVersion/eng.traineddata",
     "https://github.com/tesseract-ocr/tessdata/raw/$tessdataVersion/osd.traineddata",
 ).forEach { url ->
-    val task = tasks.register<Download>("download_" + url.substringAfterLast("/").substringBefore(".")) {
+    val fileName = url.substringAfterLast("/")
+    val task = tasks.register<Download>("download_" + fileName.substringBefore(".")) {
         src(url)
         dest(tessdataDownloadDir)
         configureReliableDownload()
+        // Skip entirely when the file already exists — avoids a GitHub round-trip on every
+        // test run. The de.undercouch.download plugin always registers upToDateWhen{false}
+        // internally, so onlyIf is the only way to truly skip the task. Stale downloads are
+        // evicted by `clean` or by deleting the file manually.
+        onlyIf { !tessdataDownloadDir.get().asFile.resolve(fileName).exists() }
     }
     downloadTessdata.configure { dependsOn(task) }
 }
