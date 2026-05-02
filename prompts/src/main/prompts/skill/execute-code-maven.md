@@ -52,6 +52,8 @@ println("Call the polling script next.")
 ### Call 2 — poll the descriptor's ProcessHandler + read surefire XML (re-issue every 20–30s)
 
 ```kotlin[IU]
+import com.intellij.build.BuildView
+import com.intellij.execution.impl.ConsoleViewImpl
 import com.intellij.execution.ui.RunContentManager
 import com.intellij.openapi.vfs.LocalFileSystem
 
@@ -79,6 +81,20 @@ if (handler == null) {
     println("PROCESS_EXIT_CODE: $exit")
     testsRunLines.forEach { println("TESTS_RUN: $it") }
     println("TEST_RESULT: ${if (exit == 0) "PASSED" else "FAILED"}")
+
+    // On failure with no surefire output, dump the Maven build console tail so the
+    // agent sees the *cause* (BUILD FAILURE message, missing artifact, compile error)
+    // without a separate inspection round.
+    if (exit != 0 && testsRunLines.isEmpty()) {
+        val buildView = descriptor.executionConsole as? BuildView
+        val inner = buildView?.consoleView as? ConsoleViewImpl
+        val text = inner?.editor?.document?.text
+        if (text != null) {
+            val tail = text.lines().takeLast(60).joinToString("\n")
+            println("--- Maven build console tail (last 60 lines) ---")
+            println(tail)
+        }
+    }
 }
 ```
 
@@ -86,15 +102,26 @@ if (handler == null) {
 - `RunContentDescriptor.processHandler` exposes `isProcessTerminated` and `exitCode` directly — read whenever you want, no event subscription.
 - Maven surefire writes one `<TestClass>.txt` and `<TestClass>.xml` per class into `<module>/target/surefire-reports/`. The `.txt` files start with `Tests run: N, Failures: M, Errors: K, Skipped: J, Time elapsed: …` — same numbers a human reads.
 - `processHandler.exitCode == 0` is the authoritative pass/fail signal; the surefire counts are extra detail for the agent's report.
+- For Maven runs `descriptor.executionConsole` is a `BuildView`; `BuildView.getConsoleView()` returns the inner `ConsoleViewImpl` whose `editor.document.text` holds the full Maven log — that's the same content the Build tool window shows. Reading the tail on failure surfaces `BUILD FAILURE`, missing-artifact errors, and compile errors without a follow-up call.
 - Each script returns in <2s — well under the MCP HTTP transport's ~60s cancel window. `project.userData`, `CompletableDeferred`, and `messageBus.connect()` are all unnecessary.
 
 **`-am` (also-make) is BANNED.** It walks the upstream graph and frequently OOM-kills the container. Pin to the one submodule with `-pl <module>` and accept that one extra `install` round-trip below if a sibling artifact is missing.
 
 ### Sibling-install fallback (when the targeted module references an in-reactor sibling not yet in `~/.m2`)
 
-If the polling script reports `TEST_RESULT: FAILED` and the surefire/Maven log mentions `The POM for io.example:sibling:jar:X is missing` or `Could not resolve artifact ...:sibling:jar:X`, install ONLY that one sibling through IntelliJ. Same two-call shape: launch via `createRunnerAndConfigurationSettings` with goals `install -pl <missing-module> -DskipTests`, give the run config a unique name (e.g. `"Maven install (MCP)"`), then poll the descriptor's `processHandler.exitCode` exactly like the test polling script. Drop `-Dtest=...` from the goal list. Stop after at most TWO sibling-install rounds; if more are needed, escalate.
+If the polling script reports `TEST_RESULT: FAILED` and the Maven build console tail mentions `The POM for io.example:sibling:jar:X is missing`, `Could not resolve artifact ...:sibling:jar:X`, or `Could not resolve parent POM ...`, install the missing piece through IntelliJ. Same two-call shape: launch via `createRunnerAndConfigurationSettings` with the install goal, give the run config a unique name (e.g. `"Maven install (MCP)"`), then poll its `processHandler.exitCode` exactly like the test polling script. Drop `-Dtest=...` from the goal list.
 
-**`MavenRunner.run` is the lighter alternative**, but it has no `RunContentDescriptor` — you can poll its returned future instead, but it's simpler to keep one shape across all Maven invocations.
+Two missing-piece patterns, in the order to try them:
+
+1. **Sibling artifact missing** — goals = `listOf("install", "-pl", "<missing-module>", "-DskipTests")`. Example for Keycloak: `-pl common -DskipTests`. The error mentions a specific `<artifactId>` you don't have in `~/.m2`.
+
+2. **Parent POM missing** — goals = `listOf("install", "-pl", ".", "-N", "-DskipTests")` (the `-N` / `--non-recursive` flag is the key — it installs ONLY the root POM, not children). Use this when the error mentions `Could not resolve parent POM` or after a successful sibling install the next test attempt still fails because the root parent (e.g. `keycloak-parent`) isn't in `~/.m2`. Without `-N`, this would install the entire reactor and OOM the container.
+
+After each install round, re-issue the test launch+poll. Stop after at most TWO install rounds (one sibling + one parent is the typical shape for projects like Keycloak); if more are needed, escalate rather than chain installs — the project likely needs a top-level `mvn install -DskipTests` that this recipe deliberately avoids.
+
+**Never use `-am` (also-make).** It walks the upstream graph and OOM-kills the container. Pin to one module + `-N` for parent-only installs.
+
+**`MavenRunner.run` is the lighter alternative** for goal execution, but it has no `RunContentDescriptor` — you can poll its returned future instead, but it's simpler to keep one shape across all Maven invocations.
 
 ---
 
