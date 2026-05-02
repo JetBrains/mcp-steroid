@@ -137,68 +137,6 @@ MavenProjectsManager.getInstance(project).scheduleUpdateMavenProjects(
 
 ---
 
-## Run Specific Test Class
-
-Pass `-Dtest=ClassName` via `MavenRunnerSettings.mavenProperties`:
-
-```kotlin[IU]
-import org.jetbrains.idea.maven.execution.MavenRunner
-import org.jetbrains.idea.maven.execution.MavenRunnerParameters
-import org.jetbrains.idea.maven.execution.MavenRunnerSettings
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.withTimeout
-import kotlin.time.Duration.Companion.minutes
-
-val done = CompletableDeferred<Boolean>()
-val params = MavenRunnerParameters(
-    true,
-    project.basePath!!,
-    null,
-    listOf("test"),
-    emptyList()
-)
-val runner = MavenRunner.getInstance(project)
-val settings: MavenRunnerSettings = runner.settings.clone()
-// Single test class:
-settings.mavenProperties["test"] = "FeatureServiceTest"
-// OR single method:  settings.mavenProperties["test"] = "FeatureServiceTest#shouldReturnFeature"
-settings.mavenProperties["spotless.check.skip"] = "true"
-runner.run(params, settings) { done.complete(true) }
-val ok = withTimeout(5.minutes) { done.await() }
-println("Test run completed: $ok")
-// ⚠️ callback fires only on exit 0. For test failure details, use SMTRunnerEventsListener pattern above.
-```
-
----
-
-## ⚠️ ProcessBuilder("./mvnw") — LAST RESORT ONLY
-
-Use `ProcessBuilder("./mvnw")` **only** when ALL of the following are true:
-1. `pom.xml` was just modified in this session, AND
-2. Maven sync was already triggered (`scheduleUpdateAllMavenProjects` + `awaitConfiguration`), AND
-3. `MavenRunConfigurationType.runConfiguration()` with `dialog_killer: true` has already timed out (>2 min)
-
-In all other cases, **use `MavenRunner` or `MavenRunConfigurationType`**.
-
-```kotlin[IU]
-// ⚠️ ONLY when Maven sync unavailable — e.g. immediately after pom.xml edit before sync
-// ⚠️ ./mvnw (wrapper) not 'mvn' — system mvn is typically not installed
-// ⚠️ Spring Boot test output can exceed 200k chars — NEVER print untruncated output
-val process = ProcessBuilder("./mvnw", "test", "-Dtest=MyTest", "-Dspotless.check.skip=true")
-    .directory(java.io.File(project.basePath!!))
-    .redirectErrorStream(true).start()
-val lines = process.inputStream.bufferedReader().readLines()
-val exitCode = process.waitFor()
-println("Exit: $exitCode | lines: ${lines.size}")
-// ⚠️ Always capture BOTH ends: Spring context errors appear at START; BUILD FAILURE at END
-println("--- First 30 lines (Spring context errors appear here) ---")
-println(lines.take(30).joinToString("\n"))
-println("--- Last 30 lines (Maven BUILD FAILURE summary appears here) ---")
-println(lines.takeLast(30).joinToString("\n"))
-```
-
----
-
 ## JAVA_HOME / Multi-JDK Selection
 
 ### JDK Selection Algorithm (do this BEFORE your first Maven/Gradle command)
@@ -315,27 +253,11 @@ language-level mismatches and re-import failures.
 
 ---
 
-## Multi-module: missing in-tree sibling artifact
-
-When `mvn -pl <target>` fails with `The POM for io.example:sibling-module:jar:X-SNAPSHOT is missing` or `Could not resolve artifact io.example:sibling-module:jar:X-SNAPSHOT`, the target depends on a sibling Maven module in the same reactor that has not been installed to your local `~/.m2` yet. The fix is one extra command: install ONLY that single sibling, then retry the targeted test.
-
-**Do NOT use `-am` (also-make).** It walks the full upstream graph (often dozens of modules) and OOM-kills the container. Install exactly one module:
-
-```
-JAVA_HOME=<picked-jdk> ./mvnw install -pl <missing-module> -DskipTests -Dspotless.check.skip=true
-JAVA_HOME=<picked-jdk> ./mvnw -pl <target-module> test -Dtest=<TestClass>#<method> -DskipITs -Dspotless.check.skip=true
-```
-
-If the second command fails again with a *different* missing sibling, repeat the install once for that one too. Stop after at most 2 such installs — if more are needed, the project genuinely requires a top-level `mvn install -DskipTests`, and you should escalate rather than chain installs.
-
-This is the only valid form of `mvn install` in this codebase: single sibling, `-DskipTests`, no `-am`.
-
----
-
 ## What NOT to Do
 
-- **❌ `ProcessBuilder("./mvnw")` as primary pattern** — banned. Use `MavenRunner` or `MavenRunConfigurationType`.
-- **❌ `ProcessBuilder("mvn")` without wrapper** — `mvn` is not installed. Always use `./mvnw`.
+- **❌ `ProcessBuilder("./mvnw")` / `ProcessBuilder("mvn")`** — banned inside `steroid_execute_code`. Use `MavenRunConfigurationType.createRunnerAndConfigurationSettings` per the Agent recipe at the top.
+- **❌ `Bash` tool to invoke `./mvnw` / `mvn`** — same reason; the whole point of MCP Steroid is the IDE-driven path.
 - **❌ Skip Maven sync after pom.xml edit** — without sync, imports show "cannot resolve symbol" false positives.
-- **❌ Print untruncated Maven output** — Spring Boot tests generate 100k+ chars. Always use `.take(30)` + `.takeLast(30)`.
-- **❌ Run multiple test classes in one `-Dtest=A,B,C,D`** — 4 Spring Boot tests × 25k chars each = MCP token overflow. Run one at a time.
+- **❌ `-am` (also-make)** — walks the full upstream graph and OOM-kills the container. Install one sibling at a time via the *Sibling-install fallback* in the Agent recipe.
+- **❌ Print untruncated Maven output** — Spring Boot tests generate 100k+ chars. The Agent recipe reads only the surefire `Tests run:` summary line per class, which is bounded.
+- **❌ Run multiple test classes in one `-Dtest=A,B,C,D`** — token overflow on long output. Run one at a time.

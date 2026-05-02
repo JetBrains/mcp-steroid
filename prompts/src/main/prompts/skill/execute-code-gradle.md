@@ -146,34 +146,28 @@ if (handler == null) {
 
 For non-test goals like `:assemble`, `:build`, `:check`, where SMT events are irrelevant, the `ExternalSystemUtil.runTask` + `TaskCallback` path remains useful — it gives a boolean success without a UI run config. Same `withTimeoutOrNull(30.seconds)` polling shape applies.
 
-## Inspect Gradle Test Failures from JUnit XML
+## Inspect Gradle Test Failures from the Data Model
 
-When the IDE Gradle runner returns `success=false`, inspect Gradle's XML results before retrying. This is cheaper and more precise than immediately rerunning Gradle:
+When the polling script reports `TEST_FAILED > 0`, read failure details directly off the same `testsRootNode.allTests` you already have access to — no need to walk the filesystem for `TEST-*.xml`:
 
 ```kotlin[IU]
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView
+import com.intellij.execution.ui.RunContentManager
 
-val root = java.io.File(project.basePath!!).toPath()
-val resultFiles = java.nio.file.Files.walk(root)
-    .filter { it.fileName.toString().startsWith("TEST-") }
-    .filter { it.fileName.toString().endsWith(".xml") }
-    .filter { it.toString().contains("/build/test-results/") }
-    .toList()
+val descriptor = RunContentManager.getInstance(project).allDescriptors
+    .firstOrNull { it.displayName?.contains("Gradle test (MCP)") == true }
+val tests = (descriptor?.executionConsole as? SMTRunnerConsoleView)
+    ?.resultsViewer?.testsRootNode?.allTests
+    ?: emptyList()
 
-println("Gradle XML result files: ${resultFiles.size}")
-for (path in resultFiles.take(20)) {
-    val text = java.nio.file.Files.readString(path)
-    val failures = Regex("<failure[^>]*>(.+?)</failure>", RegexOption.DOT_MATCHES_ALL)
-        .findAll(text)
-        .map { it.groupValues[1].take(500) }
-        .toList()
-    if (failures.isNotEmpty()) {
-        println("FAIL ${root.relativize(path)}")
-        println(failures.first())
-    }
+for (t in tests.filter { it.isDefect }) {
+    println("FAIL ${t.locationUrl ?: t.name}")
+    t.errorMessage?.let { println("  message: ${it.lines().firstOrNull() ?: ""}") }
+    t.stacktrace?.lines()?.take(8)?.forEach { println("  $it") }
 }
-LocalFileSystem.getInstance().refreshAndFindFileByNioFile(root)
 ```
+
+`SMTestProxy` exposes `.errorMessage` (assertion message), `.stacktrace` (truncate to a few lines), `.locationUrl` (for navigation), `.duration` (in ms), and `.isDefect` (failed or errored). Same data the Run tool window's tree shows.
 
 ## ProcessBuilder("./gradlew") Is Banned Inside steroid_execute_code
 
