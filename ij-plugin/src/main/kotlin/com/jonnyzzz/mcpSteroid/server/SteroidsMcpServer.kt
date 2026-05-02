@@ -178,10 +178,34 @@ class SteroidsMcpServer(
      * Creates a Ktor embedded server with all MCP routes and plugins configured.
      */
     private fun createKtorServer(bindHost: String, port: Int): EmbeddedServer<*, *> {
-        return scope.embeddedServer(CIO, host = bindHost, port = port) {
-            install(requestLoggingPlugin)
-            install(SSE)
-            routing {
+        // Ktor CIO defaults `connectionIdleTimeoutSeconds = 45`, which the writer loop
+        // also uses as the per-response wait — long-running tool calls (Maven test runs,
+        // gradle builds, indexing-dependent searches) can easily exceed that, causing
+        // the request scope to be cancelled mid-script with `StandaloneCoroutine was
+        // cancelled`. We raise it to 600s to match `mcp.steroid.execution.timeout`.
+        val applicationProperties = serverConfig(applicationEnvironment {}) {
+            this.parentCoroutineContext = scope.coroutineContext
+            module { mcpModule() }
+        }
+        return embeddedServer(
+            factory = CIO,
+            rootConfig = applicationProperties,
+            configure = {
+                connectionIdleTimeoutSeconds = 600
+                connectors.add(
+                    EngineConnectorBuilder().apply {
+                        this.host = bindHost
+                        this.port = port
+                    }
+                )
+            },
+        )
+    }
+
+    private fun Application.mcpModule() {
+        install(requestLoggingPlugin)
+        install(SSE)
+        routing {
                 with(McpHttpTransport) {
                     installMcp("/mcp", mcpServer)
                 }
@@ -216,7 +240,6 @@ class SteroidsMcpServer(
                         text = SkillPromptArticle().readPayload(ResourceRegistrar.buildPromptsContext())
                     )
                 }
-            }
         }
     }
 
