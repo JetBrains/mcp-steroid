@@ -66,6 +66,7 @@ sealed class IntelliJProject{
 
     object KeycloakProject : ProjectFromRemoteGit("https://github.com/keycloak/keycloak.git")
     object YouTrackDbProject : ProjectFromRemoteGit("https://github.com/JetBrains/youtrackdb.git")
+    object RetrofitProject : ProjectFromRemoteGit("https://github.com/square/retrofit.git")
     object IntelliJMasterProject : ProjectFromIntelliJMasterZip(
         openFile = "platform/platform-tests/testSrc/com/intellij/openapi/vfs/newvfs/persistent/PersistentFsTest.java",
     )
