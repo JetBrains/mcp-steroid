@@ -2,25 +2,29 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 /**
- * Shared task prompt for [RetrofitGradleTest].
+ * Shared task prompt for [IntelliJPlatformGradleTest].
  *
  * The agent must drive Gradle through IntelliJ's `GradleRunConfiguration` (NOT
  * `Bash ./gradlew`), capture pass/fail by polling the SM test-runner data model
  * on the run-content descriptor's console, and report the result through the
  * marker contract below.
  *
- * Retrofit is a multi-module Gradle project. The `:retrofit:java-test` subproject
- * holds plain JUnit unit tests (e.g. `retrofit2.HttpExceptionTest`,
- * `retrofit2.CallTest`) that compile and run in tens of seconds. Tests under
- * `retrofit:android-test` need the Android plugin and must be avoided.
+ * `JetBrains/intellij-platform-gradle-plugin` is a single-module Gradle project
+ * with a `build-logic` includedBuild and a clean `jvmToolchain(17)` target —
+ * compatible with the Temurin 17 already in the test container, no exotic
+ * vendor pinning. The root project's `src/test/kotlin` holds plain
+ * Kotlin/JUnit unit tests (e.g. `VersionTest`, `GradlePropertiesTest`) that
+ * compile and run in tens of seconds. Tests requiring a real Gradle build
+ * fixture live in `INTEGRATION_TESTS.md` paths and must be avoided here.
  */
-internal fun buildRetrofitGradlePrompt(): String = buildString {
-    appendLine("The Retrofit Java project (https://github.com/square/retrofit) is open in IntelliJ IDEA. It is a multi-module Gradle project.")
+internal fun buildIntelliJPlatformGradlePrompt(): String = buildString {
+    appendLine("The IntelliJ Platform Gradle Plugin project (https://github.com/JetBrains/intellij-platform-gradle-plugin) is open in IntelliJ IDEA. It is a Gradle project with `jvmToolchain(17)` and a `build-logic` included build.")
     appendLine()
     appendLine("Your task: pick exactly ONE fast unit-test METHOD, and run it through IntelliJ's Gradle integration.")
     appendLine()
-    appendLine("Test selection: a plain JUnit method, ideally in the `:retrofit:java-test` subproject — should compile and run in tens of seconds.")
-    appendLine("Avoid integration tests, anything named `*IT` / `*ITest`, anything under `:retrofit:android-test` (needs the Android plugin), and anything that touches the network or large disk fixtures.")
+    appendLine("Test selection: a plain Kotlin/JUnit test method whose class lives directly under `src/test/kotlin/org/jetbrains/intellij/platform/gradle/` — should compile and run in tens of seconds.")
+    appendLine("Good candidates: `VersionTest`, `GradlePropertiesTest`, classes ending in `Test.kt` that look like simple data/parser unit tests.")
+    appendLine("Avoid: anything under `IntelliJPluginTestBase` / `GrammarKitPluginTestBase` / `SearchableOptionsTestBase` (those bootstrap a real Gradle build via the integration-test harness — slow and flaky), and anything mentioned in `INTEGRATION_TESTS.md`.")
     appendLine("Pick ONE method, not the whole class.")
     appendLine()
     appendLine("Execution: BEFORE your first execution attempt, fetch `mcp-steroid://skill/execute-code-gradle` via `steroid_fetch_resource` and follow the *Agent: Run Gradle Tests (two-call pattern, polling)* recipe verbatim.")
@@ -28,7 +32,7 @@ internal fun buildRetrofitGradlePrompt(): String = buildString {
     appendLine("- The `isRunAsTest = true` flag is REQUIRED — without it the SM test-runner data model is empty and the polling script returns no results.")
     appendLine("- Re-issue the polling script every ~30s until it prints `TEST_RESULT: PASSED` or `TEST_RESULT: FAILED`. A first-time Gradle test on a fresh checkout (cold daemon, dependency resolve, compile, test) typically takes 60–180 seconds total — so expect 2–6 polling calls.")
     appendLine("- Each individual `steroid_execute_code` script must finish in under 60 seconds. Do NOT try a single-call recipe with `withTimeout(...) { deferred.await() }` — it will be cancelled.")
-    appendLine("- Use the subproject task path for targeted tests, e.g. `:retrofit:java-test:test --tests retrofit2.HttpExceptionTest`. Add `--rerun-tasks` so Gradle does not skip the test as UP-TO-DATE.")
+    appendLine("- The root project (no subproject prefix) is the test target. Use `:test --tests org.jetbrains.intellij.platform.gradle.VersionTest.<method>`. Add `--rerun-tasks` so Gradle does not skip the test as UP-TO-DATE.")
     appendLine("Bash and `ProcessBuilder` for Gradle are BANNED — the recipe and the surrounding resource explain why.")
     appendLine()
     appendLine("After your first `steroid_execute_code` call, copy the `execution_id:` line so we can verify MCP was used:")
@@ -37,19 +41,19 @@ internal fun buildRetrofitGradlePrompt(): String = buildString {
     appendLine("At the end of your final response, output these markers on their own lines:")
     appendLine("TEST_CLASS: <fully qualified test class name>")
     appendLine("TEST_METHOD: <test method name>")
-    appendLine("GRADLE_SUBPROJECT: <Gradle subproject path you targeted, e.g. :retrofit:java-test>")
+    appendLine("GRADLE_SUBPROJECT: <Gradle subproject path you targeted; for the root project use `:`>")
     appendLine("EXECUTION_VIA: <the IntelliJ class you invoked — must contain `GradleRunConfiguration`>")
     appendLine("TEST_RESULT: <PASSED or FAILED — based on `processHandler.exitCode == 0` after the run terminates AND `testsRootNode.allTests.none { it.isDefect }`>")
-    appendLine("RETROFIT_GRADLE_TEST_RAN: yes")
+    appendLine("IJ_PLATFORM_GRADLE_TEST_RAN: yes")
 }
 
 /**
  * Verifies the agent (a) used `steroid_execute_code`, (b) drove Gradle through
  * IntelliJ classes (not Bash/gradlew), and (c) reported a passing test.
  */
-internal fun assertRetrofitGradleAgentSucceeded(combined: String) {
-    check(combined.contains("RETROFIT_GRADLE_TEST_RAN: yes", ignoreCase = false)) {
-        "Agent did not report RETROFIT_GRADLE_TEST_RAN: yes.\nOutput:\n$combined"
+internal fun assertIntelliJPlatformGradleAgentSucceeded(combined: String) {
+    check(combined.contains("IJ_PLATFORM_GRADLE_TEST_RAN: yes", ignoreCase = false)) {
+        "Agent did not report IJ_PLATFORM_GRADLE_TEST_RAN: yes.\nOutput:\n$combined"
     }
 
     val toolEvidencePatterns = listOf(
