@@ -64,7 +64,14 @@ class McpScriptContextImpl(
     val executionId: ExecutionId,
     override val disposable: Disposable,
     private val resultBuilder: ExecutionResultBuilder,
-    private val modalityMonitor: ModalityStateMonitor,
+    /**
+     * Hook the script can pull to disable the periodic [DialogKiller] for the
+     * remainder of this execution. ScriptExecutor wires it to cancel the
+     * killer's poll job; tests pass a no-op. Replaces the old
+     * `ModalityStateMonitor.doNotCancelOnModalityStateChange()` plumbing — one
+     * cancellation source (the killer's coroutine job), one Disposable lifecycle.
+     */
+    private val onDoNotCancelOnModalityStateChange: () -> Unit = {},
 ) : McpScriptContext {
     private val log = Logger.getInstance(McpScriptContextImpl::class.java)
 
@@ -169,8 +176,8 @@ class McpScriptContextImpl(
 
     override fun doNotCancelOnModalityStateChange() {
         checkDisposed()
-        log.info("[$executionId] Modal dialog cancellation disabled by script")
-        modalityMonitor.doNotCancelOnModalityStateChange()
+        log.info("[$executionId] Periodic dialog killer disabled by script")
+        onDoNotCancelOnModalityStateChange()
     }
 
     // ============================================================

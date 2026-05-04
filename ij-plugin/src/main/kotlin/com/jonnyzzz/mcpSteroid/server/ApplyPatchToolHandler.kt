@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager.getInstance
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.backend.observation.Observation
@@ -14,6 +15,7 @@ import com.jonnyzzz.mcpSteroid.execution.vfsRefreshService
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import kotlinx.coroutines.withTimeoutOrNull
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
@@ -116,8 +118,30 @@ class ApplyPatchToolHandler : McpRegistrar {
         args["task_id"]?.jsonPrimitive?.contentOrNull
             ?: return errorResult("Missing required parameter: task_id")
 
-        val hunksJson = args["hunks"]?.jsonArray
+        val rawHunks = args["hunks"]
             ?: return errorResult("Missing required parameter: hunks (array)")
+        // Some MCP clients (Claude Code's tool-call envelope under certain
+        // configurations) pass complex parameters as serialised JSON strings
+        // instead of native arrays. `?.jsonArray` would have thrown
+        // IllegalArgumentException on a JsonPrimitive, leaking a stacktrace
+        // through the MCP layer. Detect-and-decode keeps the contract clean
+        // (regression: ApplyPatchToolIntegrationTest#testStringEncodedHunksReturnsCleanError).
+        val hunksJson = when (rawHunks) {
+            is JsonArray -> rawHunks
+            is JsonPrimitive -> {
+                if (!rawHunks.isString) {
+                    return errorResult("hunks must be a JSON array, got primitive: ${rawHunks.content}")
+                }
+                val decoded = try {
+                    McpJson.parseToJsonElement(rawHunks.content)
+                } catch (e: kotlinx.serialization.SerializationException) {
+                    return errorResult("hunks must be a JSON array — failed to parse string-encoded value: ${e.message}")
+                }
+                (decoded as? JsonArray)
+                    ?: return errorResult("hunks must be a JSON array — string-encoded value parsed to ${decoded::class.simpleName}")
+            }
+            else -> return errorResult("hunks must be a JSON array, got ${rawHunks::class.simpleName}")
+        }
         if (hunksJson.isEmpty()) return errorResult("hunks array is empty")
 
         val hunks = hunksJson.mapIndexed { i, el ->
@@ -176,6 +200,24 @@ class ApplyPatchToolHandler : McpRegistrar {
                 )
             }
             return errorResult(e.message ?: "apply-patch failed with no message")
+        } catch (e: ProcessCanceledException) {
+            // Cancellation must propagate intact — never wrap or swallow.
+            throw e
+        } catch (e: RuntimeException) {
+            // Unexpected runtime exceptions (VFS guards in test mode, indexing
+            // races, write-action conflicts, etc.) must come back to the agent
+            // as a tool-error with a useful message, NOT as a JSON-RPC 500. The
+            // agent can re-issue or change strategy on a tool-error; a 500
+            // looks like a transport failure and stalls the session.
+            log.warn("[apply_patch] unexpected runtime failure: ${e.message}", e)
+            runCatching {
+                analyticsBeacon.capture(
+                    event = "apply_patch",
+                    project = project,
+                    properties = mapOf("result" to "runtime-error"),
+                )
+            }
+            return errorResult("apply-patch failed: ${e.javaClass.simpleName}: ${e.message ?: "<no message>"}")
         }
 
         project.vfsRefreshService.scheduleAsyncRefresh()

@@ -11,7 +11,6 @@ import com.jonnyzzz.mcpSteroid.koltinc.LineMapping
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import kotlinx.coroutines.*
-import kotlinx.coroutines.selects.select
 import kotlin.time.Duration.Companion.seconds
 
 inline val Project.scriptExecutor: ScriptExecutor get() = service()
@@ -26,9 +25,11 @@ inline val Project.scriptExecutor: ScriptExecutor get() = service()
  * 4. On timeout or cancellation, the Disposable is disposed and coroutine canceled
  *
  * Modal dialog handling:
- * - If a modal dialog appears during execution, execution is canceled
- * - A screenshot of the dialog is captured and returned
- * - Use steroid_input to interact with the dialog
+ * - A periodic [DialogKiller] coroutine polls during execution and dismisses
+ *   any modal dialog that appears, surfacing a screenshot to the agent log.
+ * - If the script intentionally shows a dialog (e.g. refactoring confirmation),
+ *   call `doNotCancelOnModalityStateChange()` on the script context BEFORE
+ *   the action — that cancels the killer's poll job for the rest of the run.
  *
  * IMPORTANT: This executor runs the captured suspend block inside a supervisorScope.
  * The script code gets the coroutine context implicitly - no runBlocking needed.
@@ -60,33 +61,56 @@ class ScriptExecutor(
 
         log.info("Starting execution $executionId")
 
-        // Create the parent Disposable for this execution
+        // Single Disposable governs the entire execution lifecycle. Disposing
+        // it cancels every coroutine launched against [coroutineScope] below
+        // (the dialog killer poll, the IDE-exception collector). No manual
+        // job.cancel() calls anywhere — disposal IS cancellation.
         val executionDisposable = Disposer.newDisposable(this, "mcp-execution-$executionId")
-
-        // Create modality monitor to detect modal dialogs during execution
-        val modalityMonitor = ModalityStateMonitor(project, executionId, executionDisposable)
-        if (exec.cancelOnModal) {
-            modalityMonitor.start()
-        }
-
-        // Create context for this execution with progress support
-        val context = McpScriptContextImpl(
-            project = project,
-            params = exec.rawParams,
-            executionId = executionId,
-            disposable = executionDisposable,
-            resultBuilder = resultBuilder,
-            modalityMonitor = modalityMonitor,
-        )
 
         try {
             val capturedBlocks = evalResult.result
-
-            // Run captured blocks in FIFO order with timeout
             log.info("Running ${capturedBlocks.size} script block(s) for $executionId with timeout ${exec.timeout}s")
 
             coroutineScope {
                 withContext(Dispatchers.IO) {
+                    // Periodic dialog killer — replaces the old detect-and-cancel
+                    // ModalityStateMonitor. The killer dismisses any modal that
+                    // appears during execution, logs a screenshot to the result
+                    // builder, and lets the script continue against the post-
+                    // dismiss IDE state. If the script intentionally shows a
+                    // dialog (e.g. refactoring confirmation), it calls
+                    // McpScriptContext.doNotCancelOnModalityStateChange() — which
+                    // cancels [killerJob] for the rest of the run.
+                    val killerJob: Job? = if (exec.cancelOnModal) {
+                        launch(CoroutineName("execution-dialog-killer-$executionId")) {
+                            while (isActive) {
+                                delay(KILLER_POLL_INTERVAL_MS)
+                                try {
+                                    dialogKiller().killProjectDialogs(
+                                        project = project,
+                                        executionId = executionId,
+                                        logMessage = { resultBuilder.logMessage(it) },
+                                        forceEnabled = null, // honour registry toggle
+                                    )
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (t: Throwable) {
+                                    log.warn("Periodic dialog killer failed for $executionId: ${t.message}", t)
+                                }
+                            }
+                        }
+                    } else null
+
+                    val context = McpScriptContextImpl(
+                        project = project,
+                        params = exec.rawParams,
+                        executionId = executionId,
+                        disposable = executionDisposable,
+                        resultBuilder = resultBuilder,
+                        // Script can opt out of the periodic killer for this execution.
+                        onDoNotCancelOnModalityStateChange = { killerJob?.cancel() },
+                    )
+
                     val exceptionJob = launch {
                         service<ExceptionCaptureService>().exceptions.collect { ex ->
                             context.println(buildString {
@@ -103,34 +127,20 @@ class ScriptExecutor(
 
                     try {
                         withTimeout(exec.timeout.seconds) {
-                            // Use select to race between execution and modal dialog detection
-                            val executionDeferred = async {
-                                context.waitForSmartMode()
-                                for ((index, block) in capturedBlocks.withIndex()) {
-                                    yield()
-                                    if (capturedBlocks.size > 1) {
-                                        log.info("Executing block #${index + 1}/${capturedBlocks.size} for $executionId")
-                                        context.progress("Executing block ${index + 1} of ${capturedBlocks.size}...")
-                                    }
-                                    block(context)
+                            context.waitForSmartMode()
+                            for ((index, block) in capturedBlocks.withIndex()) {
+                                yield()
+                                if (capturedBlocks.size > 1) {
+                                    log.info("Executing block #${index + 1}/${capturedBlocks.size} for $executionId")
+                                    context.progress("Executing block ${index + 1} of ${capturedBlocks.size}...")
                                 }
+                                block(context)
                             }
-
-                            select {
-                                modalityMonitor.onModalDialog { dialogInfo ->
-                                    // Modal dialog detected - cancel execution and report
-                                    log.info("Modal dialog detected during execution $executionId: ${dialogInfo.modalEntity}")
-                                    executionDeferred.cancel("Modal dialog detected: ${dialogInfo.modalEntity}")
-                                    reportModalDialog(dialogInfo, resultBuilder)
-                                }
-                                executionDeferred.onAwait {
-                                    // Execution completed normally
-                                    log.info("Execution $executionId completed normally")
-                                }
-                            }
+                            log.info("Execution $executionId completed normally")
                         }
                     } finally {
                         exceptionJob.cancel()
+                        killerJob?.cancel()
                     }
                 }
             }
@@ -147,9 +157,14 @@ class ScriptExecutor(
             resultBuilder.logRemappedException("Unexpected error during execution: $remappedMessage", t, lineMapping)
             resultBuilder.reportFailed("Unexpected error during execution: $remappedMessage")
         } finally {
-            modalityMonitor.stop()
             Disposer.dispose(executionDisposable)
         }
+    }
+
+    private companion object {
+        // Dialog killer poll cadence. 1 s is short enough to dismiss a dialog
+        // before agent timeouts kick in, long enough that we don't burn CPU.
+        const val KILLER_POLL_INTERVAL_MS = 1_000L
     }
 
     /**
@@ -166,22 +181,4 @@ class ScriptExecutor(
         logMessage(text)
     }
 
-    private fun reportModalDialog(dialogInfo: ModalDialogInfo, resultBuilder: ExecutionResultBuilder) {
-        resultBuilder.logMessage("=== MODAL DIALOG DETECTED ===")
-        resultBuilder.logMessage("A modal dialog appeared during execution.")
-        resultBuilder.logMessage("Modal entity: ${dialogInfo.modalEntity}")
-
-        if (dialogInfo.dialogTitles.isNotEmpty()) {
-            resultBuilder.logMessage("Dialog windows: ${dialogInfo.dialogTitles.joinToString(", ")}")
-        }
-
-        if (dialogInfo.screenshotBase64 != null) {
-            resultBuilder.logMessage("Screenshot captured - see image below")
-            resultBuilder.logImage("image/png", dialogInfo.screenshotBase64, "modal-dialog.png")
-            resultBuilder.logMessage("Use steroid_input to interact with the dialog, or steroid_take_screenshot for a fresh view.")
-        } else if (dialogInfo.screenshotError != null) {
-            resultBuilder.logMessage("Screenshot capture failed: ${dialogInfo.screenshotError}")
-        }
-        resultBuilder.logMessage("=== END MODAL DIALOG ===")
-    }
 }

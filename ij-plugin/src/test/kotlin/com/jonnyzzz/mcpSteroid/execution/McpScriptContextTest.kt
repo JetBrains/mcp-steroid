@@ -27,14 +27,14 @@ class McpScriptContextTest : BasePlatformTestCase() {
     private fun createContext(resultBuilder: TestResultBuilder = TestResultBuilder()): Pair<McpScriptContextImpl, TestResultBuilder> {
         val disposable = Disposer.newDisposable(testRootDisposable, "test-context-$executionId")
         Disposer.register(testRootDisposable, disposable)
-        val modalityMonitor = ModalityStateMonitor(project, executionId, disposable)
         val context = McpScriptContextImpl(
             project = project,
             params = buildJsonObject { },
             executionId = executionId,
             disposable = disposable,
             resultBuilder = resultBuilder,
-            modalityMonitor = modalityMonitor,
+            // No-op killer hook for tests — ScriptExecutor wires this in production.
+            onDoNotCancelOnModalityStateChange = {},
         )
         return context to resultBuilder
     }

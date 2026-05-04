@@ -8,8 +8,6 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass
 import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.actionSystem.impl.PresentationFactory
-import com.intellij.openapi.actionSystem.impl.Utils
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Document
@@ -200,24 +198,20 @@ class ActionDiscoveryToolHandler : McpRegistrar {
             DataManager.getInstance().getDataContext(editor.component)
         }
 
+        // ActionGroup expansion was removed (TODO-INTERNAL-API.md): the previous
+        // implementation called Utils.expandActionGroupSuspend (an @ApiStatus.Internal
+        // platform API) and assumption is the field is unused by callers. We keep the
+        // schema and surface the group's missing/present status so the response shape
+        // stays compatible.
         val actionGroupInfo = actionGroups.map { groupId ->
             val place = placeForGroup(groupId)
             val action = ActionManager.getInstance().getAction(groupId)
-            if (action !is ActionGroup) {
-                ActionGroupInfo(
-                    groupId = groupId,
-                    place = place,
-                    actions = emptyList(),
-                    missing = true
-                )
-            } else {
-                val actions = expandActionGroup(action, dataContext, place, maxActions)
-                ActionGroupInfo(
-                    groupId = groupId,
-                    place = place,
-                    actions = actions
-                )
-            }
+            ActionGroupInfo(
+                groupId = groupId,
+                place = place,
+                actions = emptyList(),
+                missing = action !is ActionGroup
+            )
         }
 
         val gutterIcons = collectGutterIcons(project, document, dataContext, maxActions)
@@ -330,30 +324,6 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         } ?: false
     }
 
-    private suspend fun expandActionGroup(
-        group: ActionGroup,
-        dataContext: DataContext,
-        place: String,
-        maxActions: Int,
-    ): List<ActionInfo> {
-        if (maxActions <= 0) return emptyList()
-        val presentationFactory = PresentationFactory()
-        val actions = withContext(Dispatchers.EDT) {
-            Utils.expandActionGroupSuspend(
-                group,
-                presentationFactory,
-                dataContext,
-                place,
-                ActionUiKind.POPUP,
-                false
-            )
-        }
-        return actions.take(maxActions).map { action ->
-            val presentation = presentationFactory.getPresentation(action)
-            toActionInfo(action, presentation)
-        }
-    }
-
     private suspend fun collectGutterIcons(
         project: Project,
         document: Document,
@@ -373,12 +343,10 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         return lineMarkers.mapNotNull { marker ->
             val renderer = marker.createGutterRenderer() ?: return@mapNotNull null
             val clickAction = renderer.clickAction?.let { toActionInfo(it, null) }
-            val popupGroup = renderer.popupMenuActions
-            val popupActions = if (popupGroup is ActionGroup && maxActions > 0) {
-                expandActionGroup(popupGroup, dataContext, ActionPlaces.EDITOR_GUTTER_POPUP, maxActions)
-            } else {
-                emptyList()
-            }
+            // popupActions used to expand renderer.popupMenuActions via the
+            // @ApiStatus.Internal Utils.expandActionGroupSuspend; that path is
+            // dropped (TODO-INTERNAL-API.md). Field kept for response shape.
+            val popupActions: List<ActionInfo> = emptyList()
             val tooltipText = readAction { renderer.tooltipText }
             GutterIconInfo(
                 line = document.getLineNumber(marker.startOffset) + 1,
