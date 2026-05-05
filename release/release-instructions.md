@@ -34,10 +34,19 @@ trigger in step 7 is what actually deploys the website.
 
 ### Stage 0: Preflight
 
-1. Working tree must be clean (`git status` shows nothing).
+1. Working tree must be clean (`git status` shows nothing). If there is an unrelated dangling
+   change (e.g. a tweak to a previous release's artifacts), commit it as a standalone
+   non-release commit *before* starting Stage 1 — don't let it ride along on the version-bump
+   commit.
 2. `gh auth status` is valid.
 3. `VERSION` is in `X.Y.Z` format.
 4. `~/.marketplace` token file exists (one-line JetBrains permanent token).
+5. **Plugin verifier sanity check** — run `./gradlew :ij-plugin:verifyPlugin` and confirm
+   the build reports `Compatible` for both `IU-253` and `IU-261` (configured in
+   `ij-plugin/build.gradle.kts` under `pluginVerification.ides`). Goal: zero internal-API
+   usages. Experimental-API references on public replacements (`IdeaPluginDescriptor.contentModules`,
+   suspending `writeAction`) are expected — IntelliJ itself flags those as experimental.
+   If any new internal-API usage appears, fix it before continuing.
 
 ### Stage 1: Review Changes and Collect Contributors
 
@@ -79,15 +88,18 @@ gh issue list --repo jonnyzzz/mcp-steroid --state all --limit 50 --json number,t
 git log -1 --format=%ci v<prev-version>
 ```
 
-For each closed issue with `closedAt` after the previous release tag date:
-1. Verify the fix is actually in this release (check commits/PRs)
-2. Add to the website release page under a **Fixed Issues** section:
-   `- [#N](https://github.com/jonnyzzz/mcp-steroid/issues/N) — short description`
-3. Comment on the issue: "Fixed in v<version>" — but only if no developer has
-   already mentioned the fix version explicitly
+For each closed issue with `closedAt` after the previous release tag date,
+**plus** every still-open issue whose described fix actually landed in this
+release range (these are easy to miss — check the body and the matching commits):
 
-For open issues: check if they were actually fixed but not closed. Close them
-with a comment if the fix is confirmed in the release range.
+1. Verify the fix is actually in this release (check commits/PRs).
+2. Add to the website release page under a **Fixed Issues** section:
+   `- [#N](https://github.com/jonnyzzz/mcp-steroid/issues/N) — short description`.
+3. **Defer the issue comment + close to Stage 9b** (after the release page is live)
+   so the "Fixed in v<version>" comment can link to the published release page
+   (`https://mcp-steroid.jonnyzzz.com/releases/<version>/`) and the GitHub release
+   URL — both of which only exist after Stages 7b and 9. Skip the comment only if a
+   developer has already mentioned the fix version on the issue.
 
 ### Stage 2: Release Notes
 
@@ -164,6 +176,12 @@ git push origin main
 
 All release commits (notes, version bump, website page, hugo.toml) must be pushed
 **before** building the plugin and creating the GitHub release.
+
+This push triggers the GitHub Pages workflow on `push:` to `main`. **It will fail by design**
+because the website's `make build` step queries the GitHub release for the plugin ZIP URL,
+and the release does not exist yet (Stage 7b creates it). This failure is harmless and is
+fixed by the explicit `workflow_dispatch` in Stage 9. Do not investigate the failure —
+just confirm Stage 9's run succeeds.
 
 Then sync to the `jb` remote (TeamCity pulls from `jb/main`):
 ```bash
@@ -250,11 +268,21 @@ The plugin enters the JetBrains review queue and will be listed once approved.
 
 The website build (`make build`) queries the GitHub release for the plugin ZIP download
 URL to generate `updatePlugins.xml`. The website content (release page, `hugo.toml`)
-was committed and pushed in Stages 4-5, **before** the release was created. The
-push-triggered GitHub Actions run from Stage 5 will fail because the release didn't
-exist yet — this is expected and harmless.
+was committed and pushed in Stages 4-5, **before** the release was created.
 
-Now that the GitHub release exists (Stage 7b), explicitly trigger the website build:
+By the time you reach this stage, expect **two prior failed Pages workflow runs** on
+this branch — both are harmless:
+
+1. The `push`-triggered run from Stage 5 fails because the GitHub release does not exist
+   yet (`make build` cannot resolve the ZIP URL).
+2. The `release: published`-triggered run from Stage 7b's `gh release create` fails because
+   the GitHub Pages environment is configured to deploy only from `main`, not from tag refs.
+   The error reads `Tag "v<version>" is not allowed to deploy to github-pages due to
+   environment protection rules.` The `build` job on this run usually succeeds; only the
+   `deploy` job is blocked. Do not weaken the environment protection rule — the
+   `workflow_dispatch` from `main` below is what actually deploys.
+
+Explicitly trigger the website build:
 
 ```bash
 gh workflow run "Deploy to GitHub Pages" --repo jonnyzzz/mcp-steroid --ref main
@@ -295,6 +323,21 @@ for verification.
 **If verification fails:** Check the workflow run logs for errors. The most common
 failure is the release ZIP not being found — ensure the GitHub release (Stage 7b)
 completed successfully before the website build ran.
+
+### Stage 9b: Close Fixed Issues
+
+For each issue identified in Stage 1e (whether closed before this release or still
+open with the fix in this release range), close it now with a comment that links to
+the live release page and the GitHub release. Both URLs only exist after Stages 7b
+and 9, which is why this step lives here, not in Stage 1.
+
+```bash
+gh issue close <N> --repo jonnyzzz/mcp-steroid --comment "Fixed in v<version> — <one-line summary of the fix>.
+
+Release notes: https://mcp-steroid.jonnyzzz.com/releases/<version>/"
+```
+
+If a developer has already mentioned the fix version on the issue, skip the comment.
 
 ### Stage 10: Mark Older Releases Obsolete (Optional)
 
