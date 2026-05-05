@@ -42,8 +42,11 @@ class GradlePromptContractTest {
             "Gradle prompt should guard against UP-TO-DATE skipped-test false positives",
         )
         assertTrue(
-            prompt.contains("JUnit XML"),
-            "Gradle prompt should tell agents to inspect test XML before rerunning",
+            prompt.contains("SMTestProxy"),
+            "Gradle prompt should teach reading test failures from the SM data model " +
+                "(SMTestProxy.errorMessage/.stacktrace/.locationUrl off testsRootNode.allTests). " +
+                "The legacy 'walk build/test-results for TEST-*.xml' guidance was deliberately " +
+                "removed in f50c6770 — agents already have the in-memory tree from the polling recipe.",
         )
         assertTrue(
             prompt.contains("Bash tool outside `steroid_execute_code`"),
