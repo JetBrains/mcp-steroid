@@ -56,7 +56,8 @@ trigger in step 7 is what actually deploys the website.
    ```
 
    When a new major IntelliJ version goes stable, **add it here first**, run the verifier,
-   then proceed with the release. The two checks below must pass for every entry in this list.
+   then proceed with the release. Only the two gates in 5a and 5b block the release; 5c is
+   informational.
 
    **5a. `Compatible` status.** The verifier prints one summary line per IDE:
 
@@ -67,15 +68,21 @@ trigger in step 7 is what actually deploys the website.
    Every IDE entry must say `Compatible.` If any IDE prints `Compatibility problems`,
    investigate and fix before continuing.
 
-   **5b. Internal-API usages: must be zero.** The detailed report under
-   `ij-plugin/build/reports/pluginVerifier/IU-<build>/` lists `Internal API usages` if any.
-   Internal APIs (`@ApiStatus.Internal`) can be removed in any IntelliJ minor release without
-   notice — using them is a release blocker. As of v0.94.0 the count is **0** on both 253
-   and 261. If a new internal-API usage shows up, replace it with a public alternative
-   before continuing — do not ship.
+   **5b. Internal-API usages: must be zero. This is the only hard gate.** The detailed
+   report under `ij-plugin/build/reports/pluginVerifier/IU-<build>/` lists
+   `Internal API usages` if any. Internal APIs (`@ApiStatus.Internal`) can be removed in any
+   IntelliJ minor release without notice, so using them is a release blocker. If the
+   verifier reports any internal-API usage on any supported IDE, replace it with a public
+   alternative before continuing — **do not ship.** As of v0.94.0 the count is **0** on
+   both 253 and 261.
 
-   **5c. Experimental-API usages: count must be stable across IDE versions and against the
-   previous release.** The same 3 usages are expected on every supported IDE (as of v0.94.0):
+   **5c. Experimental-API usages: acceptable — not a gate.** Experimental APIs
+   (`@ApiStatus.Experimental`) are part of IntelliJ's public surface; we are allowed to use
+   them. The verifier line `IU-<build>: Compatible. <N> usages of experimental API` is
+   informational. Do not block a release on the count and do not refactor working code just
+   to drive it down.
+
+   For reference (current call sites in v0.94.0):
 
    | # | API | Call site |
    |---|---|---|
@@ -83,16 +90,8 @@ trigger in step 7 is what actually deploys the website.
    | 2 | `IdeaPluginDescriptorExtensions.getContentModules(IdeaPluginDescriptor)` (method) | same line — Kotlin emits one usage for the receiver type, one for the method invocation |
    | 3 | `com.intellij.openapi.application.CoroutinesKt.writeAction(Function0, Continuation)` (method) | `McpScriptContextImpl.kt:360` (`override suspend fun writeAction`) |
 
-   Both call sites are public replacements adopted in 0.93.0 for previously-internal APIs;
-   they are flagged experimental upstream and have no non-experimental alternative.
-
-   **What to do when the count changes:**
-   - **Count goes down**: a new public, non-experimental replacement landed upstream.
-     Update this table and the release notes to reflect the new lower count.
-   - **Count goes up** (or count differs *between* IDE versions): a new experimental API was
-     introduced into our code, or an upstream API was newly annotated `@ApiStatus.Experimental`.
-     Identify the new call site(s); decide whether to keep, replace, or document them.
-     Always investigate before continuing — do not ship a silent increase.
+   Both call sites are public replacements adopted in 0.93.0 for previously-internal APIs.
+   The release notes mention the count for transparency; nothing more is required.
 
 ### Stage 1: Review Changes and Collect Contributors
 
