@@ -12,6 +12,7 @@ better for the entire community.
 
 - **Dmitry Batkovich** ([@batya239](https://github.com/batya239)) — exception capture improvements ([#17](https://github.com/jonnyzzz/mcp-steroid/pull/17))
 - **Anton Pikhtin** ([@tgreenwood](https://github.com/tgreenwood)) — arena agent filter ([#21](https://github.com/jonnyzzz/mcp-steroid/pull/21))
+- **Dmitry Protsenko** ([@NordCoderd](https://github.com/NordCoderd)) — `steroid_action_discovery` read-action fix ([#24](https://github.com/jonnyzzz/mcp-steroid/pull/24)) and ~10× faster TDD loop via build-input cleanup + atomic OCR/Kotlin downloads ([#26](https://github.com/jonnyzzz/mcp-steroid/pull/26))
 
 ---
 
