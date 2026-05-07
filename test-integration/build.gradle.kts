@@ -132,7 +132,7 @@ tasks.test {
 }
 
 /**
- * Release smoke matrix: [IDEA, PyCharm, GoLand, WebStorm] × [stable, EAP].
+ * Release smoke matrix: [IDEA, PyCharm, GoLand, WebStorm, CLion] × [stable, EAP].
  *
  * Runs a curated set of integration tests that validate plugin compatibility
  * across IDE products and versions. Invoked by run-release-build-matrix.sh.
@@ -142,16 +142,18 @@ tasks.test {
  *   -Ptest.integration.pycharm.stable.version=2025.3.1
  *   -Ptest.integration.goland.stable.version=2025.3.1
  *   -Ptest.integration.webstorm.stable.version=2025.3.1
+ *   -Ptest.integration.clion.stable.version=2025.3.1
  *   -Ptest.integration.idea.eap.build=253.12345.678
  *   -Ptest.integration.pycharm.eap.build=253.12345.678
  *   -Ptest.integration.goland.eap.build=253.12345.678
  *   -Ptest.integration.webstorm.eap.build=253.12345.678
+ *   -Ptest.integration.clion.eap.build=253.12345.678
  *
  * These are forwarded as system properties so tests can select specific builds
  * via IdeDistribution when version-pinned distribution support is implemented.
  */
 val testReleaseSmokeMatrix by tasks.registering(Test::class) {
-    description = "Release smoke matrix: [IDEA, PyCharm, GoLand, WebStorm] × [stable, EAP]"
+    description = "Release smoke matrix: [IDEA, PyCharm, GoLand, WebStorm, CLion] × [stable, EAP]"
     group = "verification"
 
     configureIntegrationTest()
@@ -163,12 +165,14 @@ val testReleaseSmokeMatrix by tasks.registering(Test::class) {
         includeTestsMatching("*WhatYouSeeTest*")
         includeTestsMatching("*PyCharmContainerIntegrationTest*")
         includeTestsMatching("*PyCharmMcpExecutionIntegrationTest*")
+        includeTestsMatching("*CLionContainerIntegrationTest*")
+        includeTestsMatching("*CLionMcpExecutionIntegrationTest*")
     }
 
     doFirst {
         // Forward per-product version overrides from Gradle properties to system properties.
         // Tests that support pinned distributions can read these to select the right IDE build.
-        listOf("idea", "pycharm", "goland", "webstorm").forEach { product ->
+        listOf("idea", "pycharm", "goland", "webstorm", "clion").forEach { product ->
             findProperty("test.integration.$product.stable.version")
                 ?.let { systemProperty("test.integration.$product.stable.version", it.toString()) }
             findProperty("test.integration.$product.eap.build")
@@ -210,3 +214,5 @@ registerSmokeTask("testReleaseSmokeGoLand",      product = "goland",   channel =
 registerSmokeTask("testReleaseSmokeGoLandEap",   product = "goland",   channel = "eap")
 registerSmokeTask("testReleaseSmokeWebStorm",    product = "webstorm", channel = "stable")
 registerSmokeTask("testReleaseSmokeWebStormEap", product = "webstorm", channel = "eap")
+registerSmokeTask("testReleaseSmokeCLion",       product = "clion",    channel = "stable")
+registerSmokeTask("testReleaseSmokeCLionEap",    product = "clion",    channel = "eap")

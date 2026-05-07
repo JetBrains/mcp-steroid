@@ -53,6 +53,10 @@ sealed class IntelliJProject{
         "test-project-rider",
         openFile = "DemoRider.Tests/LeaderboardTests.cs",
     )
+    object CLionTestProject : ProjectFromRepository(
+        "test-project-clion",
+        openFile = "main.cpp",
+    )
 
     object MavenTestProject : ProjectFromRepository(
         "test-project-maven",

@@ -55,6 +55,14 @@ enum class IdeProduct(
         displayName = "Rider",
         jetbrainsProductCode = "RD",
         hasJavaSdk = false,
+    ),
+    CLion(
+        id = "clion",
+        dockerImageBase = "clion-agent",
+        launcherExecutable = "clion",
+        displayName = "CLion",
+        jetbrainsProductCode = "CL",
+        hasJavaSdk = false,
     );
 
     companion object {
@@ -64,7 +72,8 @@ enum class IdeProduct(
             "goland", "go" -> GoLand
             "webstorm", "ws" -> WebStorm
             "rider", "rd", "dotnet" -> Rider
-            else -> error("Unsupported test.integration.ide.product='$rawValue'. Use one of: idea, pycharm, goland, webstorm, rider.")
+            "clion", "cl", "cpp", "c++" -> CLion
+            else -> error("Unsupported test.integration.ide.product='$rawValue'. Use one of: idea, pycharm, goland, webstorm, rider, clion.")
         }
     }
 }

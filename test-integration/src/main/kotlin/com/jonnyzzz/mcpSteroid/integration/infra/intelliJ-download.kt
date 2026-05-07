@@ -72,6 +72,7 @@ private fun IdeProduct.toDownloaderProduct(): DownloaderProduct = when (this) {
     IdeProduct.GoLand -> DownloaderProduct.GoLand
     IdeProduct.WebStorm -> DownloaderProduct.WebStorm
     IdeProduct.Rider -> DownloaderProduct.Rider
+    IdeProduct.CLion -> DownloaderProduct.CLion
 }
 
 private fun IdeChannel.toDownloaderChannel(): DownloaderChannel = when (this) {

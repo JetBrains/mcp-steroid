@@ -96,6 +96,7 @@ fun IntelliJContainer.Companion.create(
         ideProduct == IdeProduct.GoLand -> IntelliJProject.GoLandTestProject
         ideProduct == IdeProduct.WebStorm -> IntelliJProject.WebStormTestProject
         ideProduct == IdeProduct.Rider -> IntelliJProject.RiderTestProject
+        ideProduct == IdeProduct.CLion -> IntelliJProject.CLionTestProject
         else -> project
     }
 
