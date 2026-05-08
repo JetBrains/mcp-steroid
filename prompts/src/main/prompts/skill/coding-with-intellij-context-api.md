@@ -54,12 +54,21 @@ println("Project scope: $projScope")
 ### File Access Helpers
 
 ```kotlin
-// File access helpers:
+// File access helpers — call from the script body or another suspend fun, NEVER inside readAction { }:
 val vf = findFile("/tmp/test.txt")                   // VirtualFile by absolute path
-val psi = findPsiFile("/tmp/test.txt")                // PsiFile by absolute path (suspend)
+val psi = findPsiFile("/tmp/test.txt")                // PsiFile by absolute path — SUSPEND
 val projFile = findProjectFile("build.gradle.kts")    // VirtualFile relative to project
-val projPsi = findProjectPsiFile("build.gradle.kts")  // PsiFile relative to project (suspend)
+val projPsi = findProjectPsiFile("build.gradle.kts")  // PsiFile relative to project — SUSPEND
 println("file=$vf, psi=$psi, projFile=$projFile, projPsi=$projPsi")
+//
+// DON'T:
+//   readAction {
+//       val psi = findProjectPsiFile("X.kt")        // compile error: findProjectPsiFile is a suspend fun;
+//                                                   // the readAction lambda is not a coroutine builder.
+//   }
+// DO:
+//   val psi = findProjectPsiFile("X.kt")            // call from the script body (which is a suspend fun)
+//   readAction { /* now operate on `psi` here */ }  // wrap only the PSI/VFS reads, not the resolver call
 ```
 
 > **⚠️ `findProjectFile()` pitfall for resource files**: This function requires the **full relative path** from the project root (e.g., `"src/main/resources/application.properties"`). Calling it with just a filename (`findProjectFile("application.properties")`) **always returns null** — causing NPE on `!!`. For files under `src/main/resources/`, use `FilenameIndex.getVirtualFilesByName()` which searches by filename without requiring the full path:
