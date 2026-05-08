@@ -9,7 +9,6 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.RefreshQueue
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -88,30 +87,29 @@ class VfsRefreshService(
      * otherwise a user who edited a file between calls would get stale
      * compilation input.
      *
-     * The refresh itself runs on [com.intellij.openapi.vfs.newvfs.RefreshQueue]
-     * (single-threaded, coalescing). This method bridges the Runnable
-     * completion callback to a suspending continuation via
-     * [CompletableDeferred]. Hard-capped at 30 s so a pathological
-     * refresh cannot hang compilation forever.
+     * Uses the platform's coroutine-native [RefreshQueue.refresh] (suspend
+     * overload), which runs on a background write action and propagates
+     * cancellation through the coroutine context. Hard-capped at 30 s so a
+     * pathological refresh cannot hang compilation forever.
      */
     suspend fun awaitRefresh() {
         val base = projectBaseVf() ?: return
-        val done = CompletableDeferred<Unit>()
-        try {
-            // RefreshQueue.refresh with async=true returns immediately — no IO dispatch
-            // needed. The actual refresh happens on RefreshQueueImpl's own thread; the
-            // finishRunnable fires on EDT when done, which completes our deferred.
-            RefreshQueue.getInstance().refresh(
-                /* async = */ true,
-                /* recursive = */ true,
-                /* finishRunnable = */ Runnable { done.complete(Unit) },
-                /* files = */ base,
-            )
+        // Use the platform's coroutine-native [RefreshQueue.refresh] (suspend
+        // overload). The callback-based variant uses an EDT-side
+        // `finishRunnable` which deadlocks when the calling coroutine is
+        // dispatched from `runBlocking` on the EDT (BasePlatformTestCase
+        // default) — the EDT is parked, so the runnable never fires and the
+        // CompletableDeferred never completes. The suspend overload runs on a
+        // background write action and propagates cancellation through the
+        // coroutine context, no EDT round-trip.
+        val result = try {
+            withTimeoutOrNull(30.seconds) {
+                RefreshQueue.getInstance().refresh(/* recursive = */ true, listOf(base))
+            }
         } catch (e: Exception) {
-            log.debug("awaitRefresh schedule failed (non-fatal)", e)
-            done.complete(Unit)
+            log.debug("awaitRefresh failed (non-fatal)", e)
+            return
         }
-        val result = withTimeoutOrNull(30.seconds) { done.await() }
         if (result == null) {
             log.warn("awaitRefresh timed out after 30 s; compilation will proceed against possibly stale VFS")
         }

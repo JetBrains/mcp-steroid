@@ -71,23 +71,6 @@ class ExecutionManager(
                 try {
                     builder.logMessage("execution_id: ${executionId.executionId}")
 
-                    try {
-                        // Kill any pending modal dialogs before execution
-                        // This prevents execution failures when dialogs are blocking the IDE
-                        dialogKiller().killProjectDialogs(
-                            project = project,
-                            executionId = executionId,
-                            logMessage = builder::logMessage,
-                            forceEnabled = exec.dialogKiller,
-                        )
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: ProcessCanceledException) {
-                        throw e
-                    } catch (e: Exception) {
-                        log.warn("Dialog killer failed: ${e.message}", e)
-                    }
-
                     val finalResult = project.service<ReviewManager>().requestReview(executionId, exec, builder)
                     if (!finalResult) {
                         yield()
@@ -96,22 +79,40 @@ class ExecutionManager(
                     log.info("Review result for $executionId: $finalResult")
                     yield()
 
+                    // Run the script under McpEditingGuard. Same flow as
+                    // ApplyPatchToolHandler:
+                    //   1. dialog killer + modality fail-fast
+                    //   2. commit + saveAllDocuments + awaitRefresh BEFORE
+                    //   3. memory-vs-disk conflict resolver replaced with prefer-disk
+                    //   4. scriptExecutor.executeWithProgress
+                    //   5. awaitRefresh AFTER
+                    // See McpEditingGuard KDoc for rationale and threading.
+                    //
+                    // `exec.dialogKiller` opts callers out of the killer; the
+                    // guard then also skips its modality fail-fast so an
+                    // explicit opt-out keeps the legacy "run anyway" behavior.
                     try {
-                        // Run execution with progress reporting
-                        project.scriptExecutor.executeWithProgress(
-                            executionId,
-                            exec,
-                            builder
-                        )
-                        log.info("Execution $executionId completed")
-                    } finally {
-                        // Fire-and-forget VFS refresh — runs in every path (success, error,
-                        // cancellation). Any file the script (or a peer process) may have
-                        // written since the last refresh gets re-anchored to disk so the next
-                        // semantic query sees fresh PSI. Non-blocking: this MCP response
-                        // returns immediately; the refresh runs on the RefreshQueue thread.
-                        // See VfsRefreshService for threading + coalescing rationale.
-                        project.vfsRefreshService.scheduleAsyncRefresh()
+                        mcpEditingGuard().withEditingGuard(
+                            project = project,
+                            executionId = executionId,
+                            logMessage = builder::logMessage,
+                            dialogKillerForceEnabled = exec.dialogKiller,
+                        ) {
+                            project.scriptExecutor.executeWithProgress(
+                                executionId,
+                                exec,
+                                builder
+                            )
+                            log.info("Execution $executionId completed")
+                        }
+                    } catch (e: McpEditingGuardException) {
+                        // Modal dialog still showing after the killer ran — surface
+                        // a clean failure to the agent instead of running the script
+                        // and silently parking on EDT. Log so the IDE log keeps the
+                        // stacktrace alongside the dialog killer's screenshot.
+                        log.warn("[execute_code] editing guard rejected execution $executionId: ${e.message}", e)
+                        builder.logException("MCP editing guard rejected the call", e)
+                        builder.reportFailed(e.message ?: "MCP editing guard rejected the call")
                     }
                 } catch (t: Throwable) {
                     log.warn("Unexpected error: ${t.message}", t)

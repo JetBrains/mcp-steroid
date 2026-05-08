@@ -9,9 +9,9 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.backend.observation.Observation
 import com.jonnyzzz.mcpSteroid.execution.ApplyPatchException
 import com.jonnyzzz.mcpSteroid.execution.ApplyPatchHunk
-import com.jonnyzzz.mcpSteroid.execution.dialogKiller
+import com.jonnyzzz.mcpSteroid.execution.McpEditingGuardException
 import com.jonnyzzz.mcpSteroid.execution.executeApplyPatch
-import com.jonnyzzz.mcpSteroid.execution.vfsRefreshService
+import com.jonnyzzz.mcpSteroid.execution.mcpEditingGuard
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import kotlinx.coroutines.withTimeoutOrNull
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
@@ -163,34 +163,46 @@ class ApplyPatchToolHandler : McpRegistrar {
             return errorResult("Project not found: \"$projectName\". Available projects: $availableNames")
         }
 
-        // Kill any modal dialog that may be blocking EDT dispatch. Without this,
-        // the withContext(EDT + ModalityState.nonModal()) inside executeApplyPatch
-        // will wait until the modal dismisses — which can exceed Claude Code's
-        // hardcoded ~60s MCP tool timeout even though the patch itself is sub-ms.
-        // This mirrors what ExecutionManager does before each execute_code call.
         val executionId = ExecutionId("apply-patch-${System.currentTimeMillis()}")
-        dialogKiller().killProjectDialogs(
-            project = project,
-            executionId = executionId,
-            logMessage = { log.info(it) },
-            forceEnabled = null,
-        )
 
-        // Wait for IDE background configuration (project save, indexing, etc.) to
-        // settle before the write action. Without this, in a freshly-opened IDE
-        // the project-save activity that follows DialogKiller can hold the
-        // write-intent read lock for 10+ s, causing `WriteCommandAction` to time
-        // out before Claude's 60 s MCP tool cap. 5 s is a pragmatic upper bound:
-        // if configuration isn't done by then, proceed anyway — the write action
-        // retries on its own.
-        withTimeoutOrNull(5_000L) {
-            Observation.awaitConfiguration(project)
-        }
-
+        // Run the whole patch under McpEditingGuard:
+        //   1. dialog killer + modality fail-fast
+        //   2. commit + saveAllDocuments + awaitRefresh BEFORE the patch
+        //   3. memory-vs-disk conflict resolver disabled for the body
+        //   4. executeApplyPatch
+        //   5. awaitRefresh AFTER the patch
+        // See McpEditingGuard KDoc for the full flow + threading rationale.
         val result = try {
-            executeApplyPatch(project, hunks) { path ->
-                LocalFileSystem.getInstance().findFileByPath(path)
+            mcpEditingGuard().withEditingGuard(
+                project = project,
+                executionId = executionId,
+                logMessage = { log.info(it) },
+            ) {
+                // Wait for IDE background configuration (project save, indexing, etc.)
+                // to settle before the write action. Without this, in a freshly-opened
+                // IDE the project-save activity that follows DialogKiller can hold the
+                // write-intent read lock for 10+ s, causing `WriteCommandAction` to
+                // time out before Claude's 60 s MCP tool cap. 5 s is a pragmatic upper
+                // bound: if configuration isn't done by then, proceed anyway — the
+                // write action retries on its own.
+                withTimeoutOrNull(5_000L) {
+                    Observation.awaitConfiguration(project)
+                }
+
+                executeApplyPatch(project, hunks) { path ->
+                    LocalFileSystem.getInstance().findFileByPath(path)
+                }
             }
+        } catch (e: McpEditingGuardException) {
+            log.warn("[apply_patch] editing guard rejected the call: ${e.message}", e)
+            runCatching {
+                analyticsBeacon.capture(
+                    event = "apply_patch",
+                    project = project,
+                    properties = mapOf("result" to "modal-blocked"),
+                )
+            }
+            return errorResult(e.message ?: "MCP editing guard rejected the call")
         } catch (e: ApplyPatchException) {
             runCatching {
                 analyticsBeacon.capture(
@@ -219,8 +231,6 @@ class ApplyPatchToolHandler : McpRegistrar {
             }
             return errorResult("apply-patch failed: ${e.javaClass.simpleName}: ${e.message ?: "<no message>"}")
         }
-
-        project.vfsRefreshService.scheduleAsyncRefresh()
 
         runCatching {
             analyticsBeacon.capture(

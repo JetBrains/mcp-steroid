@@ -32,6 +32,7 @@ that go beyond LSP capabilities. Each example is a complete script for `steroid_
 | `mcp-steroid://ide/optimize-imports` | Optimize Imports | Remove unused imports and sort remaining ones |
 | `mcp-steroid://ide/inspect-and-fix` | Inspection + Fix | Run an inspection and apply a quick fix |
 | `mcp-steroid://ide/inspection-summary` | Inspection Summary | List enabled inspections in the project |
+| `mcp-steroid://ide/find-duplicates` | Find Duplicate Code | Run `DuplicatedCode` and walk every clone cluster (main + duplicates) typed |
 
 ### Navigation and Generation
 
@@ -74,7 +75,7 @@ that go beyond LSP capabilities. Each example is a complete script for `steroid_
 
 ### IDE Power Operations
 - Refactorings: `extract-method`, `introduce-variable`, `inline-method`, `change-signature`, `move-file`, `safe-delete`, `pull-up-members`, `push-down-members`, `extract-interface`, `move-class`
-- Code Hygiene: `optimize-imports`, `inspect-and-fix`, `inspection-summary`
+- Code Hygiene: `optimize-imports`, `inspect-and-fix`, `inspection-summary`, `find-duplicates`
 - Navigation & Generation: `generate-override`, `hierarchy-search`, `call-hierarchy`, `generate-constructor`
 - Project Intelligence: `project-dependencies`, `project-search`, `run-configuration`
 

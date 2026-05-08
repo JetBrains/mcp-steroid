@@ -87,12 +87,25 @@ if (buildFile != null) {
     println("Highlighting done: ${isEditorHighlightingCompleted(buildFile)}")
 
     // Inspections on a file (RECOMMENDED — works regardless of window focus):
-    val problems = runInspectionsDirectly(buildFile) // Map<toolId, List<ProblemDescriptor>>
+    //   runInspectionsDirectly(file: VirtualFile, includeInfoSeverity: Boolean = false)
+    //     -> Map<inspectionShortName, List<ProblemDescriptor>>
+    // Runs every ENABLED inspection from the project's current profile against
+    // `file` and returns the descriptor list per inspection. By default skips
+    // INFO severity; pass `includeInfoSeverity = true` to include them.
+    val problems = runInspectionsDirectly(buildFile)
     for ((tool, descs) in problems) {
         println("$tool: ${descs.size} problems")
     }
+
+    // To target a SPECIFIC inspection (e.g. DuplicatedCode), do not use
+    // runInspectionsDirectly — it runs the full enabled-set. Construct the
+    // inspection class directly and call InspectionEngine.inspectEx; see
+    // mcp-steroid://ide/inspect-and-fix (single inspection + quick fix) or
+    // mcp-steroid://ide/find-duplicates (DuplicatedCode across the project).
 }
 ```
+
+> **`ProblemDescriptor` results carry a live PSI reference, not a snapshot.** Accessing `.text`, `.textRange`, `psiElement.containingFile`, etc. on a returned descriptor *outside a `readAction { }` / `smartReadAction { }`* throws `ReadAccessException`. Consume the descriptors inside the same read action, or re-enter one in your post-processing loop.
 
 ### Daemon Analysis & Highlights
 

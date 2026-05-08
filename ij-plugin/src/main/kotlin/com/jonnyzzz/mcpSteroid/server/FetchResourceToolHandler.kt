@@ -5,6 +5,8 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.prompts.generated.ide.FindDuplicatesPromptArticle
+import com.jonnyzzz.mcpSteroid.prompts.generated.ide.InspectAndFixPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.DebuggerSkillPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.TestSkillPromptArticle
@@ -25,12 +27,16 @@ class FetchResourceToolHandler : McpRegistrar {
         val debuggerUri = DebuggerSkillPromptArticle().uri
         val skillUri = SkillPromptArticle().uri
         val codingGuideUri = CodingWithIntelliJPromptArticle().uri
+        val findDuplicatesUri = FindDuplicatesPromptArticle().uri
+        val inspectAndFixUri = InspectAndFixPromptArticle().uri
 
         server.toolRegistry.registerTool(
             name = "steroid_fetch_resource",
             description = "Fetch a mcp-steroid:// skill guide by URI. Returns markdown with copy-paste Kotlin code recipes for steroid_execute_code. " +
                     "Running tests? → $testSkillUri | " +
                     "Debugging? → $debuggerUri | " +
+                    "Find duplicates / clones / copy-pasted code / DRY violations? → $findDuplicatesUri | " +
+                    "Run a named inspection + quick fix? → $inspectAndFixUri | " +
                     "Any IDE task? → $skillUri | " +
                     "Full reference? → $codingGuideUri",
             inputSchema = buildJsonObject {

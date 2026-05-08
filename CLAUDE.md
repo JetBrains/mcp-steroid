@@ -303,6 +303,55 @@ Agents (especially Gemini) may find the right answer internally but not include 
 - For truly dynamic test cases (runtime-discovered), use `@TestFactory` with `DynamicTest.dynamicTest("descriptive-name") { ... }`
 - This ensures IDE test runner, `./gradlew --tests`, and CI reports work optimally
 
+### IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
+
+Pattern used by `FindDuplicatesPromptTest` (issue #33) and reusable in any
+agent-driven prompt test. Goal: capture the agent's own reflection on what
+was hard / unclear / missing during the run, in a form a maintainer can
+diff and turn into prompt tweaks.
+
+**Two tasks per run, one prompt.** The prompt asks the agent to (1) do the
+real work the test is validating and (2) reflect on how it went. The
+reflection is bracketed by `<<<IMPROVEMENTS>>>` ... `<<<END_IMPROVEMENTS>>>`
+markers so the test can extract it without parsing the rest of stdout.
+
+**Snapshot per agent.** Each `@Test` method (one per agent — `claude`,
+`codex`, `gemini`) runs against a shared companion-object IDE container
+and writes its block to
+`test-integration/build/improvements/IMPROVEMENTS-<test>-<agent>.md`.
+JUnit serializes `@Test` methods within a class, so the three agents run
+sequentially against one container — satisfying the "one Docker IDE at a
+time" rule without paying the IDE startup cost three times.
+
+**Hard constraint stated in the prompt.** Agents are told:
+*"your suggestions must be about prompts only — skill articles, tool
+descriptions, system-prompt text. We cannot add MCP tools or API methods
+as a fix path."* This makes the feedback actionable as `mcp-steroid://...`
+edits instead of feature requests we can't act on.
+
+**Iteration cadence.** After a run, read every produced
+`IMPROVEMENTS-*.md`, pick the prompt-only tweaks that match the constraint,
+apply them, re-run. Each iteration narrows the discoverability gap one
+article at a time. Different agents flag different things — Claude tends
+to highlight discovery and threading issues; Codex tends to highlight
+ambiguity in step ordering and output-format expectations.
+
+**Example.** Issue #33's first run (`FindDuplicatesPromptTest`,
+Claude, 2026-05-07) produced
+`IMPROVEMENTS-find-duplicates-claude-code.md` flagging four prompt-only
+gaps: `prompt/skill.md` had no Running-Inspections pointer;
+`inspection-summary.md` description didn't mention duplicates as a use
+case; the context-API table's `runInspectionsDirectly()` entry had no
+signature; the threading guide didn't warn about `ProblemDescriptor.psiElement`
+needing a read lock for `.text`. All four landed as `prompts/...`-only
+edits in the same PR.
+
+The harness is currently wired into `FindDuplicatesPromptTest`. Extending
+it to the rest of the test-integration prompt suite (`ReferencesSearchPromptTest`,
+`FilenameIndexPromptTest`, `PsiClassLookupPromptTest`,
+`MavenRunnerAdoptionTest`, …) is tracked as a separate change so the pattern
+can stabilize on one test first.
+
 ## Build Troubleshooting
 
 ### Test Suite Runtimes

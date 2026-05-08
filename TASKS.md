@@ -17,6 +17,83 @@ Current focus: make MCP Steroid measurably better than vanilla agent runs on DPA
 - Use `run-agent.sh` reviews for non-trivial direction changes. Require three reviews and consensus before selecting the next low-hanging fruit.
 - Keep run-agent artifacts outside this repository unless explicitly asked to preserve them.
 
+## Pending — IMPROVEMENTS.md harness rollout (separate PR)
+
+The two-task prompt + per-agent reflection harness landed on
+`FindDuplicatesPromptTest` in the issue-33 PR (see CLAUDE.md → "IMPROVEMENTS.md
+harness — agent self-feedback for prompt tuning"). The pattern is generic; we
+should extend it across every test-integration prompt-style test so each one
+produces a per-agent reflection artifact.
+
+- [ ] **Audit prompt-style tests in `:test-integration:test`.** Likely
+  candidates: `ReferencesSearchPromptTest`, `FilenameIndexPromptTest`,
+  `PsiClassLookupPromptTest`, `MavenRunnerAdoptionTest`,
+  `ResourceReadingTest`, `WhatYouSeeTest`'s `toolPreference`. Confirm which
+  of them run an agent against an open prompt (vs. infrastructure smoke).
+- [ ] **For each prompt test, add Task 2 (reflection)** to the prompt and
+  snapshot the `<<<IMPROVEMENTS>>>...<<<END_IMPROVEMENTS>>>` block to
+  `test-integration/build/improvements/IMPROVEMENTS-<test>-<agent>.md`.
+  Reuse the helper pattern in `FindDuplicatesPromptTest` (`extractImprovementsBlock`,
+  `saveImprovements`) — likely worth promoting to a shared helper in
+  `test-integration/src/main/.../integration/tests/`.
+- [ ] **Iteration cadence per test**: 5×Claude → 3×Codex → 3×Claude → 3×Codex
+  (the `find-duplicates` cadence). Each cycle reads the IMPROVEMENTS files,
+  applies prompt-only tweaks, re-runs.
+- [ ] **Land in a separate PR.** Wait until the issue-33 PR ships so the
+  harness contract has stabilized; then propose the rollout as one self-contained
+  change per prompt test (or one umbrella PR if the helper extraction is cohesive).
+- [ ] Update CLAUDE.md when rollout completes to drop the "currently wired into
+  FindDuplicatesPromptTest" caveat.
+
+## Pending — Reflection audit follow-up (issue #33)
+
+Audit on 2026-05-07 across `prompts/src/main/prompts/**/*.md` for `Class.forName`,
+`getDeclaredField`, `getDeclaredMethod`, `setAccessible`, `Method.invoke`,
+`java.lang.reflect.*`, `kotlin.reflect.full.*`. All hits in **prose** are policy
+text and are intentional (the new reflection-policy guidance added in
+`mcp-steroid-info.md`, `skill/coding-with-intellij.md`,
+`skill/coding-with-intellij-patterns.md`, and `ide/find-duplicates.md`). The hits
+that need investigation are in fenced ` ```kotlin ``` ` blocks — actual recipes
+that ship reflection to agents. Each gets its own dedicated `run-agent.sh`
+investigation (research only; no fixes applied here).
+
+- [ ] **`lsp/hover.md` lines 88, 93** — uses
+  `targetElement.javaClass.methods.find { it.name == "getType" }?.invoke(targetElement)`
+  to read the element's type for `KtProperty`/`KtParameter`/`PsiVariable`. Agent
+  ships duck-typed reflection across language plugins.
+  - Investigation prompt: research the typed alternatives in `~/Work/intellij`.
+    For Kotlin: `org.jetbrains.kotlin.psi.KtProperty.typeReference?.text`,
+    `KtParameter.typeReference?.text`, or the analysis-API
+    `KaSession.getReturnKtType(symbol)`. For Java: `PsiVariable.type.canonicalText`.
+    Confirm both APIs are on the IDEA Ultimate `steroid_execute_code` classpath
+    (Kotlin K2 analysis API may need `org.jetbrains.kotlin` plugin module). Report
+    the recommended typed branch per language and a single combined snippet that
+    drops `javaClass.methods.find`.
+  - Out of scope here: editing `lsp/hover.md`. Land the recipe replacement in a
+    separate change with its own KtBlock + in-process tests.
+
+- [ ] **`lsp/signature-help.md` lines 82, 88, 96, 112** — uses the same
+  `javaClass.methods.find { ... }?.invoke(...)` pattern for `getParameterList`,
+  `getValueParameterList`, `getParameters`, `getType`, `getReturnType`,
+  `getReturnTypeReference`. This is more pervasive than `hover.md`: four
+  reflection sites in one snippet, all wrapped in `try { ... } catch (e: Exception)`
+  that hide failures.
+  - Investigation prompt: research `~/Work/intellij` for the right typed APIs:
+    Kotlin `KtNamedFunction.valueParameters`, `KtNamedFunction.typeReference`;
+    Java `PsiMethod.parameterList.parameters`, `PsiMethod.returnType`. Decide
+    whether the recipe should branch on `is KtNamedFunction` / `is PsiMethod`
+    or use `PsiMethodCallExpression`-style resolution. Confirm the Kotlin K2
+    analysis API surface (if needed) for type rendering and that `try/catch`
+    can be removed once the typed path covers both languages.
+  - Out of scope here: editing `lsp/signature-help.md`. Replacement recipe goes
+    in a separate change with KtBlock + in-process tests.
+
+The two recipes above are the ONLY reflection-using `kotlin` blocks in
+`prompts/src/main/prompts/`. The `coding-with-intellij-patterns.md` "Path 2"
+fallback example was removed during issue #33 cleanup; the only surviving
+fallback is now the prose recommendation to use `required_plugins` instead of
+reflection.
+
 ## Completed This Iteration
 
 - [x] DPAIA arena prompt cleanup: remove stale `applyPatch {}` DSL guidance and duplicate MCP-mode prompt rules from `ArenaTestRunner.buildPrompt()`.

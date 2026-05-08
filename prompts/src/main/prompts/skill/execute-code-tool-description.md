@@ -31,6 +31,8 @@ Pre-flight catches missing or non-unique anchors before any edit lands, so keep 
 | **Run Maven / Gradle tests** | IDE runner — see `mcp-steroid://skill/execute-code-maven` and `mcp-steroid://skill/execute-code-gradle`; Bash is only for shell-level final verification or IDE-runner fallback |
 | **IDE build aborted (`errors=false, aborted=true`)** | Fetch `mcp-steroid://skill/execute-code-gradle` or `mcp-steroid://skill/execute-code-maven` and run the matching sync pattern before Bash fallback. |
 | **Compile check after an edit** | `ProjectTaskManager.getInstance(project).buildAllModules().await()` |
+| **Find duplicate / cloned code across the project (DRY violations, copy-paste)** | **Fetch `mcp-steroid://ide/find-duplicates` FIRST** — do not start with `grep` / `Bash` / ad-hoc text search. The recipe runs the bundled `DuplicatedCode` inspection (`com.jetbrains.clones.DuplicateInspection`) over the project's `HashFragmentIndex` and walks the typed `com.jetbrains.clones.DuplicateProblemDescriptor.textClone`. **Dedup the symmetric descriptors** — the inspection emits one per fragment-as-`main`, so a 2-fragment cluster surfaces twice. No private-field reflection. |
+| **Run a single named inspection on a file (with quick-fix)** | Fetch `mcp-steroid://ide/inspect-and-fix`. For *all enabled* inspections, use the context-API helper `runInspectionsDirectly(file)` directly. |
 | **Git / Docker CLI / shell** | native `Bash` — genuinely outside the IDE |
 
 If your next instinct is a native `Read` / `Edit` / `Grep` / `Glob` / `Bash` call, check this table first. The IDE path keeps VFS + PSI consistent, reuses the warm JVM, and one call reliably replaces 3-5 chained native-tool calls.
@@ -49,6 +51,7 @@ If your next instinct is a native `Read` / `Edit` / `Grep` / `Glob` / `Bash` cal
 - The last expression's value is NOT auto-printed (this is a Kotlin script, not a REPL).
 - To surface anything to the caller, wrap it in `println(value)` for plain text or `printJson(value)` for structured data.
 - A script that ends with `myList` (or any bare expression) prints nothing — you will see only `execution_id: …` in the response, identical to a script that returned no value at all. Always end with an explicit `println(...)` or `printJson(...)` of what the agent needs to see.
+- **For inspection / report tasks, print compact machine-readable lines on the first run.** Stable shapes like `KEY: value` per line or `printJson` parse cheaply on your end and let you build the user-facing summary without a second exec_code pass to reshape verbose IDE output. Recipes in `mcp-steroid://ide/find-duplicates`, `…/inspect-and-fix`, `…/inspection-summary` already follow this convention.
 
 **Threading rules — apply preventively, not after an error:**
 

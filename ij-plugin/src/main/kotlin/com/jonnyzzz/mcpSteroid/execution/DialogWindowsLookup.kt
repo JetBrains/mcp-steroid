@@ -34,37 +34,41 @@ fun dialogWindowsLookup(): DialogWindowsLookup = service()
 @Service(Service.Level.APP)
 class DialogWindowsLookup {
     /**
-     * Fast negative path: try dispatching to EDT without modality context.
-     * If EDT responds within the timeout, no modal dialog is blocking.
+     * Fast negative path: ask the platform whether the current modality
+     * differs from `ModalityState.nonModal()`. If it does not, no modal is
+     * elevating the current modality — we can short-circuit the enumeration.
      *
-     * NOTE! It can return false positive, when IDE is overloaded and not able to process EDT on time.
+     * Replaces the previous "dispatch to EDT with a 100 ms timeout" probe,
+     * which produced false positives under IDE load (a busy EDT looked the
+     * same as a real modal) and added 100 ms to every list_windows call when
+     * the EDT was actually parked. The modality-state read is synchronous and
+     * cannot lie.
      *
-     * @return true if EDT is responsive (no modal), false if timeout/error (modal may be present)
+     * Note: a non-modal `ModalityState.current()` only proves there is no
+     * modality elevating the EDT — progress modals, write-action queues, etc.
+     * also elevate modality and would return `true` here. The callers that
+     * need the stricter "is there a real DialogWrapperDialog showing"
+     * predicate fall through to enumeration, which filters by
+     * [DialogWrapperDialog] + `isModal`.
+     *
+     * See https://youtrack.jetbrains.com/issue/IJPL-243343
+     *
+     * /// Kudos Yuriy Artamonov for the suggestion
      */
-    private suspend fun canPumpEdtNonModal(): Boolean {
-        if (ApplicationManager.getApplication().isHeadlessEnvironment) return true
-        return try {
-            // Stay on the caller's dispatcher; the inner async(Dispatchers.EDT)
-            // does the dispatch and `await()` only suspends here. CoroutineName
-            // is a diagnostics tag, not a dispatcher switch.
-            withContext(CoroutineName("DialogWindowsLookup#check")) {
-                withTimeout(100) {
-                    async(Dispatchers.EDT) { true }.await()
-                }
-            }
-        } catch (_: TimeoutCancellationException) {
-            false
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            false
+    private suspend fun isModalDialogShown(): Boolean {
+        if (ApplicationManager.getApplication().isHeadlessEnvironment) return false
+        return withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+            val current = ModalityState.current()
+            val nonModal = ModalityState.nonModal()
+            current != nonModal
         }
     }
 
     /**
      * Detect modal dialog windows for a project and process them.
      *
-     * 1. Tries [canPumpEdtNonModal] — if EDT is responsive, calls [action] with empty list.
+     * 1. Tries [isModalDialogShown] — if no modality is elevated, calls
+     *    [action] with empty list.
      * 2. Otherwise, dispatches to EDT with [ModalityState.any] to enumerate all
      *    modal [DialogWrapper] instances owned by the project frame.
      * 3. Calls [action] with the found dialogs sorted by depth (deepest first).
@@ -77,7 +81,7 @@ class DialogWindowsLookup {
             return action(emptyList())
         }
 
-        if (canPumpEdtNonModal()) {
+        if (!isModalDialogShown()) {
             return action(emptyList())
         }
 
@@ -107,7 +111,8 @@ class DialogWindowsLookup {
      * [`waitForIdeWindow`](../../integration/infra/intelliJ-container.kt)'s
      * fail-fast path abort every test as soon as indexing kicked in.
      *
-     * 1. Tries [canPumpEdtNonModal] — if EDT is responsive, calls [action] with `false`.
+     * 1. Tries [isModalDialogShown] — if no modality is elevated, calls
+     *    [action] with `false`.
      * 2. Otherwise, dispatches to EDT with [ModalityState.any] and enumerates
      *    actual [DialogWrapperDialog] windows. If any is showing and modal → true.
      * 3. Calls [action] with the result.
@@ -119,7 +124,7 @@ class DialogWindowsLookup {
             return action(false)
         }
 
-        if (canPumpEdtNonModal()) {
+        if (!isModalDialogShown()) {
             return action(false)
         }
 

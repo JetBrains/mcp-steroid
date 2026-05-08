@@ -209,6 +209,33 @@ if (DumbService.isDumb(project)) {
 
 ## Pitfalls
 
+### PSI / `ProblemDescriptor` Returned from a Read Action Is Not a Snapshot
+
+A `PsiElement`, `ProblemDescriptor`, `Document` reference returned from a `readAction { }` / `smartReadAction { }` block is a **live reference**, not a copy. Accessing its properties (`.text`, `.textRange`, `psiElement.containingFile`, `descriptor.descriptionTemplate.takeIf { … }.let { resolved.name }`) **outside** the read action throws `ReadAccessException`.
+
+Common case: iterating `runInspectionsDirectly(file)` results. The Map is computed inside a read action, but the loop that walks `descs.forEach { p -> println(p.psiElement.text) }` runs *outside* — boom.
+
+**Wrong** (`ReadAccessException` thrown when `p.psiElement.text` is touched outside the read lock):
+> `val problems = runInspectionsDirectly(file)` — then `problems.forEach { (_, descs) -> descs.forEach { p -> println(p.psiElement.text) } }` outside any `readAction`.
+
+**Right** — extract Strings inside the read action, iterate them outside; or re-enter `readAction { }` for the entire walk:
+
+```kotlin
+val file = findProjectFile("build.gradle.kts") ?: error("File not found")
+val problems = runInspectionsDirectly(file)
+val rendered = readAction {
+    problems.flatMap { (tool, descs) -> descs.map { p -> "$tool: ${p.psiElement.text}" } }
+}
+rendered.forEach(::println)  // safe — Strings, no PSI
+
+// Alternative — re-enter readAction { } for the entire walk
+readAction {
+    problems.forEach { (tool, descs) ->
+        descs.forEach { p -> println("$tool: ${p.psiElement.text}") }
+    }
+}
+```
+
 ### Import-in-Strings
 
 Never put `import foo.Bar;` at the start of a line inside a triple-quoted Kotlin string. The script preprocessor extracts those lines as Kotlin imports, causing compile errors. Use `"import" + " foo.Bar;"` or `joinToString` to build the content, or use `java.io.File(path).writeText(content)` as an alternative.

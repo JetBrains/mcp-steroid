@@ -17,6 +17,15 @@ This guide teaches you how to write effective Kotlin code that executes inside I
 - [Java & Spring Boot Patterns](mcp-steroid://skill/coding-with-intellij-spring) — Maven/Gradle, Spring annotations, test execution
 - [Refactoring, Services & Best Practices](mcp-steroid://skill/coding-with-intellij-refactoring) — Refactoring, services, error handling, quick reference
 
+## Reflection policy — exploration only, never in the recipe you ship
+
+Reflection (`Class.forName`, `getDeclaredField`, `setAccessible(true)`) is fine as a **probe**: list a class's methods, learn the shape of an unfamiliar plugin API, read bytecode when source isn't handy. It is **not** acceptable in the final code you submit.
+
+- **Default to typed code.** Every loaded plugin's classes are on the `steroid_execute_code` compile classpath, so a direct `import com.jetbrains.clones.DuplicateProblemDescriptor` (or any other bundled plugin class) almost always compiles. If `JavaPsiFacade.findClass(...)` returns `null`, that just means the class isn't in the *user project* — it does not mean it's unavailable to your script.
+- **Cross-classloader fallback uses public methods only.** When a class genuinely cannot be resolved at compile time, use `Class.forName(fqn, false, pluginClassLoader).getMethod("publicGetter")` — see `mcp-steroid://skill/coding-with-intellij-patterns` ("Accessing Third-Party Inspection ProblemDescriptor Subclasses"). Never `setAccessible(true)` on a private field; private-field renames in the next IDE release silently break the script.
+- **When the right idiom isn't obvious, read the bytecode.** `unzip -p <plugin>.jar com/path/Foo.class | javap -p -` or `Class.getResource("Foo.class")?.openStream()` is faster than guessing — it tells you the public getter you missed.
+- **A reflection probe in your script is a red flag for the next agent.** If you found the answer via reflection, rewrite the recipe in typed form before reporting completion.
+
 ## Quick Reference
 
 **The IDE knows the code better than any file search tool. `steroid_execute_code` is the default edit/navigate path — native tools only where the IDE genuinely does not apply.**

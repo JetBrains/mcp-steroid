@@ -141,6 +141,11 @@
         <!-- Start MCP server when a project opens (writes URL files, runs analytics) -->
         <postStartupActivity
                 implementation="com.jonnyzzz.mcpSteroid.server.SteroidsMcpServerStartupActivity"/>
+
+        <!-- Silence the VCS Add/Remove confirmation dialogs that block agent flow.
+             See VcsConfirmationSilencer KDoc for rationale and side-effects. -->
+        <postStartupActivity
+                implementation="com.jonnyzzz.mcpSteroid.execution.VcsConfirmationSilencer"/>
     </extensions>
 
     <!-- Start MCP server at IDE startup, before any project opens -->

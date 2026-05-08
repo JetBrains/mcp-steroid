@@ -55,6 +55,8 @@ execute {
 }
 ```
 
+> **Early exit.** Use plain `return` to stop the script. There is no `@execute` (or `@script`) label to return to — the body runs as the wrapping suspend function, so any unlabeled `return` exits cleanly. `return@execute` does NOT compile.
+
 ### Script is a Coroutine
 
 The script body runs as a **suspend function**. This means:

@@ -17,6 +17,23 @@ Execute Kotlin code directly in IntelliJ IDEA's runtime with full access to the 
 - Full project model with module dependencies instead of workspace folders
 - Platform-specific indices for O(1) code search instead of filesystem scans
 
+## Common task → resource cheat sheet
+
+Before reading further, if your task matches one of these, skip straight to the linked recipe:
+
+| Task | Fetch this |
+|---|---|
+| Find duplicate / cloned / DRY-violation / copy-paste code | `mcp-steroid://ide/find-duplicates` |
+| Run a single named inspection + apply quick-fix | `mcp-steroid://ide/inspect-and-fix` |
+| List enabled inspections in the project | `mcp-steroid://ide/inspection-summary` |
+| Multi-file literal-text edit (atomic) | `steroid_apply_patch` (or `mcp-steroid://ide/apply-patch`) |
+| Find usages of a symbol | `mcp-steroid://lsp/find-references` |
+| Run / debug a test | `mcp-steroid://ide/demo-debug-test` |
+| Run Maven / Gradle tests | `mcp-steroid://skill/execute-code-maven`, `mcp-steroid://skill/execute-code-gradle` |
+| API discovery / exploration | continue reading this guide |
+
+The full index is in the "MCP Resources (Use Them)" section below.
+
 ## Quickstart Flow
 
 ```
@@ -158,7 +175,7 @@ This server exposes built-in resources through the MCP resource APIs. These are 
 - `mcp-steroid://lsp/overview` - Overview of LSP-like examples and how to use them.
 - `mcp-steroid://lsp/<id>` - Runnable Kotlin scripts (e.g., `go-to-definition`, `find-references`, `rename`, `code-action`, `signature-help`).
 - `mcp-steroid://ide/overview` - Overview of IDE power operation examples (refactorings, inspections, generation).
-- `mcp-steroid://ide/<id>` - Runnable Kotlin scripts (e.g., `extract-method`, `introduce-variable`, `change-signature`, `safe-delete`, `optimize-imports`, `pull-up-members`, `push-down-members`, `extract-interface`, `move-class`, `generate-constructor`, `call-hierarchy`, `project-dependencies`, `inspection-summary`, `project-search`, `run-configuration`).
+- `mcp-steroid://ide/<id>` - Runnable Kotlin scripts (e.g., `extract-method`, `introduce-variable`, `change-signature`, `safe-delete`, `optimize-imports`, `pull-up-members`, `push-down-members`, `extract-interface`, `move-class`, `generate-constructor`, `call-hierarchy`, `project-dependencies`, `inspect-and-fix`, `inspection-summary`, `find-duplicates`, `project-search`, `run-configuration`).
 - `mcp-steroid://debugger/overview` - Overview of debugger examples (breakpoints, sessions, threads).
 - `mcp-steroid://debugger/<id>` - Runnable Kotlin scripts (e.g., `set-line-breakpoint`, `debug-run-configuration`, `debug-session-control`, `debug-list-threads`, `debug-thread-dump`).
 - `mcp-steroid://open-project/overview` - Guide for opening projects via MCP.
@@ -222,7 +239,20 @@ Built-in helpers available in every script (no imports needed):
 
 Full API reference: `mcp-steroid://skill/coding-with-intellij-context-api`
 
-### 5. Running Tests
+### 5. Running Inspections
+
+The IDE has hundreds of inspections — `DuplicatedCode`, `RedundantCast`, `UnusedDeclaration`, language-specific DFA, etc. Two paths from a script:
+
+| You want to… | Use |
+|---|---|
+| Run **all enabled** inspections on a file (warnings/errors style) | `runInspectionsDirectly(file)` — context-API helper, returns `Map<toolId, List<ProblemDescriptor>>`. Works regardless of window focus. |
+| Run **one named** inspection (e.g. `DuplicatedCode`) on a file | Construct the inspection class directly and pass it to `InspectionEngine.inspectEx(...)` via a `LocalInspectionToolWrapper`. See the `inspect-and-fix` and `find-duplicates` recipes. |
+| List which inspections are enabled (to know what's available) | `mcp-steroid://ide/inspection-summary` |
+| Find duplicate code clusters across the project | `mcp-steroid://ide/find-duplicates` (typed `DuplicateProblemDescriptor.textClone`, no reflection) |
+
+**Pitfall — `ProblemDescriptor` results need a read lock to walk.** A `ProblemDescriptor` returned from `runInspectionsDirectly` / `InspectionEngine.inspectEx` is *not* a snapshot: its `psiElement` is a live PSI reference. Accessing `.text`, `.textRange`, `containingFile`, etc. on it **outside a `readAction { }` / `smartReadAction { }`** throws `ReadAccessException`. Either consume the descriptor inside the same read action, or re-enter one when post-processing.
+
+### 6. Running Tests
 
 **Always prefer the IntelliJ IDE runner over `./mvnw test` or `./gradlew test`.**
 The IDE runner returns a simple exit code (0 = all passed), shows structured results, and reuses the running JVM.

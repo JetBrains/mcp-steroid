@@ -1,6 +1,6 @@
 IDE: Inspection Summary
 
-This example lists enabled inspections for the current project.
+Lists every enabled inspection (e.g. `DuplicatedCode` for duplicate code / clones / DRY, `RedundantCast`, `UnusedDeclaration`). Find a short-name before targeting it.
 
 ```kotlin
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
@@ -43,6 +43,8 @@ println(result)
 
 # See also
 
+- [Inspection + Quick Fix](mcp-steroid://ide/inspect-and-fix) - Run a *single named* inspection on a file and apply its quick fix
+- [Find Duplicate Code](mcp-steroid://ide/find-duplicates) - Run the bundled `DuplicatedCode` inspection across the project and walk every clone cluster typed
 - [Code Action](mcp-steroid://lsp/code-action) - Quick fixes and refactorings
 - [Document Symbols](mcp-steroid://lsp/document-symbols) - List symbols in a document
 - [IntelliJ API Power User Guide](mcp-steroid://prompt/skill) - Core API patterns

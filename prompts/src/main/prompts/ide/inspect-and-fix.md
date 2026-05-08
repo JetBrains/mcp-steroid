@@ -92,6 +92,7 @@ println("Applied quick fix: $fixName")
 
 # See also
 
+- [Find Duplicate Code](mcp-steroid://ide/find-duplicates) - Run `DuplicatedCode` and walk every clone cluster typed (no reflection)
 - [Code Action](mcp-steroid://lsp/code-action) - Quick fixes and refactorings
 - [Find References](mcp-steroid://lsp/find-references) - Find all usages of a symbol
 - [Document Symbols](mcp-steroid://lsp/document-symbols) - List symbols in a document

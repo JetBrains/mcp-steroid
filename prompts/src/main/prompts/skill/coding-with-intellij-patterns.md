@@ -293,4 +293,28 @@ println(if (missing.isEmpty()) "All required classes present — run tests to ve
         else "STILL MISSING (must create): " + missing.joinToString(", "))
 ```
 
+> **`JavaPsiFacade.findClass` is for *user-project* classes, not plugin classes.** Symbols owned by the running IDE (`com.intellij.*`, `com.jetbrains.*` from bundled plugins, etc.) are on the **script's compile classpath** but not in the user project's PSI model. A `null` from `JavaPsiFacade.findClass("com.jetbrains.clones.DuplicateProblemDescriptor", projectScope)` does **not** mean the class is unavailable — it means you asked the wrong question. For plugin classes, just `import` and use them directly.
+
+---
+
+## Accessing Third-Party Inspection ProblemDescriptor Subclasses
+
+`InspectionEngine.inspectEx(...)` returns `ProblemDescriptor`s. Many bundled inspections store their extra payload on a *subclass* (e.g. `com.jetbrains.clones.DuplicateProblemDescriptor.getTextClone()`, custom Kotlin/Java DFA descriptors). The `steroid_execute_code` compile classpath already contains every loaded plugin's classes (`ScriptClassLoaderFactory.ideClasspath()` flattens `descriptor.pluginClassLoader.files` for every plugin and content module), so the **typed import + `filterIsInstance` cast** is the recipe — direct code, no reflection.
+
+```kotlin[IU]
+import com.intellij.codeInspection.ProblemDescriptor
+import com.jetbrains.clones.DuplicateProblemDescriptor
+
+// `problems` would come from InspectionEngine.inspectEx(...) — see mcp-steroid://ide/find-duplicates
+val problems: List<ProblemDescriptor> = emptyList()
+problems.filterIsInstance<DuplicateProblemDescriptor>().forEach { dpd ->
+    val tc = dpd.textClone   // Kotlin property accessor for getTextClone()
+    println("clone main = ${tc.main.file.path}:${tc.main.lines.first}")
+}
+```
+
+If the import reports `unresolved reference`, the owning plugin is not loaded — declare it on the `steroid_execute_code` call via the `required_plugins` parameter (the relevant module here is `com.intellij.modules.duplicatesDetector`). Do not work around it with `Class.forName` + reflection, and never `setAccessible(true)` on a private field. Private-field renames in the next IDE release silently break the script, and there is a public getter for every payload that the platform exposes externally — find it via the bytecode (`unzip -p <plugin>.jar Foo.class | javap -p -`) instead of guessing.
+
+See `mcp-steroid://ide/find-duplicates` for the full duplicate-code recipe and `mcp-steroid://skill/coding-with-intellij` (top of guide) for the broader reflection policy.
+
 ---
