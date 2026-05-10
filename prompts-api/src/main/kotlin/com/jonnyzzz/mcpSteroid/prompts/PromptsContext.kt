@@ -13,4 +13,8 @@ package com.jonnyzzz.mcpSteroid.prompts
 data class PromptsContext(
     val productCode: String,
     val baselineVersion: Int,
-)
+) {
+    companion object
+}
+
+val PromptsContext.Companion.Generic get() = PromptsContext("Generic", 253)

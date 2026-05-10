@@ -1,6 +1,10 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.proxy
 
+import com.jonnyzzz.mcpSteroid.mcp.FramingBuffer
+import com.jonnyzzz.mcpSteroid.mcp.MCP_PROTOCOL_VERSION
+import com.jonnyzzz.mcpSteroid.mcp.encodeFramedMessage
+import com.jonnyzzz.mcpSteroid.mcp.encodeNdjsonMessage
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -79,7 +83,7 @@ class StdioServerProtocolTest {
     // =========================================================================
 
     private fun init(id: String = "1") =
-        """{"jsonrpc":"2.0","id":"$id","method":"initialize","params":{"protocolVersion":"$PROTOCOL_VERSION","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"""
+        """{"jsonrpc":"2.0","id":"$id","method":"initialize","params":{"protocolVersion":"$MCP_PROTOCOL_VERSION","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"""
 
     private fun req(id: String, method: String, params: String = "{}") =
         """{"jsonrpc":"2.0","id":"$id","method":"$method","params":$params}"""
@@ -112,7 +116,7 @@ class StdioServerProtocolTest {
         val h = McpTestHarness()
         h.sendFramed(init())
         val result = (h.runAndGetObjects()[0]["result"] as JsonObject)
-        assertEquals(PROTOCOL_VERSION, result["protocolVersion"]?.jsonPrimitive?.content)
+        assertEquals(MCP_PROTOCOL_VERSION, result["protocolVersion"]?.jsonPrimitive?.content)
     }
 
     @Test

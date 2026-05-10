@@ -125,7 +125,12 @@ class FetchResourceToolTest : BasePlatformTestCase() {
 
         assertTrue("Should return error for missing uri", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
-        assertTrue("Error message should mention missing uri", text.contains("Missing"))
+        // Pin the specific branch — generic "Missing" would also match the
+        // project_name-missing path and let a regression hide there.
+        assertTrue(
+            "Error message should specifically mention the missing uri parameter",
+            text.contains("Missing required parameter: uri")
+        )
     }
 
     private suspend fun initializeSession(server: SteroidsMcpServer): String {
@@ -170,6 +175,11 @@ class FetchResourceToolTest : BasePlatformTestCase() {
                     put("name", "steroid_fetch_resource")
                     putJsonObject("arguments") {
                         put("uri", uri)
+                        // `project_name` is required by FetchResourceToolHandler — even
+                        // though PromptsContextHandlerIJ doesn't read it (it builds the
+                        // context purely from ApplicationInfo). Pass the test fixture's
+                        // project name so the call shape matches what a real agent sends.
+                        put("project_name", project.name)
                     }
                 }
             }.toString())

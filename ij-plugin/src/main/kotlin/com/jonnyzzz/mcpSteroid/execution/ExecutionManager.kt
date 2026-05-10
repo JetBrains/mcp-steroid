@@ -5,7 +5,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
@@ -79,41 +78,18 @@ class ExecutionManager(
                     log.info("Review result for $executionId: $finalResult")
                     yield()
 
-                    // Run the script under McpEditingGuard. Same flow as
-                    // ApplyPatchToolHandler:
-                    //   1. dialog killer + modality fail-fast
-                    //   2. commit + saveAllDocuments + awaitRefresh BEFORE
-                    //   3. memory-vs-disk conflict resolver replaced with prefer-disk
-                    //   4. scriptExecutor.executeWithProgress
-                    //   5. awaitRefresh AFTER
-                    // See McpEditingGuard KDoc for rationale and threading.
-                    //
-                    // `exec.dialogKiller` opts callers out of the killer; the
-                    // guard then also skips its modality fail-fast so an
-                    // explicit opt-out keeps the legacy "run anyway" behavior.
-                    try {
-                        mcpEditingGuard().withEditingGuard(
-                            project = project,
-                            executionId = executionId,
-                            logMessage = builder::logMessage,
-                            dialogKillerForceEnabled = exec.dialogKiller,
-                        ) {
-                            project.scriptExecutor.executeWithProgress(
-                                executionId,
-                                exec,
-                                builder
-                            )
-                            log.info("Execution $executionId completed")
-                        }
-                    } catch (e: McpEditingGuardException) {
-                        // Modal dialog still showing after the killer ran — surface
-                        // a clean failure to the agent instead of running the script
-                        // and silently parking on EDT. Log so the IDE log keeps the
-                        // stacktrace alongside the dialog killer's screenshot.
-                        log.warn("[execute_code] editing guard rejected execution $executionId: ${e.message}", e)
-                        builder.logException("MCP editing guard rejected the call", e)
-                        builder.reportFailed(e.message ?: "MCP editing guard rejected the call")
-                    }
+                    // Run the script. The McpEditingGuard wrapping (dialog
+                    // killer, modality fail-fast, BEFORE/AFTER awaitRefresh)
+                    // lives inside ScriptExecutor so it surrounds only the
+                    // run-blocks phase — kotlinc itself runs outside the guard
+                    // because it doesn't touch the project tree and would
+                    // otherwise pin a write-intent across compile wall-time.
+                    project.scriptExecutor.executeWithProgress(
+                        executionId,
+                        exec,
+                        builder
+                    )
+                    log.info("Execution $executionId completed")
                 } catch (t: Throwable) {
                     log.warn("Unexpected error: ${t.message}", t)
                     builder.logException("Unexpected error", t)

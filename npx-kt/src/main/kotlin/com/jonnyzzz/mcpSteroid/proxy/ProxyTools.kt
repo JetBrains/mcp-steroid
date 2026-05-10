@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -16,8 +17,8 @@ import kotlinx.serialization.json.put
 fun proxyToolsList(): List<JsonObject> {
     val emptySchema = buildJsonObject {
         put("type", "object")
-        put("properties", JsonObject(emptyMap()))
-        put("required", JsonArray(emptyList()))
+        put("properties", buildJsonObject {  })
+        put("required", buildJsonArray {  })
     }
     return listOf(
         buildJsonObject {
@@ -67,7 +68,7 @@ suspend fun handleAggregateProjects(registry: ServerRegistry, args: JsonObject):
         targets.map { serverId ->
             async {
                 try {
-                    val result = registry.callTool(serverId, AGGREGATE_TOOL_PROJECTS, JsonObject(emptyMap()))
+                    val result = registry.callTool(serverId, AGGREGATE_TOOL_PROJECTS, buildJsonObject {  })
                     if (result["isError"]?.jsonPrimitive?.content?.lowercase() == "true") {
                         synchronized(errors) { errors += buildJsonObject { put("serverId", serverId); put("message", "Upstream error") } }
                         return@async
@@ -84,13 +85,13 @@ suspend fun handleAggregateProjects(registry: ServerRegistry, args: JsonObject):
 
                     val enriched = rawProjects.map { project ->
                         val projectPath = project["path"]?.jsonPrimitive?.contentOrNull ?: ""
-                        JsonObject(project.toMutableMap().apply {
-                            put("projectId", JsonPrimitive("$serverId::${projectPath.ifEmpty { project["name"]?.jsonPrimitive?.contentOrNull ?: "" }}"))
-                            put("serverId", JsonPrimitive(serverId))
-                            put("serverLabel", if (summary != null) JsonPrimitive(summary.serverLabel) else JsonNull)
-                            put("serverUrl", if (summary != null) JsonPrimitive(summary.serverUrl) else JsonNull)
-                            put("serverPort", if (summary?.serverPort != null) JsonPrimitive(summary.serverPort) else JsonNull)
-                        })
+                        buildJsonObject {
+                            put("projectId", "$serverId::${projectPath.ifEmpty { project["name"]?.jsonPrimitive?.contentOrNull ?: "" }}")
+                            put("serverId", serverId)
+                            put("serverLabel", summary?.serverLabel)
+                            put("serverUrl", summary?.serverUrl)
+                            put("serverPort", summary?.serverPort)
+                        }
                     }
                     synchronized(projects) { projects += enriched }
                 } catch (e: Exception) {
@@ -129,7 +130,7 @@ suspend fun handleAggregateWindows(registry: ServerRegistry, args: JsonObject): 
         targets.map { serverId ->
             async {
                 try {
-                    val result = registry.callTool(serverId, AGGREGATE_TOOL_WINDOWS, JsonObject(emptyMap()))
+                    val result = registry.callTool(serverId, AGGREGATE_TOOL_WINDOWS, buildJsonObject {  })
                     if (result["isError"]?.jsonPrimitive?.content?.lowercase() == "true") {
                         synchronized(errors) { errors += buildJsonObject { put("serverId", serverId); put("message", "Upstream error") } }
                         return@async
@@ -146,25 +147,25 @@ suspend fun handleAggregateWindows(registry: ServerRegistry, args: JsonObject): 
 
                     val enriched = rawWindows.map { window ->
                         val rawWindowId = window["windowId"]?.jsonPrimitive?.contentOrNull ?: ""
-                        JsonObject(window.toMutableMap().apply {
-                            put("serverWindowId", JsonPrimitive(rawWindowId))
-                            put("windowId", JsonPrimitive("$serverId::$rawWindowId"))
-                            put("serverId", JsonPrimitive(serverId))
-                            put("serverLabel", if (summary != null) JsonPrimitive(summary.serverLabel) else JsonNull)
-                            put("serverUrl", if (summary != null) JsonPrimitive(summary.serverUrl) else JsonNull)
-                            put("serverPort", if (summary?.serverPort != null) JsonPrimitive(summary.serverPort) else JsonNull)
-                        })
+                        buildJsonObject {
+                            put("serverWindowId", rawWindowId)
+                            put("windowId", "$serverId::$rawWindowId")
+                            put("serverId", serverId)
+                            put("serverLabel", summary?.serverLabel)
+                            put("serverUrl", summary?.serverUrl)
+                            put("serverPort", summary?.serverPort)
+                        }
                     }
                     synchronized(windows) { windows += enriched }
 
                     val rawTasks = (payload["backgroundTasks"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
                     val enrichedTasks = rawTasks.map { task ->
-                        JsonObject(task.toMutableMap().apply {
-                            put("serverId", JsonPrimitive(serverId))
-                            put("serverLabel", if (summary != null) JsonPrimitive(summary.serverLabel) else JsonNull)
-                            put("serverUrl", if (summary != null) JsonPrimitive(summary.serverUrl) else JsonNull)
-                            put("serverPort", if (summary?.serverPort != null) JsonPrimitive(summary.serverPort) else JsonNull)
-                        })
+                        buildJsonObject {
+                            put("serverId", serverId)
+                            put("serverLabel", summary?.serverLabel)
+                            put("serverUrl", summary?.serverUrl)
+                            put("serverPort", summary?.serverPort)
+                        }
                     }
                     synchronized(backgroundTasks) { backgroundTasks += enrichedTasks }
                 } catch (e: Exception) {

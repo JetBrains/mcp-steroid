@@ -1,41 +1,14 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.proxy
 
-import kotlinx.serialization.json.JsonNull
+import com.jonnyzzz.mcpSteroid.mcp.JsonRpcErrorCodes
+import com.jonnyzzz.mcpSteroid.mcp.MCP_PROTOCOL_VERSION
+import com.jonnyzzz.mcpSteroid.mcp.RpcException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-
-fun jsonRpcResult(id: Any?, result: JsonObject): JsonObject = buildJsonObject {
-    put("jsonrpc", JSONRPC_VERSION)
-    when (id) {
-        is String -> put("id", id)
-        is Long -> put("id", id)
-        is Int -> put("id", id.toLong())
-        is Double -> put("id", id.toLong())
-        null -> put("id", JsonNull)
-        else -> put("id", id.toString())
-    }
-    put("result", result)
-}
-
-fun jsonRpcError(id: Any?, code: Int, message: String): JsonObject = buildJsonObject {
-    put("jsonrpc", JSONRPC_VERSION)
-    when (id) {
-        is String -> put("id", id)
-        is Long -> put("id", id)
-        is Int -> put("id", id.toLong())
-        is Double -> put("id", id.toLong())
-        null -> put("id", JsonNull)
-        else -> put("id", id.toString())
-    }
-    put("error", buildJsonObject {
-        put("code", code)
-        put("message", message)
-    })
-}
 
 fun createServerInfo(config: ProxyConfig): JsonObject = buildJsonObject {
     put("name", "mcp-steroid-proxy")
@@ -51,8 +24,6 @@ fun extractClientProgressToken(args: JsonObject?): Any? {
 fun createProgressToken(): String =
     "npx-${System.currentTimeMillis().toString(36)}-${(Math.random() * Long.MAX_VALUE).toLong().toString(36)}"
 
-class RpcException(message: String, val code: Int) : Exception(message)
-
 suspend fun handleRpc(
     method: String,
     params: JsonObject,
@@ -66,7 +37,7 @@ suspend fun handleRpc(
 
     return when (method) {
         "initialize" -> buildJsonObject {
-            put("protocolVersion", PROTOCOL_VERSION)
+            put("protocolVersion", MCP_PROTOCOL_VERSION)
             put("capabilities", buildJsonObject {
                 put("tools", buildJsonObject { put("listChanged", false) })
                 put("prompts", buildJsonObject { put("listChanged", false) })
@@ -79,7 +50,7 @@ suspend fun handleRpc(
             put("instructions", "Proxy MCP server for MCP Steroid instances discovered from local IDE metadata.")
         }
 
-        "ping" -> JsonObject(emptyMap())
+        "ping" -> buildJsonObject {  }
 
         "tools/list" -> {
             val groups = registry.buildToolGroups()
@@ -93,7 +64,7 @@ suspend fun handleRpc(
 
         "resources/read" -> {
             val uri = params["uri"]?.jsonPrimitive?.contentOrNull
-                ?: throw RpcException("Missing uri", -32602)
+                ?: throw RpcException("Missing uri", JsonRpcErrorCodes.INVALID_PARAMS)
 
             registry.buildResourceIndex()
             val alias = parseAliasUri(uri)
@@ -101,14 +72,14 @@ suspend fun handleRpc(
             val serverIds = alias?.let { listOf(it.serverId) }
                 ?: (registry.resourceIndex[lookupUri] ?: emptyList())
             val serverId = serverIds.firstOrNull()
-                ?: throw RpcException("Resource not found: $uri", -32602)
+                ?: throw RpcException("Resource not found: $uri", JsonRpcErrorCodes.INVALID_PARAMS)
 
             registry.callRpc(serverId, "resources/read", buildJsonObject { put("uri", lookupUri) })
         }
 
         "tools/call" -> {
             val toolName = params["name"]?.jsonPrimitive?.contentOrNull
-            val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
+            val args = params["arguments"] as? JsonObject ?: buildJsonObject {  }
 
             val captureToolCall = { result: JsonObject, route: String, extra: Map<String, Any> ->
                 beacon?.capture(BeaconEvents.TOOL_CALL, mapOf(
@@ -172,6 +143,6 @@ suspend fun handleRpc(
             captureToolCall(delegated, "delegated", mapOf("server_id" to serverId))
         }
 
-        else -> throw RpcException("Method not found: $method", -32601)
+        else -> throw RpcException("Method not found: $method", JsonRpcErrorCodes.METHOD_NOT_FOUND)
     }
 }

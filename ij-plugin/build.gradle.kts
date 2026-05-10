@@ -78,6 +78,13 @@ dependencies {
         testFramework(TestFrameworkType.Platform)
     }
 
+    implementation(project(":mcp-core"))
+    // Ktor server + McpHttpTransport, transitively brings :mcp-core in
+    implementation(project(":mcp-http"))
+    // Transport-agnostic tool-handler metadata + registrations (empty for now —
+    // classes will migrate across from :ij-plugin in the steps 6-13 refactor series).
+    implementation(project(":mcp-steroid-server"))
+
     // Prompt base classes + generated prompt code
     implementation(project(":prompts"))
 
@@ -93,12 +100,6 @@ dependencies {
     // AI agent MCP server configuration helpers
     implementation(project(":ai-agents"))
 
-    // Ktor server for MCP HTTP transport
-    val ktorVersion = "3.1.0"
-    implementation("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-cio:$ktorVersion")
-    implementation("io.ktor:ktor-server-sse:$ktorVersion")
-
     // PostHog analytics
     implementation("com.posthog:posthog-server:2.3.0")
 
@@ -111,6 +112,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers")
 
     // Ktor client for MCP SSE transport tests
+    val ktorVersion = "3.1.0"
     testImplementation("io.ktor:ktor-client-core:$ktorVersion")
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
@@ -396,6 +398,9 @@ val verifyBundledLibraries by tasks.registering {
             "lib/ij-plugin-$pluginVersion.jar",
             "lib/kotlin-cli-$pluginVersion.jar",
             "lib/ocr-common-$pluginVersion.jar",
+            "lib/mcp-core-$pluginVersion.jar",
+            "lib/mcp-http-$pluginVersion.jar",
+            "lib/mcp-steroid-server-$pluginVersion.jar",
             "lib/prompts-api-$pluginVersion.jar",
             "lib/prompts-$pluginVersion.jar",
 

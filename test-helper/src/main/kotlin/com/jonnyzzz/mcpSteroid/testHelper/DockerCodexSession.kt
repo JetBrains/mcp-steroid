@@ -33,6 +33,10 @@ class DockerCodexSession(
             .assertNoErrorsInOutput("MCP server registration")
     }
 
+    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
+        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    }
+
     override fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String) {
         runInContainer(args = codexMcpAddStdioArgs(npxCommand, mcpName))
             .assertExitCode(0) { "NPX MCP server registration" }

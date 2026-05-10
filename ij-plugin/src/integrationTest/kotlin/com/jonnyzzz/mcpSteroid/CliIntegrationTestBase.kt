@@ -21,6 +21,21 @@ abstract class CliIntegrationTestBase : BasePlatformTestCase() {
         }
     }
 
+    /**
+     * Run the test body OFF the EDT. Default `BasePlatformTestCase` parks the test
+     * method on the EDT inside a write-intent transaction; while the test parks in
+     * `timeoutRunBlocking { runPrompt(...) }` the EDT keeps the write-intent permit
+     * held. The MCP server's `McpEditingGuard.awaitRefresh()` suspend call then can
+     * never acquire write-intent and hits its 30 s safety timeout — twice per
+     * `steroid_execute_code` and once per Claude retry — turning a sub-second
+     * refresh into 3-4 minutes of wall time and tripping the 60 s MCP-tool timeout.
+     * Off-EDT, write-intent is acquired by the refresh thread instantly.
+     *
+     * Mirrors `McpServerIntegrationTest`, which has always run off-EDT for the
+     * same reason and is consequently fast.
+     */
+    override fun runInDispatchThread(): Boolean = false
+
     override fun setUp() {
         setServerPortProperties()
         super.setUp()

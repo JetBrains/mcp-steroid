@@ -1,0 +1,220 @@
+/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
+package com.jonnyzzz.mcpSteroid.mcp
+
+import com.jonnyzzz.mcpSteroid.thisLogger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+
+/**
+ * Generic MCP stdio transport.
+ *
+ * Mirrors [McpHttpTransport][com.jonnyzzz.mcpSteroid.mcp.McpHttpTransport] for HTTP: it reads framed
+ * (or NDJSON) JSON-RPC messages from [input], dispatches each through an
+ * [McpServerCore], and writes responses to [output] using the same framing the peer
+ * is using. Server-initiated notifications and server-to-client requests (e.g.
+ * `sampling/createMessage`) are streamed concurrently from the session's channels.
+ *
+ * The class is transport-only: it has no opinion about which tools, resources, or
+ * prompts are exposed — those are configured on the [server] argument by the caller.
+ *
+ * Both streams are constructor-injected to keep the class testable. Production
+ * callers typically pass `System.in` / `System.out`; tests pass
+ * `ByteArrayInputStream` / `ByteArrayOutputStream`.
+ *
+ * Lifecycle:
+ *   1. Caller invokes [run]. A fresh [McpSession] is created. Two coroutines pump the
+ *      session's outgoing notification and outgoing-request channels into framed
+ *      bytes on [output].
+ *   2. The reader loop pulls bytes from [input] via `runInterruptible(Dispatchers.IO)`
+ *      so cancellation closes the read thread, feeds them to a [FramingBuffer], and
+ *      dispatches **each parsed frame in its own child coroutine**. Concurrent dispatch
+ *      is required to avoid deadlock when a tool handler suspends on a server-to-client
+ *      request (e.g. `sampling/createMessage`) — the reader must keep accepting the
+ *      client's response while the handler is parked.
+ *   3. The output framing mode is locked on the **first inbound frame** ("framed" or
+ *      "ndjson"); subsequent writes match that mode.
+ *   4. On EOF (or [IOException]) the reader exits and the session is closed (which
+ *      drains its channels). The surrounding `coroutineScope` waits for all in-flight
+ *      dispatch coroutines and pump coroutines to finish before returning.
+ */
+class McpStdioServer(
+    private val server: McpServerCore,
+    private val input: InputStream = System.`in`,
+    private val output: OutputStream = System.out,
+) {
+    private val log = thisLogger()
+
+    @Volatile
+    private var outputMode: String? = null
+
+    private val outputLock = Any()
+
+    /**
+     * Run the stdio loop until [input] reaches EOF or the surrounding coroutine is
+     * cancelled. Suspends; safe to call from `runBlocking { ... }` or `runTest { ... }`.
+     */
+    suspend fun run(): Unit = coroutineScope {
+        val session = server.sessionManager.createSession()
+        try {
+            launchOutgoingPumps(session)
+            readLoop(this, session)
+        } finally {
+            // Close the session BEFORE the enclosing scope's implicit "wait for
+            // children": closing cancels any pending Deferred in `session.sendRequest`,
+            // which unblocks tool handlers parked on `sampling/createMessage` so their
+            // dispatch coroutines can exit instead of holding `run()` open until the
+            // sampling timeout fires after stdin EOF.
+            server.sessionManager.removeSession(session.id)
+        }
+    }
+
+    private fun CoroutineScope.launchOutgoingPumps(session: McpSession) {
+        launch {
+            session.notifications().collect { notification ->
+                writeFrame(McpJson.encodeToString(JsonRpcNotification.serializer(), notification))
+            }
+        }
+        launch {
+            session.outgoingRequests().collect { request ->
+                writeFrame(McpJson.encodeToString(JsonRpcRequest.serializer(), request))
+            }
+        }
+    }
+
+    /**
+     * Reads frames until EOF and launches a child coroutine per frame for dispatch.
+     * Dispatches are launched into [scope] (the parent scope from [run]) so that
+     * EOF can flow through `finally → removeSession → channel close → Deferred cancel`
+     * without being blocked by an inner `coroutineScope`'s wait-for-children.
+     *
+     * The single exception is `initialize`: it MUST complete before subsequent
+     * dispatches read `clientCapabilities` from the session. We detect it cheaply at
+     * the wire level and run it synchronously.
+     */
+    private suspend fun readLoop(scope: CoroutineScope, session: McpSession) {
+        val buffer = FramingBuffer()
+        val buf = ByteArray(READ_BUFFER_SIZE)
+        while (currentCoroutineContext().isActive) {
+            val n = readChunk(buf)
+            if (n < 0) break          // EOF
+            if (n == 0) continue       // 0-byte read is unusual for blocking InputStream; defend against it
+            buffer.append(buf, n)
+            while (true) {
+                val frame = buffer.readNextFrame() ?: break
+                if (outputMode == null) outputMode = frame.mode
+                if (frame.payloadText.isBlank()) continue
+                val payload = frame.payloadText
+                if (isInitializeRequest(payload)) {
+                    dispatch(payload, session)
+                } else {
+                    scope.launch { dispatch(payload, session) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Cheap, parse-tolerant peek at the wire payload to detect an `initialize` request.
+     * Returns false on parse errors or when `method` is structurally invalid (object /
+     * array / boolean / etc.) — those go through the normal dispatch path and produce
+     * a JSON-RPC compliant error response. Notifications never affect session state in
+     * a way subsequent requests depend on, so only the request form (with `id`) needs
+     * serialization.
+     */
+    private fun isInitializeRequest(payload: String): Boolean {
+        val element = try { McpJson.parseToJsonElement(payload) } catch (_: Exception) { return false }
+        if (element !is JsonObject) return false
+        val methodElement = element["method"] ?: return false
+        val method = (methodElement as? JsonPrimitive)?.contentOrNull ?: return false
+        val hasId = element["id"] != null
+        return hasId && method == McpMethods.INITIALIZE
+    }
+
+    /**
+     * Performs the blocking [InputStream.read] on [Dispatchers.IO] inside
+     * [runInterruptible] so coroutine cancellation interrupts the read thread.
+     * Returns -1 on EOF or [IOException]; -1 also bubbles out as EOF on cancellation.
+     */
+    private suspend fun readChunk(buf: ByteArray): Int = runInterruptible(Dispatchers.IO) {
+        try {
+            input.read(buf)
+        } catch (e: IOException) {
+            log.info("[MCP stdio] read terminated: ${e.message}")
+            -1
+        }
+    }
+
+    private suspend fun dispatch(payload: String, session: McpSession) {
+        val response = try {
+            server.handleMessage(payload, session)
+        } catch (e: CancellationException) {
+            // Never swallow cancellation — propagate so the parent scope shuts down cleanly.
+            throw e
+        } catch (e: Exception) {
+            log.warn("[MCP stdio] handler failed", e)
+            encodeInternalError(e.message ?: "Internal error")
+        }
+        if (response != null) writeFrame(response)
+    }
+
+    /**
+     * Serializes the framed bytes onto [output] under [outputLock] (so concurrent
+     * dispatchers and outgoing pumps don't interleave bytes), with the blocking
+     * `write`/`flush` itself dispatched on [Dispatchers.IO].
+     */
+    private suspend fun writeFrame(text: String) {
+        // Default to NDJSON: the MCP 2025-11-25 stdio transport spec mandates NDJSON,
+        // and any peer that speaks Content-Length will set `outputMode` on its first
+        // inbound frame before responses are emitted. Defaulting to framed would corrupt
+        // a spec-only NDJSON peer if the server emits a notification before any input.
+        val frame = when (outputMode ?: FrameMode.NDJSON) {
+            FrameMode.FRAMED -> encodeFramedMessage(text)
+            else -> encodeNdjsonMessage(text)
+        }
+        val bytes = frame.toByteArray(Charsets.UTF_8)
+        withContext(Dispatchers.IO) {
+            synchronized(outputLock) {
+                output.write(bytes)
+                output.flush()
+            }
+        }
+    }
+
+    private fun encodeInternalError(message: String): String {
+        val response = JsonRpcResponse(
+            id = JsonNull,
+            error = JsonRpcError(code = JsonRpcErrorCodes.INTERNAL_ERROR, message = message)
+        )
+        return McpJson.encodeToString(JsonRpcResponse.serializer(), response)
+    }
+
+    private companion object {
+        private const val READ_BUFFER_SIZE = 8192
+    }
+}
+
+/**
+ * Wire-level framing mode. Values match the [FrameResult.mode] strings produced by
+ * [FramingBuffer] so we can compare on identity (and dodge the stringly-typed pitfall
+ * of `if (outputMode == "ndjson")` typos).
+ */
+internal object FrameMode {
+    const val NDJSON = "ndjson"
+    const val FRAMED = "framed"
+}
+

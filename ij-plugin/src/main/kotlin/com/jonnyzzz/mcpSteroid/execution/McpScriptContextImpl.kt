@@ -60,7 +60,6 @@ import com.intellij.openapi.application.smartReadAction as intellijSmartReadActi
  */
 class McpScriptContextImpl(
     override val project: Project,
-    override val params: JsonElement,
     val executionId: ExecutionId,
     override val disposable: Disposable,
     private val resultBuilder: ExecutionResultBuilder,

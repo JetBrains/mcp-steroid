@@ -291,10 +291,10 @@ fun mergeServerMetadata(current: ServerMetadata?, patch: ServerMetadata?): Serve
             else -> patch.plugin ?: base.plugin
         },
         paths = if (patch.paths != null) {
-            JsonObject((base.paths ?: emptyMap<String, JsonElement>()) + patch.paths)
+            JsonObject((base.paths ?: emptyMap()) + patch.paths)
         } else base.paths,
         executable = if (patch.executable != null) {
-            JsonObject((base.executable ?: emptyMap<String, JsonElement>()) + patch.executable)
+            JsonObject((base.executable ?: emptyMap()) + patch.executable)
         } else base.executable
     )
 }
@@ -340,7 +340,7 @@ fun mergeToolGroups(toolGroups: Map<String, List<JsonObject>>): List<JsonObject>
         .map { (name, tools) ->
             val inputSchemas = tools.map { it["inputSchema"]?.takeIf { s -> s is JsonObject }?.jsonObject }
             val mergedInput = mergeInputSchemas(inputSchemas)
-            val primary = tools.firstOrNull() ?: JsonObject(emptyMap())
+            val primary = tools.firstOrNull() ?: buildJsonObject {  }
             val desc = primary["description"]?.jsonPrimitive?.contentOrNull
                 ?.let { "$it (aggregated; optional server_id)" }
                 ?: "Aggregated tool (optional server_id)"

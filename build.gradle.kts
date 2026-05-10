@@ -213,10 +213,36 @@ val promptsSubprojects = setOf(
 )
 
 /**
+ * Subprojects that the per-OS `ij-plugin test` matrix MUST cover — the plugin's core
+ * runtime infrastructure. Changes here force TeamCity to pick them up on every agent OS.
+ *
+ * * `ij-plugin` — the IntelliJ plugin itself (execution, vision, review, storage…).
+ * * `mcp-core` — MCP protocol types, session manager, tool/resource/prompt registries.
+ * * `mcp-http` — Ktor HTTP transport implementing MCP Streamable HTTP.
+ * * `ai-agents` — agent CLI configuration helpers consumed by the plugin.
+ *
+ * Kept small and explicit so a missing module (e.g. a new `:mcp-*` submodule that never
+ * reaches the plugin classpath) triggers a loud require() failure at configuration time
+ * instead of silently being dropped from the CI matrix.
+ */
+val pluginCoreSubprojects = setOf(
+    "ij-plugin",
+    "mcp-core",
+    "mcp-http",
+    "mcp-stdio",
+    "mcp-steroid-server",
+    "ai-agents",
+)
+
+/**
  * Aggregator that runs `:test` for every plugin subproject EXCEPT the prompts modules
  * (which have their own aggregator, [ciBuildPromptsTests]) and the non-plugin modules
  * listed in [nonPluginTestSubprojects]. Used by the per-OS `ij-plugin test
  * (Windows|Linux|macOS)` configurations on TeamCity.
+ *
+ * Auto-discovers all subprojects not in the two exclusion sets, then asserts that
+ * every module in [pluginCoreSubprojects] is in the resulting bucket — this catches
+ * accidental moves to the excluded lists.
  *
  * The `ci` prefix marks it as "intended for CI invocation" — the two aggregators are
  * siblings on the CI side; locally, developers run the subproject-specific `:test` tasks
@@ -227,12 +253,18 @@ val ciBuildPluginTests by tasks.registering {
     description = "Run :test for the plugin modules (excludes ${(nonPluginTestSubprojects + promptsSubprojects).joinToString { ":$it" }})."
 
     val excluded = nonPluginTestSubprojects + promptsSubprojects
-    val testTaskPaths = subprojects
-        .filter { it.name !in excluded }
-        .map { "${it.path}:test" }
+    val includedSubprojects = subprojects.filter { it.name !in excluded }
+    val testTaskPaths = includedSubprojects.map { "${it.path}:test" }
     require(testTaskPaths.isNotEmpty()) {
         "ciBuildPluginTests resolved to zero :test tasks — settings.gradle.kts probably " +
             "stopped including modules; refresh nonPluginTestSubprojects / promptsSubprojects."
+    }
+    val includedNames = includedSubprojects.map { it.name }.toSet()
+    val missingCore = pluginCoreSubprojects - includedNames
+    require(missingCore.isEmpty()) {
+        "ciBuildPluginTests is missing required plugin-core subproject(s): " +
+            "${missingCore.joinToString { ":$it" }}. Either add them to settings.gradle.kts " +
+            "or drop them from pluginCoreSubprojects."
     }
     dependsOn(testTaskPaths)
 

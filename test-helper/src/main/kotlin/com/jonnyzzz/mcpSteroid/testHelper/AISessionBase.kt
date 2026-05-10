@@ -9,6 +9,7 @@ import com.jonnyzzz.mcpSteroid.testHelper.docker.buildDockerImage
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startDockerContainerAndDispose
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.process.StartedProcess
+import java.io.File
 
 /**
  * Result from running an AI agent process.
@@ -34,7 +35,9 @@ abstract class AIContainerBase(
 ) : AiAgentSession {
 //     = this.ComCompanion.displayName
 
-
+    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
+        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    }
 }
 
 abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {

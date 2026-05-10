@@ -4,9 +4,10 @@ package com.jonnyzzz.mcpSteroid.server
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
+import com.jonnyzzz.mcpSteroid.IdeInfo
+import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.mcp.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.util.UUID
@@ -73,7 +74,7 @@ class NpxBridgeService {
 
     suspend fun buildProjects(mcpUrl: String): NpxBridgeProjectsResponse {
         val seq = nextSeq()
-        val projects = collectListProjectsResponse()
+        val projects = service<ListProjectsToolHandler>().collectListProjectsResponse()
         return NpxBridgeProjectsResponse(
             projects = projects.projects,
             pid = projects.pid,
@@ -87,7 +88,7 @@ class NpxBridgeService {
 
     suspend fun buildWindows(mcpUrl: String): NpxBridgeWindowsResponse {
         val seq = nextSeq()
-        val windows = collectListWindowsResponse()
+        val windows = service<ListWindowsToolHandler>().collectListWindowsResponse()
         return NpxBridgeWindowsResponse(
             windows = windows.windows,
             backgroundTasks = windows.backgroundTasks,
@@ -103,8 +104,8 @@ class NpxBridgeService {
     suspend fun buildSummary(mcpUrl: String): NpxBridgeSummaryResponse {
         val seq = nextSeq()
         val metadata = buildMetadata(mcpUrl)
-        val projects = collectListProjectsResponse().projects
-        val windows = collectListWindowsResponse()
+        val projects = service<ListProjectsToolHandler>().collectListProjectsResponse().projects
+        val windows = service<ListWindowsToolHandler>().collectListWindowsResponse()
         return NpxBridgeSummaryResponse(
             metadata = metadata,
             projects = projects,

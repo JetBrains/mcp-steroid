@@ -6,6 +6,8 @@ Comprehensive guide for writing IntelliJ API code via steroid_execute_code.
 
 This guide teaches you how to write effective Kotlin code that executes inside IntelliJ IDEA's runtime environment via `steroid_execute_code`. You'll learn the execution model, available APIs, and best practices for working with PSI (Program Structure Interface), VFS (Virtual File System), and other IntelliJ platform APIs.
 
+The reason this guide is long and the MCP tool list is short: power lives in **calling IntelliJ APIs directly from `steroid_execute_code`**, not in new MCP tools or new `McpScriptContext` helpers. See `mcp-steroid://skill/design-philosophy` for the three repo-wide tenets that govern that decision.
+
 ## Sections
 
 - [Introduction & Execution Model](mcp-steroid://skill/coding-with-intellij-intro) — Script structure, coroutine context, helper function rules

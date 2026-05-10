@@ -77,7 +77,7 @@ class ClaudeOutputFilter : AbstractOutputFilter() {
                 }
                 "tool_use" -> {
                     val name = itemObj["name"]?.jsonPrimitive?.contentOrNull ?: "?"
-                    val input = itemObj["input"]?.jsonObject ?: JsonObject(emptyMap())
+                    val input = itemObj["input"]?.jsonObject ?: buildJsonObject { }
                     val detail = toolDetail(name, input)
                     writer.writeLine("\n>> $name$detail")
                 }
@@ -175,7 +175,7 @@ class ClaudeOutputFilter : AbstractOutputFilter() {
 
         if (blockType == "tool_use") {
             val name = contentBlock["name"]?.jsonPrimitive?.contentOrNull ?: "?"
-            val input = contentBlock["input"]?.jsonObject ?: JsonObject(emptyMap())
+            val input = contentBlock["input"]?.jsonObject ?: buildJsonObject {  }
             val detail = toolDetail(name, input)
             writer.writeLine("\n>> $name$detail")
         }
@@ -185,7 +185,7 @@ class ClaudeOutputFilter : AbstractOutputFilter() {
     private fun handleToolUse(event: JsonObject, writer: BufferedWriter) {
         // Fallback for older stream-json format with standalone tool_use events
         val name = event["name"]?.jsonPrimitive?.contentOrNull ?: "?"
-        val input = event["input"]?.jsonObject ?: JsonObject(emptyMap())
+        val input = event["input"]?.jsonObject ?: buildJsonObject {  }
         val detail = toolDetail(name, input)
         writer.writeLine(">> $name$detail")
     }

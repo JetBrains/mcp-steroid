@@ -47,6 +47,8 @@ If your next instinct is a native `Read` / `Edit` / `Grep` / `Glob` / `Bash` cal
 - `waitForSmartMode()` runs automatically
 - Available: `project`, `println()`, `printJson()`, `progress()`
 
+**Surface is fixed.** `McpScriptContext` won't grow new helpers — call IntelliJ APIs directly. See `mcp-steroid://skill/design-philosophy` Tenet 3.
+
 **Output rules — the #1 reason agents think a call "returned empty":**
 - The last expression's value is NOT auto-printed (this is a Kotlin script, not a REPL).
 - To surface anything to the caller, wrap it in `println(value)` for plain text or `printJson(value)` for structured data.

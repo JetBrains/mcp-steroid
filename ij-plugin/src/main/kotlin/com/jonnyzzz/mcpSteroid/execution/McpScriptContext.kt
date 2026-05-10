@@ -46,9 +46,6 @@ interface McpScriptContext {
     /** The IntelliJ Project this execution is associated with */
     val project: Project
 
-    /** Original tool execution parameters */
-    val params: JsonElement
-
     /** Allows binding a disposable to the execution context; use coroutineScope {} for coroutine API */
     val disposable: Disposable
 

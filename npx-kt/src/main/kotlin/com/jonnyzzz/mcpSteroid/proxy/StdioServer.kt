@@ -1,6 +1,15 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.proxy
 
+import com.jonnyzzz.mcpSteroid.mcp.FrameResult
+import com.jonnyzzz.mcpSteroid.mcp.FramingBuffer
+import com.jonnyzzz.mcpSteroid.mcp.JSONRPC_VERSION
+import com.jonnyzzz.mcpSteroid.mcp.JsonRpcErrorCodes
+import com.jonnyzzz.mcpSteroid.mcp.RpcException
+import com.jonnyzzz.mcpSteroid.mcp.encodeFramedMessage
+import com.jonnyzzz.mcpSteroid.mcp.encodeNdjsonMessage
+import com.jonnyzzz.mcpSteroid.mcp.jsonRpcError
+import com.jonnyzzz.mcpSteroid.mcp.jsonRpcResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -50,11 +59,11 @@ class StdioServer(
         val id = idElement.jsonPrimitive.contentOrNull ?: return null
 
         if (method == null) {
-            return jsonRpcError(id, -32600, "Missing method")
+            return jsonRpcError(id, JsonRpcErrorCodes.INVALID_REQUEST, "Missing method")
         }
 
         return try {
-            val params = request["params"] as? JsonObject ?: JsonObject(emptyMap())
+            val params = request["params"] as? JsonObject ?: buildJsonObject {  }
             val result = handleRpc(
                 method = method,
                 params = params,
@@ -72,13 +81,13 @@ class StdioServer(
         } catch (e: RpcException) {
             jsonRpcError(id, e.code, e.message ?: "RPC error")
         } catch (e: Exception) {
-            jsonRpcError(id, -32603, e.message ?: "Internal error")
+            jsonRpcError(id, JsonRpcErrorCodes.INTERNAL_ERROR, e.message ?: "Internal error")
         }
     }
 
     private suspend fun handlePayload(payload: Any?) {
         if (payload == null) {
-            writeResponse(jsonRpcError(null, -32600, "Empty request body"))
+            writeResponse(jsonRpcError(null, JsonRpcErrorCodes.INVALID_REQUEST, "Empty request body"))
             return
         }
 
@@ -106,7 +115,7 @@ class StdioServer(
         }
 
         if (payload !is JsonObject) {
-            writeResponse(jsonRpcError(null, -32600, "Invalid request"))
+            writeResponse(jsonRpcError(null, JsonRpcErrorCodes.INVALID_REQUEST, "Invalid request"))
             return
         }
 
@@ -159,14 +168,14 @@ class StdioServer(
             val parsed = try {
                 json.parseToJsonElement(frame.payloadText)
             } catch (e: Exception) {
-                writeResponse(jsonRpcError(null, -32700, "Parse error: ${e.message}"))
+                writeResponse(jsonRpcError(null, JsonRpcErrorCodes.PARSE_ERROR, "Parse error: ${e.message}"))
                 continue
             }
 
             try {
                 handlePayload(parsed)
             } catch (e: Exception) {
-                writeResponse(jsonRpcError(null, -32603, e.message ?: "Internal error"))
+                writeResponse(jsonRpcError(null, JsonRpcErrorCodes.INTERNAL_ERROR, e.message ?: "Internal error"))
             }
         }
     }

@@ -5,14 +5,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.editor.Document
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl
-import com.intellij.openapi.fileEditor.impl.MemoryDiskConflictResolver
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import kotlinx.coroutines.Dispatchers
@@ -36,56 +31,32 @@ import kotlinx.coroutines.withContext
  *    body silently park on the EDT until the dialog dismisses.
  * 3. **Pre-flight commit + save + refresh.** Commit any pending PSI edits,
  *    flush every dirty document to disk, and synchronously await a VFS
- *    refresh of the project content roots. This guarantees three invariants
- *    before the body runs:
- *      - Every open document's modification stamp matches its file on disk —
- *        so the [MemoryDiskConflictResolver] decision-point at line 50 of
- *        the platform's source short-circuits (no `isDocumentUnsaved`,
- *        therefore no conflict, therefore no dialog) when the body later
- *        writes those files.
+ *    refresh of the project content roots. This guarantees:
+ *      - Every open document's modification stamp matches its file on disk
+ *        when the body later writes those files.
  *      - VFS is in lock-step with the on-disk filesystem, so any read the
  *        body performs sees the same bytes that an external `Bash` call
  *        would read.
  *      - PSI is fresh — index queries from inside the body return current
  *        results.
- * 4. **Replace the memory-vs-disk conflict resolver for the body's lifetime
- *    with one that always prefers the disk version.** Belt-and-braces against
- *    the rare race where the user manually edits a file in the editor
- *    mid-flight while the agent writes the same file: without this, the
- *    confirmation dialog blocks the EDT and freezes the agent. Replacing the
- *    resolver via [FileDocumentManagerImpl.setAskReloadFromDisk] with a
- *    subclass whose [MemoryDiskConflictResolver.askReloadFromDisk] returns
- *    `true` makes the platform silently reload from disk instead — implementing
- *    the user-requested "prefer disk" semantics. Uses internal API
- *    (`FileDocumentManagerImpl` + `MemoryDiskConflictResolver` are in
- *    `com.intellij.openapi.fileEditor.impl`); there is no public equivalent
- *    in IU-261. The override is scoped to a [Disposable] so it disposes on
- *    every exit path including exception propagation.
- * 5. **Run the body.** The actual edit / script / patch.
- * 6. **Post-flight refresh.** Synchronously await a second VFS refresh so
+ * 4. **Run the body.** The actual edit / script / patch.
+ * 5. **Post-flight refresh.** Synchronously await a second VFS refresh so
  *    that the next agent step (compile, run, grep, follow-up edit) sees a
  *    consistent VFS view of every file the body touched — including files
  *    written by external processes the body invoked.
- * 7. **Restore the resolver.** Disposer fires; the conflict resolver
- *    re-enables for normal interactive use after the call returns.
  *
- * Each step is documented at its call site below for cross-reference with
- * the platform source. Threading rules:
- *
- * - Step 1, 2, 4–7 run on the calling coroutine's dispatcher.
- * - Step 3 (commit + saveAll) dispatches to the EDT with `nonModal()` so
- *   `WriteCommandAction`s in `commitAllDocuments` / `saveAllDocuments` land
- *   under a deterministic modality.
+ * Threading: every step runs on the calling coroutine's dispatcher except
+ * the EDT-only `commitAllDocuments` / `saveAllDocuments`, which dispatch
+ * to `Dispatchers.EDT` when not already on the EDT.
  *
  * "Prefer files from the disk" — natural consequence of saving every
- * document at step 3 and refreshing at step 6: open documents that the body
+ * document at step 3 and refreshing at step 5: open documents that the body
  * wrote externally are reloaded from disk by the platform's normal
- * VFile-event chain (the conflict path that would otherwise prompt is
- * disabled at step 4).
+ * VFile-event chain.
  */
 @Service(Service.Level.APP)
 class McpEditingGuard {
-    private val log = Logger.getInstance(McpEditingGuard::class.java)
+    private val log = thisLogger()
 
     /**
      * @param dialogKillerForceEnabled passed straight through to
@@ -128,51 +99,14 @@ class McpEditingGuard {
         commitAndSaveAllDocuments(project)
         project.vfsRefreshService.awaitRefresh()
 
-        // 4. Replace the memory-disk conflict resolver with a prefer-disk one
-        //    for the body's lifetime. See class KDoc for the rationale + the
-        //    internal-API trade-off.
-        val resolverOverride = Disposer.newDisposable("mcp-editing-guard:${executionId.executionId}")
-        installPreferDiskResolver(resolverOverride)
+        // 4. Run the user-supplied edit body.
+        val result = body()
 
-        try {
-            // 5. Run the user-supplied edit body.
-            val result = body()
+        // 5. Post-flight VFS refresh — picks up disk changes the body
+        //    made via external commands (Bash from script context, etc.).
+        project.vfsRefreshService.awaitRefresh()
 
-            // 6. Post-flight VFS refresh — picks up disk changes the body
-            //    made via external commands (Bash from script context, etc.).
-            project.vfsRefreshService.awaitRefresh()
-
-            return result
-        } finally {
-            // 7. Restore the conflict resolver. Always runs, even on exception
-            //    propagation, so a failed body cannot leave the IDE with the
-            //    resolver permanently disabled.
-            Disposer.dispose(resolverOverride)
-        }
-    }
-
-    private fun installPreferDiskResolver(parent: com.intellij.openapi.Disposable) {
-        val fdm = FileDocumentManager.getInstance() as? FileDocumentManagerImpl
-        if (fdm == null) {
-            log.warn(
-                "FileDocumentManager is not a FileDocumentManagerImpl (got ${FileDocumentManager.getInstance().javaClass.name}); " +
-                        "cannot install prefer-disk resolver — the memory-vs-disk dialog may surface during this MCP call",
-            )
-            return
-        }
-        fdm.setAskReloadFromDisk(parent, PreferDiskResolver)
-    }
-
-    /**
-     * [MemoryDiskConflictResolver] subclass that always returns `true` from
-     * [askReloadFromDisk] — i.e. when the in-memory document and disk content
-     * have diverged, take the disk version. No dialog is shown; the platform
-     * silently reloads.
-     *
-     * Stateless and idempotent — a single instance is shared across calls.
-     */
-    private object PreferDiskResolver : MemoryDiskConflictResolver() {
-        override fun askReloadFromDisk(file: VirtualFile, document: Document): Boolean = true
+        return result
     }
 
     private suspend fun commitAndSaveAllDocuments(project: Project) {

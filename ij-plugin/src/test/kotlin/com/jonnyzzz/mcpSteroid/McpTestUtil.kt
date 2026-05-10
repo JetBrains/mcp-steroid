@@ -1,16 +1,11 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid
 
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.execution.ExecutionResultBuilder
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.SteroidsMcpServer
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import java.nio.file.Path
 
 /**
  * Test utilities for MCP server tests.
@@ -115,7 +110,6 @@ fun testExecParams(
     reason = reason,
     timeout = timeout,
     cancelOnModal = cancelOnModal,
-    rawParams = buildJsonObject { }
 )
 
 

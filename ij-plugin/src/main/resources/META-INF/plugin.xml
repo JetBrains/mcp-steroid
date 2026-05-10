@@ -39,12 +39,6 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensionPoints>
-        <!-- Extension point for registering MCP tools and resources -->
-        <extensionPoint
-            name="mcpRegistrar"
-            interface="com.jonnyzzz.mcpSteroid.server.McpRegistrar"
-            dynamic="true"/>
-
         <!-- Extension point for screenshot metadata providers -->
         <extensionPoint
             name="screenshotMetadataProvider"
@@ -52,20 +46,8 @@
             dynamic="true"/>
     </extensionPoints>
 
-    <!-- MCP tool and resource registrars -->
+    <!-- MCP tools, resources, and prompts are wired explicitly in McpToolRegistrations.kt -->
     <extensions defaultExtensionNs="com.jonnyzzz.mcp-steroid">
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ActionDiscoveryToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.VisionInputToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.FetchResourceToolHandler"/>
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandler"/>
-        <!-- Resource and prompt registrar using generated index classes -->
-        <mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ResourceRegistrar"/>
 
         <!-- Screenshot metadata providers -->
         <screenshotMetadataProvider implementation="com.jonnyzzz.mcpSteroid.vision.ScreenshotImageProvider"/>
@@ -74,6 +56,39 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- MCP tool handlers, registered against their base interfaces. The interfaces live in
+             :mcp-steroid-server (transport-agnostic); the IJ-specific implementations live here. -->
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.ActionDiscoveryToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ActionDiscoveryToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.VisionInputToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.VisionInputToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandlerIJ"/>
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.PromptsContextHandler"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.PromptsContextHandlerIJ"/>
+
         <!-- Update checker notification group -->
         <notificationGroup id="jonnyzzz.mcp.steroid.updates"
                            displayType="BALLOON"/>

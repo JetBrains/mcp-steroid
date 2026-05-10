@@ -3,6 +3,9 @@ package com.jonnyzzz.mcpSteroid
 
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import com.jonnyzzz.mcpSteroid.mcp.*
 import com.jonnyzzz.mcpSteroid.server.ActionDiscoveryResponse
 import com.jonnyzzz.mcpSteroid.server.ListProductsResponse
@@ -313,50 +316,6 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertEquals(project.name, discovery.projectName)
         assertEquals(virtualFile.path, discovery.filePath)
         assertTrue("Action groups should be empty when skipped", discovery.actionGroups.isEmpty())
-    }
-
-    fun testExecuteCodeRejectsMissingPlugins(): Unit = timeoutRunBlocking(30.seconds) {
-        val server = SteroidsMcpServer.getInstance()
-        server.startServerIfNeeded()
-        val sessionId = startSession(server)
-
-        val execResponse = client.post(server.mcpUrl) {
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            header(McpHttpTransport.SESSION_HEADER, sessionId)
-            setBody(
-                buildJsonObject {
-                    put("jsonrpc", "2.0")
-                    put("id", "execute-missing-plugin")
-                    put("method", "tools/call")
-                    putJsonObject("params") {
-                        put("name", "steroid_execute_code")
-                        putJsonObject("arguments") {
-                            put("project_name", project.name)
-                            put(
-                                "code",
-                                """
-                                    println("should not run")
-                                """.trimIndent()
-                            )
-                            put("reason", "Verify required_plugins gating")
-                            put("task_id", "integration-test-task-missing-plugin")
-                            putJsonArray("required_plugins") {
-                                add(JsonPrimitive("com.example.missing.plugin"))
-                            }
-                        }
-                    }
-                }.toString()
-            )
-        }
-
-        assertEquals(HttpStatusCode.OK, execResponse.status)
-        val execRpc = McpJson.decodeFromString<JsonRpcResponse>(execResponse.bodyAsText())
-        assertNull("steroid_execute_code should return result payload", execRpc.error)
-        val execResult = McpJson.decodeFromJsonElement<ToolCallResult>(execRpc.result!!)
-        val execOutput = execResult.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
-        assertTrue("Missing plugin request should be an error", execResult.isError)
-        assertTrue("Should mention missing plugin", execOutput.contains("Missing required plugins"))
     }
 
     /**
@@ -1333,7 +1292,7 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertEquals("text/markdown", content.mimeType)
         assertNotNull("Resource should have text content", content.text)
         assertTrue("Content should contain SKILL.md content", content.text!!.contains("MCP Steroid"))
-        assertTrue("Content should contain quickstart", content.text.contains("Quickstart"))
+        assertTrue("Content should contain quickstart", content.text!!.contains("Quickstart"))
     }
 
     /**
@@ -1885,6 +1844,90 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
                 JsonPrimitive(progressToken),
                 notifParams.progressToken
             )
+        }
+    }
+
+    /**
+     * Pins the protocol contract under Claude's retry-storm pattern: when the agent's
+     * 60s MCP-tool timeout fires while the server is still computing, the agent
+     * re-issues the same tools/call (same session, same task_id, fresh JSON-RPC id).
+     * The CliClaudeIntegrationTest hangs were traced to four parallel `steroid_execute_code`
+     * requests piling up on a single ExecutionManager and contending on the VFS write-intent
+     * lock inside McpEditingGuard.awaitRefresh.
+     *
+     * This test fires N=4 concurrent tools/call requests on a single session and asserts:
+     *  - every JSON-RPC id round-trips back unchanged (no cross-talk between requests),
+     *  - every response carries `isError = false` and the marker text from its own task_id,
+     *  - the whole burst completes well below Claude's per-tool 60s ceiling.
+     *
+     * It deliberately does NOT call kotlinc (the script is a one-line println) so the test
+     * isolates HTTP/JSON-RPC fan-out + tool dispatch from kotlinc's per-call cold path.
+     * A pure protocol regression — request id swap, session corruption, server-wide
+     * serialization, head-of-line blocking — surfaces here as a test failure rather than
+     * a 4-minute hang in the Cli suite.
+     */
+    fun testConcurrentToolCallsOnSingleSessionDoNotCrossTalk(): Unit = timeoutRunBlocking(60.seconds) {
+        val server = SteroidsMcpServer.getInstance()
+        server.startServerIfNeeded()
+        val sessionId = startSession(server)
+
+        val burstSize = 4
+        val requests = (1..burstSize).map { idx ->
+            val rpcId = "concurrent-exec-$idx"
+            val taskId = "concurrent-task-$idx"
+            val marker = "BURST_MARKER_$idx"
+            val body = buildJsonObject {
+                put("jsonrpc", "2.0")
+                put("id", rpcId)
+                put("method", "tools/call")
+                putJsonObject("params") {
+                    put("name", "steroid_execute_code")
+                    putJsonObject("arguments") {
+                        put("project_name", project.name)
+                        put("code", """println("$marker")""")
+                        put("reason", "Concurrent burst #$idx")
+                        put("task_id", taskId)
+                    }
+                }
+            }.toString()
+            Triple(rpcId, marker, body)
+        }
+
+        val responses: List<Triple<String, String, String>> = coroutineScope {
+            requests.map { req ->
+                async {
+                    val response = client.post(server.mcpUrl) {
+                        contentType(ContentType.Application.Json)
+                        accept(ContentType.Application.Json)
+                        header(McpHttpTransport.SESSION_HEADER, sessionId)
+                        setBody(req.third)
+                    }
+                    Triple(req.first, req.second, response.bodyAsText())
+                }
+            }.awaitAll()
+        }
+
+        for ((rpcId, marker, raw) in responses) {
+            val rpc = McpJson.decodeFromString<JsonRpcResponse>(raw)
+            assertEquals(
+                "JSON-RPC id must round-trip without cross-talk for $marker",
+                JsonPrimitive(rpcId),
+                rpc.id,
+            )
+            assertNull("$marker: no protocol error expected, got ${rpc.error}", rpc.error)
+            val result = McpJson.decodeFromJsonElement<ToolCallResult>(rpc.result!!)
+            val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
+            assertFalse("$marker: execution should succeed, got error payload: $text", result.isError)
+            assertTrue(
+                "$marker: response payload must contain its own marker (cross-talk would put another request's marker here): $text",
+                text.contains(marker),
+            )
+        }
+
+        // Cross-talk negative check: each marker must appear in EXACTLY ONE response payload.
+        for ((_, marker, _) in responses) {
+            val occurrences = responses.count { (_, _, raw) -> raw.contains(marker) }
+            assertEquals("Marker $marker appeared in $occurrences responses; expected exactly 1", 1, occurrences)
         }
     }
 

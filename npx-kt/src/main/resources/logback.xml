@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logback configuration for the npx-kt stdio MCP server.
+
+  Stdout is RESERVED for MCP NDJSON frames. Every appender in this file MUST
+  target System.err — a stray log line on stdout would corrupt the JSON-RPC
+  stream. The `target` attribute on ConsoleAppender pins this; downstream
+  configurations layered on top should keep the same invariant.
+-->
+<configuration>
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDERR" />
+    </root>
+</configuration>

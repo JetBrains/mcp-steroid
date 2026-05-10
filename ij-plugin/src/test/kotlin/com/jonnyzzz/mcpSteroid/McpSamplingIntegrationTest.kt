@@ -45,64 +45,9 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         }
     }
 
-    /**
-     * Tests that the sampling protocol types serialize correctly.
-     */
-    fun testSamplingProtocolTypes(): Unit = timeoutRunBlocking(10.seconds) {
-        // Test CreateMessageParams serialization
-        val params = CreateMessageParams(
-            messages = listOf(
-                SamplingMessage(
-                    role = "user",
-                    content = SamplingContent.Text(text = "Hello, world!")
-                )
-            ),
-            systemPrompt = "You are a helpful assistant.",
-            maxTokens = 100,
-            modelPreferences = ModelPreferences(
-                hints = listOf(ModelHint(name = "claude-3-sonnet")),
-                intelligencePriority = 0.8,
-                speedPriority = 0.5,
-                costPriority = 0.3
-            )
-        )
-
-        val json = McpJson.encodeToJsonElement(params)
-        println("CreateMessageParams JSON: $json")
-
-        // Verify structure
-        assertTrue(json.jsonObject.containsKey("messages"))
-        assertTrue(json.jsonObject.containsKey("systemPrompt"))
-        assertTrue(json.jsonObject.containsKey("maxTokens"))
-        assertTrue(json.jsonObject.containsKey("modelPreferences"))
-
-        // Test deserialization
-        val decoded = McpJson.decodeFromJsonElement<CreateMessageParams>(json)
-        assertEquals(1, decoded.messages.size)
-        assertEquals("user", decoded.messages[0].role)
-        assertTrue(decoded.messages[0].content is SamplingContent.Text)
-        assertEquals("Hello, world!", (decoded.messages[0].content as SamplingContent.Text).text)
-        assertEquals("You are a helpful assistant.", decoded.systemPrompt)
-        assertEquals(100, decoded.maxTokens)
-
-        // Test CreateMessageResult serialization
-        val result = CreateMessageResult(
-            role = "assistant",
-            content = SamplingContent.Text(text = "Hello! How can I help you today?"),
-            model = "claude-3-sonnet-20240307",
-            stopReason = "endTurn"
-        )
-
-        val resultJson = McpJson.encodeToJsonElement(result)
-        println("CreateMessageResult JSON: $resultJson")
-
-        val decodedResult = McpJson.decodeFromJsonElement<CreateMessageResult>(resultJson)
-        assertEquals("assistant", decodedResult.role)
-        assertTrue(decodedResult.content is SamplingContent.Text)
-        assertEquals("Hello! How can I help you today?", (decodedResult.content as SamplingContent.Text).text)
-        assertEquals("claude-3-sonnet-20240307", decodedResult.model)
-        assertEquals("endTurn", decodedResult.stopReason)
-    }
+    // testSamplingProtocolTypes — pure JSON round-trip — moved to
+    // :mcp-core/.../McpSamplingProtocolTypesTest so it runs without the
+    // IntelliJ Platform / Ktor harness.
 
     /**
      * Tests that the server detects client sampling capability during initialization.
@@ -183,7 +128,7 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         server.startServerIfNeeded()
 
         // Register the test sampling tool
-        SamplingTestToolHandler.register(server.getServer())
+        server.getServer().toolRegistry.registerTool(SamplingTestToolHandler())
 
         // Initialize WITHOUT sampling capability
         val initResponse = client.post(server.mcpUrl) {
@@ -249,7 +194,7 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         server.startServerIfNeeded()
 
         // Register the test sampling tool
-        SamplingTestToolHandler.register(server.getServer())
+        server.getServer().toolRegistry.registerTool(SamplingTestToolHandler())
 
         // Initialize WITH sampling capability
         val initResponse = client.post(server.mcpUrl) {

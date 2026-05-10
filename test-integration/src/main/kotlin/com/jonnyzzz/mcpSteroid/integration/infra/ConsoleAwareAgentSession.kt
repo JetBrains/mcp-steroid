@@ -94,4 +94,8 @@ class ConsoleAwareAgentSession(
     override fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String) {
         delegate.registerNpxMcp(npxCommand, mcpName)
     }
+
+    override fun registerNpxKtMcp(installDir: java.io.File, mcpName: String) {
+        delegate.registerNpxKtMcp(installDir, mcpName)
+    }
 }

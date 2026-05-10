@@ -2,14 +2,7 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.application.ApplicationInfo
-import kotlinx.serialization.Serializable
-
-@Serializable
-data class IdeInfo(
-    val name: String,
-    val version: String,
-    val build: String
-)
+import com.jonnyzzz.mcpSteroid.IdeInfo
 
 fun IdeInfo.Companion.ofApplication(): IdeInfo {
     val appInfo = ApplicationInfo.getInstance()

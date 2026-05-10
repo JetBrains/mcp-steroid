@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
  * on the Pair type change in 262).
  *
  * Run:
- *   ./gradlew :test-experiments:test --tests '*PluginRuntimeCompatibilityTest*'
+ *   ./gradlew :test-integration:test --tests '*PluginRuntimeCompatibilityTest*'
  */
 class PluginRuntimeCompatibilityTest {
 

@@ -37,6 +37,10 @@ class DockerClaudeSession(
             .assertNoErrorsInOutput("NPX MCP server registration")
     }
 
+    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
+        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    }
+
     /**
      * Runs a Claude command inside the Docker container.
      * Debug mode is always enabled to see MCP connection details.

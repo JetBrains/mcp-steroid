@@ -3,70 +3,27 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.ProjectManager
-import com.jonnyzzz.mcpSteroid.mcp.*
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
+import com.jonnyzzz.mcpSteroid.IdeInfo
+import com.jonnyzzz.mcpSteroid.PluginInfo
 
-/**
- * Handler for the steroid_list_projects MCP tool.
- */
-class ListProjectsToolHandler : McpRegistrar {
-
-    override fun register(server: McpServerCore) {
-        server.toolRegistry.registerTool(
-            name = "steroid_list_projects",
-            description = "List all open projects in the IDE. Returns project names that can be used with steroid_execute_code and steroid_open_project.",
-            inputSchema = buildJsonObject {
-                put("type", "object")
-                putJsonObject("properties") { }
-                putJsonArray("required") { }
-            }
-        ) {
-            handle()
+class ListProjectsToolHandlerIJ : ListProjectsToolHandler {
+    override suspend fun collectListProjectsResponse(): ListProjectsResponse {
+        val openProjects = readAction {
+            ProjectManager.getInstance().openProjects.toList()
         }
-    }
 
-    private suspend fun handle(): ToolCallResult {
-        val response = collectListProjectsResponse()
-        val json = McpJson.encodeToString(response)
+        val projects = openProjects.map { project ->
+            ProjectInfo(
+                name = project.name,
+                path = project.basePath ?: ""
+            )
+        }
 
-        return ToolCallResult(
-            content = listOf(ContentItem.Text(text = json))
+        return ListProjectsResponse(
+            ide = IdeInfo.ofApplication(),
+            plugin = PluginInfo.ofCurrentPlugin(),
+            pid = ProcessHandle.current().pid(),
+            projects = projects
         )
     }
 }
-
-suspend fun collectListProjectsResponse(): ListProjectsResponse {
-    val openProjects = readAction {
-        ProjectManager.getInstance().openProjects.toList()
-    }
-
-    val projects = openProjects.map { project ->
-        ProjectInfo(
-            name = project.name,
-            path = project.basePath ?: ""
-        )
-    }
-
-    return ListProjectsResponse(
-        projects = projects
-    )
-}
-
-@Serializable
-data class ListProjectsResponse(
-    val ide: IdeInfo = IdeInfo.ofApplication(),
-    val plugin: PluginInfo = PluginInfo.ofCurrentPlugin(),
-    val pid: Long = ProcessHandle.current().pid(),
-    val projects: List<ProjectInfo>
-)
-
-
-@Serializable
-data class ProjectInfo(
-    val name: String,
-    val path: String
-)

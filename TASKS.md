@@ -1,3 +1,265 @@
+
+# Active focus — codify the agent-first design tenets across all .md (2026-05-10)
+
+Goal: every CLAUDE.md / AGENTS.md / agent-facing prompt resource in the repo
+explicitly reinforces three tenets that today are only implicit. After this
+iteration, an agent (or a human contributor) can read any one of these files
+and recover the same design philosophy.
+
+## Tenets (canonical wording will land in `docs/PHILOSOPHY.md`)
+
+1. **Minimal MCP tool surface.** MCP Steroid intentionally maintains a small
+   set of `steroid_*` tools (today: 10). New tools are not the lever for
+   "agents deliver more" — better prompts and better recipes are. A new tool
+   is added only when the IntelliJ-API path is genuinely intractable AND
+   reviewer quorum agrees.
+2. **Power lives in prompts and direct IntelliJ API usage.** Improvements
+   come from richer tool descriptions, richer `mcp-steroid://` skill
+   resources, and teaching the agent to call IntelliJ's native APIs
+   (`FilenameIndex`, `JavaPsiFacade`, `ProjectTaskManager`, `XDebuggerUtil`,
+   …) inside `steroid_execute_code`. Don't wrap APIs in helpers; teach the
+   API as IntelliJ exposes it.
+3. **`McpScriptContext` methods are last-resort.** The helpers exposed
+   inside `steroid_execute_code`'s Kotlin runtime (`project`, `params`,
+   `disposable`, `println()`, `printJson()`, `progress()`,
+   `waitForSmartMode()`) shall not grow casually. A new context method
+   requires (a) the IntelliJ-native path is genuinely intractable, (b)
+   explicit reviewer consensus.
+
+These harmonise the blog post ("comprehensive bridges to existing systems",
+"agents follow the same processes as humans, no shortcuts") with the
+strategy page ("Give AI the whole IDE, not just the files"): the **MCP tool**
+surface stays minimal; the **IntelliJ capability** surface stays full,
+exposed via `steroid_execute_code` + prompt resources.
+
+## Decisions (locked 2026-05-10)
+
+- Canonical home: **new** `docs/PHILOSOPHY.md`. Linked from root CLAUDE.md +
+  AGENTS.md, from each per-folder agent guide, and mirrored as
+  `mcp-steroid://skill/design-philosophy` so agents can read it at runtime
+  via `steroid_fetch_resource`.
+- Voice: **AI agents first, humans second** — imperative ("Don't propose new
+  tools casually. Teach the agent to call IntelliJ APIs directly.") with a
+  trailing rationale paragraph for human contributors.
+- Cadence: per-batch `run-agent.sh` quorum (codex + claude + gemini), commit
+  per batch. Same pattern as the rest of TASKS.md.
+- Scope: docs + prompt resources only. Tool-count contract test deferred —
+  see "Follow-ups" below.
+
+## RLM-style iteration plan
+
+Each batch: small set of related edits → 3-agent quorum review (codex /
+claude / gemini via `run-agent.sh`) → adjust → commit. Each batch is
+independently revertable.
+
+### Batch 1 — Canonical tenets
+- [ ] Create `docs/PHILOSOPHY.md` (agent-first imperative voice + human
+  rationale + cross-links to RLM, blog, strategy page).
+- [ ] Create `prompts/src/main/prompts/skill/design-philosophy.md` mirroring
+  it (so `steroid_fetch_resource` can deliver it).
+- [ ] Cross-link from root `CLAUDE.md` + `AGENTS.md` (one paragraph + the
+  link).
+- [ ] Quorum review.
+- Success: an agent reading any of the three locations recovers the same
+  three tenets. Quorum approves wording.
+
+### Batch 2 — Per-folder agent guides
+- [ ] `ij-plugin/CLAUDE.md` — preface "Adding new MCP tools" with the
+  T1 question ("Can this be done via `steroid_execute_code` + direct
+  IntelliJ APIs?"), and the McpScriptContext-expansion gate.
+- [ ] `prompts/AGENTS.md` — add the *why* under the ProcessBuilder ban
+  (it's not just a rule, it's the IntelliJ-API tenet) and an explicit
+  "McpScriptContext stays narrow" note.
+- [ ] `test-integration/AGENTS.md` — promote the existing "Configuring the
+  IDE — always via `mcpExecuteCode`, never via XML" section into a top-level
+  "Design principles" block that names the three tenets.
+- [ ] `test-experiments/CLAUDE.md` — minimal cross-link only; this module
+  is short and already well-aligned in spirit.
+- [ ] Quorum review.
+- Success: every per-folder guide states the tenets that apply to its
+  scope, with a back-link to `docs/PHILOSOPHY.md`.
+
+### Batch 3 — Runtime prompt resources (delivered to agents at runtime)
+- [ ] `prompts/src/main/prompts/skill/mcp-steroid-info.md` — short paragraph
+  that names the tenets and points to the new design-philosophy resource.
+- [ ] `prompts/src/main/prompts/skill/execute-code-tool-description.md` —
+  reinforce: prefer direct IntelliJ APIs over inventing new context methods;
+  prefer `steroid_apply_patch` over multi-file `Edit` chains; prefer richer
+  prompts over new tools.
+- [ ] `prompts/src/main/prompts/ide/apply-patch.md` — reorder so the
+  dedicated `steroid_apply_patch` tool leads, and the script-context
+  `applyPatch { }` DSL is demoted to "fallback when patch + other API
+  work share a script."
+- [ ] Update `prompts/src/main/prompts/skill/coding-with-intellij.md`
+  if it carries any wording that could be read as encouraging context-method
+  expansion (audit-first, edit only if needed).
+- [ ] Quorum review.
+- Success: agents that read these via `steroid_fetch_resource` recover the
+  tenets; recipes still teach IntelliJ APIs directly with no new wrappers.
+
+### Batch 4 — Public + meta docs
+- [ ] `README.md` — fix the "9 tools" → 10; add a one-paragraph design
+  preamble that links to `docs/PHILOSOPHY.md`.
+- [ ] `website/CLAUDE.md` — add a one-line note distinguishing site docs
+  (end-user) from agent docs (this iteration's scope).
+- [ ] Verify the link graph: every `.md` updated above resolves and
+  cross-links bidirectionally.
+- [ ] Final quorum review against the whole branch (codex + claude +
+  gemini, 200-word verdict each).
+- Success: net new contributor or agent can land on README, AGENTS.md, or
+  any prompt resource and recover the philosophy.
+
+## Follow-ups (deferred from this iteration)
+
+- [ ] Add a contract test (`McpToolSurfaceContractTest` in
+  `:mcp-steroid-server` or `:ij-plugin`) that asserts the registered
+  `steroid_*` tool surface matches `EXPECTED_STEROID_TOOL_NAMES` exactly,
+  so a stray addition fails CI. Codifies T1 mechanically.
+- [ ] Same shape for `McpScriptContext` method count (e.g. assert the
+  public method set is unchanged unless intentional).
+- [ ] Consider porting the `mcp2` Executor/Request-DTO refactor (see
+  earlier section in this file) — orthogonal but reinforces "narrow
+  surfaces" tenet.
+
+# MCP4
+
+## Generic stdio MCP server — extract from npx-kt
+
+Goal: consolidate stdio MCP transport + protocol code in `mcp-stdio` (or `mcp-core`).
+Introduce a generic, transport-pluggable MCP server that wraps `McpServerCore`,
+mirroring how `mcp-http`'s `McpHttpTransport` does it for HTTP.
+`npx-kt` proxy logic stays as-is for now — breaking changes there are acceptable
+later but not in scope here.
+
+
+### Not in scope (per user)
+- npx-kt's `StdioServer.kt` left untouched. Migrating the proxy to the new
+  `McpStdioServer + McpServerCore` model would require dynamic registration of
+  proxy-discovered tools/resources into `McpServerCore.toolRegistry` on every
+  registry refresh — a real proxy refactor, not a transport one.
+
+
+### npx-kt — real stdio MCP server (in progress, 2026-05-10)
+
+Goal: turn npx-kt into a first-class stdio MCP server backed by `:mcp-stdio` +
+`:mcp-steroid-server`'s `McpSteroidTools`. The legacy proxy/registry/beacon
+stack stays in tree but unreachable from `main()` until real handlers land.
+
+#### Done
+- [x] **Step 1 — boot `McpStdioServer` from `npx-kt/main()`** with tools
+  registered via `StubMcpSteroidTools` (every `handler<T>()` throws
+  `TODO("not yet ready: …")`). Old proxy startup is moved to `legacyProxyMain`
+  and unreferenced. (`npx-kt/build.gradle.kts`,
+  `npx-kt/.../proxy/server/StubStdioMcpServer.kt`,
+  `npx-kt/.../proxy/server/StubMcpSteroidTools.kt`,
+  `npx-kt/.../proxy/Main.kt`)
+- [x] **Step 2 — `integrationTest` source set** mirroring `:ij-plugin`. Spawns
+  `bin/mcp-steroid-proxy` from `installDist`, exchanges NDJSON JSON-RPC over
+  stdio. Asserts: initialize handshake, `tools/list` covers all 10 steroid_*
+  tools, `prompts/list`, `resources/list`, `ping`, method-not-found error code,
+  notification silence. Run via `./gradlew :npx-kt:integrationTest`. (7/7 pass.)
+- [x] **Logback as the slf4j impl (stderr-only).** `runtimeOnly` on
+  `logback-classic`. `npx-kt/src/main/resources/logback.xml` pins a single
+  ConsoleAppender → System.err. No more "No SLF4J providers found" noise.
+- [x] **`main()` — swap `System.out` → `System.err`**. First action of
+  `main()`: capture `System.in` + `System.out` into local refs, run
+  `System.setOut(System.err)`, pass the saved refs to
+  `runStubStdioMcpServer(input = …, output = …)`. Stdout is now exclusively
+  MCP NDJSON frames; logback + stray prints land on stderr.
+- [x] **stdout-cleanliness integration test** (host + Docker variants).
+  Asserts every non-blank stdout line parses as a JSON-RPC 2.0 envelope.
+  Host variant covers whichever OS the test JVM runs on (Mac/Linux/Windows).
+  Docker variant uses a dedicated `mcp-cli` Dockerfile under
+  `test-helper/src/main/docker/` so all test containers go through the same
+  test-helper Docker pipeline. Windows coverage TODO when a Windows runner
+  exists.
+- [x] **`Cli{Claude,Codex,Gemini}IntegrationTest`** — Docker AI agent
+  registers npx-kt as a stdio MCP, runs a "list MCP tools" prompt, asserts the
+  agent enumerated every tool in `EXPECTED_STEROID_TOOL_NAMES`. Tools list
+  only — no invocations (handlers TODO). Required infra changes:
+  - `temurin-21-jre` added to `claude/codex/gemini-cli` Dockerfiles via the
+    Adoptium APT repo (matches `:test-integration:ide-base`'s pattern).
+  - `AiAgentSession.containerDriver: ContainerDriver` exposed so tests can
+    `copyToContainer(installDist, "/tmp")` before registering the stdio MCP.
+  - `DockerGeminiSession` now sets `GEMINI_CLI_TRUST_WORKSPACE=true` —
+    Gemini CLI's new trusted-folder check otherwise rejects `--approval-mode
+    yolo` in headless mode (exit 55).
+- [x] **Codex review feedback applied** (run-agent.sh review on 2026-05-10):
+  - `StubMcpSteroidTools.handler()` throws `UnsupportedOperationException`
+    instead of `TODO()` so it goes through `McpToolRegistry`'s
+    `catch (Exception)` path as `ToolCallResult(isError=true)` rather than
+    escaping as a `NotImplementedError` and tearing down the stdio server.
+  - `StdioMcpProcess.drainNoMore(timeoutMs)` lets the
+    "notifications-without-id receive no response" test fail loudly on stray
+    frames; the previous version silently discarded them.
+  - `EXPECTED_STEROID_TOOL_NAMES` shared between protocol-level and
+    agent-level integration tests so a missing tool surfaces from both sides.
+  - Empty `catch (_: Exception) {}` in `StdioMcpProcess.close()` replaced
+    with a `System.err.println` (project policy: no empty catch).
+  - Stale "default-jre-headless" comment in `NpxKtMcpInstaller` updated to
+    Temurin 21.
+
+#### Step 3 — move/consolidate npx-kt → mcp* modules (deferred)
+
+The npx-kt module mixes (a) MCP transport/framing, already covered by
+`:mcp-core` + `:mcp-stdio`, with (b) proxy/discovery/aggregation. After the
+real handlers land, prefer this layout:
+
+| Class / file                              | Move to                | Notes                                      |
+|-------------------------------------------|------------------------|--------------------------------------------|
+| `npx-kt/.../proxy/StdioServer.kt`         | **delete**             | Superseded by `:mcp-stdio` `McpStdioServer`. |
+| `npx-kt/.../proxy/Protocol.kt`            | rewrite as `McpTool` impls in `:mcp-steroid-server` (or new `:mcp-steroid-proxy`) | Aggregator tools become real `McpTool`s; the per-method `when (method)` branch goes away. |
+| `npx-kt/.../proxy/UpstreamClient.kt`      | `:mcp-http` (as a *client*) or new `:mcp-http-client` | HTTP MCP client (talks to `localhost:NNNN/mcp`) is reusable beyond the proxy. |
+| `npx-kt/.../proxy/SseParser.kt`           | `:mcp-http`            | Generic SSE framing.                       |
+| `npx-kt/.../proxy/ServerRegistry.kt`      | stays in `:npx-kt`     | Discovery is proxy-specific.               |
+| `npx-kt/.../proxy/NpxBeacon.kt`           | stays in `:npx-kt`     | Telemetry is proxy-specific.               |
+| `npx-kt/.../proxy/TrafficLogger.kt`       | stays in `:npx-kt`     | Traffic capture is proxy-specific.         |
+| `npx-kt/.../proxy/UpdateCheck.kt`         | stays in `:npx-kt`     | Self-update is proxy-specific.             |
+| `npx-kt/.../proxy/Config.kt`              | stays in `:npx-kt`     | Proxy config — only npx-kt reads it.       |
+| `npx-kt/.../proxy/Constants.kt`           | split — keep `BeaconEvents` / `AGGREGATE_TOOL_*` here, drop `SESSION_HEADER` (lives in `:mcp-http`). | |
+
+Once `UpstreamClient` lives in a shared module, the `handler()` overrides in
+`StubMcpSteroidTools` are replaced one-by-one with concrete handlers that
+delegate to upstream IDEs discovered by `ServerRegistry`. At that point delete
+`legacyProxyMain` from `Main.kt`.
+
+### Pending — port `mcp2` Executor/Request DTO refactors
+
+`origin/mcp2` (34 commits ahead, last touch 2026-04-27) carries an
+architectural pattern that did not land on main during the
+`:mcp-steroid-server` extraction series. Worth porting in a separate PR
+before the branch is deleted.
+
+| mcp2 commit | Idea |
+|---|---|
+| `3ca06d65` | Per-tool `Request` data classes + `parse(args)` helpers — typed parsing at the call boundary, replacing inline `args["foo"]?.jsonPrimitive?.content` plumbing inside every `call()`. |
+| `74851ffa` | Per-tool `fun interface FooExecutor` with a tool-specific signature (`ListWindowsExecutor.execute(): ToolCallResult`, `ExecuteCodeExecutor.execute(req, rawArgs, progress): …`) so the metadata stays decoupled from the IDE-dependent body. |
+| `57332c39` | Co-locate schema + description + `parseRequest` + `Request` in each handler; `parse(args)` takes non-null `JsonObject` (one missing-arguments check at the call site). |
+| `1cd12280` | Split each handler into `FooToolHandler(executor: FooExecutor)` (metadata + delegation) + `FooExecutorImpl` (IntelliJ-platform body). |
+| `6a90433d` | Mock-executor tests in `:mcp-steroid-server/src/test` — plain JUnit 5 + `runBlocking`, no `BasePlatformTestCase`, fast delegation coverage that runs without the IDE fixture. |
+| `26ef4a90` | "expose root resource index only" — narrow the `:mcp-steroid-server` resource API to a single root index entry point. |
+
+Once these patterns are ported, `origin/mcp2` and the local `mcp2` branch
+can be deleted. Until then keep the branch reachable.
+
+### Backlog (carried over)
+- [ ] add assert that mcp-core coroutines library is the same as in IntelliJ
+- [ ] add check that slf4j works in IntelliJ and logs are not lost
+- [ ] com.jonnyzzz.mcpSteroid.thisLogger should be internal to avoid usage from IntelliJ plugin code
+- [ ] `withTimeoutOrNull(5_000L) { Observation.awaitConfiguration(project) }` -- no need for timeout around patch application handler
+- [ ] `CLAUDE_FETCH_RESOURCE_TOOL = "mcp__mcp-steroid__steroid_fetch_resource"` the incorrect named entities, use Spec to refer to them
+- [ ] project name to project resolution and error handling
+- [ ] process cancelled exception must be handled in the HTTP server level
+- [ ] review TODO-APPLY-PATCH.md records
+- [ ] deprecate ActionDiscoveryToolHandler
+- [ ] VisionService -> IntelliJ Service
+- [ ] OpenProject does not log to execution service
+- [ ] include `--scope user` to Claude default configuration suggestion
+- [ ] declutter VcsRefresh and related features which may cause problems with tests
+- [ ] carefully review apply patch code with respect to threading, locks, VFS, EDT (or just drop it)
+- [ ] Input should use direct window_id instead of screenshot_execution_id
+- [ ] generate the necessary indexes around the Prompts to avoid linear scan
+
 # TASKS
 
 Current focus: make MCP Steroid measurably better than vanilla agent runs on DPAIA Maven and Gradle projects by reducing tokens, tool errors, and wall-clock time.

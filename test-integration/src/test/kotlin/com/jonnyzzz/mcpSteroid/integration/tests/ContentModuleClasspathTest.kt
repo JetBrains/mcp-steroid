@@ -20,10 +20,10 @@ import java.util.concurrent.TimeUnit
  * See https://github.com/jonnyzzz/mcp-steroid/issues/16
  *
  * Run with IntelliJ IDEA 2025.3 (stable):
- *   ./gradlew :test-experiments:test --tests '*ContentModuleClasspathTest*'
+ *   ./gradlew :test-integration:test --tests '*ContentModuleClasspathTest*'
  *
  * Run with IntelliJ IDEA 2026.1 (EAP):
- *   ./gradlew :test-experiments:test --tests '*ContentModuleClasspathTest*' -Dtest.integration.ide.channel=eap
+ *   ./gradlew :test-integration:test --tests '*ContentModuleClasspathTest*' -Dtest.integration.ide.channel=eap
  */
 class ContentModuleClasspathTest {
     companion object {

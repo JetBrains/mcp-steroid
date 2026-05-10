@@ -27,6 +27,12 @@ dependencies {
     // skip tests when an API key is missing on CI. JUnit 4's AssumptionViolatedException
     // is needed because CliClaudeIntegrationTest uses BasePlatformTestCase (JUnit 4 runner)
     // which doesn't recognize opentest4j's TestAbortedException as a skip signal.
+    //
+    // Test-helper deliberately does NOT pull in JUnit Jupiter on the main
+    // classpath — consumers of test-helper use multiple JUnit versions, and
+    // forcing one would break some of them. Helpers that need to fail a test
+    // throw plain `AssertionError` (which every JUnit version surfaces as a
+    // failure).
     implementation("org.opentest4j:opentest4j:1.3.0")
     implementation("junit:junit:4.13.2")
 

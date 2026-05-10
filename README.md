@@ -116,19 +116,30 @@ Works with ANY MCP-compatible client:
 
 ## Capabilities
 
-### 9 MCP Tools
+### Design philosophy in one breath
+
+The MCP tool surface is **intentionally small** — power lives in
+`mcp-steroid://` prompt resources that teach agents to call IntelliJ's
+APIs directly inside `steroid_execute_code`. New tools and new
+`McpScriptContext` methods are not the lever for "agents deliver more";
+better recipes are. The full canonical statement lives in
+[`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md) and is mirrored at runtime
+as `mcp-steroid://skill/design-philosophy`.
+
+### 10 MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| **Execute Code** | Run Kotlin code inside the IDE's JVM with full API access |
-| **Execute Feedback** | Provide execution ratings back to agents |
-| **Vision Screenshot** | Capture IDE screenshots with component metadata |
-| **Vision Input** | Send keyboard/mouse events, OCR analysis |
-| **Action Discovery** | Find and invoke IDE actions and quick-fixes |
-| **Capabilities Discovery** | Explore available IDE features |
-| **List Projects** | Discover all open IntelliJ projects |
-| **List Windows** | Enumerate IDE windows and components |
-| **Open Project** | Open projects programmatically |
+| **Execute Code** (`steroid_execute_code`) | Run Kotlin code inside the IDE's JVM with full API access |
+| **Apply Patch** (`steroid_apply_patch`) | Atomic multi-site literal-text edits across one or more files (data-only; no kotlinc compile cycle) |
+| **Execute Feedback** (`steroid_execute_feedback`) | Provide execution ratings back to agents |
+| **Fetch Resource** (`steroid_fetch_resource`) | Fetch any `mcp-steroid://` skill guide / recipe by URI |
+| **Vision Screenshot** (`steroid_take_screenshot`) | Capture IDE screenshots with component metadata |
+| **Vision Input** (`steroid_input`) | Send keyboard/mouse events to the IDE via a sequence-string DSL |
+| **Action Discovery** (`steroid_action_discovery`) | Find and invoke IDE actions and quick-fixes at a caret position |
+| **List Projects** (`steroid_list_projects`) | Discover all open IntelliJ projects |
+| **List Windows** (`steroid_list_windows`) | Enumerate IDE windows and components |
+| **Open Project** (`steroid_open_project`) | Open projects programmatically |
 
 ### 58 MCP Resources
 

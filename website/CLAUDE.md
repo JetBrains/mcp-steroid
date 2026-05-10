@@ -2,6 +2,14 @@
 
 This directory contains the Hugo source for the MCP Steroid website at https://mcp-steroid.jonnyzzz.com
 
+> **Scope note:** the public website targets *end users* — install instructions,
+> demo videos, the strategy page. Agent-facing design tenets live in
+> [`docs/PHILOSOPHY.md`](../docs/PHILOSOPHY.md) (canonical, mirrored at
+> runtime as `mcp-steroid://skill/design-philosophy`); contributor guidance
+> for the plugin / prompts / tests lives in the per-folder `CLAUDE.md`
+> and `AGENTS.md` files. Site copy and agent docs evolve on different
+> cadences and to different audiences; don't conflate them.
+
 ## Architecture Overview
 
 The website is built from this directory using Hugo and deployed via GitHub Pages.

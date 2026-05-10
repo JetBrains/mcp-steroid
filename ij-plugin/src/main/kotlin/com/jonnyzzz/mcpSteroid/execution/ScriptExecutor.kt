@@ -7,9 +7,11 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.Registry
 import com.jonnyzzz.mcpSteroid.koltinc.LineMapping
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.*
 import kotlin.time.Duration.Companion.seconds
 
@@ -67,9 +69,11 @@ class ScriptExecutor(
         // job.cancel() calls anywhere — disposal IS cancellation.
         val executionDisposable = Disposer.newDisposable(this, "mcp-execution-$executionId")
 
+        val timeout = exec.timeout ?: Registry.intValue("mcp.steroid.execution.timeout", 600)
+
         try {
             val capturedBlocks = evalResult.result
-            log.info("Running ${capturedBlocks.size} script block(s) for $executionId with timeout ${exec.timeout}s")
+            log.info("Running ${capturedBlocks.size} script block(s) for $executionId with timeout ${timeout}s")
 
             coroutineScope {
                 withContext(Dispatchers.IO) {
@@ -84,7 +88,7 @@ class ScriptExecutor(
                     val killerJob: Job? = if (exec.cancelOnModal) {
                         launch(CoroutineName("execution-dialog-killer-$executionId")) {
                             while (isActive) {
-                                delay(KILLER_POLL_INTERVAL_MS)
+                                delay(KILLER_POLL_INTERVAL_MS.milliseconds)
                                 try {
                                     dialogKiller().killProjectDialogs(
                                         project = project,
@@ -103,7 +107,6 @@ class ScriptExecutor(
 
                     val context = McpScriptContextImpl(
                         project = project,
-                        params = exec.rawParams,
                         executionId = executionId,
                         disposable = executionDisposable,
                         resultBuilder = resultBuilder,
@@ -126,7 +129,7 @@ class ScriptExecutor(
                     }
 
                     try {
-                        withTimeout(exec.timeout.seconds) {
+                        withTimeout(timeout.seconds) {
                             context.waitForSmartMode()
                             for ((index, block) in capturedBlocks.withIndex()) {
                                 yield()
@@ -148,7 +151,7 @@ class ScriptExecutor(
             // Timeout - report as error (must be caught before CancellationException since it's a subclass)
             log.warn("Execution $executionId timed out: ${e.message}")
             resultBuilder.logRemappedException("Execution timed out", e, lineMapping)
-            resultBuilder.reportFailed("Execution timed out after ${exec.timeout} seconds")
+            resultBuilder.reportFailed("Execution timed out after $timeout seconds")
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {

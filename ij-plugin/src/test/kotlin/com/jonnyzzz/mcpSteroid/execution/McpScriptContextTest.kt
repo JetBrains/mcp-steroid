@@ -29,7 +29,6 @@ class McpScriptContextTest : BasePlatformTestCase() {
         Disposer.register(testRootDisposable, disposable)
         val context = McpScriptContextImpl(
             project = project,
-            params = buildJsonObject { },
             executionId = executionId,
             disposable = disposable,
             resultBuilder = resultBuilder,
@@ -112,7 +111,6 @@ class McpScriptContextTest : BasePlatformTestCase() {
         val (context, _) = createContext()
 
         assertEquals(project, context.project)
-        assertNotNull(context.params)
     }
 
     fun testDisposedContextRejectsOutput() {

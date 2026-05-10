@@ -5,8 +5,8 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
-import com.jonnyzzz.mcpSteroid.mcp.ToolCallParams
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
+import com.jonnyzzz.mcpSteroid.server.FeedbackParams
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,6 +14,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -152,17 +154,18 @@ class ExecutionStorage(
     fun findExecutionId(executionId: String) : ExecutionId? {
         if (executionId.contains("/") || executionId.contains("..")) return null
 
-        val path = baseDir.resolve(executionId).resolve("params.json")
+        // tool.json is the universal sentinel: every writeToolMetadata() call writes it,
+        // covering writeNewExecution / writeExecutionFeedback / writeToolCall.
+        val path = baseDir.resolve(executionId).resolve("tool.json")
         if (!path.isRegularFile()) return null
 
         return ExecutionId(executionId)
     }
 
-    suspend fun writeExecutionFeedback(taskId: String, element: ToolCallParams) : ExecutionId {
+    suspend fun writeExecutionFeedback(taskId: String, element: FeedbackParams) : ExecutionId {
         val executionId = newExecutionId("feedback-$taskId")
-        writeToolMetadata(executionId, element.name, element.arguments, taskId)
+        writeToolMetadata(executionId, "steroid_execute_feedback", json.encodeToJsonElement(element).jsonObject, taskId)
         writeCodeExecutionData(executionId, "feedback.json", element)
-        writeCodeExecutionData(executionId, "params.json", element.arguments ?: buildJsonObject { })
         writeCodeExecutionData(executionId, "execution-id.txt", executionId.executionId)
         writeProjectInfo(executionId)
         return executionId
@@ -180,8 +183,7 @@ class ExecutionStorage(
         val storage = project.executionStorage
 
         val executionId = storage.newExecutionId(exec.taskId)
-        storage.writeToolMetadata(executionId, "steroid_execute_code", exec.rawParams, exec.taskId)
-        storage.writeCodeExecutionData(executionId, "params.json", exec.rawParams)
+        storage.writeToolMetadata(executionId, "steroid_execute_code", json.encodeToJsonElement(exec).jsonObject, exec.taskId)
         storage.writeCodeExecutionData(executionId, "reason.txt", exec.reason)
         storage.writeCodeExecutionData(executionId, "script.kts", exec.code)
         storage.writeCodeExecutionData(executionId, "execution-id.txt", executionId.executionId)
@@ -190,7 +192,7 @@ class ExecutionStorage(
         return executionId
     }
 
-    suspend fun writeToolCall(toolName: String, arguments: JsonObject?, taskId: String? = null): ExecutionId {
+    suspend fun writeToolCall(toolName: String, arguments: JsonObject, taskId: String? = null): ExecutionId {
         val executionId = newExecutionId(taskId ?: "tool-$toolName")
         writeToolMetadata(executionId, toolName, arguments, taskId)
         writeCodeExecutionData(executionId, "params.json", arguments ?: buildJsonObject { })

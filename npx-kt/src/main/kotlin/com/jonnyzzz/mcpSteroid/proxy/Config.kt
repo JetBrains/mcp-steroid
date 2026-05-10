@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
@@ -109,7 +110,7 @@ fun parseArgs(argv: List<String>): CliArgs {
 }
 
 fun parseJsonFlag(rawValue: String?, fieldName: String): JsonObject {
-    if (rawValue.isNullOrBlank()) return JsonObject(emptyMap())
+    if (rawValue.isNullOrBlank()) return buildJsonObject {  }
     return try {
         val parsed = Json.parseToJsonElement(rawValue)
         if (parsed !is JsonObject) error("$fieldName must be a JSON object")
@@ -134,7 +135,7 @@ fun buildCliRequest(args: CliArgs): Pair<String, JsonObject> {
             put("uri", kotlinx.serialization.json.JsonPrimitive(args.cliUri))
         }
     }
-    return "tools/list" to JsonObject(emptyMap())
+    return "tools/list" to buildJsonObject {  }
 }
 
 fun expandHome(value: String?): String? {

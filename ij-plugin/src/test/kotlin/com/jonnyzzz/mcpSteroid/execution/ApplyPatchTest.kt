@@ -67,7 +67,6 @@ class ApplyPatchTest : BasePlatformTestCase() {
         val disposable = Disposer.newDisposable(testRootDisposable, "apply-patch-$executionId")
         return McpScriptContextImpl(
             project = project,
-            params = buildJsonObject { },
             executionId = executionId,
             disposable = disposable,
             resultBuilder = TestResultBuilder(),

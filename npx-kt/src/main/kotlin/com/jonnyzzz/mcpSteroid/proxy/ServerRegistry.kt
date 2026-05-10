@@ -267,8 +267,8 @@ class ServerRegistry(val config: ProxyConfig, private val traffic: TrafficLogger
 
         if (server.tools == null || now - server.toolsFetchedAt > ttlMs) {
             try {
-                val result = server.client!!.sendRequest("tools/list", JsonObject(emptyMap()))
-                server.tools = (result["tools"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
+                val result = server.client!!.sendRequest("tools/list", buildJsonObject {  })
+                server.tools = (result["tools"] as? JsonArray)?.filterIsInstance<JsonObject>() ?: emptyList()
                 server.toolsFetchedAt = now
             } catch (e: Exception) {
                 if (server.tools == null) server.tools = emptyList()
@@ -277,7 +277,7 @@ class ServerRegistry(val config: ProxyConfig, private val traffic: TrafficLogger
 
         if (server.resources == null || now - server.resourcesFetchedAt > ttlMs) {
             try {
-                val result = server.client!!.sendRequest("resources/list", JsonObject(emptyMap()))
+                val result = server.client!!.sendRequest("resources/list", buildJsonObject {  })
                 server.resources = (result["resources"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
                 server.resourcesFetchedAt = now
             } catch (e: Exception) {

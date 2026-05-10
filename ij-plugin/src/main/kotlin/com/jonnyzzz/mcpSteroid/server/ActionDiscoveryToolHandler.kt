@@ -24,13 +24,17 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
-import com.jonnyzzz.mcpSteroid.mcp.*
+import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.McpJson
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.mcp.errorResult
 import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import kotlinx.coroutines.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.nio.file.Path
 import kotlin.coroutines.resume
+import kotlin.time.Duration.Companion.milliseconds
 
 @Serializable
 data class ActionDiscoveryResponse(
@@ -95,88 +99,38 @@ data class GutterIconInfo(
     val popupActions: List<ActionInfo>,
 )
 
-/**
- * Handler for the steroid_action_discovery MCP tool.
- */
-class ActionDiscoveryToolHandler : McpRegistrar {
-    override fun register(server: McpServerCore) {
-        server.toolRegistry.registerTool(
-            name = "steroid_action_discovery",
-            description = "Discover what IDE actions are available at a file location before invoking them via steroid_execute_code. " +
-                    "Use BEFORE applying quick-fixes, refactorings, or running gutter actions (Run/Debug) when you don't know the exact action ID. " +
-                    "Returns action IDs (pass to ActionManager.getAction(id) in exec_code), intention names, error fixes, and gutter icon actions. " +
-                    "Workflow: (1) call this with file + caret offset, (2) pick action from results, (3) invoke via steroid_execute_code.",
-            inputSchema = buildJsonObject {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("project_name") {
-                        put("type", "string")
-                        put("description", "Name of the project containing the file (from steroid_list_projects).")
-                    }
-                    putJsonObject("file_path") {
-                        put("type", "string")
-                        put("description", "Absolute path or project-relative path to the file.")
-                    }
-                    putJsonObject("caret_offset") {
-                        put("type", "integer")
-                        put("description", "Caret offset within the file (default: 0).")
-                    }
-                    putJsonObject("action_groups") {
-                        put("type", "array")
-                        putJsonObject("items") { put("type", "string") }
-                        put("description", "Optional list of action group IDs to expand (default: editor popup + gutter).")
-                    }
-                    putJsonObject("max_actions_per_group") {
-                        put("type", "integer")
-                        put("description", "Limit the number of actions returned per action group (default: 200).")
-                    }
-                    putJsonObject("task_id") {
-                        put("type", "string")
-                        put("description", "Optional task ID for log grouping.")
-                    }
-                }
-                putJsonArray("required") {
-                    add(JsonPrimitive("project_name"))
-                    add(JsonPrimitive("file_path"))
-                }
-            },
-            ::handle
-        )
-    }
 
-    private suspend fun handle(context: ToolCallContext): ToolCallResult {
-        val args = context.params.arguments ?: return errorResult("Missing arguments")
-        val projectName = args["project_name"]?.jsonPrimitive?.contentOrNull
-            ?: return errorResult("Missing required parameter: project_name")
-        val filePath = args["file_path"]?.jsonPrimitive?.contentOrNull
-            ?: return errorResult("Missing required parameter: file_path")
-        val caretOffset = args["caret_offset"]?.jsonPrimitive?.intOrNull ?: 0
-        val actionGroups = parseActionGroups(args["action_groups"]?.jsonArray)
-        val maxActions = args["max_actions_per_group"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 200
-        val taskId = args["task_id"]?.jsonPrimitive?.contentOrNull
+class ActionDiscoveryToolHandlerIJ : ActionDiscoveryToolHandler {
+    private val json = Json { encodeDefaults = true }
 
+    override suspend fun discoverActions(projectName: String, actionDiscoveryParams: ActionDiscoveryParams): ToolCallResult {
         val project = readAction {
             ProjectManager.getInstance().openProjects.find { it.name == projectName }
-        } ?: return errorResult("Project not found: $projectName")
+        } ?: return ToolCallResult.errorResult("Project not found: $projectName")
+
+        val groups = actionDiscoveryParams.actionGroups ?: listOf(IdeActions.GROUP_EDITOR_POPUP, IdeActions.GROUP_EDITOR_GUTTER)
 
         project.executionStorage.writeToolCall(
             toolName = "steroid_action_discovery",
-            arguments = context.params.arguments,
-            taskId = taskId
+            arguments = json.encodeToJsonElement(actionDiscoveryParams).jsonObject,
+            taskId = actionDiscoveryParams.taskId
         )
 
+        val filePath = actionDiscoveryParams.filePath
+
         val virtualFile = resolveVirtualFile(project, filePath)
-            ?: return errorResult("File not found: $filePath")
+            ?: return ToolCallResult.errorResult("File not found: $filePath")
         val psiFile = readAction { PsiManager.getInstance(project).findFile(virtualFile) }
-            ?: return errorResult("PSI not available for: $filePath")
+            ?: return ToolCallResult.errorResult("PSI not available for: $filePath")
         val document = readAction { PsiDocumentManager.getInstance(project).getDocument(psiFile) }
-            ?: return errorResult("No document for: $filePath")
-        val safeOffset = caretOffset.coerceIn(0, document.textLength)
+            ?: return ToolCallResult.errorResult("No document for: $filePath")
+
+        val safeOffset = actionDiscoveryParams.caretOffset.coerceIn(0, document.textLength)
 
         val textEditor = openTextEditor(project, virtualFile, safeOffset)
-            ?: return errorResult("No text editor available for: $filePath")
+            ?: return ToolCallResult.errorResult("No text editor available for: $filePath")
         val editor = textEditor.editor
-        if (editor.isDisposed) return errorResult("Editor disposed for: $filePath")
+        if (editor.isDisposed) return ToolCallResult.errorResult("Editor disposed for: $filePath")
 
         awaitSmartMode(project)
         withContext(Dispatchers.EDT) { }
@@ -194,6 +148,7 @@ class ActionDiscoveryToolHandler : McpRegistrar {
             readAction { ShowIntentionsPass.getActionsToShow(editor, psiFile) }
         }
 
+        //TODO: looks like a bug that dataContext is not used
         val dataContext = withContext(Dispatchers.EDT) {
             DataManager.getInstance().getDataContext(editor.component)
         }
@@ -203,7 +158,7 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         // platform API) and assumption is the field is unused by callers. We keep the
         // schema and surface the group's missing/present status so the response shape
         // stays compatible.
-        val actionGroupInfo = actionGroups.map { groupId ->
+        val actionGroupInfo = groups.map { groupId ->
             val place = placeForGroup(groupId)
             val action = ActionManager.getInstance().getAction(groupId)
             ActionGroupInfo(
@@ -214,9 +169,9 @@ class ActionDiscoveryToolHandler : McpRegistrar {
             )
         }
 
-        val gutterIcons = collectGutterIcons(project, document, dataContext, maxActions)
+        val gutterIcons = collectGutterIcons(project, document)
 
-        val notes = buildList<String> {
+        val notes = buildList {
             if (!highlightCompleted) {
                 add("Daemon highlighting did not complete within the timeout; results may be partial.")
             }
@@ -248,20 +203,9 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         return ToolCallResult(content = listOf(ContentItem.Text(text = json)))
     }
 
-    private fun parseActionGroups(array: JsonArray?): List<String> {
-        array ?: return listOf(IdeActions.GROUP_EDITOR_POPUP, IdeActions.GROUP_EDITOR_GUTTER)
-        val groups = array
-            .mapNotNull { it.jsonPrimitive.contentOrNull }
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-        return groups
-    }
-
-    private fun resolveVirtualFile(project: Project, filePath: String): VirtualFile? {
+    private suspend fun resolveVirtualFile(project: Project, filePath: String): VirtualFile? {
         val trimmed = filePath.trim()
         if (trimmed.isEmpty()) return null
-        val vfs = VirtualFileManager.getInstance()
         val urlCandidates = buildList {
             add(trimmed)
             if (!trimmed.contains("://") && trimmed.contains(":/")) {
@@ -269,20 +213,22 @@ class ActionDiscoveryToolHandler : McpRegistrar {
                 add(trimmed.replaceFirst(":/", ":///"))
             }
         }
+
+        val vfs = VirtualFileManager.getInstance()
         for (candidate in urlCandidates) {
-            vfs.findFileByUrl(candidate)?.let { return it }
+            readAction { vfs.findFileByUrl(candidate) }?.let { return it }
         }
 
         val isAbsolute = runCatching { Path.of(trimmed).isAbsolute }.getOrDefault(false)
         val fs = LocalFileSystem.getInstance()
         if (isAbsolute) {
-            fs.findFileByPath(trimmed)?.let { return it }
+            readAction { fs.findFileByPath(trimmed) }?.let { return it }
         }
 
         val basePath = project.basePath ?: project.guessProjectDir()?.path ?: return null
         val relative = trimmed.trimStart('/')
         val path = "$basePath/$relative"
-        return fs.findFileByPath(path)
+        return readAction { fs.findFileByPath(path) }
     }
 
     private suspend fun openTextEditor(project: Project, file: VirtualFile, caretOffset: Int): TextEditor? {
@@ -316,9 +262,9 @@ class ActionDiscoveryToolHandler : McpRegistrar {
     }
 
     private suspend fun awaitHighlighting(project: Project, editor: TextEditor): Boolean {
-        return withTimeoutOrNull(10_000) {
+        return withTimeoutOrNull(10_000.milliseconds) {
             while (!DaemonCodeAnalyzerEx.isHighlightingCompleted(editor, project)) {
-                delay(50)
+                delay(50.milliseconds)
             }
             true
         } ?: false
@@ -327,8 +273,6 @@ class ActionDiscoveryToolHandler : McpRegistrar {
     private suspend fun collectGutterIcons(
         project: Project,
         document: Document,
-        dataContext: DataContext,
-        maxActions: Int,
     ): List<GutterIconInfo> {
         // Use public MarkupModel API instead of @Internal DaemonCodeAnalyzerImpl.getLineMarkers()
         val lineMarkers = readAction {
@@ -393,9 +337,4 @@ class ActionDiscoveryToolHandler : McpRegistrar {
         IdeActions.GROUP_EDITOR_TAB_POPUP -> ActionPlaces.EDITOR_TAB_POPUP
         else -> ActionPlaces.EDITOR_POPUP
     }
-
-    private fun errorResult(message: String) = ToolCallResult(
-        content = listOf(ContentItem.Text(text = "ERROR: $message")),
-        isError = true
-    )
 }
