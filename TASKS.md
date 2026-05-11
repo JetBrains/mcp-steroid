@@ -26,6 +26,12 @@ the first time since 2026-05-05):
 - Pre-existing: the exact "Tests failed: 6, passed: 100, ignored: 1" line has been the result of *every* `test-integration` run on TC since at least 2026-04-28. Identical today. Not caused by the philosophy iteration; not in scope for this iteration per user direction.
 - Tracked separately for a future cycle that's willing to restructure the test-class hierarchy off `BasePlatformTestCase` for the Gemini variant.
 
+## Problem 3 — EAP-IDE `OpenProjectTask { }` target-25 vs. test target-21 (PRE-EXISTING BASELINE)
+
+- After the Problem 1 fix landed (TC build #946643358), PromptTest dropped from 1682 failures → 4. The 4 remaining are all in EAP IDEs (2 in `idea_eap`, 2 in `clion_eap`) and share the same error: `cannot inline bytecode built with JVM target 25 into bytecode that is being built with JVM target 21`. The two files involved are `prompts/src/main/prompts/openProject/open-via-code.md` and `prompts/src/main/prompts/openProject/overview.md` — both reference the inline function `OpenProjectTask { }`, which the EAP IDE compiles with JVM target 25.
+- History on `mcp_steroid_PromptTests_PromptTest_idea_eap_Linux_amd64`: this surfaced as "1 new failure" on the 2026-05-04 run (#940678137), got buried under the ApplyPatchHunk cascade on 2026-05-10, and is now visible after the classpath fix unblocked everything else. Not caused by the philosophy iteration and not caused by the classpath fix — pre-existing IDE-EAP drift.
+- Fix when scope allows: bump `KotlincCommandLineBuilder.DEFAULT_JVM_TARGET` from `21` to match the EAP, OR feature-flag the EAP-specific tests off until the test-target catches up. Both are non-trivial.
+
 # Active focus — codify the agent-first design tenets across all .md (2026-05-10)
 
 Goal: every CLAUDE.md / AGENTS.md / agent-facing prompt resource in the repo
