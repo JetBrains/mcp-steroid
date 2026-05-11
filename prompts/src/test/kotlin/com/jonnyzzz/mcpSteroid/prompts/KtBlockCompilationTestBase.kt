@@ -95,7 +95,7 @@ abstract class KtBlockCompilationTestBase {
         val content = block.readPrompt()
         val wrapped = CodeWrapperForCompilation.wrap("MdKtBlock", content).code
         val homePath = Path.of(home)
-        val classpath = classpathFor(home)
+        val classpath = classpathFor(home) + extraClasspath()
         val extraSourcesContent = ijPluginSourceFiles().map { Files.readString(it, StandardCharsets.UTF_8) }
 
         // Compiler options (must match what KotlincCommandLineBuilder produces)
@@ -184,6 +184,25 @@ abstract class KtBlockCompilationTestBase {
                     .toList()
             }
         }
+
+        /**
+         * Extra binary classpath entries the per-block kotlinc subprocess needs
+         * because the inlined ij-plugin sources reference classes that live in
+         * sibling project modules — not in any IDE-bundled jar. Today the only
+         * such reference is `ApplyPatchHunk` in `:mcp-steroid-server` (imported
+         * from `ApplyPatch.kt`, which the test inlines). Populated by Gradle:
+         * see `prompts/build.gradle.kts` → `ktblockExtraClasspath` configuration
+         * and the `mcp.steroid.extra.classpath` system property in
+         * `tasks.test.doFirst`. Empty if the property is unset, which keeps
+         * the test runnable from IDE configurations that don't go through Gradle.
+         */
+        private val extraClasspathCache: List<Path> by lazy {
+            val raw = System.getProperty("mcp.steroid.extra.classpath").orEmpty()
+            if (raw.isBlank()) emptyList()
+            else raw.split(File.pathSeparator).filter { it.isNotBlank() }.map(Path::of)
+        }
+
+        private fun extraClasspath(): List<Path> = extraClasspathCache
 
         private val ijPluginSourceFilesCache: List<Path> by lazy {
             val ijSourcesDir = System.getProperty("mcp.steroid.ij.sources")

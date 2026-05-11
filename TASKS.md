@@ -1,4 +1,31 @@
 
+# Active focus — TC quality validation triage (2026-05-11)
+
+Post-philosophy-iteration TC run against `jb/main 2f21517a` (the merge
+that synced 20 commits of accumulated `origin/main` onto `jb/main` for
+the first time since 2026-05-05):
+
+| TC build | Result | Triage |
+|---|---|---|
+| `mcp_steroid_BuildPlugin` (#946345314) | ✅ SUCCESS 5m12s | — |
+| `mcp_steroid_IjPluginTest` (#946345319, Mac/Linux/Win matrix) | ✅ SUCCESS 24m40s | — |
+| `mcp_steroid_PromptTest` (#946345329, 8-IDE matrix) | ❌ FAILURE 33m43s | **New regression — fix this iteration.** |
+| `mcp_steroid_IntegrationTests_TestIntegrationBuild` (#946345331) | ❌ FAILURE 11m01s | **Documented baseline — leave failing.** |
+
+## Problem 1 — `PromptTest` cascade: kotlinc classpath missing `:mcp-steroid-server` (NEW REGRESSION)
+
+- 8/8 IDE matrix builds failed identically (177–308 `*KtBlocksCompilationTest.testBlock00X CompilesOnIdea` per build).
+- Root error in every failure: `ApplyPatch.kt:15:32: error: unresolved reference 'server'. import com.jonnyzzz.mcpSteroid.server.ApplyPatchHunk` — the per-block kotlinc subprocess can't find `ApplyPatchHunk`, which now lives in `:mcp-steroid-server`.
+- Caused by commits `acc5650b` ("move tools and resources definitions up to a parent module") + `b1942f1b` ("move classes in packages"), landed on `origin/main` 2026-04-19. Last green PromptTest on TC was build 941393378 on 2026-05-05 (built from `aa1d166d`) — *before* the extraction series reached `jb/main`'s tracked branch. My 2026-05-10 jb-merge brought all of it across in one step.
+- Fix: add `:mcp-steroid-server` to whatever classpath the `KtBlocksCompilationTest` kotlinc subprocess is given (likely `prompts/build.gradle.kts` or `prompt-generator`'s codegen wiring).
+- Validation: `./gradlew :prompts:test` locally must pass before pushing.
+
+## Problem 2 — `test-integration` Gemini-skip-as-failure (PRE-EXISTING BASELINE — do not touch in this iteration)
+
+- 6 `CliGeminiIntegrationTest.*` tests fail with `AssumptionViolatedException: Gemini API key not found`. Per CLAUDE.md MEMORY, these should report as ignored (`DockerGeminiSession.skipTestWhenKeyMissing = true`) but `BasePlatformTestCase` → `JUnit38ClassRunner` routes the throwable through `fireTestFailure` instead of recognising the assumption-as-ignore semantics that JUnit 4's runner provides.
+- Pre-existing: the exact "Tests failed: 6, passed: 100, ignored: 1" line has been the result of *every* `test-integration` run on TC since at least 2026-04-28. Identical today. Not caused by the philosophy iteration; not in scope for this iteration per user direction.
+- Tracked separately for a future cycle that's willing to restructure the test-class hierarchy off `BasePlatformTestCase` for the Gemini variant.
+
 # Active focus — codify the agent-first design tenets across all .md (2026-05-10)
 
 Goal: every CLAUDE.md / AGENTS.md / agent-facing prompt resource in the repo

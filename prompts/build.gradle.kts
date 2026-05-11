@@ -33,6 +33,19 @@ val ideDownloaderClasspath by configurations.creating {
     isCanBeResolved = true
 }
 
+// Extra classpath entries for the per-block kotlinc subprocess in
+// KtBlockCompilationTestBase. The inlined `ApplyPatch.kt` source imports
+// `com.jonnyzzz.mcpSteroid.server.ApplyPatchHunk` (lives in
+// `:mcp-steroid-server` since the extraction in commit acc5650b). The
+// IDE-home jar walk that builds the rest of the classpath obviously
+// doesn't see project-local outputs — passing this configuration's
+// resolved files via the `mcp.steroid.extra.classpath` system property
+// lets the test append them to the kotlinc subprocess classpath.
+val ktblockExtraClasspath by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     promptGeneratorClasspath(project(":prompt-generator"))
 
@@ -46,6 +59,7 @@ dependencies {
 
     kotlincDist(project(":kotlin-cli"))
     ideDownloaderClasspath(project(":intellij-downloader"))
+    ktblockExtraClasspath(project(":mcp-steroid-server"))
 }
 
 val generatedSources = layout.buildDirectory.dir("generated/kotlin/prompts")
@@ -162,6 +176,7 @@ tasks.test {
         dependsOn(task)
     }
     dependsOn(kotlincDist)
+    dependsOn(ktblockExtraClasspath)
 
     doFirst {
         for ((spec, unpackDir, _) in ideDownloadTasks) {
@@ -179,6 +194,14 @@ tasks.test {
         val ijSources = rootProject.layout.projectDirectory
             .dir("ij-plugin/src/main/kotlin").asFile.absolutePath
         systemProperty("mcp.steroid.ij.sources", ijSources)
+
+        // Extra binary classpath entries the per-block kotlinc subprocess
+        // needs because the inlined ij-plugin sources reference classes that
+        // live in sibling modules (today: ApplyPatchHunk in :mcp-steroid-server).
+        // File.pathSeparator-joined absolute paths — same shape kotlinc itself
+        // would expect.
+        val extraClasspath = ktblockExtraClasspath.files.joinToString(File.pathSeparator) { it.absolutePath }
+        systemProperty("mcp.steroid.extra.classpath", extraClasspath)
 
         // Compilation cache directory
         val cacheDir = layout.buildDirectory.dir("ktblock-cache").get().asFile.absolutePath
