@@ -172,6 +172,28 @@ tasks.test {
     // parallel IDE downloads + kotlinc compilations. Locally, use 8 cores.
     maxParallelForks = if (System.getenv("TEAMCITY_VERSION") != null) 1 else 8
 
+    // Match the IDE-bundled JBR major version. The KtBlock compilation tests
+    // invoke kotlinc with `-jvm-target = java.specification.version` (see
+    // `KotlincCommandLineBuilder.DEFAULT_JVM_TARGET`), so the test JVM must
+    // line up with the JBR shipped inside each downloaded IDE — otherwise
+    // kotlinc rejects the IDE's inline bytecode (`cannot inline bytecode
+    // built with JVM target N into bytecode that is being built with JVM
+    // target M`). All currently-tracked IDEs (stable + EAP, all products)
+    // bundle JBR 25.x; if a future IDE bumps to 26 the
+    // `assertTestJreMatchesIdeBundled` canary inside the test base will
+    // fail loudly and point here.
+    //
+    // We can't run the test under the IDE's own JBR directly because we
+    // download the Linux distribution for portability (no Linux JBR on
+    // macOS dev boxes). Pinning the Gradle toolchain is the closest
+    // equivalent — foojay-resolver fetches JDK 25 automatically when
+    // missing.
+    javaLauncher.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(25))
+        }
+    )
+
     for ((_, _, task) in ideDownloadTasks) {
         dependsOn(task)
     }

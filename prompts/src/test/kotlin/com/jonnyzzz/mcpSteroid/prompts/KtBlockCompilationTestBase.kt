@@ -92,6 +92,8 @@ abstract class KtBlockCompilationTestBase {
             error("Missing system property '$homeProperty' — IDE distribution not available")
         }
 
+        assertTestJreMatchesIdeBundled(home, homeProperty)
+
         val content = block.readPrompt()
         val wrapped = CodeWrapperForCompilation.wrap("MdKtBlock", content).code
         val homePath = Path.of(home)
@@ -175,6 +177,58 @@ abstract class KtBlockCompilationTestBase {
 
     companion object {
         private val classpathCache = mutableMapOf<String, List<Path>>()
+
+        /**
+         * Verifies the JRE running this test has the same major version as the
+         * JBR bundled inside [home]. The kotlinc subprocess derives `-jvm-target`
+         * from `java.specification.version` ([KotlincCommandLineBuilder.DEFAULT_JVM_TARGET]),
+         * so that target must equal the IDE's bundled JBR major — otherwise the
+         * IDE's inline bytecode (compiled against its bundled JBR) will be
+         * rejected by kotlinc (`cannot inline bytecode built with JVM target N
+         * into bytecode that is being built with JVM target M`).
+         *
+         * Ideally we'd run the test under the IDE's bundled JBR directly, but
+         * downloaded IDE distributions are Linux-only — on a macOS dev machine
+         * Gradle can't launch `<linux-ide>/jbr/bin/java`. So we use Gradle's
+         * `javaLauncher` toolchain (see `prompts/build.gradle.kts`) to pin the
+         * test JVM to the matching major version, and this assertion is the
+         * canary that flags drift between the toolchain pin and what the IDE
+         * actually ships.
+         *
+         * On mismatch: bump the toolchain in `prompts/build.gradle.kts` to the
+         * major version reported by the IDE's `jbr/release` file.
+         */
+        private fun assertTestJreMatchesIdeBundled(home: String, homeProperty: String) {
+            val bundledMajor = readIdeBundledJreMajor(home)
+            val testMajor = System.getProperty("java.specification.version")
+                ?: error("System property 'java.specification.version' is not set on the test JVM")
+            Assertions.assertEquals(
+                bundledMajor, testMajor,
+                "Test JRE major version ($testMajor) does not match the IDE-bundled JBR " +
+                    "major version ($bundledMajor) at [$homeProperty]=$home. The kotlinc " +
+                    "`-jvm-target` for these tests is derived from `java.specification.version`, " +
+                    "so the test JVM must match the IDE's bundled JBR major to compile against " +
+                    "its inline bytecode. Bump `tasks.test.javaLauncher` in `prompts/build.gradle.kts` " +
+                    "to JDK $bundledMajor (or run the test with a matching JRE)."
+            )
+        }
+
+        private val ideBundledJreMajorCache = mutableMapOf<String, String>()
+
+        private fun readIdeBundledJreMajor(home: String): String {
+            return ideBundledJreMajorCache.getOrPut(home) {
+                val releaseFile = Path.of(home, "jbr", "release")
+                require(releaseFile.isRegularFile()) {
+                    "IDE-bundled JBR release file not found: $releaseFile"
+                }
+                val content = Files.readString(releaseFile, StandardCharsets.UTF_8)
+                val javaVersionLine = content.lines().firstOrNull { it.startsWith("JAVA_VERSION=") }
+                    ?: error("JAVA_VERSION line not found in $releaseFile")
+                // `JAVA_VERSION="25.0.2"` → major `"25"`. `java.specification.version`
+                // is the bare major (`"25"`), so we strip both the quotes and the patch suffix.
+                javaVersionLine.substringAfter('=').trim().trim('"').substringBefore('.')
+            }
+        }
 
         private fun classpathFor(home: String): List<Path> {
             return classpathCache.getOrPut(home) {

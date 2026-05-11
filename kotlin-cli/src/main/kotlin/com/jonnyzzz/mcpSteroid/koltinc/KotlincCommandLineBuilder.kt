@@ -98,6 +98,23 @@ class KotlincCommandLineBuilder(
     }
 
     companion object {
-        const val DEFAULT_JVM_TARGET = "21"
+        /**
+         * Default `-jvm-target` for the kotlinc subprocess, derived from the
+         * JVM that owns this process — `java.specification.version` is `"21"`
+         * on JDK 21, `"25"` on JDK 25, etc. The kotlinc inline-bytecode
+         * compatibility rule requires the script's target to be ≥ the target
+         * of any inline function it calls; the IntelliJ Platform 261.* (EAP
+         * for 2026.1.x) ships inline functions compiled at target 25, so a
+         * fixed target of "21" rejects them with `cannot inline bytecode
+         * built with JVM target 25 into bytecode that is being built with
+         * JVM target 21`. Deriving from the live JVM keeps the script's
+         * target in lock-step with whatever JDK Gradle / the test runner
+         * happens to run on — bumping the Gradle daemon JVM is then the
+         * single lever that controls the kotlinc target.
+         *
+         * Defaults to `"21"` only as a last-resort fallback when the property
+         * is unset (e.g. an unusual embedding).
+         */
+        val DEFAULT_JVM_TARGET: String = System.getProperty("java.specification.version") ?: "21"
     }
 }
