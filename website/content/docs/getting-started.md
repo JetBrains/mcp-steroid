@@ -1,13 +1,13 @@
 ---
 title: "Getting Started"
-description: "Install and set up MCP Steroid with your AI agent"
+description: "Install and set up MCP Steroid with your AI Agent"
 weight: 10
 group: "Getting Started"
 ---
 
 ## What is MCP Steroid?
 
-MCP Steroid gives AI agents **visual understanding and full control** of your IntelliJ-based IDE through the Model Context Protocol. Unlike traditional code assistants
+MCP Steroid gives AI Agents **visual understanding and full control** of your IntelliJ-based IDE through the Model Context Protocol. Unlike traditional code assistants
 that only see text, MCP Steroid lets agents SEE your IDE: dialogs, toolbars, debugger state, test results, and visual elements.
 
 **[Read the full introduction →](https://jonnyzzz.com/blog/2026/01/04/mcp-steroids-intellij/)**
@@ -19,7 +19,7 @@ MCP Steroid is distributed as an IntelliJ plugin. Currently, in early access - [
 ### Requirements
 
 - IntelliJ IDEA 2025.3+ (or any IntelliJ-based IDE: Rider, Android Studio, GoLand, WebStorm, PyCharm, etc.)
-- An MCP-compatible AI agent (Claude Code, Codex, Gemini, or any MCP client)
+- An MCP-compatible AI Agent (Claude Code, Codex, Gemini, or any MCP client)
 
 ### Install the Plugin
 
@@ -46,7 +46,7 @@ We recommend you to aks your AI Agent to use IntelliJ APIs and use IntelliJ whil
 
 ## Human Review Mode
 
-By default, MCP Steroid requires human approval for all code execution (**ALWAYS** mode). When your AI agent sends code:
+By default, MCP Steroid requires human approval for all code execution (**ALWAYS** mode). When your AI Agent sends code:
 
 1. A notification appears in IntelliJ
 2. You can review, edit, or reject the code
@@ -58,7 +58,7 @@ This ensures you maintain full control over what runs in your IDE. You can chang
 
 MCP Steroid enables powerful agentic workflows:
 
-- **Multi-Agent Orchestration**: Use a primary agent to coordinate multiple AI agents working on different aspects of your codebase. [Read about orchestrating AI fleets →](https://jonnyzzz.com/blog/2026/01/30/orchestrating-ai-fleets/)
+- **Multi-Agent Orchestration**: Use a primary agent to coordinate multiple AI Agents working on different aspects of your codebase. [Read about orchestrating AI fleets →](https://jonnyzzz.com/blog/2026/01/30/orchestrating-ai-fleets/)
 - **Natural Language Development**: Instruct agents in plain English while they handle the technical implementation. [Learn about coding in English with AI →](https://jonnyzzz.com/blog/2026/01/27/coding-in-english-with-ai/)
 - **Documentation Refactoring**: See how 16 agents improved documentation quality by 15% and reduced time-to-value by 5x. [Read the case study →](https://jonnyzzz.com/blog/2026/01/24/16-ai-agents-documentation-refactor/)
 
@@ -81,7 +81,7 @@ If port 6315 is in use, change it:
 5. Update your MCP client configuration with the new URL from `.idea/mcp-steroid.md`
 
 
-After connecting your AI agent, you should see a list of currently open IntelliJ projects when testing with the `steroid_list_projects` tool. If the connection works, your agent can now access all MCP Steroid capabilities.
+After connecting your AI Agent, you should see a list of currently open IntelliJ projects when testing with the `steroid_list_projects` tool. If the connection works, your AI Agent can now access all MCP Steroid capabilities.
 
 For more troubleshooting help, see [GitHub Issues](https://github.com/jonnyzzz/mcp-steroid/issues).
 

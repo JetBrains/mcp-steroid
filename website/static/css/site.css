@@ -343,6 +343,8 @@ a:focus-visible {
     border-radius: 12px;
     padding: 1rem 1.25rem;
     text-align: left;
+    display: flex;
+    flex-direction: column;
 }
 .hero-card h3 {
     font-size: 1rem;
@@ -353,6 +355,50 @@ a:focus-visible {
     font-size: 0.95rem;
     color: var(--color-tertiary);
     line-height: 1.5;
+}
+.hero-card-cta {
+    margin-top: auto;
+    padding-top: 0.5rem;
+}
+
+/* "Book a PoC" anchors to #support, the last section on the page.
+ *
+ * Constraint: for the browser to scroll the section title to
+ * `scroll-margin-top: 4rem` (just under the sticky `.nav`), the
+ * page must be tall enough — at least `supportTopY + viewportH -
+ * 4rem` total. On small viewports (1080p and below) the natural
+ * section + footer already provide enough page height; on 1440p,
+ * ultrawide and 4K the page bottoms out before the title reaches
+ * the desired position, so the section title gets stuck mid-page
+ * after the click.
+ *
+ * Fix: when (and only when) the user has navigated here via the
+ * URL hash, `min-height: 100vh` makes the section itself one
+ * viewport tall. That guarantees enough scroll runway on any
+ * screen size for the title to land cleanly under the nav. The
+ * visible empty space between the content card and the footer
+ * grows naturally with viewport — a side-effect of using vh
+ * units, and the price of making navigation work on huge screens.
+ *
+ * Without the hash, no min-height applies and the section sits
+ * tight against the footer at its natural content height. */
+#support {
+    scroll-margin-top: 4rem;
+}
+#support:target {
+    min-height: 100vh;
+}
+/* Make the PoC card itself visually pop more than the default
+ * `.about-content` (rgba 0.06 → 0.12 background, stronger border,
+ * subtle brand-tinted glow). Helps it stand out on a long page and
+ * — when `:target` adds 100vh of section height for the navigation
+ * fix above — keeps the eye on the actual content card instead of
+ * letting it blend into the empty section area below. */
+#support .about-content {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(107, 87, 255, 0.35);
+    box-shadow: 0 0 0 1px rgba(107, 87, 255, 0.1),
+                0 8px 32px rgba(0, 0, 0, 0.25);
 }
 .hero {
     text-align: center;
@@ -475,14 +521,16 @@ margin: 1rem 0;
     }
     .features-list li {
 color: var(--color-tertiary);
-padding: 0.35rem 0;
+padding: 0.45rem 0;
 padding-left: 1.5rem;
 position: relative;
+line-height: 1.55;
     }
 .features-list li::before {
     content: "\2192";
     position: absolute;
     left: 0;
+    top: 0.45rem;
     color: var(--color-brand-purple);
 }
 .whatsnew-banner {

@@ -1,13 +1,13 @@
 ---
 title: "How it works"
-description: "How MCP Steroid exposes IntelliJ as an MCP server that AI agents can call over HTTP"
+description: "How MCP Steroid exposes IntelliJ as an MCP server that AI Agents can call over HTTP"
 weight: 25
 group: "Vision"
 ---
 
 ## The pattern
 
-[Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is an open standard that lets AI agents call external tools at runtime.
+[Model Context Protocol](https://modelcontextprotocol.io/) (MCP) is an open standard that lets AI Agents call external tools at runtime.
 An **MCP server** is a program that exposes tools — actions the agent can invoke, with structured inputs and outputs.
 The agent discovers what tools exist, decides which to call, calls them, and acts on the results.
 
@@ -182,6 +182,6 @@ Because the agent is running code inside the IDE's runtime — not reading files
 
 The code execution model does more than reduce tool count — it dramatically cuts token usage. A single `steroid_execute_code` call can express an operation that would otherwise require dozens of back-and-forth tool calls, keeping the agent's context window focused on the actual task.
 
-More importantly, the approach scales to the full IntelliJ plugin ecosystem. `steroid_execute_code` can call any Java or Kotlin API available inside the running IDE — including APIs from **enterprise plugins** that MCP Steroid has never heard of. If your team ships an internal IntelliJ plugin with a custom project model, a proprietary build system, or domain-specific inspections, an AI agent can use those APIs directly. No custom MCP server required, no wrappers to maintain.
+More importantly, the approach scales to the full IntelliJ plugin ecosystem. `steroid_execute_code` can call any Java or Kotlin API available inside the running IDE — including APIs from **enterprise plugins** that MCP Steroid has never heard of. If your team ships an internal IntelliJ plugin with a custom project model, a proprietary build system, or domain-specific inspections, an AI Agent can use those APIs directly. No custom MCP server required, no wrappers to maintain.
 
 We are actively looking for success stories — teams using MCP Steroid to automate real workflows, reduce toil, or unlock AI-driven developer experience at scale. If your team has a story to share, [join the conversation on Discord](https://discord.gg/e9qgQ7NeTC) or [open an issue on GitHub](https://github.com/jonnyzzz/mcp-steroid/issues).

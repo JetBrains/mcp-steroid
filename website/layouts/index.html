@@ -18,28 +18,22 @@
     <div class="hero-grid">
         <div class="hero-content">
             <img src="{{ "pluginIcon.svg" | relURL }}" alt="MCP Steroid Logo" class="logo">
-            <h1>Give AI the whole IDE, not just the files. <a href="{{ "/releases/" | relURL }}" class="version-badge version-badge-sup">v{{ .Site.Params.version }}</a></h1>
+            <h1>Make your AI Agent change code with fewer cleanup loops. <a href="{{ "/releases/" | relURL }}" class="version-badge version-badge-sup">v{{ .Site.Params.version }}</a></h1>
             <p class="tagline">
-                MCP Steroid exposes IDE APIs, visual state, and runtime environment from JetBrains IDEs to AI agents. Make agents 20&ndash;54% faster. Today it is an IntelliJ plugin; the long-term target is headless IDE-native infrastructure for autonomous engineering workflows, agentic experience &amp; tools.
+                MCP Steroid gives your AI Agent the same semantic actions a JetBrains IDE gives humans &mdash; typed refactors, inspections, debugger, test runs &mdash; so the Agent finishes in fewer attempts and you spend less time verifying its output. Ships today as a JetBrains IDE plugin.
             </p>
             <div class="cta-buttons">
                 <a href="{{ "/releases/" | relURL }}" class="btn btn-primary">
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                     </svg>
-                    Download
+                    Install plugin
                 </a>
                 <a href="{{ .Site.Params.playlistUrl }}" class="btn btn-secondary" target="_blank" rel="noopener">
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M8 5v14l11-7z"/>
                     </svg>
                     Watch Demos
-                </a>
-                <a href="{{ .Site.Params.githubUrl }}" class="btn btn-secondary" target="_blank" rel="noopener">
-                    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                    </svg>
-                    GitHub
                 </a>
             </div>
         </div>
@@ -48,15 +42,43 @@
 
 <section class="about-section">
     <div class="about-content">
-        <h2 class="section-title">Why MCP Steroid</h2>
+        <h2 class="section-title">Built For Two Audiences</h2>
         <div class="hero-cards hero-cards-two">
             <div class="hero-card">
-                <h3><a href="#benchmarks" class="card-link">20&ndash;54% Faster</a></h3>
-                <p>AI agents complete real coding tasks significantly faster when they can use IDE capabilities instead of just editing files. Measured on selected <a href="https://dpaia.org" target="_blank" rel="noopener" class="card-link">DPAIA</a> projects.</p>
+                <h3>For developers</h3>
+                <p>Connect MCP Steroid to Claude, Codex, Gemini, Cursor, or any MCP-capable AI Agent and let it drive your JetBrains IDE on real code. Free, local, ships today.</p>
+                <p class="hero-card-cta"><a href="{{ "/releases/" | relURL }}" class="card-link"><strong>Install plugin &rarr;</strong></a></p>
             </div>
             <div class="hero-card">
-                <h3>Full IDE, Not Just Files</h3>
-                <p>Your agent gets access to refactoring, debugging, inspections, and test execution &mdash; the same tools you use daily. No more &ldquo;find and replace&rdquo; when the IDE knows how to rename safely.</p>
+                <h3>For engineering teams</h3>
+                <p>Running AI Agents across a large codebase? We run Proof-of-Concept engagements tuning skills, prompts, and benchmarks to your repos and workflows. You can also <a href="{{ "/docs/need-your-experiments-and-support/" | relURL }}" class="card-link">submit a scenario</a> from your own work.</p>
+                <p class="hero-card-cta"><a href="#support" class="card-link"><strong>Book a PoC &rarr;</strong></a></p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="about-section">
+    <div class="about-content">
+        <h2 class="section-title">Why MCP Steroid</h2>
+        <p class="section-lede">Works with any MCP-capable AI Agent &mdash; Claude, Codex, Gemini, Cursor, OpenCode, or any other MCP client. Ships today as a JetBrains IDE plugin.</p>
+        <div class="agents-list">
+            <span class="agent-badge">Claude</span>
+            <span class="agent-badge">GPT</span>
+            <span class="agent-badge">Gemini</span>
+            <span class="agent-badge">Codex CLI</span>
+            <span class="agent-badge">Cursor</span>
+            <span class="agent-badge">OpenCode</span>
+            <span class="agent-badge">Any MCP Client</span>
+        </div>
+        <div class="hero-cards hero-cards-two">
+            <div class="hero-card">
+                <h3><a href="#benchmarks" class="card-link">Fewer wasted iterations</a></h3>
+                <p>AI Agents finish semantic tasks in fewer attempts when they can use real refactorings, inspections, and the debugger instead of guessing through file edits. Measured on selected <a href="https://dpaia.org" target="_blank" rel="noopener" class="card-link">DPAIA</a> projects.</p>
+            </div>
+            <div class="hero-card">
+                <h3>Closed verify loop</h3>
+                <p>Your AI Agent runs inspections, the build, and the tests through the same IDE humans use to verify their own work &mdash; the Agent catches its mistakes before the human review queue does.</p>
             </div>
         </div>
     </div>
@@ -64,9 +86,9 @@
 
 <section class="about-section" id="benchmarks">
     <div class="benchmark-panel">
-        <h2 class="section-title">Benchmarks: Up to 54% Faster</h2>
+        <h2 class="section-title">Evidence: fewer wasted iterations, not just speed</h2>
         <p class="benchmark-subtitle">
-            <a href="https://dpaia.org" target="_blank" rel="noopener">DPAIA</a> benchmark results comparing AI agents with full IDE access (MCP Steroid) vs. file-only workflows:
+            <a href="https://dpaia.org" target="_blank" rel="noopener">DPAIA</a> wall-clock results comparing AI Agents with IDE-native semantic actions (MCP Steroid) vs. file-only workflows. On tasks requiring real semantic understanding the Agent finishes in fewer attempts; read the delta as &ldquo;rework the Agent avoided&rdquo;:
         </p>
         <div class="benchmark-table-wrapper">
             <table class="benchmark-table">
@@ -126,33 +148,24 @@
             </table>
         </div>
         <p class="benchmark-footnote">
-            Tasks requiring semantic understanding &mdash; refactorings across many files, multi-layer code generation &mdash; show the largest speed gains. Simple text replacements perform similarly with or without IDE access. <a href="https://github.com/jonnyzzz/mcp-steroid/issues" target="_blank" rel="noopener">Suggest your project</a> for the next benchmark run.
+            Tasks requiring semantic understanding &mdash; refactorings across many files, multi-layer code generation &mdash; show the largest reduction in wasted iterations. Simple text replacements perform similarly with or without IDE access. <a href="https://github.com/jonnyzzz/mcp-steroid/issues" target="_blank" rel="noopener">Suggest your project</a> for the next benchmark run.
         </p>
     </div>
 </section>
 
 <section class="about-section">
     <div class="about-content">
-        <h2 class="section-title">What Your Agent Can Do</h2>
+        <h2 class="section-title">What Your AI Agent Can Do</h2>
         <ul class="features-list">
             <li><strong>Refactor safely</strong>: rename a symbol across 50 files in one operation, extract methods, move classes</li>
             <li><strong>Debug</strong>: set breakpoints, step through code, inspect variables &mdash; all programmatically</li>
             <li><strong>Run inspections</strong>: catch real errors before committing, not just syntax issues</li>
-            <li><strong>Execute tests</strong>: run and analyze test results without leaving the agent flow</li>
+            <li><strong>Execute tests</strong>: run and analyze test results without leaving the AI Agent flow</li>
             <li><strong>See the IDE</strong>: screenshot capture, UI interaction, modal dialog handling</li>
-            <li><strong><a href="#create-skills" class="card-link">Create new skills</a></strong>: build custom agent skills with IntelliJ API examples &mdash; use more of your IDE or custom plugins, no plugin development needed</li>
-            <li><strong>Human review</strong>: approve or reject agent actions before execution</li>
+            <li><strong>Integrate any third-party plugin</strong>: call APIs from any IntelliJ plugin loaded in the IDE &mdash; internal tooling, language plugins, custom inspections &mdash; without a custom MCP server</li>
+            <li><strong><a href="#create-skills" class="card-link">Create skills from the running IDE</a></strong>: pass an IntelliJ API snippet yourself, or let your AI Agent learn from the running IDE and write the Skill for you</li>
+            <li><strong>Human review</strong>: approve or reject AI Agent actions before execution</li>
         </ul>
-        <p>Works with any MCP-compatible client:</p>
-        <div class="agents-list">
-            <span class="agent-badge">Claude</span>
-            <span class="agent-badge">GPT</span>
-            <span class="agent-badge">Gemini</span>
-            <span class="agent-badge">Codex CLI</span>
-            <span class="agent-badge">Cursor</span>
-            <span class="agent-badge">OpenCode</span>
-            <span class="agent-badge">Any MCP Client</span>
-        </div>
     </div>
 </section>
 
@@ -198,7 +211,7 @@
     <div class="about-content">
         <h2 class="section-title" id="create-skills">Create Powerful IntelliJ-Driven Skills</h2>
         <p>
-            Create custom skills for your agent in minutes. Describe what you want, give it an IntelliJ API example, and let the agent iterate. No plugin development needed.
+            Create custom skills for your AI Agent in minutes. Describe what you want, give it an IntelliJ API example, and let the AI Agent iterate. No plugin development needed.
         </p>
         <pre class="code-example"><code>import com.intellij.psi.search.PsiSearchHelper
 import com.intellij.psi.search.GlobalSearchScope
@@ -215,13 +228,13 @@ val todoItems = readAction {
 }
 todoItems.forEach { println(it) }</code></pre>
         <p>
-            The <a href="/docs/how-to-debug-ide/">Debugging IDE with MCP Steroid</a> guide was written entirely by AI agents &mdash; a real skill created through experimentation with full IDE access.
+            The <a href="/docs/how-to-debug-ide/">Debugging IDE with MCP Steroid</a> guide was written entirely by AI Agents &mdash; a real skill created through experimentation with full IDE access.
         </p>
         <p class="consulting-note">
-            Ready to give your AI agents full IDE access? <a href="{{ "/releases/" | relURL }}">Download the latest release</a> and get started in minutes. See the <a href="https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/" target="_blank" rel="noopener">Skill Factory blog post</a> for a deep dive on building custom skills.
+            Ready to give your AI Agents full IDE access? <a href="{{ "/releases/" | relURL }}">Download the latest release</a> and get started in minutes. See the <a href="https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/" target="_blank" rel="noopener">Skill Factory blog post</a> for a deep dive on building custom skills.
         </p>
         <p class="consulting-note">
-            <strong>Proof-of-Concept program:</strong> We run Proof-of-Concept engagements for company-specific use cases &mdash; custom skills, internal tooling integrations, agent workflows tailored to your codebase. <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Contact Eugene</a> to discuss.
+            <strong>Proof-of-Concept program:</strong> We run Proof-of-Concept engagements for company-specific use cases &mdash; custom skills, internal tooling integrations, AI Agent workflows tailored to your codebase. <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Contact Eugene</a> to discuss.
         </p>
     </div>
 </section>
@@ -249,7 +262,8 @@ todoItems.forEach { println(it) }</code></pre>
         <p>
             MCP Steroid is built by <a href="https://linkedin.com/in/jonnyzzz" target="_blank" rel="noopener">Eugene Petrenko</a>, with 21 years of JetBrains ecosystem experience.
         </p>
-        <p>We run Proof-of-Concept engagements for company-specific use cases &mdash; custom skills, internal tooling integrations, agent workflows tailored to your codebase. <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Learn more about consulting and Proof-of-Concept options</a>.</p>
+        <p>We run Proof-of-Concept engagements for company-specific use cases &mdash; custom skills, internal tooling integrations, AI Agent workflows tailored to your codebase. <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Learn more about consulting and Proof-of-Concept options</a>.</p>
+        <p class="support-footnote">Beyond GitHub Sponsors, MCP Steroid also accepts in-kind support: compute tokens for evaluation runs, hardware for the multi-IDE test matrix, and licenses for benchmarking and observability tools. If you or your organisation would like to back the project or the research behind it on those terms, reach out &mdash; contact details are linked below.</p>
         <div class="support-links">
             <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener" class="btn btn-secondary">
                 <svg class="btn-icon heart-icon-btn" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
