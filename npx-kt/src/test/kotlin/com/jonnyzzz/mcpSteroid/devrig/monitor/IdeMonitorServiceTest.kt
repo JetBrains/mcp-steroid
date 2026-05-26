@@ -187,7 +187,15 @@ class IdeMonitorServiceTest {
         discovery.start(scope)
         monitor.start(scope)
 
-        val finalState = withTimeout(10.seconds) {
+        // 30s timeout (was 10s) — observed a single JobCancellationException
+        // flake after the coroutines 1.10.2 bump under heavy parallel CI load.
+        // The race is between discovery.start populating + monitor.start
+        // connecting to the fake server + the server emitting all three
+        // snapshots in script order; with 200ms scanInterval and 200ms
+        // reconnectBackoff plus client/server warmup, 10s left no slack.
+        // 30s is still well under the JUnit suite default and matches the
+        // other tests in this class.
+        val finalState = withTimeout(30.seconds) {
             monitor.states.first { state ->
                 val snap = state[ourPid]?.lastSnapshot
                 snap?.singleOrNull()?.name == "b"

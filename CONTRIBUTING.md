@@ -34,9 +34,9 @@ improving tests, or enhancing documentation, your help makes the project better 
 
 ## Development Setup
 
-- **JDK 21** or later
+- **JDK 25** or later (matches IDEA 2026.1's bundled JBR)
 - **Gradle 8.11.1** (wrapper included)
-- **IntelliJ IDEA 2025.3+** recommended for development
+- **IntelliJ IDEA 2026.1+** recommended for development
 - **Docker** required for integration tests
 
 Key Gradle tasks:

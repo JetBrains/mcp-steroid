@@ -31,23 +31,23 @@ class PluginBuildCompatibilityTest {
         fun setUp() = BuildCompatInfra.setUp()
     }
 
-    @Test
-    @Timeout(value = 30, unit = TimeUnit.MINUTES)
-    fun `build plugin with IntelliJ 2025_3`() =
-        BuildCompatInfra.buildPlugin("2025.3")
-
+    // Clean-Docker sanity: build the plugin against 2026.1 (the primary build
+    // target after commit 2 of the 262 EAP plan) using the project's default
+    // Kotlin / IPGP / kotlinx pins. No patches — the default state must build.
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
     fun `build plugin with IntelliJ 2026_1`() =
-        BuildCompatInfra.buildPlugin("2026.1", patches = KOTLIN_2_4_PATCHES)
+        BuildCompatInfra.buildPlugin("2026.1")
 
-    // Reproduces mcp-steroid#18: 262 changed StatusBarEx.getBackgroundProcessModels()
-    // return type from c.i.o.u.Pair to kotlin.Pair.
-    // Requires nightly repo (internal JetBrains network).
+    // Clean-Docker sanity: build the plugin against 262 EAP, exercising the
+    // intellij-downloader local() path through products-API resolution of the
+    // 262-EAP-SNAPSHOT matrix tag. Reproduces mcp-steroid#18 (the 262
+    // StatusBarEx.getBackgroundProcessModels Pair-direction change) if that
+    // regression ever resurfaces.
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
-    fun `build plugin with IntelliJ 262 nightly`() =
-        BuildCompatInfra.buildPlugin("262-SNAPSHOT", patches = SNAPSHOT_262_PATCHES)
+    fun `build plugin with IntelliJ 262 EAP`() =
+        BuildCompatInfra.buildPlugin("262-EAP-SNAPSHOT")
 }
 
 /**
@@ -68,24 +68,20 @@ class PluginVerificationTest {
         fun setUp() = BuildCompatInfra.setUp()
     }
 
-    @Test
-    @Timeout(value = 30, unit = TimeUnit.MINUTES)
-    fun `verify plugin against IntelliJ 2025_3`() =
-        BuildCompatInfra.verifyPlugin("""ide(IntelliJPlatformType.IntellijIdeaUltimate, "2025.3")""")
-
+    // The default :ij-plugin:verifyPlugin (driven by McpSteroidIdeTargets.verifierTargets)
+    // already covers 261 + 262 via local() routing in-process. These Docker-based
+    // cases additionally validate that the verifier runs from a clean checkout in a
+    // container — belt-and-braces for the release pipeline.
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
     fun `verify plugin against IntelliJ 2026_1`() =
         BuildCompatInfra.verifyPlugin("""ide(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1")""")
 
-    // Reproduces mcp-steroid#18: verifier should flag the Pair type incompatibility.
-    // Requires nightly repo (internal JetBrains network).
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
-    fun `verify plugin against IntelliJ 262 nightly`() =
+    fun `verify plugin against IntelliJ 262 EAP`() =
         BuildCompatInfra.verifyPlugin(
-            ideEntry = """ide(IntelliJPlatformType.IntellijIdeaUltimate, "262-SNAPSHOT")""",
-            extraPatches = NIGHTLY_REPO_PATCHES,
+            ideEntry = """ide(IntelliJPlatformType.IntellijIdeaUltimate, "262-EAP-SNAPSHOT")""",
         )
 }
 
@@ -195,7 +191,18 @@ private object BuildCompatInfra {
                 .args(
                     "bash", "-c",
                     """
-                    cp -a $SRC_GUEST $PREBUILD_GUEST &&
+                    mkdir -p $PREBUILD_GUEST &&
+                    rsync -a --delete
+                      --exclude=build/
+                      --exclude=.gradle/
+                      --exclude=.intellijPlatform/
+                      --exclude=node_modules/
+                      --exclude=out/
+                      --exclude=build-compat/
+                      --exclude=.idea/workspace.xml
+                      --exclude=*.iml
+                      $SRC_GUEST/ $PREBUILD_GUEST/ &&
+                    git config --global --add safe.directory '*' &&
                     cd $PREBUILD_GUEST &&
                     git clean -fdx &&
                     cp -a $PREBUILD_GUEST $BUILD_GUEST &&
@@ -203,7 +210,7 @@ private object BuildCompatInfra {
                     """.trimIndent().replace('\n', ' '),
                 )
                 .description("Prepare clean build tree")
-                .timeoutSeconds(120)
+                .timeoutSeconds(300)
         }.assertExitCode(0) { "Failed to prepare build tree: $stderr" }
         return container
     }
@@ -228,42 +235,9 @@ private const val BUILD_GUEST = "/build"
 private const val GRADLE_HOME_GUEST = "/cache/gradle-home"
 private const val IJ_PLATFORM_GUEST = "/cache/ij-platform"
 
-private val KOTLIN_2_4_PATCHES = listOf(
-    SedPatch(
-        file = "build.gradle.kts",
-        expression = """s/kotlin("jvm") version "[^"]*"/kotlin("jvm") version "2.4.0-Beta1"/;""" +
-            """s/kotlin("plugin.serialization") version "[^"]*"/kotlin("plugin.serialization") version "2.4.0-Beta1"/""",
-        description = "Patch Kotlin version to 2.4.0-Beta1",
-    ),
-)
-
-private val SNAPSHOT_262_PATCHES = KOTLIN_2_4_PATCHES + listOf(
-    SedPatch(
-        file = "build.gradle.kts",
-        expression = """s/id("org.jetbrains.intellij.platform") version "[^"]*"/id("org.jetbrains.intellij.platform") version "2.14.0"/""",
-        description = "Bump IntelliJ Platform Gradle Plugin to 2.14.0",
-    ),
-    SedPatch(
-        file = "ij-plugin/build.gradle.kts",
-        expression = """s/intellijIdeaUltimate(targetIdeVersion)/intellijIdeaUltimate(targetIdeVersion) { useInstaller = false }/""",
-        description = "Disable installer mode for Maven snapshot resolution",
-    ),
-    SedPatch(
-        file = "ij-plugin/build.gradle.kts",
-        expression = """s/defaultRepositories()/defaultRepositories()\n        nightly()/""",
-        description = "Add nightly repo for 262-SNAPSHOT",
-    ),
-)
-
-private val NIGHTLY_REPO_PATCHES = listOf(
-    SedPatch(
-        file = "build.gradle.kts",
-        expression = """s/id("org.jetbrains.intellij.platform") version "[^"]*"/id("org.jetbrains.intellij.platform") version "2.14.0"/""",
-        description = "Bump IntelliJ Platform Gradle Plugin to 2.14.0",
-    ),
-    SedPatch(
-        file = "ij-plugin/build.gradle.kts",
-        expression = """s/defaultRepositories()/defaultRepositories()\n        nightly()/""",
-        description = "Add nightly repo",
-    ),
-)
+// Note: the per-version sed patches that lived here previously (KOTLIN_2_4_PATCHES,
+// SNAPSHOT_262_PATCHES, NIGHTLY_REPO_PATCHES) are gone as of commit 8 of the 262 EAP
+// plan. They were workarounds for the pre-262 state where the project defaulted to
+// 253 + Kotlin 2.2.20 + IPGP useInstaller. After commits 2 + 4, the default state
+// is 261 + Kotlin 2.3.20 + ktor 3.3.2 + local()-routed IDE resolution via
+// intellij-downloader, so no patches are needed to build against 261 or 262 EAP.

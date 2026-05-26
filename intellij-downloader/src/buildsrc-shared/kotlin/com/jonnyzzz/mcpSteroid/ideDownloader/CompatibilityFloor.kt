@@ -11,8 +11,9 @@ package com.jonnyzzz.mcpSteroid.ideDownloader
  * (`pluginConfiguration.ideaVersion.sinceBuild`) — `PluginCompatibilityFloorTest`
  * enforces the pair.
  *
- * The value is the baseline (major) build number — "252" — not the full build
- * string like "252.28539.54". Pin the baseline only; the resolver picks the
- * latest release within that baseline.
+ * The value is the baseline (major) build number — "261" — not the full build
+ * string like "261.24374.151". Pin the baseline only; the resolver picks the
+ * latest release within that baseline. 252 + 253 are deprecated as of the 262
+ * EAP work (see `docs/262-EAP-PLAN.md`); users on those builds need to upgrade.
  */
-const val MANAGED_BACKEND_MIN_SUPPORTED_BUILD: String = "252"
+const val MANAGED_BACKEND_MIN_SUPPORTED_BUILD: String = "261"

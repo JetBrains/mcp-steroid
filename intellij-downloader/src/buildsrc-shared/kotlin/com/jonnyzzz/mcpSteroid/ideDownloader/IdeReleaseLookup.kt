@@ -41,36 +41,20 @@ fun resolveDownloadKey(
     HostOs.WINDOWS -> if (architecture.isArmArch) "windowsARM64" else "windows"
 }
 
-/**
- * Resolves the download URL for the latest IDE archive from the public products API.
- *
- * @param product the IDE product to look up
- * @param channel the release channel (stable or EAP)
- * @param os the target operating system (default: auto-detected)
- * @param architecture the host architecture for platform-specific archive selection
- * @return the direct download URL for the archive
- */
-fun resolveArchiveUrl(
-    product: IdeProduct,
-    channel: IdeChannel,
-    os: HostOs = resolveHostOs(),
-    architecture: HostArchitecture = resolveHostArchitecture(),
-): String {
-    return resolveArchive(product, channel, os, architecture).url
-}
-
 fun resolveArchive(
     product: IdeProduct,
     channel: IdeChannel,
     os: HostOs = resolveHostOs(),
     architecture: HostArchitecture = resolveHostArchitecture(),
     version: String? = null,
+    buildPrefix: String? = null,
 ): IdeArchiveResolution = resolveArchiveWithUrlReader(
     product = product,
     channel = channel,
     os = os,
     architecture = architecture,
     version = version,
+    buildPrefix = buildPrefix,
     productsApiReader = { url -> readUrlText(url) },
     androidStudioReader = { url -> readUrlText(url, accept = "text/html,*/*") },
 )
@@ -81,6 +65,7 @@ internal fun resolveArchiveWithUrlReader(
     os: HostOs = resolveHostOs(),
     architecture: HostArchitecture = resolveHostArchitecture(),
     version: String? = null,
+    buildPrefix: String? = null,
     urlReader: (String) -> String,
 ): IdeArchiveResolution = resolveArchiveWithUrlReader(
     product = product,
@@ -88,6 +73,7 @@ internal fun resolveArchiveWithUrlReader(
     os = os,
     architecture = architecture,
     version = version,
+    buildPrefix = buildPrefix,
     productsApiReader = urlReader,
     androidStudioReader = urlReader,
 )
@@ -98,6 +84,7 @@ private fun resolveArchiveWithUrlReader(
     os: HostOs,
     architecture: HostArchitecture,
     version: String?,
+    buildPrefix: String?,
     productsApiReader: (String) -> String,
     androidStudioReader: (String) -> String,
 ): IdeArchiveResolution {
@@ -118,6 +105,7 @@ private fun resolveArchiveWithUrlReader(
         os = os,
         architecture = architecture,
         version = version,
+        buildPrefix = buildPrefix,
         productsApiUrl = url,
         payload = payload,
     )
@@ -129,6 +117,7 @@ internal fun resolveArchiveFromProductsApiPayload(
     os: HostOs,
     architecture: HostArchitecture,
     version: String? = null,
+    buildPrefix: String? = null,
     productsApiUrl: String,
     payload: String,
 ): IdeArchiveResolution {
@@ -153,6 +142,7 @@ internal fun resolveArchiveFromProductsApiPayload(
         if (!type.equals(channel.apiValue, ignoreCase = true)) continue
         if (releaseVersion.isNullOrBlank() || build.isNullOrBlank()) continue
         if (wantedVersion != null && wantedVersion != releaseVersion && wantedVersion != build) continue
+        if (buildPrefix != null && !build.startsWith(buildPrefix)) continue
 
         val downloads = release["downloads"] as? JsonObject ?: continue
         val platformDownload = downloads[downloadKey] as? JsonObject ?: continue
@@ -176,7 +166,7 @@ internal fun resolveArchiveFromProductsApiPayload(
         )
     }
 
-    error(resolveArchiveFailureMessage(product, channel, wantedVersion, downloadKey, productsApiUrl, skippedWrongFilename))
+    error(resolveArchiveFailureMessage(product, channel, wantedVersion, buildPrefix, downloadKey, productsApiUrl, skippedWrongFilename))
 }
 
 internal fun IdeProduct.acceptsDownloadFilename(filename: String): Boolean {
@@ -191,11 +181,14 @@ private fun resolveArchiveFailureMessage(
     product: IdeProduct,
     channel: IdeChannel,
     wantedVersion: String?,
+    buildPrefix: String?,
     downloadKey: String,
     productsApiUrl: String,
     skippedWrongFilename: List<String>,
 ): String {
-    val versionMessage = if (wantedVersion == null) "latest" else "version '$wantedVersion'"
+    val baseSelector = if (wantedVersion == null) "latest" else "version '$wantedVersion'"
+    val versionMessage = if (buildPrefix == null) baseSelector
+        else "$baseSelector (filtered to builds starting with '$buildPrefix')"
     val tokens = product.urlFilenameTokens
     if (tokens.isEmpty()) {
         return "Unable to resolve $versionMessage '${channel.apiValue}' release for product '${product.code}' " +

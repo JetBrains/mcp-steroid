@@ -140,10 +140,11 @@ IDE via Kotlin code execution.
 
 ## Technology Stack
 
-Gradle 9.5.1 / Kotlin 2.2.20 / Java 21 / IntelliJ Platform 2025.3+ / Ktor 3.1.0 (CIO+SSE) / kotlinx.serialization
+Gradle 9.5.1 / Kotlin 2.3.20 / Java 25 / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
 
-The Gradle Daemon is pinned to **JDK 21** via `gradle/gradle-daemon-jvm.properties`. The
-`foojay-resolver-convention` plugin in `settings.gradle.kts` is the auto-download fallback if no JDK 21 is
+The Gradle Daemon is pinned to **JDK 25** via `gradle/gradle-daemon-jvm.properties`
+(matches IDEA 2026.1's bundled JBR — see `docs/262-EAP-PLAN.md`). The
+`foojay-resolver-convention` plugin in `settings.gradle.kts` is the auto-download fallback if no JDK 25 is
 present locally. To change the daemon JVM: edit `gradle-daemon-jvm.properties` directly (one-line
 `toolchainVersion=N`).
 

@@ -124,7 +124,7 @@ private fun IdeDistribution.resolveArchiveDownload(
             ResolvedArchiveDownload(url, resolvedName, checksumUrl, expectedSha256)
         }
         is IdeDistribution.Latest -> {
-            val resolved = resolveArchive(product, channel, os)
+            val resolved = resolveArchive(product, channel, os, version = version)
             val arch = resolveHostArchitecture()
             val fallbackName = if (arch.isArmArch) "${product.id}-${channel.name.lowercase()}-arm.tar.gz"
                                else "${product.id}-${channel.name.lowercase()}-x86.tar.gz"

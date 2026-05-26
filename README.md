@@ -62,7 +62,7 @@ Tasks requiring semantic understanding show the largest speed gains. Simple text
 
 ## Install
 
-**Requirements:** IntelliJ IDEA 2025.3+ (or any IntelliJ-based IDE: Rider, Android Studio, GoLand, WebStorm, PyCharm, CLion, etc.)
+**Requirements:** IntelliJ IDEA 2026.1+ (or any IntelliJ-based IDE: Rider, Android Studio, GoLand, WebStorm, PyCharm, CLion, etc.)
 
 ### JetBrains Marketplace
 
@@ -183,7 +183,7 @@ See the full [Configuration Documentation](https://mcp-steroid.jonnyzzz.com/docs
 
 ## Architecture
 
-- **Technology:** Kotlin 2.2.21 on Java 21
+- **Technology:** Kotlin 2.3.20 on Java 25
 - **HTTP Server:** Ktor 3.1.0 (Streamable HTTP + SSE)
 - **Protocol:** Model Context Protocol (MCP)
 - **Default Port:** 6315

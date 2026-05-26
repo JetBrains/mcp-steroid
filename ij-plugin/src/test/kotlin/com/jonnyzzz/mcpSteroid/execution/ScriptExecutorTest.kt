@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.execution
 
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -9,8 +8,6 @@ import com.jonnyzzz.mcpSteroid.TestResultBuilder
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import com.jonnyzzz.mcpSteroid.testExecParams
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Tests for the ScriptExecutor.
@@ -168,63 +165,23 @@ class ScriptExecutorTest : BasePlatformTestCase() {
         assertTrue("Should fail", builder.isFailed)
     }
 
-    /**
-     * Regression test for S3 (inline McpEditingGuard): a non-modal dialog
-     * visible during steroid_execute_code must NOT block execution. A
-     * non-modal frame doesn't pin the EDT and is invisible to
-     * `withModalityCheck`, so the pre-flight guard's modality fail-fast
-     * must let the script proceed, and the script body must run to
-     * completion against the non-modal-dialog-visible IDE state.
-     *
-     * The dialog is created on EDT before the script runs and disposed
-     * after the test. The contract: builder is not in failed state and
-     * the script's println output reaches the result builder.
-     */
-    fun testNonModalDialogDuringExecuteDoesNotBlock(): Unit = timeoutRunBlocking(30.seconds) {
-        val nonModalFrame = withContext(Dispatchers.EDT) {
-            val frame = javax.swing.JFrame("non-modal-during-exec-test").apply {
-                defaultCloseOperation = javax.swing.WindowConstants.DISPOSE_ON_CLOSE
-                setSize(200, 100)
-                // Non-modal: a plain JFrame is not modal. Show it without
-                // blocking the caller — visible but not pinning the EDT.
-                isVisible = true
-            }
-            frame
-        }
-        try {
-            val code = """
-                println("non-modal-dialog-visible")
-            """.trimIndent()
-
-            val builder = TestResultBuilder()
-            executor.executeWithProgress(nextExecutionId(), testExecParams(code, timeout = 30), builder)
-
-            // The script may have completed (engine available) or returned an
-            // engine-missing error — but it MUST NOT block waiting for the
-            // non-modal dialog. The 30s `timeoutRunBlocking` would have failed
-            // the test if we deadlocked.
-            assertTrue("Should complete with some output", builder.hasAnyOutput())
-            assertFalse(
-                "Pre-flight modality check must not trip on a non-modal dialog. Got reportFailed; messages=${builder.messages}",
-                builder.isFailed && builder.messages.any { it.contains("Modal dialog still showing") },
-            )
-        } finally {
-            withContext(Dispatchers.EDT) {
-                nonModalFrame.isVisible = false
-                nonModalFrame.dispose()
-            }
-        }
-    }
-
     // NOTE: a parallel `testElevatedModality...` test was attempted but
     // `LaterInvocator.enterModal` elevates EDT modality, and
     // `ScriptExecutor.commitAndSaveAllDocuments` dispatches via plain
     // `Dispatchers.EDT` (queue is gated on the current modality state),
     // so the executor deadlocks waiting for the EDT to accept its task.
+    //
+    // Likewise a `testNonModalDialogDuringExecuteDoesNotBlock` test that
+    // showed a real `JFrame` was deleted: it produced a host-visible popup
+    // during `:ij-plugin:test` (user-reported), and host-side test JVMs
+    // now run headless (root `build.gradle.kts` sets `java.awt.headless=true`
+    // on every Test task) so `JFrame.setVisible(true)` would throw
+    // HeadlessException anyway.
+    //
     // Coverage for the modal-DialogWrapper + dialog-killer path lives in
     // `test-integration/DialogKillerIntegrationTest` (Docker + Xvfb where
     // dialogs actually render and the killer can dispatch under
-    // ModalityState.any()).
+    // ModalityState.any()). Non-modal coverage belongs there too if needed.
 
     /**
      * Test that a timeout is reported correctly when execution takes too long.

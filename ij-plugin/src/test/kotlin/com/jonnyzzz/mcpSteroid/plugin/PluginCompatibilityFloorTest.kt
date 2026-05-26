@@ -21,8 +21,8 @@ class PluginCompatibilityFloorTest {
     fun `gate fires when sinceBuild is HIGHER than the resolver baseline`() {
         val error = assertThrows(AssertionError::class.java) {
             assertPluginCompatibilityFloor(
-                sinceBuild = "253",
-                resolverFloor = "252",
+                sinceBuild = "262",
+                resolverFloor = "261",
             )
         }
 
@@ -36,8 +36,8 @@ class PluginCompatibilityFloorTest {
     fun `gate fires when sinceBuild is LOWER than the resolver baseline`() {
         val error = assertThrows(AssertionError::class.java) {
             assertPluginCompatibilityFloor(
-                sinceBuild = "251",
-                resolverFloor = "252",
+                sinceBuild = "260",
+                resolverFloor = "261",
             )
         }
 

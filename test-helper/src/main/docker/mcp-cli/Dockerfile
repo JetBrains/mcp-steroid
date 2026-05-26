@@ -5,7 +5,8 @@ FROM debian:bookworm-slim
 # `CliMcpStdioStdoutCleanlinessTest` Docker variant can run the launcher
 # unattended and assert stdout cleanliness on Linux from a Mac/Windows host.
 #
-# Eclipse Temurin 21 JRE matches the devrig build's `jvmToolchain(21)`. Same
+# Eclipse Temurin 25 JRE matches the devrig build's `jvmToolchain(25)` (raised
+# alongside the 262 EAP work — see gradle/gradle-daemon-jvm.properties). Same
 # Adoptium APT pattern as `test-integration/src/test/docker/ide-base/Dockerfile`.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -16,7 +17,7 @@ RUN apt-get update && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb bookworm main" \
         > /etc/apt/sources.list.d/adoptium.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends temurin-21-jre && \
+    apt-get install -y --no-install-recommends temurin-25-jre && \
     rm -rf /var/lib/apt/lists/*
 
 # Non-root user mirrors the agent containers so file permissions match.

@@ -41,7 +41,7 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 // Docker images and test fixture projects live in :test-integration; we point at them via system property.

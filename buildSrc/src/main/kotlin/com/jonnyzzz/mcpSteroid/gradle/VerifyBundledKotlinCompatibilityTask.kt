@@ -135,6 +135,7 @@ abstract class VerifyBundledKotlinCompatibilityTask : DefaultTask() {
         if (!Files.exists(entry)) return emptyList()
 
         if (Files.isRegularFile(entry)) {
+            if (isKotlinPluginBundledArtifact(entry)) return emptyList()
             return listOf(entry.toUri().toURL())
         }
 
@@ -145,10 +146,27 @@ abstract class VerifyBundledKotlinCompatibilityTask : DefaultTask() {
             stream
                 .filter { Files.isRegularFile(it) }
                 .filter { it.fileName.toString().endsWith(".jar") }
+                .filter { !isKotlinPluginBundledArtifact(it) }
                 .forEach { urls += it.toUri().toURL() }
         }
         require(urls.isNotEmpty()) { "Classpath directory has no classpath URLs: $entry" }
         return urls.toList()
+    }
+
+    /**
+     * `plugins/Kotlin/kotlinc/lib/kotlin-stdlib.jar` (the IDE-bundled Kotlin
+     * plugin's editor-time kotlinc distribution) ships its own kotlin-stdlib
+     * pinned to whatever version the Kotlin plugin uses for analysis —
+     * typically lagging behind the platform's `lib/util-8.jar` runtime
+     * stdlib. Per the project's no-dependency-on-plugins/Kotlin rule, the
+     * platform stdlib is the source of truth for "what version the IDE
+     * runs at". Filter the Kotlin plugin's copy out of the probe classpath
+     * so the URLClassLoader resolves kotlin.KotlinVersion.CURRENT from
+     * `lib/util-8.jar` only.
+     */
+    private fun isKotlinPluginBundledArtifact(file: Path): Boolean {
+        val s = file.toString().replace('\\', '/')
+        return s.contains("/plugins/Kotlin/kotlinc/") || s.contains("/plugins/Kotlin/lib/")
     }
 
     private fun detectBundledKotlincVersion(kotlincRoot: Path): KotlinVersion {

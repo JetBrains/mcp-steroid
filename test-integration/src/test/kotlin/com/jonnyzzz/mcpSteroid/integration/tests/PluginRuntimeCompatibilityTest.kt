@@ -14,13 +14,22 @@ import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
 
 /**
- * Runtime compatibility: validates the production plugin (built against 253)
- * works correctly when loaded into newer IDE versions.
+ * Runtime compatibility: validates the production plugin (built against
+ * `McpSteroidIdeTargets.buildTarget` = 261 since commit 5) works
+ * correctly when loaded into newer IDE versions and into IDEs that
+ * don't bundle the same plugin set as IntelliJ Idea Ultimate.
  *
- * Strategy: the plugin is always built against 253. These tests install the
- * same binary into the latest stable and EAP IDEs and exercise core MCP tools.
- * The list_windows call specifically triggers mcp-steroid#18 (ClassCastException
- * on the Pair type change in 262).
+ * Strategy: install the production plugin .zip into the latest stable
+ * and EAP IDEs and exercise core MCP tools. The list_windows call
+ * catches the family of bugs around the `c.i.o.u.Pair` vs `kotlin.Pair`
+ * direction (mcp-steroid#18) — a regression in either direction surfaces
+ * here as ClassCastException at runtime.
+ *
+ * The PyCharm cases (since followup #1) are the prod-minimal-deps gate:
+ * vanilla PyCharm does NOT ship `com.intellij.java` or
+ * `org.jetbrains.kotlin`. If the plugin accidentally pulls a type from
+ * either plugin into a runtime-required path, the PyCharm container
+ * fails to start the plugin and the test catches it.
  *
  * Run:
  *   ./gradlew :test-integration:test --tests '*PluginRuntimeCompatibilityTest*'
@@ -29,23 +38,51 @@ class PluginRuntimeCompatibilityTest {
 
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
-    fun `runtime compat stable`() =
-        verifyRuntimeCompat(IdeDistribution.Latest(IdeProduct.IntelliJIdea, IdeChannel.STABLE))
+    fun `runtime compat idea stable`() =
+        verifyRuntimeCompat(
+            distribution = IdeDistribution.Latest(IdeProduct.IntelliJIdea, IdeChannel.STABLE),
+            dockerFileBase = "ide-agent",
+        )
 
-    // Reproduces mcp-steroid#18 at runtime: the 253-built plugin calls
-    // StatusBarEx.getBackgroundProcessModels() which returns kotlin.Pair in 262,
-    // but the plugin bytecode expects c.i.o.u.Pair → ClassCastException.
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
-    fun `runtime compat eap`() =
-        verifyRuntimeCompat(IdeDistribution.Latest(IdeProduct.IntelliJIdea, IdeChannel.EAP))
+    fun `runtime compat idea eap`() =
+        verifyRuntimeCompat(
+            distribution = IdeDistribution.Latest(IdeProduct.IntelliJIdea, IdeChannel.EAP),
+            dockerFileBase = "ide-agent",
+        )
 
-    private fun verifyRuntimeCompat(dist: IdeDistribution) = runWithCloseableStack { lifetime ->
+    /**
+     * Vanilla PyCharm — prod-minimal-deps gate. The production plugin must
+     * load even though PyCharm doesn't ship `com.intellij.java` or
+     * `org.jetbrains.kotlin`. A regression that drags one of those plugins
+     * into a runtime-required path fails the plugin load here.
+     */
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.MINUTES)
+    fun `runtime compat pycharm stable`() =
+        verifyRuntimeCompat(
+            distribution = IdeDistribution.Latest(IdeProduct.PyCharm, IdeChannel.STABLE),
+            dockerFileBase = "pycharm-agent",
+        )
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.MINUTES)
+    fun `runtime compat pycharm eap`() =
+        verifyRuntimeCompat(
+            distribution = IdeDistribution.Latest(IdeProduct.PyCharm, IdeChannel.EAP),
+            dockerFileBase = "pycharm-agent",
+        )
+
+    private fun verifyRuntimeCompat(
+        distribution: IdeDistribution,
+        dockerFileBase: String,
+    ) = runWithCloseableStack { lifetime ->
         val session = IntelliJContainer.create(
             lifetime,
-            "ide-agent",
+            dockerFileBase,
             consoleTitle = "runtime-compat",
-            distribution = dist,
+            distribution = distribution,
         )
 
         // 1. list_projects — plugin loaded, MCP server started

@@ -4,8 +4,8 @@ plugins {
     id("de.undercouch.download") version "5.6.0" apply false
     id("org.jetbrains.intellij.platform") version "2.13.1" apply false
     id("com.github.node-gradle.node") version "7.1.0" apply false
-    kotlin("jvm") version "2.2.20" apply false
-    kotlin("plugin.serialization") version "2.2.20" apply false
+    kotlin("jvm") version "2.3.20" apply false
+    kotlin("plugin.serialization") version "2.3.20" apply false
 }
 
 group = "com.jonnyzzz.intellij"
@@ -122,6 +122,15 @@ subprojects {
 allprojects {
     tasks.withType<Test>().configureEach {
         systemProperty("mcp.steroid.test.projectHome", rootProject.layout.projectDirectory.asFile.absolutePath)
+        // Host-side test JVMs must run headless. Non-headless was leaking
+        // "Choose Run Configuration" / IDE suggestion popups from
+        // `:ij-plugin:test`'s in-process IntelliJ Platform fixture, which
+        // then sat on the user's desktop interrupting work. The only
+        // legitimately non-headless environment is the Docker containers
+        // used by :test-integration / :test-experiments — those run their
+        // JVMs inside the container under Xvfb, so this host property is
+        // simply not inherited there.
+        systemProperty("java.awt.headless", "true")
         maxHeapSize = "4g"
     }
 }

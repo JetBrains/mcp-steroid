@@ -4,7 +4,7 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 repositories {
@@ -15,14 +15,15 @@ dependencies {
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.slf4j:slf4j-api:2.0.13")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.8.1")
+    val kotlinxSerialization = providers.gradleProperty("mcp.kotlinx.serialization.version").get()
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerialization")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:$kotlinxSerialization")
 
     // MCP protocol types, session manager, registries
     api(project(":mcp-core"))
 
     // Ktor server — the HTTP transport that speaks MCP Streamable HTTP
-    val ktorVersion = "3.1.0"
+    val ktorVersion = "3.3.2"
     api("io.ktor:ktor-server-core:$ktorVersion")
     api("io.ktor:ktor-server-cio:$ktorVersion")
     api("io.ktor:ktor-server-sse:$ktorVersion")

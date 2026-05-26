@@ -18,7 +18,7 @@ repositories {
     mavenCentral()
 }
 
-val ktorVersion = "3.1.0"
+val ktorVersion = "3.3.2"
 
 fun sha512(file: File): String {
     val digest = MessageDigest.getInstance("SHA-512")
@@ -233,7 +233,7 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 // `project.version` rendered as a String once so both the metadata generator
@@ -523,13 +523,13 @@ val verifyBundledLibraries by tasks.registering {
             "lib/prompts-api-$devrigVersion.jar",
 
             // Kotlin runtime.
-            "lib/kotlin-stdlib-2.2.20.jar",
-            "lib/kotlin-stdlib-jdk7-2.2.20.jar",
-            "lib/kotlin-stdlib-jdk8-2.2.20.jar",
-            "lib/kotlinx-coroutines-core-jvm-1.10.1.jar",
-            "lib/kotlinx-coroutines-slf4j-1.10.1.jar",
-            "lib/kotlinx-io-bytestring-jvm-0.6.0.jar",
-            "lib/kotlinx-io-core-jvm-0.6.0.jar",
+            "lib/kotlin-stdlib-2.3.20.jar",
+            "lib/kotlin-stdlib-jdk7-2.3.20.jar",
+            "lib/kotlin-stdlib-jdk8-2.3.20.jar",
+            "lib/kotlinx-coroutines-core-jvm-1.10.2.jar",
+            "lib/kotlinx-coroutines-slf4j-1.10.2.jar",
+            "lib/kotlinx-io-bytestring-jvm-0.8.0.jar",
+            "lib/kotlinx-io-core-jvm-0.8.0.jar",
             "lib/kotlinx-serialization-core-jvm-1.9.0.jar",
             "lib/kotlinx-serialization-json-jvm-1.9.0.jar",
 
@@ -542,19 +542,19 @@ val verifyBundledLibraries by tasks.registering {
             "lib/mordant-jvm.jar",
 
             // Ktor client transitives (CIO engine).
-            "lib/ktor-client-cio-jvm-3.1.0.jar",
-            "lib/ktor-client-core-jvm-3.1.0.jar",
-            "lib/ktor-events-jvm-3.1.0.jar",
-            "lib/ktor-http-cio-jvm-3.1.0.jar",
-            "lib/ktor-http-jvm-3.1.0.jar",
-            "lib/ktor-io-jvm-3.1.0.jar",
-            "lib/ktor-network-jvm-3.1.0.jar",
-            "lib/ktor-network-tls-jvm-3.1.0.jar",
-            "lib/ktor-serialization-jvm-3.1.0.jar",
-            "lib/ktor-sse-jvm-3.1.0.jar",
-            "lib/ktor-utils-jvm-3.1.0.jar",
-            "lib/ktor-websocket-serialization-jvm-3.1.0.jar",
-            "lib/ktor-websockets-jvm-3.1.0.jar",
+            "lib/ktor-client-cio-jvm-3.3.2.jar",
+            "lib/ktor-client-core-jvm-3.3.2.jar",
+            "lib/ktor-events-jvm-3.3.2.jar",
+            "lib/ktor-http-cio-jvm-3.3.2.jar",
+            "lib/ktor-http-jvm-3.3.2.jar",
+            "lib/ktor-io-jvm-3.3.2.jar",
+            "lib/ktor-network-jvm-3.3.2.jar",
+            "lib/ktor-network-tls-jvm-3.3.2.jar",
+            "lib/ktor-serialization-jvm-3.3.2.jar",
+            "lib/ktor-sse-jvm-3.3.2.jar",
+            "lib/ktor-utils-jvm-3.3.2.jar",
+            "lib/ktor-websocket-serialization-jvm-3.3.2.jar",
+            "lib/ktor-websockets-jvm-3.3.2.jar",
 
             // Analytics + HTTP transitives.
             "lib/posthog-6.4.0.jar",

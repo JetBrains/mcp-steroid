@@ -7,7 +7,7 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 repositories {
@@ -24,7 +24,7 @@ tasks.test {
 
 // --- kotlinc download and distribution ---
 
-val kotlincVersion = "2.3.10"
+val kotlincVersion = "2.3.20"
 val kotlincUrl = "https://github.com/JetBrains/kotlin/releases/download/v${kotlincVersion}/kotlin-compiler-${kotlincVersion}.zip"
 val kotlincSha256Url = "$kotlincUrl.sha256"
 val kotlincDownloadDir = layout.buildDirectory.dir("kotlinc-zip/$kotlincVersion")

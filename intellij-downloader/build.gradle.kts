@@ -31,7 +31,20 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
+}
+
+// `src/buildsrc-shared/kotlin/` carries the IDE compatibility matrix
+// (`McpSteroidIdeTargets`), the resolver, the downloader, the unpacker,
+// and the LocalIdeProvisioner that ij-plugin/build.gradle.kts calls at
+// script-evaluation time. The same path is added as a source dir in
+// `buildSrc/build.gradle.kts`, so Gradle scripts and this module's CLI
+// compile the same .kt files independently — one source of truth, two
+// compiled copies (different classloaders, different Kotlin versions).
+// Transitive deps used by the shared code (kotlinx-serialization, slf4j,
+// commons-compress, xz) must stay in lockstep with `buildSrc/build.gradle.kts`.
+sourceSets.main {
+    kotlin.srcDir("src/buildsrc-shared/kotlin")
 }
 
 repositories {
@@ -43,7 +56,14 @@ application {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    // kotlinx pins read from root gradle.properties so KotlinxRuntimeProbe is
+    // compiled against the SAME versions production modules link against;
+    // otherwise a paired bump there could leave the probe shipping stale
+    // bytecode and miss the very drift it's meant to catch.
+    val kotlinxSerialization = providers.gradleProperty("mcp.kotlinx.serialization.version").get()
+    val kotlinxCoroutines = providers.gradleProperty("mcp.kotlinx.coroutines.version").get()
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerialization")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutines")
     implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("org.slf4j:slf4j-api:2.0.17")
     // Runtime xz support for IdeUnpacker fallback paths that might handle .tar.xz directly.

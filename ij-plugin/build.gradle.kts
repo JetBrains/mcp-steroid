@@ -1,7 +1,11 @@
 @file:Suppress("HasPlatformType")
 
 import com.jonnyzzz.mcpSteroid.gradle.*
-import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import com.jonnyzzz.mcpSteroid.ideDownloader.IdeProduct
+import com.jonnyzzz.mcpSteroid.ideDownloader.IdeTarget
+import java.util.concurrent.ConcurrentHashMap
+import com.jonnyzzz.mcpSteroid.ideDownloader.McpSteroidIdeTargets
+import com.jonnyzzz.mcpSteroid.ideDownloader.resolveAndUnpackLocally
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.net.HttpURLConnection
@@ -27,7 +31,12 @@ val releaseNotesVersion = providers.gradleProperty("mcp.release.notes.version")
 val releaseNotesFile = rootProject.layout.projectDirectory.file("release/notes/$releaseNotesVersion.md")
 
 val targetIdeProductRaw = providers.gradleProperty("mcp.platform.product").orElse("idea").get()
-val targetIdeVersion = providers.gradleProperty("mcp.platform.version").orElse("2025.3").get()
+// Default flows from the single source of truth in :intellij-downloader
+// (`McpSteroidIdeTargets.buildTarget.version`). The Gradle property override
+// lets CI build against a specific version (e.g. on the 262 verifier path).
+val targetIdeVersion = providers.gradleProperty("mcp.platform.version")
+    .orElse(McpSteroidIdeTargets.buildTarget.version)
+    .get()
 val targetIdeProduct = when (targetIdeProductRaw.trim().lowercase()) {
     "idea", "iiu", "intellij", "intellijidea", "intellijideaultimate" -> JetBrainsIdeProduct.IntelliJIdeaUltimate
     "pycharm", "pcp", "python" -> JetBrainsIdeProduct.PyCharm
@@ -53,6 +62,70 @@ configurations.named("implementation") {
     exclude(group = "org.slf4j")
 }
 
+// IDE archive download + unpack staging dirs, shared between the main build IDE
+// and the verifier IDEs. The unpacked tree is keyed by full build + os + arch
+// (see `LocalIdeProvisioner.ideRootFolderName`) so multiple host platforms can
+// share the same on-disk cache without colliding.
+val localIdesBaseDir = rootProject.layout.buildDirectory.dir("local-ides").get().asFile
+val ideArchivesDir = rootProject.layout.buildDirectory.dir("ide-archives").get().asFile
+
+// Build target: matrix default, or a synthetic IdeTarget when CI overrides
+// `-Pmcp.platform.version=…` with a one-off version (e.g. an exact 262 build).
+// Rolling cross-major tags (LATEST-*) are rejected here so an override can't
+// reintroduce the silent-slide behaviour the matrix forbids.
+val buildIdeTarget: IdeTarget = run {
+    if (targetIdeVersion == McpSteroidIdeTargets.buildTarget.version) {
+        McpSteroidIdeTargets.buildTarget
+    } else {
+        require(!targetIdeVersion.contains("LATEST")) {
+            "mcp.platform.version='$targetIdeVersion' looks like a rolling tag. " +
+                "Use a named per-major spelling (e.g. '262-EAP-SNAPSHOT') or an exact build number."
+        }
+        IdeTarget(major = "override", version = targetIdeVersion)
+    }
+}
+
+// Memoized provisioner cache keyed by (target, product). The build IDE and
+// the first verifier entry are usually the same target (commit 3's matrix
+// invariant); the cache prevents duplicate products-API + checksum lookups.
+//
+// ConcurrentHashMap.computeIfAbsent is required — since commit 6f669e38 the
+// Provider-deferred local() resolution may fire from multiple Gradle worker
+// threads concurrently (one per verifierTargets entry + the build IDE +
+// each verifyBundledKotlinxRuntime sub-task). A vanilla HashMap getOrPut
+// races at that point.
+data class LocalIdeKey(val target: IdeTarget, val product: IdeProduct)
+val localIdeCache = ConcurrentHashMap<LocalIdeKey, java.io.File>()
+fun ideRootFor(
+    target: IdeTarget,
+    product: IdeProduct = IdeProduct.IntelliJIdea,
+): java.io.File = localIdeCache.computeIfAbsent(LocalIdeKey(target, product)) { key ->
+    resolveAndUnpackLocally(
+        target = key.target,
+        downloadDir = ideArchivesDir,
+        unpackBaseDir = localIdesBaseDir,
+        product = key.product,
+    )
+}
+
+/**
+ * Lazy `Provider<File>` form of [ideRootFor] for the IPGP `local(...)`
+ * selector. IPGP only calls `.get()` when the dependency graph actually
+ * needs the IDE — i.e. during real task execution (compileKotlin,
+ * prepareSandbox, verifyPlugin, runIde), not at every Gradle
+ * invocation. `./gradlew help` and `./gradlew tasks` skip the
+ * products-API GET + SHA verification entirely.
+ *
+ * The shared [localIdeCache] keeps the memoization across providers,
+ * so the build IDE and the matching verifier entry still resolve
+ * exactly once per build.
+ */
+fun ideRootProviderFor(
+    target: IdeTarget,
+    product: IdeProduct = IdeProduct.IntelliJIdea,
+): Provider<java.io.File> =
+    providers.provider { ideRootFor(target, product) }
+
 // Consume kotlinc distribution from kotlin-cli subproject
 val kotlincDist by configurations.creating {
     isCanBeConsumed = false
@@ -65,8 +138,15 @@ val kotlincDist by configurations.creating {
 dependencies {
     intellijPlatform {
         when (targetIdeProduct) {
-            JetBrainsIdeProduct.IntelliJIdeaUltimate -> intellijIdeaUltimate(targetIdeVersion)
-            JetBrainsIdeProduct.PyCharm -> pycharm(targetIdeVersion)
+            // IntelliJ Ultimate goes through the in-repo `intellij-downloader`:
+            // archive resolution + download + unpack happen at script-eval time
+            // and the unpacked IDE root is fed to IPGP's `local(file)` selector.
+            // `useInstaller = true` is no longer applicable (we own the archive).
+            JetBrainsIdeProduct.IntelliJIdeaUltimate -> local(ideRootProviderFor(buildIdeTarget))
+            // PyCharm Professional also routes through intellij-downloader.
+            // Folder name becomes PY-<build>-<os>-<arch>; the resolver hits
+            // the same products API on the PCP product code.
+            JetBrainsIdeProduct.PyCharm -> local(ideRootProviderFor(buildIdeTarget, IdeProduct.PyCharm))
             JetBrainsIdeProduct.GoLand,
             JetBrainsIdeProduct.WebStorm,
             -> error("Plugin build targets IntelliJ IDEA or PyCharm only. GoLand/WebStorm are for integration tests.")
@@ -124,7 +204,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers")
 
     // Ktor client for MCP SSE transport tests
-    val ktorVersion = "3.1.0"
+    val ktorVersion = "3.3.2"
     testImplementation("io.ktor:ktor-client-core:$ktorVersion")
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
@@ -146,7 +226,7 @@ configurations["integrationTestImplementation"].extendsFrom(configurations["test
 configurations["integrationTestRuntimeOnly"].extendsFrom(configurations["testRuntimeOnly"])
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 val generatedSourcesPath = layout.buildDirectory.dir("generated/kotlin")
@@ -188,17 +268,24 @@ intellijPlatform {
         ideaVersion {
             // KEEP IN SYNC with `MANAGED_BACKEND_MIN_SUPPORTED_BUILD` in
             // intellij-downloader/.../CompatibilityFloor.kt — enforced by
-            // PluginCompatibilityFloorTest.
-            sinceBuild = "252"
+            // PluginCompatibilityFloorTest. 252 + 253 are deprecated;
+            // the plugin builds against and supports 261 onward (see
+            // docs/262-EAP-PLAN.md, commit 5).
+            sinceBuild = "261"
             untilBuild = null
         }
     }
 
     pluginVerification {
         ides {
-            create(IntelliJPlatformType.IntellijIdeaUltimate, "2025.3") { useInstaller = true }
-            create(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1") { useInstaller = true }
-            //TODO: Setup 262 tests
+            // Verifier IDEs go through `intellij-downloader` too. Each entry is
+            // downloaded + unpacked into `build/local-ides/IU-<build>-<os>-<arch>/`
+            // and fed to IPGP via `local(file)`. The per-major matrix lives in
+            // `McpSteroidIdeTargets.verifierTargets` so adding 263 EAP later is
+            // a single-place edit covered by `McpSteroidIdeTargetsTest`.
+            McpSteroidIdeTargets.verifierTargets.forEach { target ->
+                local(ideRootProviderFor(target))
+            }
         }
     }
 }
@@ -245,6 +332,20 @@ tasks {
         // tests to run during the regular :ij-plugin:test task where they fail due
         // to missing API keys.
         testClassesDirs = sourceSets["test"].output.classesDirs
+
+        // Feed the project-resolved kotlinx pins to KotlinxBundledVersionTest so
+        // the test compares the IDE-bundled versions to the ACTUAL project pins
+        // (not to hardcoded constants that could silently drift out of sync).
+        // Values come from root gradle.properties (mcp.kotlinx.*.version), so
+        // a paired bump is a one-line edit shared by all six implementation modules.
+        systemProperty(
+            "mcp.steroid.test.expected.kotlinxCoroutinesVersion",
+            providers.gradleProperty("mcp.kotlinx.coroutines.version").get(),
+        )
+        systemProperty(
+            "mcp.steroid.test.expected.kotlinxSerializationVersion",
+            providers.gradleProperty("mcp.kotlinx.serialization.version").get(),
+        )
     }
 
     patchPluginXml {
@@ -273,6 +374,37 @@ val verifyBundledKotlinCompatibility by tasks.registering(VerifyBundledKotlinCom
         plugins.getPlugin(org.jetbrains.kotlin.gradle.plugin.KotlinPluginWrapper::class.java).pluginVersion
     })
     reportFile.set(layout.buildDirectory.file("reports/kotlin-version-compatibility.txt"))
+}
+
+// Runtime classloader probe: launches a JVM with classpath = IDE lib jars +
+// the :intellij-downloader jar (KotlinxRuntimeProbe.main + @Serializable
+// companions). The stowaway-jar guard inside the task rejects any external
+// `kotlinx-*` on the probe classpath — the kotlinx-coroutines /
+// kotlinx-serialization / kotlinx-io / etc. runtime MUST come from the IDE
+// bundle. A LinkageError in the forked JVM fails the build at :check time
+// (wired below) and at :verifyPlugin time.
+//
+// One sub-task per verifierTargets entry, so 262 EAP is exercised alongside 261.
+val verifyBundledKotlinxRuntimeTasks = McpSteroidIdeTargets.verifierTargets.map { target ->
+    tasks.register("verifyBundledKotlinxRuntime${target.major}", VerifyBundledKotlinxRuntimeTask::class) {
+        group = "verification"
+        description = "Run KotlinxRuntimeProbe against IDE ${target.major} (${target.version}) " +
+            "to validate kotlinx-coroutines / serialization / io link compat"
+
+        ideRoot.set(layout.dir(provider { ideRootFor(target) }))
+        probeClasspath.from(project(":intellij-downloader").tasks.named("jar"))
+        probeMainClass.set("com.jonnyzzz.mcpSteroid.ideDownloader.KotlinxRuntimeProbe")
+        probeArgs.set(listOf(target.major, target.version))
+        reportFile.set(layout.buildDirectory.file("reports/kotlinx-runtime-probe-${target.major}.txt"))
+    }
+}
+
+// Umbrella so other tasks depend on "all verifier targets verified" with a single
+// reference. Required by tasks.check + tasks.verifyPlugin below.
+val verifyBundledKotlinxRuntime by tasks.registering {
+    group = "verification"
+    description = "Run KotlinxRuntimeProbe against every IDE in McpSteroidIdeTargets.verifierTargets"
+    dependsOn(verifyBundledKotlinxRuntimeTasks)
 }
 
 val ocrToolDist by configurations.creating {
@@ -421,22 +553,22 @@ val verifyBundledLibraries by tasks.registering {
             "lib/prompts-$pluginVersion.jar",
 
             //libraries
-            "lib/config-1.4.3.jar",
+            "lib/config-1.4.5.jar",
             "lib/gson-2.10.1.jar",
-            "lib/jansi-2.4.1.jar",
+            "lib/jansi-2.4.2.jar",
 
-            "lib/ktor-events-jvm-3.1.0.jar",
-            "lib/ktor-http-cio-jvm-3.1.0.jar",
-            "lib/ktor-http-jvm-3.1.0.jar",
-            "lib/ktor-io-jvm-3.1.0.jar",
-            "lib/ktor-network-jvm-3.1.0.jar",
-            "lib/ktor-serialization-jvm-3.1.0.jar",
-            "lib/ktor-server-cio-jvm-3.1.0.jar",
-            "lib/ktor-server-core-jvm-3.1.0.jar",
-            "lib/ktor-server-sse-jvm-3.1.0.jar",
-            "lib/ktor-sse-jvm-3.1.0.jar",
-            "lib/ktor-utils-jvm-3.1.0.jar",
-            "lib/ktor-websockets-jvm-3.1.0.jar",
+            "lib/ktor-events-jvm-3.3.2.jar",
+            "lib/ktor-http-cio-jvm-3.3.2.jar",
+            "lib/ktor-http-jvm-3.3.2.jar",
+            "lib/ktor-io-jvm-3.3.2.jar",
+            "lib/ktor-network-jvm-3.3.2.jar",
+            "lib/ktor-serialization-jvm-3.3.2.jar",
+            "lib/ktor-server-cio-jvm-3.3.2.jar",
+            "lib/ktor-server-core-jvm-3.3.2.jar",
+            "lib/ktor-server-sse-jvm-3.3.2.jar",
+            "lib/ktor-sse-jvm-3.3.2.jar",
+            "lib/ktor-utils-jvm-3.3.2.jar",
+            "lib/ktor-websockets-jvm-3.3.2.jar",
 
             "lib/okhttp-4.11.0.jar",
             "lib/okio-jvm-3.2.0.jar",
@@ -472,12 +604,19 @@ tasks.test {
     dependsOn(verifyBundledLibraries)
 }
 
+// Wire the kotlinx runtime probe into :check so local `./gradlew :ij-plugin:check`
+// catches drift; :verifyPlugin keeps the dependency too for the full CI path.
+tasks.check {
+    dependsOn(verifyBundledKotlinxRuntime)
+}
+
 tasks.buildPlugin {
     finalizedBy(verifyBundledLibraries)
 }
 
 tasks.verifyPlugin {
     dependsOn(verifyBundledKotlinCompatibility)
+    dependsOn(verifyBundledKotlinxRuntime)
     dependsOn(verifyBundledLibraries)
 }
 

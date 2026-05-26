@@ -51,7 +51,7 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
 }
 
 val tartTestSourceSet = sourceSets.create("tartTest") {
@@ -103,6 +103,20 @@ fun Test.configureIntegrationTest(sourceSetName: String = "test") {
         systemProperty(
             "test.integration.repo.cache.dir",
             layout.buildDirectory.dir("repo-cache").get().asFile.absolutePath,
+        )
+        // Persistent caches consumed by PluginBuildCompatibilityTest /
+        // PluginVerificationTest. Both tests build the plugin from a clean
+        // checkout inside a Docker container; the gradle-home + .intellijPlatform
+        // dirs mount in to avoid re-downloading the IDE + Gradle deps every
+        // run. The test asserts each property's non-emptiness, so default to
+        // a project-relative path — CI can still override via -D.
+        systemProperty(
+            "test.integration.build.compat.gradle.home",
+            layout.buildDirectory.dir("build-compat/gradle-home").get().asFile.absolutePath,
+        )
+        systemProperty(
+            "test.integration.build.compat.ij.platform",
+            layout.buildDirectory.dir("build-compat/ij-platform").get().asFile.absolutePath,
         )
     }
 }

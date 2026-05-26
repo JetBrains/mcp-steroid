@@ -8,7 +8,7 @@ class CompatibilityFloorTest {
     @Test
     fun `managed backend minimum supported build is a baseline number`() {
         assertTrue(
-            "MANAGED_BACKEND_MIN_SUPPORTED_BUILD must be a baseline build like 252, not a full build string",
+            "MANAGED_BACKEND_MIN_SUPPORTED_BUILD must be a baseline build like 261, not a full build string",
             Regex("\\d{3}").matches(MANAGED_BACKEND_MIN_SUPPORTED_BUILD),
         )
     }

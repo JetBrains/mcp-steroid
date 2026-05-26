@@ -44,7 +44,9 @@ class KotlincCommandLineBuilderIntegrationTest : BasePlatformTestCase() {
             .build()
 
         assertTrue(commandLine.args.contains("-jvm-target"))
-        assertTrue(commandLine.args.contains("21"))
+        // jvm-target tracks the JBR the test runs on (DEFAULT_JVM_TARGET reads
+        // java.specification.version). 253's JBR was JDK 21; 261's JBR is JDK 25.
+        assertTrue(commandLine.args.contains(KotlincCommandLineBuilder.DEFAULT_JVM_TARGET))
 
         kotlincProcessClient.kotlinc(commandLine.args)
 

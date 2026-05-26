@@ -34,16 +34,97 @@ private val ideUnpackerLog = LoggerFactory.getLogger("com.jonnyzzz.mcpSteroid.id
 fun unpackIdeArchive(archiveFile: File, unpackDir: File) {
     require(archiveFile.exists()) { "Archive file does not exist: $archiveFile" }
 
-    val name = archiveFile.name.lowercase()
-    when {
-        name.endsWith(".tar.gz") || name.endsWith(".tgz") -> unpackTarGz(archiveFile, unpackDir)
-        name.endsWith(".zip") -> unpackZip(archiveFile, unpackDir)
-        name.endsWith(".dmg") -> unpackDmgViaMount(archiveFile, unpackDir)
-        name.endsWith(".exe") -> unpackExeWith7z(archiveFile, unpackDir)
-        else -> error(
-            "Unsupported archive format: ${archiveFile.name}. " +
-                "Expected one of: .tar.gz, .tgz, .zip, .dmg, .exe"
-        )
+    // Concurrency/partial-unpack guard: use an interprocess file lock and a
+    // completion marker. Parallel Gradle invocations (e.g. `:ij-plugin:test`
+    // and `:intellij-downloader:test`) targeting the same matrix entry will
+    // serialize at the lock; a killed process that left a half-populated
+    // tree never sees the marker on the next attempt, so we wipe + redo.
+    withUnpackLock(unpackDir) {
+        if (isUnpackCompleteFor(unpackDir, archiveFile)) {
+            ideUnpackerLog.debug("[IDE-DOWNLOAD] Already unpacked (marker matches): {}", unpackDir)
+            return@withUnpackLock
+        }
+        if (unpackDir.exists()) {
+            // Either pristine empty dir, a partial unpack from a prior crash,
+            // or a stale unpack from a re-published archive. The marker is
+            // the only evidence we trust; wipe the rest.
+            unpackDir.deleteRecursively()
+        }
+        unpackDir.mkdirs()
+
+        val name = archiveFile.name.lowercase()
+        when {
+            name.endsWith(".tar.gz") || name.endsWith(".tgz") -> unpackTarGz(archiveFile, unpackDir)
+            name.endsWith(".zip") -> unpackZip(archiveFile, unpackDir)
+            name.endsWith(".dmg") -> unpackDmgViaMount(archiveFile, unpackDir)
+            name.endsWith(".exe") -> unpackExeWith7z(archiveFile, unpackDir)
+            else -> error(
+                "Unsupported archive format: ${archiveFile.name}. " +
+                    "Expected one of: .tar.gz, .tgz, .zip, .dmg, .exe"
+            )
+        }
+
+        writeUnpackCompleteMarker(unpackDir, archiveFile)
+    }
+}
+
+private const val UNPACK_COMPLETE_MARKER_NAME = ".mcp-steroid-unpack-complete"
+
+/**
+ * The marker records the archive identity (filename + size + last-modified)
+ * the unpack came from. Successful re-entry requires the live archive on
+ * disk to still match — if JetBrains re-publishes a build number with new
+ * content, the archive size/mtime changes, the marker no longer matches,
+ * and we re-unpack.
+ *
+ * Hashing the 1 GB archive on every script-eval would be too slow; size+mtime
+ * is the same identity check `make` / `gradle` use for incremental builds.
+ */
+private fun isUnpackCompleteFor(unpackDir: File, archiveFile: File): Boolean {
+    val marker = File(unpackDir, UNPACK_COMPLETE_MARKER_NAME)
+    if (!marker.isFile) return false
+    val recorded = marker.readText().lines()
+        .mapNotNull { line -> line.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }
+        .toMap()
+    val live = archiveIdentity(archiveFile)
+    return recorded["archive"] == live["archive"] &&
+        recorded["archiveSize"] == live["archiveSize"] &&
+        recorded["archiveModified"] == live["archiveModified"]
+}
+
+private fun writeUnpackCompleteMarker(unpackDir: File, archiveFile: File) {
+    val identity = archiveIdentity(archiveFile)
+    File(unpackDir, UNPACK_COMPLETE_MARKER_NAME).writeText(
+        buildString {
+            for ((k, v) in identity) appendLine("$k=$v")
+            appendLine("completedAt=${java.time.Instant.now()}")
+        }
+    )
+}
+
+private fun archiveIdentity(archiveFile: File): Map<String, String> = linkedMapOf(
+    "archive" to archiveFile.name,
+    "archiveSize" to archiveFile.length().toString(),
+    "archiveModified" to archiveFile.lastModified().toString(),
+)
+
+/**
+ * Inter-JVM lock on [unpackDir]. Two parallel Gradle invocations against the
+ * same IDE target will serialize here; one unpacks while the other waits,
+ * and the second observes the completion marker and returns immediately.
+ */
+private inline fun <T> withUnpackLock(unpackDir: File, block: () -> T): T {
+    val lockFile = File(unpackDir.parentFile, "${unpackDir.name}.lock")
+    lockFile.parentFile?.mkdirs()
+    java.io.RandomAccessFile(lockFile, "rw").use { raf ->
+        raf.channel.use { channel ->
+            val lock = channel.lock()
+            try {
+                return block()
+            } finally {
+                lock.release()
+            }
+        }
     }
 }
 

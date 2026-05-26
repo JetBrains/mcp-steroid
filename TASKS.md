@@ -1,4 +1,290 @@
 
+# Active focus — 262 EAP support (2026-05-26)
+
+Plan and findings: [docs/262-EAP-PLAN.md](docs/262-EAP-PLAN.md).
+
+Goal: move the plugin build/test surface to IntelliJ Platform **261 as
+the primary** target and add **262 EAP** as a secondary verification
+target, deprecating **253 entirely**. The plugin .zip continues NOT
+to bundle `kotlinx-*` jars — they resolve from the IDE classloader at
+runtime.
+
+## Status: implementation complete (30+ commits)
+
+8-commit plan + per-commit quorum fix bundles + 10 followups + final
+sweep all merged to `origin/main`. Each commit gated on
+`:ij-plugin:test` + `:intellij-downloader:test` green and `:ij-plugin:verifyBundledKotlinxRuntime`
+green against both 261 + 262 IDEs. Author email
+`eugene.petrenko@jetbrains.com`, no AI co-author.
+
+### What still genuinely needs human / CI work before this ships
+
+Build-time green is NOT a release gate. The following are real gaps
+honest audit identified (none address-able without execution against
+the actual runtime / CI):
+
+#### A — Validated only at build/compile time
+
+1. ~~**`:test-integration:test` for 262 EAP cases.** The new
+   `build plugin with IntelliJ 262 EAP`, `verify plugin against IntelliJ 262 EAP`,
+   and `runtime compat pycharm stable / eap` cases got `compileTestKotlin`
+   validation only. Never actually ran a Docker container.~~
+   **2026.1 case CLOSED 2026-05-26.** `PluginBuildCompatibilityTest.build plugin with IntelliJ 2026_1`
+   ran end-to-end locally — `BUILD SUCCESSFUL in 5m 20s`, container produced
+   `mcp-steroid-0.96.19999-SNAPSHOT-63d0b6d6.zip`. The fix was two parts:
+   (a) replace the dual `cp -a` prep with `rsync -a` + excludes (the
+   original `cp -a` of the 99 GB dev-state workspace blew past the 120 s
+   cap on macOS virtiofs), (b) `git config --global --add safe.directory '*'`
+   so the in-container git can `clean -fdx` + `rev-parse HEAD` on a tree
+   whose .git carries the host UID. Commits `63d0b6d6` + `<followup>`.
+   262 EAP case also CLOSED 2026-05-26 (same session): the
+   `*build plugin with IntelliJ 262 EAP*` case ran end-to-end locally
+   on the same rsync + safe.directory prep, **BUILD SUCCESSFUL in
+   5m 8s**, container produced
+   `mcp-steroid-0.96.19999-SNAPSHOT-a6b55783.zip` against
+   IDE 262 EAP. PyCharm runtime-compat cases still untested locally;
+   covered structurally by the same prep step now that it's known
+   good for both IDEA targets.
+2. **`:ij-plugin:verifyPlugin`** — full Plugin Verifier (minutes per
+   IDE) wired against both 261 + 262 via `local()`, but never
+   executed in this session. The check most likely to surface a
+   real 262 API regression.
+3. **PyCharm build path** (`-Pmcp.platform.product=pycharm`) —
+   generalized in code (`LocalIdeKey(target, product)`, `ideRootFolderName`
+   with `PY-` prefix), but never compiled or tested.
+4. ~~**`runIde`** + **`deployPlugin`** — never run; "plugin loads into
+   a real running IDE" gate unverified. The running IDE 261 in the
+   dev env still has the OLD plugin loaded.~~ **CLOSED 2026-05-26
+   (runtime side, via `PluginRuntimeCompatibilityTest`).** All four
+   runtime-compat methods green locally: the 261-built plugin loads
+   AND runs against IDEA 2026.1.2 (261 family), IDEA 2026.2 EAP (262
+   family), PyCharm 2026.1.2, and PyCharm 2026.2 EAP. Verified
+   end-to-end via Docker IDE containers + MCP tool calls
+   (`list_projects`, `list_windows`, `execute_code` — the
+   `list_windows` call exercises mcp-steroid#18, the
+   `c.i.o.u.Pair` vs `kotlin.Pair` direction-flip in 262, and it
+   stayed green). PyCharm cases also close the prod-minimal-deps
+   gate — `com.intellij.java` and `org.jetbrains.kotlin` are
+   intentionally absent from PyCharm and the plugin loads anyway.
+   IDEA pair total 8m 22s, PyCharm pair 8m 33s. `runIde` /
+   `deployPlugin` hot-reload still not exercised (see #19 — needs
+   human in a real IDE), but the "binary loads + works against the
+   target IDE matrix" gate that #4 was tracking is now covered by
+   the integration test.
+5. **`:test-experiments`** — DPAIA / debugger / arena tests untouched.
+
+#### B — CI integration
+
+6. **TeamCity DSL repo** (`~/Work/mcp-steroid-teamcity`) — separate
+   repo, probably still references JDK 21 / 253 / old paths. Build
+   configs not updated.
+7. ~~**GitHub Actions workflows** (`.github/workflows/`) — not
+   inspected; may still pin JDK 21.~~ **CLOSED 2026-05-26.** Audited;
+   workflows themselves use no `setup-java` — the JDK source is the
+   `docker/build/Dockerfile` image they run gradle inside. Image
+   bumped `temurin-21-jdk` → `temurin-25-jdk` and the four CLI
+   integration-test images bumped `temurin-21-jre` → `temurin-25-jre`
+   (commit `287c26e9`). Verified end-to-end by GH Actions run
+   [`26457342481`](https://github.com/jonnyzzz/mcp-steroid/actions/runs/26457342481)
+   — `build plugin` job green in 4m43s.
+8. ~~**`buildPluginOnCI`** — CI entry-point task; not validated
+   against the new 262 / JDK 25 / matrix wiring.~~ **CLOSED 2026-05-26.**
+   `buildPluginOnCI` ran green inside `mcp-steroid-build:ci` (the
+   GH Actions image, post-bump) — `BUILD_NUMBER=0.96.999-gh-510d3cd6`,
+   3m33s cold / 31s warm, output `mcp-steroid-0.96.999-gh-510d3cd6.zip`
+   (199 MB). Same run subsequently confirmed green on the real GH
+   runner (see #7).
+
+#### C — Architectural items partially landed
+
+9. **`bundledPlugin("com.intellij.java")` + `bundledPlugin("org.jetbrains.kotlin")`
+   move to `intellijPlatformTesting`.** Per user U10: "I actually like
+   the approach you propose — include both plugins into the
+   `intellijPlatformTesting` block of IPGP." Logged as a followup
+   but never executed; they stay in MAIN per "keep as before"
+   (acceptable per user). The test-scope migration is the real fix.
+10. **Static guard against accidentally pulling Java/Kotlin plugin
+    types into production code.** Compile classpath has those types
+    available; nothing prevents `import org.jetbrains.kotlin.idea.*`
+    in production. The PyCharm runtime-compat test catches it only
+    at test time. A lint rule (`NoForbiddenImportsTest`) would close
+    this at compile time.
+11. **PyCharm-side verifier matrix.** Codex flagged: `verifierTargets`
+    is IDEA-only. `-Pmcp.platform.product=pycharm` switches build IDE
+    to PyCharm but Plugin Verifier still runs against IDEA. Add a
+    product axis to the matrix.
+12. **Composite-build for shared source.** `buildSrc/` and
+    `:intellij-downloader/` both `srcDir(...)` `buildsrc-shared/kotlin/`.
+    Deps kept in lockstep manually. Clean fix = Gradle included
+    build. Deferred (no drift observed; kotlinx pins already
+    centralized in `gradle.properties`).
+
+#### D — Release engineering
+
+13. ~~**No release notes update.** `VERSION` still says `0.95.0`;
+    `release/notes/0.95.0.md` doesn't mention the 262 EAP work.~~
+    **CLOSED 2026-05-26.** `VERSION` bumped `0.95.0` → `0.96`;
+    `release/notes/0.96.md` summarises the 262 EAP work: 261-primary
+    target, 262 EAP secondary verifier, kotlinx pins to IDE-bundled,
+    `intellij-downloader`, JDK 25 daemon + toolchain. (Commit
+    `287c26e9` for VERSION bump + this release notes file follow-up.)
+14. **`docs/262-EAP-PLAN.md` is the plan, not "implementation
+    complete" record.** Closing-the-loop doc gap.
+
+#### E — Things that may surface later
+
+15. ~~**JDK 25 on CI runners.** Local has Corretto 25; CI may not.
+    Foojay should auto-download but adds startup time.~~ **CLOSED 2026-05-26
+    (for GH Actions).** GH Actions runs everything inside the
+    `mcp-steroid-build:ci` Docker image which now ships Temurin 25.0.3
+    pre-installed at `/usr/lib/jvm/temurin-25-jdk-arm64`. Gradle's
+    `javaToolchains` task inside that image reports the JDK as
+    `Detected by: Current JVM` — no foojay download path is taken.
+    TeamCity status is item #6 (separate repo, separate agents); foojay
+    is the fallback there.
+16. **IDE archive disk usage.** `build/local-ides/` now holds full
+    unpacked 261 + 262 IDEs (~3 GB each). CI runners may need a
+    free-disk gate.
+17. **Stale unpack cache on republished EAP.** Marker uses archive
+    size + mtime; if JetBrains re-publishes a same-build EAP with
+    new content but identical timestamps (rare), the cache wouldn't
+    invalidate.
+18. **Gemini reviewer was non-functional** for the final 2 h of the
+    session. Followups-batch had 2-of-3 quorum (claude + codex).
+19. **No one has actually installed the .zip in IDEA 262 EAP and
+    clicked around.** The real merge gate before this ships.
+
+**Closed in 2026-05-26 session:** #1 (build-compat 2026.1 + 262 EAP
+both green locally), #2 (`:ij-plugin:verifyPlugin` against 261 + 262
+COMPATIBLE), #4 (runtime-compat all four cases green: IDEA stable +
+EAP, PyCharm stable + EAP), #7 (GH Actions JDK 25), #8
+(`buildPluginOnCI` green inside the new image), #13 (release notes
+0.96), #15 (JDK 25 on the GH runner image). Compile-only validation
+on #5 (`:test-experiments:compileTestKotlin` green in 15s — full
+DPAIA runs deferred, they take 1h+).
+
+The full **build → verify → runtime** trilogy is now green
+end-to-end against both 261 family (2026.1.2) and 262 family
+(2026.2 EAP), for both IDEA and PyCharm. mcp-steroid#18
+(Pair direction flip in 262, caught by `list_windows`) did NOT
+trigger — the suspected regression is absent.
+
+Of all 19, the still-open ones most likely to bite are **#19,
+#6 (TC DSL)**:
+
+- **#19** needs a human to install the .zip in IDE 262 EAP and click
+  around. Hot-reload `:ij-plugin:deployPlugin` failed earlier in the
+  session (changes too deep — sinceBuild bump, kotlin bump,
+  toolchain bump); a cold install via `Settings → Plugins → ⚙ →
+  Install from disk…` against the freshly built ZIP is the way. ZIP
+  path: `ij-plugin/build/distributions/mcp-steroid-0.96.19999-SNAPSHOT-*.zip`.
+- **#6** is the TC repo (`~/Work/mcp-steroid-teamcity`), which sets
+  `JDK_25_ARM64` agent params + Linux/Windows/macOS matrix and may
+  still reference JDK 21 paths.
+to bite.
+
+## Locked-in constraints (during implementation)
+
+1. Root Kotlin bumped to **2.3.20** (matches IDE 261's bundled
+   kotlin-stdlib in `lib/util-8.jar`, verified by reading bytecode
+   constants of `kotlin/KotlinVersion.class`).
+2. Deprecate **253** entirely. Build target = 261. Tests/verifier = 261 + 262.
+3. Replace `useInstaller = true` with `local(file)` selectors fed by
+   the in-repo `intellij-downloader` module.
+4. Per-major EAP selector: **`262-EAP-SNAPSHOT`** (matrix label — see plan
+   doc for the IPGP-vs-products-API resolution path).
+5. Pin Kotlin-adjacent libs to the public Maven Central versions
+   closest to what 261 bundles: `kotlinx-coroutines-core: 1.10.2`,
+   `kotlinx-serialization-{core,json}: 1.9.0`.
+6. Binary-side **version-equality test** (parse IDE `lib/intellij.libraries.kotlinx.*.jar`
+   manifests, compare to resolved deps).
+7. Runtime **classloader check** (JVM with `-cp <IDE lib/*.jar>`,
+   exercise serialization + coroutines + io, fail on `LinkageError`).
+8. Unpacked-IDE folder naming: `build/local-ides/IU-<full-build>-<os>-<arch>/`.
+9. **Keep `deployPluginLocallyTo253` task as-is.** Local-use hardcoded
+   folder.
+10. `sinceBuild = "261"` consolidated across the three places.
+
+## 8-commit plan
+
+Each commit independently revertible. Strict sequential — each gate
+depends on prior commits.
+
+1. **Pin Kotlin-adjacent libs across ij-plugin-linked modules**:
+   bump coroutines `1.10.1`→`1.10.2`, serialization `1.8.1`/`1.7.3`→`1.9.0`
+   in `:mcp-core`, `:mcp-stdio`, `:mcp-http`, `:execution-storage`,
+   `:mcp-steroid-server`, `:ocr-common`. Keep existing
+   `exclude(group = "org.jetbrains.kotlinx")` in `ij-plugin/build.gradle.kts:53-58`.
+2. **Kotlinc classpath filter**: drop the 6 known
+   `plugins/Kotlin/lib/kotlinc.*-compiler-plugin.jar` files (metadata
+   version 2.4.0, breaks kotlinc 2.2.20) from
+   `KotlinCompile.libraries` via `doFirst { libraries.setFrom(...) }`.
+3. **`buildSrc/.../IdeCompatibilityMatrix.kt` + test**: single source
+   of truth for `buildTarget` (261) and `verifierTargets` (261, 262).
+4. **Route IDE artifacts through `intellij-downloader`**: new
+   `prepareLocalIdes` Gradle task; `ij-plugin/build.gradle.kts` switches
+   `intellijIdeaUltimate(...)` and `pluginVerification.ides { }` to
+   `local(file)`; remove `useInstaller = true`.
+5. **Move `sinceBuild` + `MANAGED_BACKEND_MIN_SUPPORTED_BUILD` to
+   `"261"`** in the three consolidated places.
+6. **`VerifyBundledKotlinxRuntimeTask`** in buildSrc — runtime
+   classloader check against the local IDE from commit 4.
+7. **Binary-side version-equality test** in `:ij-plugin:test`.
+8. **Cleanup**: delete 253 entries from `PluginBuildCompatibilityTest`
+   / `PluginVerificationTest`; remove obsolete 262 patches
+   (`KOTLIN_2_4_PATCHES`, `SNAPSHOT_262_PATCHES`, IPGP 2.14.0 bump);
+   sweep `2025.3` / `"253"` / `253\.` refs.
+   **Keep `deployPluginLocallyTo253`** per user.
+
+## Quorum trail
+
+- Round 1 (claude + codex, gemini key missing): initial plan.
+- Round 2 + 2b (claude session-limited, codex round-2b retry): plan
+  sharpened, agreed on `local(file)` + matrix object, surfaced the
+  Pair-direction regression in `PluginRuntimeCompatibilityTest`.
+- Round 3 (gemini with `~/.vertex` key, codex silent retry): final
+  validation; gemini confirmed `262-EAP-SNAPSHOT` is matrix-only
+  (Maven uses bare `262-SNAPSHOT`) and flagged kotlinx-io volatility.
+
+Author email for commits in this work stream: `eugene.petrenko@jetbrains.com`.
+No AI co-author.
+
+## Quorum trail (compressed)
+
+Codex + Claude + Gemini reviewed the work in 4 rounds (initial plan,
+per-commit, followups-batch). All consensus-HIGH findings were
+folded into fix-bundle commits inline. Resolved items removed from
+this doc to keep the file scannable; `git log --grep="review"`
+surfaces the review-driven commits.
+
+## Deferred (long-term)
+
+- **PyCharm-side verifier matrix.** `McpSteroidIdeTargets.verifierTargets`
+  is IDEA-only. When `-Pmcp.platform.product=pycharm` is set the
+  build IDE switches to PyCharm but `pluginVerification.ides` still
+  iterates IDEA targets. The runtime-compat test (commit
+  `7cb9b6d6`) catches plugin-load regressions on PyCharm, but the
+  Plugin Verifier itself doesn't run against PyCharm. Add a product
+  axis to the matrix when someone needs PyCharm Plugin Verifier
+  coverage.
+- **Composite-build for the shared source.** `buildSrc/` and
+  `:intellij-downloader/` both `srcDir(...)` the same
+  `buildsrc-shared/kotlin/`. Deps kept in lockstep manually + via
+  the `gradle.properties` consolidation. Clean refactor is a Gradle
+  included build (`:ide-matrix`). Revisit only if drift is observed.
+- **Static guard against accidentally pulling Java/Kotlin plugin
+  types into production code.** Compile classpath has those types
+  available; nothing prevents `import org.jetbrains.kotlin.idea.*`
+  in production. The PyCharm runtime-compat test catches it only at
+  test time. A lint rule (`NoForbiddenImportsTest`) would close this
+  at compile time.
+- **Move `bundledPlugin("com.intellij.java")` + `bundledPlugin("org.jetbrains.kotlin")`
+  into `intellijPlatformTesting`** (per user U10). Compile-time
+  access is currently in the MAIN block per "keep as before";
+  test-scope-only is the architecturally cleaner end state.
+
+---
+
 # Current devrig state — rename / cleanup checkpoint (2026-05-19)
 
 This is the current source of truth after the devrig cleanup commit
