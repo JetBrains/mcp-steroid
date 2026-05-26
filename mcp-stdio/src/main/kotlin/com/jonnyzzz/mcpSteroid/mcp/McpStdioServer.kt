@@ -5,12 +5,16 @@ import com.jonnyzzz.mcpSteroid.thisLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Collections
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -70,9 +74,30 @@ class McpStdioServer(
      */
     suspend fun run(): Unit = coroutineScope {
         val session = server.sessionManager.createSession()
+        val dispatchJobs = Collections.synchronizedSet(mutableSetOf<Job>())
         try {
             launchOutgoingPumps(session)
-            readLoop(this, session)
+            readLoop(this, session, dispatchJobs)
+
+            // Grace period for in-flight dispatches to drain final
+            // notifications / responses before `removeSession` tears down
+            // the session's outgoing channels. Without this, a dispatch that
+            // calls `session.sendNotification(...)` just before returning
+            // races with the EOF → finally → channel-close path and the
+            // notification is silently dropped — observed on TC under real
+            // multi-threaded scheduling (test
+            // `McpStdioServerProtocolTest."session sendNotification appears
+            // on stdout as JSON-RPC notification"` passes locally under
+            // `runTest` because TestCoroutineScheduler serialises the order,
+            // but fails when `Dispatchers.IO` runs on real threads).
+            //
+            // Bounded so a dispatch parked on `session.sendRequest`
+            // (e.g. waiting for `sampling/createMessage` after stdin EOF —
+            // the no-client-ever-responds case) is still cancelled by
+            // `removeSession` after the grace window closes.
+            withTimeoutOrNull(GRACE_PERIOD_MS) {
+                dispatchJobs.toList().joinAll()
+            }
         } finally {
             // Close the session BEFORE the enclosing scope's implicit "wait for
             // children": closing cancels any pending Deferred in `session.sendRequest`,
@@ -82,6 +107,18 @@ class McpStdioServer(
             server.sessionManager.removeSession(session.id)
         }
     }
+
+    /**
+     * Upper bound on time spent waiting for in-flight dispatch coroutines to
+     * drain final notifications / responses after stdin EOF. 500 ms is
+     * comfortably above the latency a "compute response then emit
+     * notification then return" path needs (microseconds in practice), and
+     * still small enough that a stuck sampling/createMessage dispatch — which
+     * has no client to respond to it after EOF — doesn't keep the process
+     * alive significantly longer than the original "close immediately on EOF"
+     * behaviour.
+     */
+    private val GRACE_PERIOD_MS = 500L
 
     private fun CoroutineScope.launchOutgoingPumps(session: McpSession) {
         launch {
@@ -106,7 +143,11 @@ class McpStdioServer(
      * dispatches read `clientCapabilities` from the session. We detect it cheaply at
      * the wire level and run it synchronously.
      */
-    private suspend fun readLoop(scope: CoroutineScope, session: McpSession) {
+    private suspend fun readLoop(
+        scope: CoroutineScope,
+        session: McpSession,
+        dispatchJobs: MutableSet<Job>,
+    ) {
         val buffer = FramingBuffer()
         val buf = ByteArray(READ_BUFFER_SIZE)
         while (currentCoroutineContext().isActive) {
@@ -122,7 +163,9 @@ class McpStdioServer(
                 if (isInitializeRequest(payload)) {
                     dispatch(payload, session)
                 } else {
-                    scope.launch { dispatch(payload, session) }
+                    val job = scope.launch { dispatch(payload, session) }
+                    dispatchJobs.add(job)
+                    job.invokeOnCompletion { dispatchJobs.remove(job) }
                 }
             }
         }
