@@ -709,3 +709,43 @@ val deployPluginLocallyTo253 by tasks.registering(Sync::class) {
         }
     }
 }
+
+/**
+ * Cold-deploy the built plugin into the standalone IntelliJ IDEA 2026.1
+ * (build 261) install's plugin dir on macOS:
+ * `~/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins/mcp-steroid`.
+ *
+ * Use case: the 262 EAP work bumped `sinceBuild` (253 → 261) + Kotlin (2.2.x
+ * → 2.3.20) + the JVM toolchain (21 → 25), which is too deep a change for
+ * Plugin Hot Reload (`:ij-plugin:deployPlugin`) to swap in place. This Sync
+ * task drops the unpacked plugin into the 261 config dir; the user then
+ * restarts the IDE to pick it up.
+ *
+ * Mirrors `deployPluginLocallyTo253` (kept as-is per user direction for
+ * the legacy sandbox install). When the work stream eventually bumps
+ * `sinceBuild` to 262, add a parallel `deployPluginLocallyTo262` task —
+ * the pattern is local-machine-specific by design (hardcoded folder
+ * names per user U9 direction).
+ */
+val deployPluginLocallyTo261 by tasks.registering(Sync::class) {
+    dependsOn(tasks.buildPlugin)
+    dependsOn(verifyBundledLibraries)
+    group = "intellij platform"
+    outputs.upToDateWhen { false }
+
+    val targetName = "" + rootProject.name
+    val targetDir = "${System.getenv("HOME")}/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins/$targetName"
+
+    this.destinationDir = file(targetDir)
+    from(
+        tasks.buildPlugin
+            .map { it.archiveFile }
+            .map { zipTree(it) }
+    ) {
+        includeEmptyDirs = false
+        eachFile {
+            println(this)
+            this.path = this.path.substringAfter("/")
+        }
+    }
+}

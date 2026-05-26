@@ -67,24 +67,43 @@ on TeamCity, make sure GH Actions and TC tests are successful, then
 deploy locally"), the remaining work is **end-to-end verification**
 rather than new code:
 
-- [ ] R1. **`origin/main` → `jb/main` re-merge.** Six commits beyond
-  the last `jb-merge` (`2eb12f01`); TC builds stale until merged.
-- [ ] R2. **Watch the most recent GH Actions run** (`26476911826` for
-  the #9 push) through to completion. Expect green.
-- [ ] R3. **Watch TC builds after the `jb-merge`** for one full cycle.
-  `ij-plugin test (Linux/Windows/Mac)` is the primary signal; failure
-  would most likely be a missing `JDK_25_0` env var on an agent
-  (recoverable by provisioning or reverting `cf786b9` on the TC repo).
-- [ ] R4. **Cold install the plugin in a real IDE 262 EAP** (#19 from
-  the gap audit). Hot-reload `deployPlugin` was reported broken earlier
-  in the session (sinceBuild bump too deep); cold install via
-  `Settings → Plugins → ⚙ → Install from disk…` against
-  `ij-plugin/build/distributions/mcp-steroid-0.96.19999-SNAPSHOT-*.zip`
-  is the documented path.
-- [ ] R5. **Smoke the locally-installed plugin** — at minimum exercise
-  `steroid_list_projects`, `steroid_list_windows`, `steroid_execute_code`
-  on a project. The runtime-compat IDEA-EAP integration test (#4) is
-  the closest automated proxy and is green, so this is smoke-only.
+- [x] R1. **`origin/main` → `jb/main` re-merge.** Done — `245a1da0`
+  on jb/main (plus subsequent commits `cd38b33e` etc. that may need
+  another merge round when this iteration finishes).
+- [x] R2. **GH Actions runs after the recent pushes.** Run
+  `26476991148` (TASKS.md sweep + #9 follow-up) **green** — both
+  `build number` + `build plugin` jobs success.
+- [ ] R3. **TC builds blocked by agent-pool composition** (no admin
+  action — needs user). Queued personal builds
+  `958485340` (IjPluginTest_Linux_amd64) and `958485362`
+  (IjPluginTest_Mac_aarc64) both report **0 compatible agents**.
+  Diagnosis: the `mcp_steroid` project's agent pools currently hold
+  only 4 agents total — "Default" (3 ARM-only Linux), "Default MacOS
+  x64" (0), "Default Windows" (0), "Shared/default macOS iCRI" (1).
+  Zero Linux amd64 agents in any pool. The previous successful run
+  (`0.94.0.528` on 2026-05-10) used `default-linux-aws-C-i-09e7a53b…`
+  — that EC2 pool is no longer assigned. Two paths to unblock:
+  (a) re-assign / re-provision an `amd64` Linux pool to the
+  `mcp_steroid` project (TC admin action), or (b) revert
+  `cf786b9` on `JetBrains/mcp-steroid-teamcity` and unblock these
+  builds by switching back to the prior `JDK_21_0` agents (which
+  presumably were on a different pool layout).
+- [x] R4. **Local deploy to IDEA 2026.1 done.** Added
+  `deployPluginLocallyTo261` task (`cd38b33e`) mirroring the
+  legacy 253 sibling; ran it; the new
+  `mcp-steroid-0.96.19999-SNAPSHOT-56d74480.zip` is unpacked to
+  `~/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins/mcp-steroid/`.
+  The currently-running IDE (PID 69364) is still on the old
+  `0.95.0-b14969e1` — picking up `0.96-56d74480` requires an IDE
+  restart by the user. Plugin Hot Reload at port 63343 is held by a
+  different sandbox install at `~/intellij-253/` and can't swap a
+  sinceBuild=261 plugin into a 261 IDE; cold deploy via this task is
+  the right path on this hardware.
+- [ ] R5. **Smoke the locally-installed plugin** — needs user IDE
+  restart first. After restart, exercise `steroid_list_projects`,
+  `steroid_list_windows`, `steroid_execute_code` on a project.
+  The runtime-compat IDEA-EAP integration test (#4) is the closest
+  automated proxy and is green; this is smoke-only.
 
 ## Long-term-deferred (per "keep as before")
 
