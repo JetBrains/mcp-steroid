@@ -41,8 +41,15 @@ class CliTest {
             ?.let(::File)
             ?.takeIf { it.isFile }
         if (launcher != null) {
+            // Forward the test JVM's java.home as JAVA_HOME so the start-script
+            // launcher uses the same JDK the project was compiled with
+            // (jvmToolchain(25)) — without this, TC agents that ship JDK 21
+            // run the launcher under JDK 21 and the JDK 25-compiled MainKt
+            // fails with `UnsupportedClassVersionError: class file version 69.0`.
+            // Mirrors :ocr-tesseract OcrCliSmokeTest.kt:91.
             val process = ProcessBuilder(listOf(launcher.absolutePath) + args)
                 .directory(File(System.getProperty("user.dir")))
+                .also { it.environment()["JAVA_HOME"] = System.getProperty("java.home") }
                 .start()
             val stdout = process.inputStream.bufferedReader().readText()
             val stderr = process.errorStream.bufferedReader().readText()
