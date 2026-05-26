@@ -90,7 +90,7 @@ object IdeTestFolders {
         findLatestPluginZipFromDist()
     }
     val agentOutputFilterZip = readFilePathFromSystemProperties("test.integration.agent.output.filter.zip")
-    val npxPackageZip = readFilePathFromSystemProperties("test.integration.npx.package.zip")
+    val devrigPackageZip = readFilePathFromSystemProperties("test.integration.devrig.package.zip")
     val ideChannel: String = System.getProperty("test.integration.ide.channel", "stable").trim().lowercase()
     val dockerDir = readFilePathFromSystemProperties("test.integration.docker")
 

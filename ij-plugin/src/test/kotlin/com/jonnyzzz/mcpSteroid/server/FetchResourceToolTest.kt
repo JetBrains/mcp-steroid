@@ -125,11 +125,13 @@ class FetchResourceToolTest : BasePlatformTestCase() {
 
         assertTrue("Should return error for missing uri", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
-        // Pin the specific branch — generic "Missing" would also match the
-        // project_name-missing path and let a regression hide there.
+        // Pin the specific branch — the schema DSL throws
+        // 'Parameter <name> of type <type> is required' for missing required
+        // params, so naming both 'uri' and the type pins the specific branch
+        // (project_name-missing would say 'Parameter project_name ...').
         assertTrue(
-            "Error message should specifically mention the missing uri parameter",
-            text.contains("Missing required parameter: uri")
+            "Error message should specifically mention the missing uri parameter, got: $text",
+            text.contains("Parameter uri of type string is required"),
         )
     }
 

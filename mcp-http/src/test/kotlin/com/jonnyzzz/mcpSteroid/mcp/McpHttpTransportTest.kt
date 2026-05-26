@@ -1062,4 +1062,210 @@ class McpHttpTransportTest {
             "CORS should allow MCP-Protocol-Version header",
         )
     }
+
+    // ── Boundary catch-all (issue #46 A0) ─────────────────────────────────
+    //
+    // These tests pin the contract that an internal error inside
+    // `handleMessage` (or anywhere on the response phase) lands as a
+    // well-formed JSON-RPC error envelope at HTTP 200, not as a bare
+    // HTTP 500 with a raw text body — JSON-RPC clients can decode the
+    // envelope and retry, whereas a 500 looks like a transport failure
+    // and stalls the session. The dedicated runtime tool that registers
+    // the throwing tool is scoped to the test using a sub-server because
+    // the shared `mcpServer` in `setUp` should not be polluted with
+    // failure-mode handlers.
+
+    // Register a throwing tool whose exception escapes the registry's
+    // `catch (Exception)` (McpToolRegistry.kt:90) — `AssertionError` is an
+    // `Error`, not an `Exception`, so it propagates all the way to the
+    // transport boundary where A0 must convert it into a JSON-RPC error
+    // envelope. A plain `IllegalStateException` would be intercepted by
+    // the registry and surface as `result.isError=true`, never exercising
+    // the boundary code path.
+    private fun registerBoundaryThrowingTool(toolName: String, message: String = "boundary regression") {
+        mcpServer.toolRegistry.registerTool(object : McpTool {
+            override val name = toolName
+            override val description = "Throws Error so the boundary path fires"
+            override val inputSchema = buildJsonObject { put("type", "object") }
+            override suspend fun call(context: ToolCallContext): ToolCallResult {
+                throw AssertionError(message)
+            }
+        })
+    }
+
+    private suspend fun initializeAndGetSessionId(): String {
+        val initRequest = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", 1)
+            put("method", "initialize")
+            putJsonObject("params") {
+                put("protocolVersion", MCP_PROTOCOL_VERSION)
+                putJsonObject("capabilities") {}
+                putJsonObject("clientInfo") {
+                    put("name", "test-client"); put("version", "1.0.0")
+                }
+            }
+        }
+        val initResponse = client.post("http://localhost:$port/mcp") {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            setBody(initRequest.toString())
+        }
+        assertEquals(HttpStatusCode.OK, initResponse.status)
+        return initResponse.headers[McpHttpTransport.SESSION_HEADER]!!
+    }
+
+    @Test
+    fun `handlePost wraps uncaught Throwable as JSON-RPC error at HTTP 200`() = runBlocking {
+        registerBoundaryThrowingTool("throwing_tool", "boom from throwing_tool")
+        val sessionId = initializeAndGetSessionId()
+
+        val callRequest = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", 42)
+            put("method", "tools/call")
+            putJsonObject("params") {
+                put("name", "throwing_tool")
+                putJsonObject("arguments") {}
+            }
+        }
+        val response = client.post("http://localhost:$port/mcp") {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody(callRequest.toString())
+        }
+
+        assertEquals(
+            HttpStatusCode.OK,
+            response.status,
+            "Internal Throwable must NOT escape as HTTP 500 — JSON-RPC errors go in the body",
+        )
+        val body = response.bodyAsText()
+        val envelope = Json.parseToJsonElement(body).jsonObject
+
+        assertEquals(JSONRPC_VERSION, envelope["jsonrpc"]?.jsonPrimitive?.content)
+        // The request `id` must be echoed back so the client can correlate.
+        assertEquals(42, envelope["id"]?.jsonPrimitive?.int)
+        // The boundary path must produce a JSON-RPC `error` envelope, not
+        // `result.isError=true` (the latter would mean the registry caught
+        // the throwable first, never reaching the boundary).
+        val error = envelope["error"]?.jsonObject
+        assertNotNull(error, "Boundary must surface failure via JSON-RPC `error`, got: $body")
+        assertEquals(
+            JsonRpcErrorCodes.INTERNAL_ERROR,
+            error!!["code"]?.jsonPrimitive?.int,
+            "Boundary errors use INTERNAL_ERROR (-32603), got: $body",
+        )
+        assertNull(envelope["result"], "JSON-RPC 2.0 forbids `result` + `error` together, got: $body")
+    }
+
+    @Test
+    fun `handlePost preserves request id in error envelope even when handler throws`() = runBlocking {
+        registerBoundaryThrowingTool("id_echo_throws")
+        val sessionId = initializeAndGetSessionId()
+
+        val response = client.post("http://localhost:$port/mcp") {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody(
+                buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", "req-abc-123")
+                    put("method", "tools/call")
+                    putJsonObject("params") {
+                        put("name", "id_echo_throws")
+                        putJsonObject("arguments") {}
+                    }
+                }.toString()
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val envelope = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(
+            "req-abc-123",
+            envelope["id"]?.jsonPrimitive?.content,
+            "JSON-RPC id must be echoed so the client can correlate the error to the call",
+        )
+        assertNotNull(envelope["error"], "Boundary path must produce JSON-RPC error envelope")
+    }
+
+    @Test
+    fun `handlePost preserves session header on the error response so client keeps the new id`() = runBlocking {
+        // Brand-new session (no header sent): the server creates one. If the
+        // handler then throws, the client must still see the Mcp-Session-Id
+        // response header — otherwise the next request triggers a SECOND
+        // session creation for the same logical client. The fix sets the
+        // header BEFORE entering the boundary catch.
+        registerBoundaryThrowingTool("throws_on_new_session")
+
+        // initialize succeeds — gets a fresh session id.
+        val sessionId = initializeAndGetSessionId()
+
+        // Same session sends a tools/call that throws Error. Because the
+        // session is no longer new, this particular call doesn't re-emit the
+        // header — but the regression we care about is: the FIRST request
+        // that throws and creates a session still surfaces the id. Simulate
+        // that by deleting the session and reusing the same client, then
+        // firing a tools/call without a session header.
+        val deleteResponse = client.delete("http://localhost:$port/mcp") {
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+        }
+        assertEquals(HttpStatusCode.NoContent, deleteResponse.status)
+
+        // Now: no session header → server creates a new session → tool throws
+        // → catch fires. The new session id MUST appear in the response.
+        val response = client.post("http://localhost:$port/mcp") {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", 7)
+                    put("method", "tools/call")
+                    putJsonObject("params") {
+                        put("name", "throws_on_new_session")
+                        putJsonObject("arguments") {}
+                    }
+                }.toString()
+            )
+        }
+
+        val newSessionHeader = response.headers[McpHttpTransport.SESSION_HEADER]
+        // The server emits the header in the new-session branch even if the
+        // request later threw. If this is null, future requests will reconnect
+        // with no id and the server will create yet another session — leak.
+        assertNotNull(
+            newSessionHeader,
+            "New-session header must be set even when handleMessage throws, body: ${response.bodyAsText()}",
+        )
+    }
+
+    @Test
+    fun `handlePost emits well-formed JSON-RPC error when body is unparseable JSON`() = runBlocking {
+        // This tests `extractRequestId`'s fallback path: when the body isn't
+        // valid JSON the boundary's `id` is `JsonNull`. The `McpServerCore`
+        // parse-error path returns its own error envelope before the
+        // boundary fires, so this test really pins both paths produce a
+        // well-formed envelope.
+        val sessionId = initializeAndGetSessionId()
+
+        val response = client.post("http://localhost:$port/mcp") {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody("not-json{}")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        val envelope = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(JSONRPC_VERSION, envelope["jsonrpc"]?.jsonPrimitive?.content)
+        assertNotNull(envelope["error"], "Parse-error must yield JSON-RPC error envelope")
+        // Per JSON-RPC 2.0: id is null when the server couldn't detect it.
+        assertTrue(
+            envelope["id"] == JsonNull,
+            "Unparseable body must produce id=null, got: ${envelope["id"]}",
+        )
+    }
 }

@@ -1,21 +1,48 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Logback configuration for the npx-kt stdio MCP server.
+  Logback configuration for the devrig stdio MCP server.
 
   Stdout is RESERVED for MCP NDJSON frames. Every appender in this file MUST
   target System.err — a stray log line on stdout would corrupt the JSON-RPC
   stream. The `target` attribute on ConsoleAppender pins this; downstream
   configurations layered on top should keep the same invariant.
+
+  Stderr level is controlled by `devrig.log.level` system property:
+    default: WARN (warnings and errors reach the operator)
+    when CLI sees the debug flag: DEBUG, set before the first log call
+
+  File logging is always DEBUG and is routed to `devrig.log.dir`, set by main()
+  from HomePaths before the first SLF4J call.
 -->
 <configuration>
+    <property name="DEVRIG_LOG_DIR" value="${devrig.log.dir:-${user.home}/.mcp-steroid/logs}" />
+    <property name="DEVRIG_LOG_SESSION" value="${devrig.log.session:-session}" />
+
     <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
         <target>System.err</target>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>${devrig.log.level:-WARN}</level>
+        </filter>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 
-    <root level="INFO">
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${DEVRIG_LOG_DIR}/devrig-${DEVRIG_LOG_SESSION}.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{64} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${DEVRIG_LOG_DIR}/devrig-%d{yyyy-MM-dd}-%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>40</maxHistory>
+            <totalSizeCap>400MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <root level="DEBUG">
         <appender-ref ref="STDERR" />
+        <appender-ref ref="FILE" />
     </root>
 </configuration>

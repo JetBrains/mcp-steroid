@@ -36,7 +36,7 @@ Ready-to-run CLI commands for each supported agent — click the copy icon to gr
 
 | Agent  | Command |
 |--------|---------|
-| Claude | `claude mcp add --transport http mcp-steroid http://...` |
+| Claude | `claude mcp add --transport http --scope user mcp-steroid http://...` |
 | Codex  | `codex mcp add mcp-steroid --url http://...` |
 | Gemini | `mcp add mc --type http ...` |
 
@@ -80,4 +80,4 @@ See [Configuration](/docs/configuration/) for the full list of server settings.
 ## Related
 
 - [Getting Started](/docs/getting-started/) — initial plugin setup and first connection
-- [Configuration](/docs/configuration/) — registry keys for port, host, and review mode
+- [Configuration](/docs/configuration/) — registry keys for port and host

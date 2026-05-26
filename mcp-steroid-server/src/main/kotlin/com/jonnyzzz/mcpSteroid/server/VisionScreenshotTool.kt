@@ -1,22 +1,19 @@
 package com.jonnyzzz.mcpSteroid.server
 
-import com.jonnyzzz.mcpSteroid.mcp.McpTool
+import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
+import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.mcp.errorResult
+import com.jonnyzzz.mcpSteroid.mcp.description
+import com.jonnyzzz.mcpSteroid.mcp.get
+import com.jonnyzzz.mcpSteroid.mcp.param
+import com.jonnyzzz.mcpSteroid.mcp.string
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 /**
  * Handler for the steroid_take_screenshot MCP tool.
  */
-class VisionScreenshotToolSpec(val handler: () -> VisionScreenshotToolHandler) : McpTool {
+class VisionScreenshotToolSpec(val handler: () -> VisionScreenshotToolHandler) : McpToolBase() {
     override val name = "steroid_take_screenshot"
 
     override val description = """
@@ -35,42 +32,22 @@ class VisionScreenshotToolSpec(val handler: () -> VisionScreenshotToolHandler) :
         After execution, call steroid_execute_feedback to log your feedback.
     """.trimIndent()
 
-    override val inputSchema = buildJsonObject {
-        put("type", "object")
-        putJsonObject("properties") {
-            putJsonObject("project_name") {
-                put("type", "string")
-                put("description", "Project name (from steroid_list_projects)")
-            }
-            putJsonObject("task_id") {
-                put("type", "string")
-                put("description", "Your task identifier to group related executions.")
-            }
-            putJsonObject("reason") {
-                put("type", "string")
-                put("description", "Reason for taking the screenshot. Required for audit logs.")
-            }
-            putJsonObject("window_id") {
-                put("type", "string")
-                put("description", "Optional window id from steroid_list_windows to target a specific IDE window.")
-            }
-        }
-        putJsonArray("required") {
-            add("project_name")
-            add("task_id")
-            add("reason")
-        }
-    }
+    val projectName = CommonToolParams.projectName().registerToSchema()
+
+    val taskId = CommonToolParams.taskId().registerToSchema()
+
+    val reason = CommonToolParams.auditReason("taking the screenshot").registerToSchema()
+
+    val windowId = InputSchemaElement.param("window_id")
+        .description("Optional window id from steroid_list_windows to target a specific IDE window.")
+        .string()
+        .registerToSchema()
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
-        val args = context.params.arguments
-        val projectName = args["project_name"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: project_name")
-        val taskId = args["task_id"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: task_id")
-        val reason = args["reason"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: reason")
-        val windowId = args["window_id"]?.jsonPrimitive?.contentOrNull
+        val projectName = context[projectName]
+        val taskId = context[taskId]
+        val reason = context[reason]
+        val windowId = context[windowId]
 
         return handler().screenshotWindow(projectName, ScreenshotParams(taskId, reason, windowId), context.mcpProgressReporter)
     }

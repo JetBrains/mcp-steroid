@@ -339,13 +339,13 @@ curl -s -X POST http://localhost:<PORT>/mcp \
   -H "Content-Type: application/json" \
   -d @/tmp/mcp-request.json | python3 -m json.tool
 
-# Discover actions at a file location
+# Discover actions at a file location — there is no dedicated MCP tool;
+# fetch the recipe and run it inside steroid_execute_code instead.
 curl -s -X POST http://localhost:<PORT>/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"steroid_action_discovery","arguments":{
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"steroid_fetch_resource","arguments":{
     "project_name":"DemoRider",
-    "file_path":"DemoRider.Tests/LeaderboardTests.cs",
-    "caret_offset":660
+    "uri":"mcp-steroid://ide/action-discovery"
   }}}' | python3 -m json.tool
 
 # Take a screenshot
@@ -411,23 +411,14 @@ Waited for `session-info.txt` to appear with the MCP URL.
 
 ### Step 3: Discover Available Actions
 
-Used `steroid_action_discovery` with the caret on the test class declaration:
-
-```bash
-curl -s -X POST http://localhost:55929/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
-    "name":"steroid_action_discovery",
-    "arguments":{
-      "project_name":"DemoRider",
-      "file_path":"DemoRider.Tests/LeaderboardTests.cs",
-      "caret_offset":660
-    }
-  }}'
-```
-
-Result confirmed `RiderUnitTestRunContextAction` and `RiderUnitTestDebugContextAction`
-are present and enabled in the editor popup menu at offset 660 (`class LeaderboardTests`).
+The dedicated `steroid_action_discovery` MCP tool was removed (May 2026).
+The `mcp-steroid://ide/action-discovery` recipe documents the equivalent
+`DaemonCodeAnalyzer.restart` + `ShowIntentionsPass.getActionsToShow`
+pattern to run inside `steroid_execute_code`. At the time of this
+investigation, running the tool with the caret on `class LeaderboardTests`
+at offset 660 confirmed that `RiderUnitTestRunContextAction` and
+`RiderUnitTestDebugContextAction` are present and enabled in the editor
+popup menu — the same shape the recipe surfaces today.
 
 ### Step 4: Execute Run Action
 
@@ -708,6 +699,42 @@ Extracts a human-readable summary for `>> tool_name (detail)` lines. Handles:
 `ConsoleAwareAgentSession` writes two files per `runPrompt()` call into `logDir` (always = `runDir`):
 - `agent-{name}-{N}-raw.ndjson` — raw NDJSON lines from STDOUT (unfiltered).
 - `agent-{name}-{N}-decoded.txt` — human-readable decoded output + stderr/info lines.
+
+### Parsing the agent's actual tool calls (IMPROVEMENTS harness)
+
+When a prompt-quality test needs to verify what the agent **actually called**
+(e.g. did `printCsv` show up in any `steroid_execute_code` submission?),
+**parse the raw NDJSON, not the decoded prose transcript**. Substring matching
+on the prose is unreliable: agents fetch prompt articles via
+`steroid_fetch_resource` and the article body is echoed verbatim into the
+transcript — that defeats `combined.contains("printCsv")`-style checks with
+false positives. The B5 / `PrintCsvPrintToonPromptTest` work hit this on round 1.
+
+NDJSON file lookup: `test-integration/build/test-logs/test/run-<timestamp>-<title>/agent-<slug>-<n>-raw.ndjson`,
+where `<slug>` is `agent.displayName.lowercase().replace(Regex("[^a-z0-9]+"), "-")`
+(`claude-code`, `codex`, `gemini`). Take the maxByOrNull-lastModified file for
+the most recent `runPrompt(...)` invocation.
+
+Three distinct tool-call shapes — a parser must handle all three:
+
+| Agent | Locator | Tool-name format | Code field |
+|---|---|---|---|
+| Claude Code (2.1.x) | `obj.message.content[*]` where `type=tool_use` | `mcp__<server>__<tool>` (double underscore) | `input.code` |
+| Codex | `obj.item` where `obj.type=item.completed` and `item.type=mcp_tool_call` | `item.tool` (or `item.name` on older builds), bare `steroid_execute_code` OR `__steroid_execute_code` suffix | `item.arguments.code` (fallback: `item.input.code`) |
+| Gemini | Root object where `obj.type=tool_use` | `mcp_<server>_<tool>` (SINGLE underscore between `mcp` prefix and server slug) | `parameters.code` |
+
+Match the tool name via `endsWith("steroid_execute_code")` to cover all
+prefixings. Reference implementation: `PrintCsvPrintToonPromptTest.readAgentExecCodeBodies`
+(`test-integration/src/test/.../tests/PrintCsvPrintToonPromptTest.kt`) — copy
+into new harness tests verbatim.
+
+Both `PrintCsvPrintToonPromptTest.readAgentExecCodeBodies` and
+`FindDuplicatesPromptTest.readAgentExecCodeBodies` now handle all
+three shapes (Claude, Codex, Gemini). The latter was extended during
+S5 iter9 of the find-duplicates IMPROVEMENTS harness — Gemini failed
+with `No steroid_execute_code calls captured in NDJSON` because its
+NDJSON shape (`type=tool_use` at root, `tool_name`, `parameters.code`)
+wasn't being parsed.
 
 ### `ClaudeOutputFilter`
 

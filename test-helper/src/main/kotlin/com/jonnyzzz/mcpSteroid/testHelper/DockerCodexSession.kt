@@ -26,21 +26,34 @@ class DockerCodexSession(
     val model: String = DEFAULT_MODEL,
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
+    private val mcpRegistrationLog = mutableListOf<McpRegistration>()
+    override val mcpRegistrations: List<McpRegistration>
+        get() = mcpRegistrationLog.toList()
 
     override fun registerHttpMcp(mcpUrl: String, mcpName: String) {
         runInContainer(args = codexMcpAddArgs(mcpUrl, mcpName))
             .assertExitCode(0) { "MCP server registration" }
             .assertNoErrorsInOutput("MCP server registration")
+        mcpRegistrationLog += McpRegistration(
+            name = mcpName,
+            transport = McpRegistrationTransport.HTTP,
+            url = mcpUrl,
+        )
     }
 
-    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
-        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    override fun registerDevrigMcp(installDir: File, mcpName: String) {
+        registerStdioMcp(session.installDevrigMcp(installDir), mcpName)
     }
 
-    override fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String) {
-        runInContainer(args = codexMcpAddStdioArgs(npxCommand, mcpName))
-            .assertExitCode(0) { "NPX MCP server registration" }
-            .assertNoErrorsInOutput("NPX MCP server registration")
+    override fun registerStdioMcp(command: StdioMcpCommand, mcpName: String) {
+        runInContainer(args = codexMcpAddStdioArgs(command, mcpName))
+            .assertExitCode(0) { "devrig MCP server registration" }
+            .assertNoErrorsInOutput("devrig MCP server registration")
+        mcpRegistrationLog += McpRegistration(
+            name = mcpName,
+            transport = McpRegistrationTransport.STDIO,
+            command = command,
+        )
     }
 
     /**

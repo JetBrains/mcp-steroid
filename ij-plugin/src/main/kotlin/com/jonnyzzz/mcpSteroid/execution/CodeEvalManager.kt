@@ -16,6 +16,7 @@ import com.jonnyzzz.mcpSteroid.koltinc.scriptClassLoaderFactory
 import com.jonnyzzz.mcpSteroid.koltinc.toArgFile
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import com.jonnyzzz.mcpSteroid.storage.executionStorage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.io.path.div
@@ -142,6 +143,12 @@ class CodeEvalManager(
                 val loadMethod = scriptClazz.getMethod(wrappedCode.methodName, McpScriptBuilder::class.java)
                 loadMethod.invoke(scriptObject, builder)
                 builder.executeBlocks.toList()
+            } catch (e: CancellationException) {
+                // Coroutine cancellation propagates — never wrap as "Failed to
+                // load generated code". The kotlinc compile already finished
+                // by the time we reach this block, so we don't need to keep
+                // it alive; we just stop here cleanly.
+                throw e
             } catch (t: Throwable) {
                 resultBuilder.reportFailed("Failed to load generated code. ${t}. ${t.stackTraceToString()}")
                 return null
@@ -151,6 +158,11 @@ class CodeEvalManager(
 
             project.executionStorage.writeCodeExecutionData(executionId, "compilation-success.txt", "Compiled")
             return EvalResult(capturedBlocks.toList(), wrappedCode.lineMapping)
+        } catch (e: CancellationException) {
+            // Coroutine cancellation propagates through the kotlinc invocation
+            // and any pre/post bookkeeping above without being mis-reported as
+            // a script "Error executing script" failure.
+            throw e
         } catch (e: Throwable) {
             val message = "Error executing script $executionId: ${e.message}"
 

@@ -40,12 +40,13 @@ Reflection (`Class.forName`, `getDeclaredField`, `setAccessible(true)`) is fine 
 | Read a file | `String(findProjectFile("…")!!.contentsToByteArray(), charset)` | Stays inside the IDE; no separate Read-before-Edit contract to satisfy |
 | List files | `FilenameIndex.getAllFilesByExt(project, "java", projectScope())` or PSI directory traversal | Same index backing |
 | **Grep text content** | `FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> /* indexOf / Regex.findAll on vf.text */ }` | Works over the VFS so subsequent semantic queries see the same state you searched |
-| **Multi-site literal edit** (any number of files) | `steroid_apply_patch` | One undoable command, atomic pre-flight, PSI commit in-place, no kotlinc compile cycle — see `mcp-steroid://skill/apply-patch-tool-description` |
+| **Multi-site literal edit** (any number of files) | `steroid_execute_code` with `applyPatch { }` DSL | One undoable command, atomic pre-flight, PSI commit in-place — see `mcp-steroid://ide/apply-patch` |
 | **In-place single-file edit** | `val vf = findProjectFile(…)!!; val updated = String(vf.contentsToByteArray(), vf.charset).replace(OLD, NEW); check(updated != …); writeAction { VfsUtil.saveText(vf, updated) }` | Same IDE-side read+write+VFS-refresh in one call; payload shape identical to `Edit(old,new)` |
 | Create new files | `writeAction { VfsUtil.createDirectoryIfMissing(root, parentRel)!!.createChildData(this, name).also { VfsUtil.saveText(it, content) } }` | VFS creates the index entry immediately so PSI can parse the file without a refresh round-trip |
 | Run Maven tests | `MavenRunConfigurationType.runConfiguration()` + `SMTRunnerEventsListener` | Structured pass/fail; Bash `./mvnw test` cold-starts ~31 s per run |
 | Run Gradle tests | `ExternalSystemUtil.runTask()` or `GradleRunConfiguration` through the IDE runner | See `mcp-steroid://skill/execute-code-gradle`; same cold-start cost applies |
 | Maven dependency sync | `MavenProjectsManager.forceUpdateAllProjectsOrFindAllAvailablePomFiles()` | No CLI equivalent |
+| **Emit tabular results** (find-references, call-hierarchy, project-search, document-symbols, file inventories) | `printCsv(headers, rows, dictColumns = setOf("path"))` for CSV with a path-dictionary preamble; `printToon(listOf(mapOf(...)))` for TOON array-of-records | Token-efficient (`dictColumns` dedupes repeated long values; TOON is a drop-in for `printJson` on uniform-shape lists). Full doc: `mcp-steroid://skill/coding-with-intellij-context-api` → "Tabular Output". |
 
 **Native tools only where MCP Steroid genuinely does not apply** — keep this list tight, and prefer the IDE whenever the operation touches the project model:
 

@@ -1,11 +1,14 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.mcp
 
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.milliseconds
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import kotlin.time.Duration.Companion.seconds
@@ -556,6 +559,105 @@ class McpStdioServerProtocolTest {
         assertTrue(content.isNotEmpty())
         val text = (content[0] as JsonObject)["text"]?.jsonPrimitive?.content ?: ""
         assertTrue(text.contains("intentional failure"), "Expected error text to mention failure: $text")
+    }
+
+    /**
+     * Stdio counterpart to `McpServerIntegrationTest.testExecuteCodeTimeoutReturnsCleanErrorNotHttp500`.
+     *
+     * The stdio transport has no per-call timeout of its own — the timeout
+     * concern belongs to the tool itself (e.g. `ScriptExecutor.withTimeout`
+     * inside `steroid_execute_code`). What the transport must guarantee is:
+     *
+     *  1. A tool that internally cancels via `kotlinx.coroutines.withTimeout`
+     *     and catches the resulting `TimeoutCancellationException` to surface
+     *     a structured error produces a well-formed JSON-RPC `result` envelope
+     *     with `isError=true` — NOT a top-level JSON-RPC `error`.
+     *  2. The stdio loop keeps processing subsequent requests on the same
+     *     stream after the timed-out call. A follow-up `echo` must answer
+     *     normally; if the timeout had crashed the read loop, this frame
+     *     would never come back.
+     *
+     * This mirrors the contract the HTTP test pins via real
+     * `steroid_execute_code`. Driving the real tool through stdio would
+     * require ij-plugin wiring that doesn't exist (the IDE plugin uses HTTP
+     * exclusively); the synthetic tool uses the same `withTimeout(...) {
+     * delay(...) }` shape `ScriptExecutor` does internally, so the cancellation
+     * code path is the same.
+     *
+     * **Out of scope on purpose.** A tool that lets `TimeoutCancellationException`
+     * (a `CancellationException` subtype) escape would hit
+     * `McpStdioServer.dispatch`'s `catch (CancellationException) { throw e }`
+     * and tear down the dispatch coroutine instead of producing an `isError`
+     * envelope. That is a tool-author contract bug, not a transport contract;
+     * any tool wishing to surface a timeout as a structured error must catch
+     * it itself, exactly as this test does and exactly as `ScriptExecutor`
+     * does in `ij-plugin`.
+     */
+    @Test
+    fun `tools call that internally times out returns isError result and stdio loop survives`() = runTest {
+        val h = StdioHarness()
+        h.server.toolRegistry.registerTool(object : McpTool {
+            override val name = "timeout_simulator"
+            override val description = "Internally bounded by withTimeout; surfaces a timeout error result"
+            override val inputSchema = buildJsonObject { put("type", "object") }
+            override suspend fun call(context: ToolCallContext): ToolCallResult {
+                return try {
+                    withTimeout(100.milliseconds) {
+                        // Cancellation-cooperative — withTimeout's cancellation
+                        // propagates here exactly as it does inside ScriptExecutor.
+                        delay(60.seconds)
+                        ToolCallResult(content = listOf(ContentItem.Text(text = "UNREACHABLE")))
+                    }
+                } catch (e: TimeoutCancellationException) {
+                    // Same shape ScriptExecutor.kt:154 produces: a structured
+                    // tool error, not a top-level JSON-RPC error.
+                    ToolCallResult.errorResult("Execution timed out after 100 milliseconds")
+                }
+            }
+        })
+
+        // 1) Trigger the timing-out tool. 2) Send a healthy echo to prove the
+        // stdio read loop survives. Both frames are queued before run() is
+        // entered, so the test exercises the "server processes another
+        // message after a timeout" path end-to-end.
+        h.sendFramed(req("timeout-call", "tools/call", """{"name":"timeout_simulator","arguments":{}}"""))
+        h.sendFramed(req("echo-after", "tools/call", """{"name":"echo","arguments":{"text":"still alive"}}"""))
+
+        val responses = h.runAndGetObjects()
+        assertEquals(2, responses.size, "Stdio loop must answer both frames: $responses")
+
+        // The stdio server dispatches tool calls concurrently — the echo
+        // (which finishes immediately) may return before the
+        // `withTimeout(100.ms) { delay(60.s) }` path inside
+        // `timeout_simulator` resolves. Index by `id` instead of position.
+        val byId = responses.associateBy { it["id"]?.jsonPrimitive?.content }
+
+        // (1) Timed-out call: well-formed JSON-RPC result, isError=true, no top-level error.
+        val timeoutResp = byId["timeout-call"] ?: error("missing response for timeout-call: $responses")
+        assertNull(timeoutResp["error"], "Timeout must NOT be a protocol-level JSON-RPC error")
+        val timeoutResult = timeoutResp["result"] as JsonObject
+        assertEquals(
+            "true",
+            timeoutResult["isError"]?.jsonPrimitive?.content?.lowercase(),
+            "Timed-out tool must mark the result as isError=true",
+        )
+        val timeoutText = ((timeoutResult["content"] as JsonArray)[0] as JsonObject)["text"]
+            ?.jsonPrimitive?.content ?: ""
+        assertTrue(
+            timeoutText.contains("timed out", ignoreCase = true) ||
+                timeoutText.contains("timeout", ignoreCase = true),
+            "Error content must name the failure mode (got: $timeoutText)",
+        )
+
+        // (2) Follow-up echo: stdio loop survived; healthy tool answers normally.
+        val echoResp = byId["echo-after"] ?: error("missing response for echo-after: $responses")
+        assertNull(echoResp["error"])
+        val echoResult = echoResp["result"] as JsonObject
+        val echoIsError = echoResult["isError"]?.jsonPrimitive?.contentOrNull
+        assertTrue(echoIsError == null || echoIsError == "false", "Healthy echo must not be marked isError")
+        val echoText = ((echoResult["content"] as JsonArray)[0] as JsonObject)["text"]
+            ?.jsonPrimitive?.content
+        assertEquals("still alive", echoText, "Echo must complete despite the timed-out call")
     }
 
     @Test

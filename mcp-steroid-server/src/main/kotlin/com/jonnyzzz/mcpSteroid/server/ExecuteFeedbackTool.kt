@@ -1,19 +1,19 @@
 package com.jonnyzzz.mcpSteroid.server
 
-import com.jonnyzzz.mcpSteroid.mcp.McpTool
+import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
+import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
+import com.jonnyzzz.mcpSteroid.mcp.get
+import com.jonnyzzz.mcpSteroid.mcp.maximum
+import com.jonnyzzz.mcpSteroid.mcp.minimum
+import com.jonnyzzz.mcpSteroid.mcp.number
+import com.jonnyzzz.mcpSteroid.mcp.param
+import com.jonnyzzz.mcpSteroid.mcp.required
+import com.jonnyzzz.mcpSteroid.mcp.string
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 /**
  * Handler for the steroid_execute_feedback MCP tool.
@@ -23,7 +23,7 @@ import kotlinx.serialization.json.putJsonObject
  * - Explanation of the rating
  * - Association with a task_id
  */
-class ExecuteFeedbackToolSpec(val handler: () -> ExecuteFeedbackToolHandler) : McpTool {
+class ExecuteFeedbackToolSpec(val handler: () -> ExecuteFeedbackToolHandler) : McpToolBase() {
     override val name = "steroid_execute_feedback"
     override val description = """
             Provide feedback on the result of a steroid_execute_code call and suggestions to improve the service.
@@ -45,74 +45,58 @@ class ExecuteFeedbackToolSpec(val handler: () -> ExecuteFeedbackToolHandler) : M
             Feedback helps track execution history and identify patterns for improvement.
         """.trimIndent()
 
-    override val inputSchema = buildJsonObject {
-        put("type", "object")
-        putJsonObject("properties") {
-            putJsonObject("project_name") {
-                put("type", "string")
-                put("description", "Project name (from steroid_list_projects)")
-            }
-            putJsonObject("task_id") {
-                put("type", "string")
-                put("description", "The task_id you used when calling steroid_execute_code")
-            }
-            putJsonObject("execution_id") {
-                put("type", "string")
-                put("description", "The execution_id returned from the most recent steroid_execute_code call for this task")
-            }
-            putJsonObject("success_rating") {
-                put("type", "number")
-                put("minimum", 0.0)
-                put("maximum", 1.0)
-                put("description", "Rate the success of the execution from 0.00 (complete failure) to 1.00 (complete success)")
-            }
-            putJsonObject("explanation") {
-                put("type", "string")
-                put("description", "Explain why you gave this rating. Provide improvements, suggestions, and critical thinking to improve this tool")
-            }
-            putJsonObject("code") {
-                put("type", "string")
-                put("description", "Optional: The code snippet that was executed. Useful for tracking what code produced which results.")
-            }
-        }
-        putJsonArray("required") {
-            add("project_name")
-            add("task_id")
-            add("success_rating")
-            add("explanation")
-        }
-    }
+    val projectName = CommonToolParams.projectName().registerToSchema()
+
+    val taskId = CommonToolParams.taskId().registerToSchema()
+
+    val executionId = InputSchemaElement.param("execution_id")
+        .description("The execution_id returned from the most recent steroid_execute_code call for this task")
+        .string()
+        .registerToSchema()
+
+    val successRating = InputSchemaElement.param("success_rating")
+        .description("Rate the success of the execution from 0.00 (complete failure) to 1.00 (complete success)")
+        .number()
+        .minimum(0.0)
+        .maximum(1.0)
+        .required()
+        .registerToSchema()
+
+    val explanation = InputSchemaElement.param("explanation")
+        .description("Explain why you gave this rating. Provide improvements, suggestions, and critical thinking to improve this tool")
+        .string()
+        .required()
+        .registerToSchema()
+
+    val code = InputSchemaElement.param("code")
+        .description("Optional: The code snippet that was executed. Useful for tracking what code produced which results.")
+        .string()
+        .registerToSchema()
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
-        val args = context.params.arguments
-        return handle(args)
-    }
-
-    suspend fun handle(args: JsonObject): ToolCallResult {
-        val projectName = args["project_name"]?.jsonPrimitive?.contentOrNull
-        if (projectName.isNullOrBlank()) {
+        val projectName = context[projectName]
+        if (projectName.isBlank()) {
             return ToolCallResult.errorResult("project_name is required (from steroid_list_projects)")
         }
-
-        val taskId = args["task_id"]?.jsonPrimitive?.contentOrNull
-        if (taskId.isNullOrBlank()) {
+        val taskId = context[taskId]
+        if (taskId.isBlank()) {
             return ToolCallResult.errorResult("task_id is required (same id you passed to steroid_execute_code)")
         }
-
-        val successRating = args["success_rating"]?.jsonPrimitive?.doubleOrNull
-        if (successRating == null) {
+        // Pre-check the raw arg so we can emit the helpful "do NOT send `rating`" hint
+        // before the DSL required()-error replaces it with the generic message.
+        if (context.params.arguments["success_rating"] == null) {
             return ToolCallResult.errorResult("success_rating is required (number in 0.00..1.00 — do NOT send `rating`)")
-        } else if (successRating !in 0.0..1.0) {
+        }
+        val successRating = context[successRating]
+        if (successRating !in 0.0..1.0) {
             return ToolCallResult.errorResult("success_rating=$successRating is out of range (must be 0.00..1.00)")
         }
-
-        val explanation = args["explanation"]?.jsonPrimitive?.contentOrNull
-        if (explanation.isNullOrBlank()) {
+        val explanation = context[explanation]
+        if (explanation.isBlank()) {
             return ToolCallResult.errorResult("explanation is required (free-form: what worked, what didn't, what you'll try next)")
         }
-
         // execution_id is optional — noted for context but value is not currently used
-        val code = args["code"]?.jsonPrimitive?.contentOrNull
+        val code = context[code]
 
         val params = FeedbackParams(
             taskId = taskId,

@@ -35,6 +35,10 @@ class ConsoleAwareAgentSession(
 ) : AiAgentSession {
     override val displayName: String
         get() = delegate.displayName
+    override val mcpRegistrations
+        get() = delegate.mcpRegistrations
+    override val strictMcpConfigJson
+        get() = delegate.strictMcpConfigJson
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val promptCounter = AtomicInteger(0)
@@ -55,7 +59,7 @@ class ConsoleAwareAgentSession(
             val decodedWriter = PrintWriter(FileWriter(File(logDir, "agent-$safeName-$promptIndex-decoded.txt")), true)
             try {
                 aiProcess.messagesFlow.collect { streamLine ->
-                    val ignore = when (streamLine.type) {
+                    when (streamLine.type) {
                         ProcessStreamType.STDOUT -> {
                             rawWriter.println(streamLine.line)
                             val filtered = aiProcess.outputFilter.filterText(streamLine.line)
@@ -91,11 +95,11 @@ class ConsoleAwareAgentSession(
         delegate.registerHttpMcp(mcpUrl, mcpName)
     }
 
-    override fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String) {
-        delegate.registerNpxMcp(npxCommand, mcpName)
+    override fun registerStdioMcp(command: StdioMcpCommand, mcpName: String) {
+        delegate.registerStdioMcp(command, mcpName)
     }
 
-    override fun registerNpxKtMcp(installDir: java.io.File, mcpName: String) {
-        delegate.registerNpxKtMcp(installDir, mcpName)
+    override fun registerDevrigMcp(installDir: File, mcpName: String) {
+        delegate.registerDevrigMcp(installDir, mcpName)
     }
 }

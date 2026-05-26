@@ -25,8 +25,6 @@ class SteroidsMcpToolsetTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        // Disable review mode for tests
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
     }
 
     private fun getTextContent(result: com.jonnyzzz.mcpSteroid.mcp.ToolCallResult): String {

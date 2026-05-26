@@ -30,7 +30,6 @@ class LspExamplesExecutionTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
         val sampleText = $$"""
             package sample
 

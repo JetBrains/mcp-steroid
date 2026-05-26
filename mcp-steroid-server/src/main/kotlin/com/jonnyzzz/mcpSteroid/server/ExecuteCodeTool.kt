@@ -1,22 +1,20 @@
 package com.jonnyzzz.mcpSteroid.server
 
-import com.jonnyzzz.mcpSteroid.mcp.McpTool
+import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
+import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.mcp.errorResult
+import com.jonnyzzz.mcpSteroid.mcp.boolean
+import com.jonnyzzz.mcpSteroid.mcp.description
+import com.jonnyzzz.mcpSteroid.mcp.get
+import com.jonnyzzz.mcpSteroid.mcp.int
+import com.jonnyzzz.mcpSteroid.mcp.param
+import com.jonnyzzz.mcpSteroid.mcp.required
+import com.jonnyzzz.mcpSteroid.mcp.string
 import com.jonnyzzz.mcpSteroid.prompts.Generic
 import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeToolDescriptionPromptArticle
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 @Serializable
 data class ExecCodeParams(
@@ -35,75 +33,50 @@ data class ExecCodeParams(
 /**
  * Handler for the steroid_execute_code MCP tool.
  */
-class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpTool {
+class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBase() {
     override val name = "steroid_execute_code"
     override val description get() = ExecuteCodeToolDescriptionPromptArticle().readPayload(PromptsContext.Generic)
-    override val inputSchema = buildJsonObject {
-        put("type", "object")
-        putJsonObject("properties") {
-            putJsonObject("project_name") {
-                put("type", "string")
-                put("description", "Project name (from steroid_list_projects)")
-            }
-            putJsonObject("code") {
-                put("type", "string")
-                put("description", "Kotlin suspend method body")
-            }
-            putJsonObject("task_id") {
-                put("type", "string")
-                put(
-                    "description",
-                    "Your task identifier to group related executions. Use the same task_id for all execute_code calls that are part of the same task, and when providing feedback via steroid_execute_feedback."
-                )
-            }
-            putJsonObject("reason") {
-                put("type", "string")
-                put(
-                    "description",
-                    "IMPORTANT: On your FIRST call, provide the FULL TASK DESCRIPTION from the user - what they originally asked you to do. On subsequent calls, describe what this specific execution aims to achieve. This helps track progress and understand context."
-                )
-            }
-            putJsonObject("timeout") {
-                put("type", "integer")
-                put(
-                    "description",
-                    "Execution timeout in seconds (default: 600, configurable via mcp.steroid.execution.timeout registry key)"
-                )
-            }
-            putJsonObject("dialog_killer") {
-                put("type", "boolean")
-                put(
-                    "description",
-                    "Override pre-execution dialog killer: true = force enable, false = force disable. Default: use registry setting (mcp.steroid.dialog.killer.enabled)."
-                )
-            }
-        }
-        putJsonArray("required") {
-            add("project_name")
-            add("code")
-            add("reason")
-            add("task_id")
-        }
-    }
+
+    val projectName = CommonToolParams.projectName().registerToSchema()
+
+    val code = InputSchemaElement.param("code")
+        .description("Kotlin suspend method body")
+        .string()
+        .required()
+        .registerToSchema()
+
+    val taskId = CommonToolParams.taskId().registerToSchema()
+
+    val reason = InputSchemaElement.param("reason")
+        .description("IMPORTANT: On your FIRST call, provide the FULL TASK DESCRIPTION from the user - what they originally asked you to do. On subsequent calls, describe what this specific execution aims to achieve. This helps track progress and understand context.")
+        .string()
+        .required()
+        .registerToSchema()
+
+    //TODO: Drop timeout
+    val timeout = InputSchemaElement.param("timeout")
+        .description("Execution timeout in seconds (default: 600, configurable via mcp.steroid.execution.timeout registry key)")
+        .int()
+        .registerToSchema()
+
+    //TODO: Drop dialog killer
+    val dialogKiller = InputSchemaElement.param("dialog_killer")
+        .description("Override pre-execution dialog killer: true = force enable, false = force disable. Default: use registry setting (mcp.steroid.dialog.killer.enabled).")
+        .boolean()
+        .registerToSchema()
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
-        val params = context.params
-        val args = params.arguments
-
-        val projectName = args["project_name"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: project_name")
-        val code = args["code"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: code")
-        val taskId = args["task_id"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: task_id")
-        val reason = args["reason"]?.jsonPrimitive?.contentOrNull
-        val timeout = args["timeout"]?.jsonPrimitive?.intOrNull
-        val dialogKiller = args["dialog_killer"]?.jsonPrimitive?.booleanOrNull
+        val projectName = context[projectName]
+        val code = context[code]
+        val taskId = context[taskId]
+        val reason = context[reason]
+        val timeout = context[timeout]
+        val dialogKiller = context[dialogKiller]
 
         val execCodeParams = ExecCodeParams(
             taskId = taskId,
             code = code,
-            reason = reason ?: "No reason provided",
+            reason = reason,
             timeout = timeout,
             dialogKiller = dialogKiller,
         )

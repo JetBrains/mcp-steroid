@@ -84,7 +84,7 @@ internal fun toolDetail(toolName: String, input: JsonObject?): String {
         }
 
         simpleName == "steroid_list_projects" || simpleName == "steroid_list_windows"
-                || simpleName == "steroid_take_screenshot" || simpleName == "steroid_action_discovery" -> ""
+                || simpleName == "steroid_take_screenshot" -> ""
 
         toolName in setOf("Bash", "bash", "run_shell_command") -> {
             val cmd = input["command"]?.jsonPrimitive?.contentOrNull ?: ""

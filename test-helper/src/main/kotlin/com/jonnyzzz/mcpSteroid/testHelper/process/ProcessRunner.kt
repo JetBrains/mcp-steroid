@@ -2,14 +2,14 @@
 package com.jonnyzzz.mcpSteroid.testHelper.process
 
 import com.jonnyzzz.mcpSteroid.testHelper.truncate
+import java.io.InputStream
+import java.util.Collections
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
-import java.io.InputStream
-import java.util.*
-import java.util.concurrent.TimeUnit
-import kotlin.concurrent.thread
 
 //TODO: hide this class
 data class ProcessResultValue(
@@ -79,6 +79,7 @@ private fun startProcessImpl(request: RunProcessRequest): StartedProcessImpl {
 
     val processBuilder = ProcessBuilder(request.args)
     processBuilder.directory(request.workingDir)
+    processBuilder.environment().putAll(request.environment)
     processBuilder.redirectInput(ProcessBuilder.Redirect.PIPE)
     processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
     processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
@@ -211,19 +212,15 @@ private class StartedProcessImpl(
         }
     }
 
-    override fun awaitForProcessFinish() : ProcessResult {
+    override fun awaitForProcessFinish(): ProcessResult {
         val completed = process.waitFor(request.timeout.toMillis(), TimeUnit.MILLISECONDS)
 
         if (!completed) {
             process.destroyForcibly()
-            // Explicitly close streams so that output-reader threads (which call
-            // BufferedReader.readLine()) get an IOException/EOF and exit promptly.
-            // Without this, threads block indefinitely reading from the docker exec pipe
-            // even after the proxy process is killed — because the container process
-            // is still running and the pipe stays open from the container's side.
-            try { process.inputStream.close() } catch (_: Exception) { }
-            try { process.errorStream.close() } catch (_: Exception) { }
-            try { process.outputStream.close() } catch (_: Exception) { }
+            // Close streams so reader threads leave blocking readLine() calls.
+            closeStreamAfterTimeout("stdout", process.inputStream)
+            closeStreamAfterTimeout("stderr", process.errorStream)
+            closeStreamAfterTimeout("stdin", process.outputStream)
             waitForThreads()
 
             println("[${logPrefix}] Process is terminated by timeout after ${request.timeout}")
@@ -233,6 +230,14 @@ private class StartedProcessImpl(
             val exitCode = process.exitValue()
             println("[$logPrefix] Process exited with code: $exitCode")
             return ProcessResultValue(exitCode, stdout, stderr)
+        }
+    }
+
+    private fun closeStreamAfterTimeout(name: String, stream: AutoCloseable) {
+        try {
+            stream.close()
+        } catch (e: Exception) {
+            System.err.println("[$logPrefix] Failed to close process $name stream after timeout: ${e.message}")
         }
     }
 }

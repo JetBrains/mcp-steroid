@@ -4,15 +4,33 @@ This folder holds long-form research, design plans, and the DPAIA arena working 
 addition to** the root `CLAUDE.md` when changing files under `docs/` or referencing autoresearch
 results.
 
-The repo's three design tenets — small MCP tool surface; power lives in
-prompts and direct IntelliJ API usage; `McpScriptContext` is last-resort —
-are codified in [`PHILOSOPHY.md`](PHILOSOPHY.md) (and mirrored at runtime
-as `mcp-steroid://skill/design-philosophy`). Autoresearch and prompt-
+The repo's four design tenets — small MCP tool surface; power lives in
+prompts and direct IntelliJ API usage; `devrig` is stateless;
+`McpScriptContext` is last-resort — are codified in
+[`PHILOSOPHY.md`](PHILOSOPHY.md) (and mirrored at runtime as
+`mcp-steroid://skill/design-philosophy`). Autoresearch and prompt-
 optimization work in this folder is the primary lever for those tenets:
 every measurement here ultimately feeds back into recipe quality, not
 new tools or new context methods.
 
 For the test code that drives DPAIA / arena scenarios see `test-experiments/CLAUDE.md`.
+
+## Specs in this folder
+
+Long-form contract documents owned by `docs/` (read these directly
+rather than mirroring their contents into per-folder guides):
+
+- [`PHILOSOPHY.md`](PHILOSOPHY.md) — the four design tenets.
+- [`devrig-naming.md`](devrig-naming.md) — devrig CLI + stdio MCP
+  project/backend naming contract (slug rule, `bootHash`,
+  `archiveSha256`, `actions[].argv`, on-demand routing).
+- [`devrig-scanning-research.md`](devrig-scanning-research.md) —
+  decision record for on-demand `rebuildSnapshot()` vs background
+  scanners (option A).
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — top-level architecture
+  map.
+- [`TESTING-STRATEGY.md`](TESTING-STRATEGY.md) — test layout +
+  per-module scoping rules.
 
 ## Prompt optimization (autoresearch)
 
@@ -91,8 +109,8 @@ git log --oneline --grep="onFinalTasksFinished\|JDK 24\|Gradle abort"
 git log --oneline -- prompts/src/main/prompts/skill/execute-code-gradle.md
 git log --oneline -- test-experiments/src/test/kotlin/com/jonnyzzz/mcpSteroid/integration/arena/ArenaTestRunner.kt
 
-# Apply-patch persistence — steroid_apply_patch saves every touched document.
-git log --oneline --grep="apply.patch\|ApplyPatchToolIntegrationTest"
+# Apply-patch DSL persistence — applyPatch { } inside steroid_execute_code saves every touched document.
+git log --oneline --grep="apply.patch\|ApplyPatch"
 
 # Aborted-build result-boundary guidance — ExecuteCodeToolHandler appends REQUIRED ACTION hint
 # (uses ExecuteCodeGradlePromptArticle().uri / ExecuteCodeMavenPromptArticle().uri).

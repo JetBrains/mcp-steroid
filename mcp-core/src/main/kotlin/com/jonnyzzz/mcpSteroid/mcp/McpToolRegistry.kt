@@ -81,6 +81,8 @@ class McpToolRegistry : McpToolRegistrar {
 
         return try {
             tool.call(toolCallContext)
+        } catch (e: ToolCallErrorException) {
+            e.toolCallResult
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Never swallow cancellation — propagate so the surrounding coroutine
             // scope can shut down cleanly. Treating this as a tool error would surface

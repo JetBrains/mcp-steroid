@@ -126,6 +126,34 @@ val sortedValue = eval(evaluator, "players.sortedByDescending { it.score }", pos
 println("sorted result =", sortedValue)
 ```
 
+## Kotlin / K2 evaluation caveats
+
+Kotlin evaluation goes through the source-level PSI evaluator, but the
+**compiled JDI frame** is the limiting factor — if the source-level
+receiver (`this@OuterClass`) isn't bound to a slot in the current frame,
+the evaluator cannot reach it. What works reliably vs what may fail:
+
+- ✅ **Local variables** of the current frame (`event`, `distinctId`, etc.) — work.
+- ✅ **Simple static / companion calls** (`ProxyVersionMetadata.getProxyVersion()`) — work. For Java-static lookup from Kotlin, spell the companion explicitly (`MyClass.Companion.method()`) or use the FQN.
+- ✅ **`ph.javaClass.name`-style reflective lookups on locals** — work.
+- ⚠ **Receiver / outer-property access** (`homePaths.home.resolve(...)`,
+   `this@MyClass.field`) — may fail with
+   `Cannot find local variable 'this@MyClass'`. The three usual triggers:
+   - **Lambda body** frames — the source receiver may be elided in the
+     compiled lambda class.
+   - **Inline-function call sites** — locals are inlined into the caller
+     and original receiver bindings disappear.
+   - **`suspend` continuation frames** — `this` lives in a generated
+     `$this` field on the continuation object, not in a JDI local slot.
+
+Recovery for the receiver-access case:
+- Capture the receiver into a local one line above the breakpoint
+  (`val outer = this@MyClass`) and evaluate via the local. Most reliable.
+- Move the breakpoint one line *up* into a frame where the receiver is
+  bound as a normal local — the calling frame, or before the inline
+  expansion. Suspend continuation frames usually have a parent frame
+  where `this` is still a regular local; step out one level.
+
 ## Common mistakes to avoid
 
 ```kotlin

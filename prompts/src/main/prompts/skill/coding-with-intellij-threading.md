@@ -8,6 +8,26 @@ IntelliJ threading model, read/write action patterns, smart mode, VFS mutation r
 
 Any PSI access (`JavaPsiFacade`, `PsiShortNamesCache`, `PsiManager.findFile`, `ProjectRootManager.contentSourceRoots`, module roots, annotations, etc.) **MUST** be wrapped in `readAction { }`. Modifications require `writeAction { }`. Threading violations throw immediately at runtime — they are not silently ignored. **This applies to ALL PSI calls including your very first exploration call** (e.g. listing source roots). This is the most common first-attempt error.
 
+### Quick decision — what wrap do I need?
+
+| You're doing… | Wrap in |
+|---|---|
+| VFS write (`saveText`, `createChildData`, `delete`, `rename`, `move`) | `writeAction { }` |
+| PSI read, `FilenameIndex`, references search | `readAction { }` (or `smartReadAction { }` if indexes may still be building) |
+| Refactoring processor `.run()` (Rename / Move / SafeDelete / Inline / ChangeSignature / Extract*) | `writeIntentReadAction { }` (NOT `writeAction` — deadlocks) |
+| VFS/PSI write that logs `Background write action is not permitted on this thread` | `backgroundWriteAction { }` — or `withContext(Dispatchers.EDT) { writeAction { … } }` if the API requires EDT |
+| EDT-only API (UI action invocation, opening a file in editor, focusing a window) | `withContext(Dispatchers.EDT) { }` |
+| Read first, then mutate based on the result | `readAction { /* read */ }` → outside-block compute → `writeAction { /* write */ }` (see "writeAction { } Is NOT a Coroutine Scope" below) |
+
+### Failure → fix
+
+When the script run logs one of these errors, the fix is mechanical:
+
+- `Access is allowed from write thread only` → wrap the offending mutation in `writeAction { … }`.
+- `Access is allowed from Event Dispatch Thread (EDT) only` → wrap the call in `withContext(Dispatchers.EDT) { … }`.
+- `Background write action is not permitted on this thread. Consider using backgroundWriteAction, or switch to EDT` → use `backgroundWriteAction { … }`, or switch to `withContext(Dispatchers.EDT) { writeAction { … } }` if the API requires EDT.
+- `suspension functions can only be called within coroutine body` → you called a `suspend` helper (`readAction`, `writeAction`, `smartReadAction`, `waitForSmartMode`) from inside a non-suspend lambda (often inside another `writeAction`). Move the inner call OUTSIDE the outer block, or make the enclosing function `suspend fun`. See "writeAction { } Is NOT a Coroutine Scope" below.
+
 ### API → wrap quick lookup
 
 If you are about to write any of these in a `steroid_execute_code` script, you owe `readAction { }` (or `writeAction { }` for mutations). Each row is verified against IntelliJ 2025.3+ runtime threading assertions:

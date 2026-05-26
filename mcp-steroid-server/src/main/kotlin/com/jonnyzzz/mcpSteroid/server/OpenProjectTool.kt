@@ -1,23 +1,22 @@
 package com.jonnyzzz.mcpSteroid.server
 
-import com.jonnyzzz.mcpSteroid.mcp.McpTool
+import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
+import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.mcp.boolean
+import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
+import com.jonnyzzz.mcpSteroid.mcp.get
+import com.jonnyzzz.mcpSteroid.mcp.param
+import com.jonnyzzz.mcpSteroid.mcp.required
+import com.jonnyzzz.mcpSteroid.mcp.string
 import com.jonnyzzz.mcpSteroid.thisLogger
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 
 /**
@@ -30,7 +29,7 @@ import kotlinx.serialization.json.putJsonObject
  * The tool can optionally trust the project path before opening, which allows skipping
  * the trust dialog.
  */
-class OpenProjectToolSpec(val handler: () -> OpenProjectToolHandler) : McpTool {
+class OpenProjectToolSpec(val handler: () -> OpenProjectToolHandler) : McpToolBase() {
     private val logger = thisLogger()
 
     override val name = "steroid_open_project"
@@ -56,42 +55,26 @@ class OpenProjectToolSpec(val handler: () -> OpenProjectToolHandler) : McpTool {
         - Always check modalDialogShowing in steroid_list_windows response
     """.trimIndent()
 
-    override val inputSchema = buildJsonObject {
-        put("type", "object")
-        putJsonObject("properties") {
-            putJsonObject("project_path") {
-                put("type", "string")
-                put("description", "Absolute path to the project directory to open.")
-            }
-            putJsonObject("task_id") {
-                put("type", "string")
-                put("description", "Your task identifier to group related executions.")
-            }
-            putJsonObject("reason") {
-                put("type", "string")
-                put("description", "Reason for opening the project. Required for audit logs.")
-            }
-            putJsonObject("trust_project") {
-                put("type", "boolean")
-                put("description", "If true, trust the project path before opening (skips trust dialog). Default: true")
-            }
-        }
-        putJsonArray("required") {
-            add("project_path")
-            add("task_id")
-            add("reason")
-        }
-    }
+    val projectPath = InputSchemaElement.param("project_path")
+        .description("Absolute path to the project directory to open.")
+        .string()
+        .required()
+        .registerToSchema()
+
+    val taskId = CommonToolParams.taskId().registerToSchema()
+
+    val reason = CommonToolParams.auditReason("opening the project").registerToSchema()
+
+    val trustProject = InputSchemaElement.param("trust_project")
+        .description("If true, trust the project path before opening (skips trust dialog). Default: true")
+        .boolean()
+        .registerToSchema()
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
-        val args = context.params.arguments
-        val projectPathStr = args["project_path"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: project_path")
-        args["task_id"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: task_id")
-        args["reason"]?.jsonPrimitive?.contentOrNull
-            ?: return ToolCallResult.errorResult("Missing required parameter: reason")
-        val trustProject = args["trust_project"]?.jsonPrimitive?.boolean ?: true
+        val projectPathStr = context[projectPath]
+        context[taskId]
+        context[reason]
+        val trustProject = context[trustProject] ?: true
 
         val requestedProjectPath = try {
             Path.of(projectPathStr).toAbsolutePath().normalize()

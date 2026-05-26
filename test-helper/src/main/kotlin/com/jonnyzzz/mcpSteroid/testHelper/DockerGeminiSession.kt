@@ -22,21 +22,34 @@ class DockerGeminiSession(
     val model: String = DEFAULT_MODEL,
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
+    private val mcpRegistrationLog = mutableListOf<McpRegistration>()
+    override val mcpRegistrations: List<McpRegistration>
+        get() = mcpRegistrationLog.toList()
 
     override fun registerHttpMcp(mcpUrl: String, mcpName: String) {
         runInContainer(args = geminiMcpAddArgs(mcpUrl, mcpName))
             .assertExitCode(0) { "MCP server registration" }
             .assertNoErrorsInOutput(message = "MCP server registration")
+        mcpRegistrationLog += McpRegistration(
+            name = mcpName,
+            transport = McpRegistrationTransport.HTTP,
+            url = mcpUrl,
+        )
     }
 
-    override fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String) {
-        runInContainer(args = geminiMcpAddStdioArgs(npxCommand, mcpName))
-            .assertExitCode(0) { "NPX MCP server registration" }
-            .assertNoErrorsInOutput(message = "NPX MCP server registration")
+    override fun registerStdioMcp(command: StdioMcpCommand, mcpName: String) {
+        runInContainer(args = geminiMcpAddStdioArgs(command, mcpName))
+            .assertExitCode(0) { "devrig MCP server registration" }
+            .assertNoErrorsInOutput(message = "devrig MCP server registration")
+        mcpRegistrationLog += McpRegistration(
+            name = mcpName,
+            transport = McpRegistrationTransport.STDIO,
+            command = command,
+        )
     }
 
-    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
-        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    override fun registerDevrigMcp(installDir: File, mcpName: String) {
+        registerStdioMcp(session.installDevrigMcp(installDir), mcpName)
     }
 
     fun runInContainer(args: List<String>, timeoutSeconds: Long = 120): StartedProcess {
@@ -49,9 +62,9 @@ class DockerGeminiSession(
         }
         val env = buildMap {
             put("GEMINI_API_KEY", apiKey)
-            // Newer Gemini CLI builds (>= late 2026) demote `--approval-mode yolo`
-            // to "default" when the working directory isn't on the trusted-folders
-            // list, then refuse to run with exit 55 + a "trusted directory" error.
+            // Newer Gemini CLI builds (>= late 2026) demote `--approval-mode yolo`.
+            // If the working directory is not trusted, they then refuse to run
+            // with exit 55 and a "trusted directory" error.
             // The headless contract for automated environments is to opt the
             // workspace in via this env var (see Gemini docs at
             // /docs/cli/trusted-folders/#headless-and-automated-environments).
@@ -109,9 +122,10 @@ class DockerGeminiSession(
 
         override val apiKeyHint = "set env GEMINI_API_KEY, GOOGLE_API_KEY, or ~/.vertex"
 
-        // The TeamCity server does not have a Gemini credentialsJSON token configured
-        // and there is no plan to add one — Gemini-using tests should be reported as
-        // ignored rather than failed when the key is absent. See [AIAgentCompanion.skipTestWhenKeyMissing].
+        // The TeamCity server does not have a Gemini credentialsJSON token configured.
+        // There is no plan to add one, so Gemini-using tests should be reported
+        // as ignored rather than failed when the key is absent.
+        // See [AIAgentCompanion.skipTestWhenKeyMissing].
         override val skipTestWhenKeyMissing = true
 
         override fun readApiKey(): String? {

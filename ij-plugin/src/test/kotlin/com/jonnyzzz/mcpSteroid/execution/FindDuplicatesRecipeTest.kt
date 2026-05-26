@@ -39,7 +39,6 @@ class FindDuplicatesRecipeTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
 
         // Two byte-identical method bodies — DuplicatedCode must flag them.
         // If you change one body, change both (the inspection wants tokens to match).

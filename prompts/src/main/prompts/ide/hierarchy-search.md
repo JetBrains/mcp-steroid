@@ -83,6 +83,7 @@ if (hierarchyData.overridesCount > 20) {
 
 # See also
 
+- [Type Hierarchy](mcp-steroid://ide/type-hierarchy) - Supertype DAG + subtype tree, like Ctrl+H
 - [Find References](mcp-steroid://lsp/find-references) - Find all usages of a symbol
 - [Document Symbols](mcp-steroid://lsp/document-symbols) - List symbols in a document
 - [Go to Definition](mcp-steroid://lsp/go-to-definition) - Navigate to symbol definition

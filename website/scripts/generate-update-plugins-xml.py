@@ -147,15 +147,13 @@ DESCRIPTION_HTML = """\
 through the Model Context Protocol (MCP).</p>
 <p>IntelliJ platform works for AI agents as great as for human developers.</p>
 <ul>
-<li><b>9 MCP Tools:</b> Control IntelliJ IDEA programmatically \u2014 execute code, \
-take screenshots, discover actions, debug, and more</li>
+<li><b>8 MCP Tools:</b> Control IntelliJ IDEA programmatically \u2014 execute code, \
+take screenshots, debug, and more</li>
 <li><b>58 MCP Resources:</b> Comprehensive guides covering LSP, IDE operations, \
 debugger, tests, VCS, and more</li>
 <li><b>Vision Capabilities:</b> AI agents can see your IDE with screenshots and OCR</li>
 <li><b>Deep Integration:</b> Access PSI, inspections, refactorings, and full \
 IntelliJ Platform API</li>
-<li><b>Human Oversight:</b> Review and approve code execution with configurable \
-safety controls</li>
 </ul>
 <p>Compatible with all IntelliJ Platform-based IDEs: IntelliJ IDEA, PyCharm, \
 WebStorm, GoLand, CLion, Rider, and more.</p>

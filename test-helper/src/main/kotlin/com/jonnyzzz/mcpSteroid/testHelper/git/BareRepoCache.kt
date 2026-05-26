@@ -119,7 +119,10 @@ object BareRepoCache {
      */
     fun warmLargeProjectRepos(cacheDir: File) {
         val largeRepos = listOf(
+            "https://github.com/BroadleafCommerce/BroadleafCommerce.git",
             "https://github.com/keycloak/keycloak.git",
+            "https://github.com/killbill/killbill.git",
+            "https://github.com/thingsboard/thingsboard.git",
         )
 
         println("[BareRepoCache] Warming ${largeRepos.size} large project repo(s) in $cacheDir ...")

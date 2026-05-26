@@ -293,13 +293,8 @@ class McpServerCore(
         return McpJson.encodeToString(JsonRpcResponse.serializer(), response)
     }
 
-    private fun encodeError(id: JsonElement, code: Int, message: String): String {
-        val response = JsonRpcResponse(
-            id = id,
-            error = JsonRpcError(code = code, message = message)
-        )
-        return McpJson.encodeToString(JsonRpcResponse.serializer(), response)
-    }
+    private fun encodeError(id: JsonElement, code: Int, message: String): String =
+        encodeJsonRpcError(id, code, message)
 
     /**
      * Send tools/list_changed notification to all sessions.

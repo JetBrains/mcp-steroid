@@ -11,6 +11,13 @@ import com.jonnyzzz.mcpSteroid.testHelper.process.StartedProcess
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertNoErrorsInOutput
 import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 
 /**
  * Manages a Claude CLI session running inside a Docker container.
@@ -24,21 +31,39 @@ class DockerClaudeSession(
     val model: String = DEFAULT_MODEL,
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
+    private var mcpConfigJson: String? = null
+    private val mcpRegistrationLog = mutableListOf<McpRegistration>()
+    override val mcpRegistrations: List<McpRegistration>
+        get() = mcpRegistrationLog.toList()
+    override val strictMcpConfigJson: String?
+        get() = mcpConfigJson
 
     override fun registerHttpMcp(mcpUrl: String, mcpName: String) {
         runInContainer(args = claudeMcpAddArgs(mcpUrl, mcpName))
             .assertExitCode(0) { "MCP server registration" }
             .assertNoErrorsInOutput("MCP server registration")
+        mcpRegistrationLog += McpRegistration(
+            name = mcpName,
+            transport = McpRegistrationTransport.HTTP,
+            url = mcpUrl,
+        )
+        mcpConfigJson = claudeHttpMcpConfig(mcpUrl, mcpName)
     }
 
-    override fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String) {
-        runInContainer(args = claudeMcpAddStdioArgs(npxCommand, mcpName))
-            .assertExitCode(0) { "NPX MCP server registration" }
-            .assertNoErrorsInOutput("NPX MCP server registration")
+    override fun registerStdioMcp(command: StdioMcpCommand, mcpName: String) {
+        runInContainer(args = claudeMcpAddStdioArgs(command, mcpName))
+            .assertExitCode(0) { "devrig MCP server registration" }
+            .assertNoErrorsInOutput("devrig MCP server registration")
+        mcpRegistrationLog += McpRegistration(
+            name = mcpName,
+            transport = McpRegistrationTransport.STDIO,
+            command = command,
+        )
+        mcpConfigJson = claudeStdioMcpConfig(command, mcpName)
     }
 
-    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
-        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    override fun registerDevrigMcp(installDir: File, mcpName: String) {
+        registerStdioMcp(session.installDevrigMcp(installDir), mcpName)
     }
 
     /**
@@ -100,6 +125,11 @@ class DockerClaudeSession(
             add("--output-format")
             add("stream-json")
             add("--verbose")
+            mcpConfigJson?.let {
+                add("--mcp-config")
+                add(it)
+                add("--strict-mcp-config")
+            }
             add("-p")
             add(prompt)
         }
@@ -134,4 +164,35 @@ class DockerClaudeSession(
             return DockerClaudeSession(session, apiKey, model = model)
         }
     }
+}
+
+private val claudeMcpConfigJson = Json
+
+private fun claudeHttpMcpConfig(serverUrl: String, serverName: String): String =
+    encodeClaudeMcpConfig(serverName) {
+        put("type", "http")
+        put("url", serverUrl)
+    }
+
+private fun claudeStdioMcpConfig(command: StdioMcpCommand, serverName: String): String =
+    encodeClaudeMcpConfig(serverName) {
+        put("type", "stdio")
+        put("command", command.command)
+        putJsonArray("args") {
+            command.args.forEach { add(it) }
+        }
+    }
+
+private fun encodeClaudeMcpConfig(
+    serverName: String,
+    serverConfig: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit,
+): String {
+    val config = buildJsonObject {
+        putJsonObject("mcpServers") {
+            putJsonObject(serverName) {
+                serverConfig()
+            }
+        }
+    }
+    return claudeMcpConfigJson.encodeToString(JsonObject.serializer(), config)
 }

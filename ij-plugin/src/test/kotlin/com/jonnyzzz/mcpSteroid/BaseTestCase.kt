@@ -24,6 +24,4 @@ fun BasePlatformTestCase.setServerPortProperties() {
         ?.takeIf { it.isNotBlank() }
         ?: "17820"
     setSystemPropertyForTest("mcp.steroid.server.port", testPort)
-    // Disable review mode for tests
-    setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
 }

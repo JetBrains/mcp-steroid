@@ -1,7 +1,8 @@
 # Design philosophy — read this first
 
-This document is the canonical statement of three tenets that govern every
-change to MCP Steroid: code, tool surface, and prompt resources. It is
+This document is the canonical statement of four tenets that govern every
+change to MCP Steroid: code, tool surface, prompt resources, and the
+devrig CLI. It is
 written for AI agents first (imperative) and human contributors second
 (rationale at the bottom).
 
@@ -19,15 +20,13 @@ A runtime mirror of this file lives at
 ## Tenet 1 — minimal MCP tool surface
 
 **Don't propose new `steroid_*` tools.** MCP Steroid intentionally maintains
-a small set of MCP tools. Today there are 10:
+a small set of MCP tools. Today there are 8:
 
 - `steroid_list_projects`
 - `steroid_list_windows`
 - `steroid_open_project`
 - `steroid_execute_code`
-- `steroid_apply_patch`
 - `steroid_execute_feedback`
-- `steroid_action_discovery`
 - `steroid_take_screenshot`
 - `steroid_input`
 - `steroid_fetch_resource`
@@ -46,6 +45,14 @@ A new tool may be added only when **all** of these are true:
    agree the tool is justified, after reading this file.
 
 Anything short of that — propose a recipe instead.
+
+**Worked example — `steroid_apply_patch` removed.** A dedicated patch tool
+duplicated what `steroid_execute_code` + the in-script `applyPatch { }` DSL
++ `mcp-steroid://ide/apply-patch` already deliver: data-only multi-site
+edits, atomicity, VFS refresh. The tool added schema surface and a forked
+recipe corpus without enabling anything the recipe couldn't. Removing it
+is what Tenet 1 looks like in practice — unlock IDE depth rather than
+optimize a generic edit path.
 
 ## Tenet 2 — power lives in prompts and direct IntelliJ API usage
 
@@ -75,7 +82,62 @@ not just the files"*: the **MCP tool** surface stays narrow on purpose;
 the **IntelliJ capability** surface stays full, exposed via
 `steroid_execute_code` plus prompts.
 
-## Tenet 3 — `McpScriptContext` methods are last-resort
+## Tenet 3 — devrig is stateless
+
+**The `devrig` binary holds no state across calls.** Every CLI
+invocation is a fresh process; `devrig mpc` (the stdio MCP server)
+holds only in-memory caches that live for the duration of the
+session and are rebuilt from scratch on the next process start.
+
+Concretely:
+
+- **No persistent state on disk** is owned by devrig itself.
+  Existing on-disk artefacts (managed-backend installs under
+  `~/.mcp-steroid/backends/`, pid markers under
+  `~/.mcp-steroid/markers/`, the per-binary download cache) are
+  inputs the devrig process *reads*, never something it
+  serialises its own state into.
+- **No cross-call coordination.** Two `devrig` processes against
+  the same `~/.mcp-steroid` directory must work identically to
+  one process; the spec at
+  [`docs/devrig-naming.md`](devrig-naming.md) does not assume
+  exclusive ownership.
+- **In-memory caches are allowed** within one process — the live
+  routing-model snapshot, the marker decoder cache, the
+  managed-backend installer's per-call working set. They die with
+  the process.
+- **Background scanning is implementation-detail, not contract.**
+  Today devrig runs marker / port / per-IDE-stream scanners in the
+  background of `devrig mpc`; whether those stay or get replaced
+  by on-demand rebuild (see
+  [`docs/devrig-scanning-research.md`](devrig-scanning-research.md))
+  is a tactical decision. Neither variant changes the contract
+  callers see.
+
+**Why this matters:**
+
+- The spec's *"every MCP call selects its target from the current
+  snapshot, no in-flight reroute"* contract relies on devrig being
+  reconstructable from scratch on every fresh invocation. There is
+  nothing to "migrate" between versions of devrig.
+- Persistent state would force devrig into the schema-migration
+  business — a tax that doesn't pay back for a CLI whose entire job
+  is to forward MCP calls to running IDEs.
+- The stateless invariant is what lets two devrigs on one workstation
+  (one for each IDE family, or two agents on one machine) coexist
+  cleanly without locking.
+
+**Adding state to devrig requires:**
+
+1. A written argument that the in-memory + on-call-rebuild model
+   genuinely cannot cover the case. "More efficient" is not enough.
+2. Explicit reviewer consensus (`run-agent.sh codex` / `claude` /
+   `gemini`). One reviewer disagreeing kills the proposal.
+3. A migration story for what happens when a future devrig version
+   reads the older state shape — devrig must be deletable + re-
+   installable without losing functionality the user cares about.
+
+## Tenet 4 — `McpScriptContext` methods are last-resort
 
 **Don't add methods to `McpScriptContext` casually.** The helpers
 exposed to scripts running inside `steroid_execute_code` (see
@@ -98,12 +160,14 @@ preference.
 3. The new method must teach an idiom that's reusable across many tasks,
    not specialised to one DPAIA scenario.
 
-**`applyPatch { }` is the canonical example of why we are strict here.**
-The script-context DSL exists, but production guidance routes agents to
-the dedicated `steroid_apply_patch` MCP tool first; the DSL is the
-fallback, not the lead. `mcp-steroid://ide/apply-patch` reflects that
-ordering. New context methods must come with a similar fallback story
-from day one.
+**`applyPatch { }` is the canonical example of how we earn a script-context
+method.** The DSL lives on `McpScriptContext` because composing
+multi-site literal edits with surrounding IntelliJ API work (PSI walk →
+patch → inspections in one read/write cycle) is genuinely worth the
+surface. Production guidance routes agents to the
+`mcp-steroid://ide/apply-patch` recipe inside `steroid_execute_code` —
+there is no dedicated MCP tool wrapping it. New context methods must
+clear the same bar.
 
 ---
 

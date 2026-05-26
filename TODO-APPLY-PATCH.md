@@ -1,81 +1,41 @@
 # TODO: apply-patch feature
 
-The `steroid_apply_patch` MCP tool is **disabled on `main`** as of commit
-`47e03ef2` — its `<mcpRegistrar>` line was removed from `plugin.xml` and the
-matching integration test was deleted. The full feature is preserved on the
-`apply-patch` branch (origin only).
+The `steroid_apply_patch` MCP tool was fully removed from `main` in the
+"cleanup & simplification round" (May 2026). See `TASKS.md` section
+`C3 — Drop steroid_apply_patch; reinforce deep IDE features` for the
+rationale and `docs/PHILOSOPHY.md` Tenet 1 → *Worked example* for the
+canonical statement.
 
-This file collects work items related to the apply-patch feature so the
-main `TASKS.md` (DPAIA / autoresearch flow) does not carry them.
+## What was removed
 
-## Re-enabling on `main`
+- Spec: `mcp-steroid-server/.../server/ApplyPatchTool.kt` (incl. `ApplyPatchRequest`).
+- IJ handler: `ij-plugin/.../server/ApplyPatchToolHandler.kt`.
+- Schema test: `ApplyPatchToolSpecSchemaTest`.
+- Integration test: `ApplyPatchToolIntegrationTest`.
+- Devrig bridge: `DevrigApplyPatchToolHandler` in `npx-kt`.
+- Prompt source: `prompts/.../skill/apply-patch-tool-description.md`.
 
-To turn the feature back on, restore one line in `plugin.xml`:
+## What stays
 
-```xml
-<mcpRegistrar implementation="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandler"/>
-```
+- In-script DSL: `McpScriptContext.applyPatch { hunk(...) }` on every
+  `steroid_execute_code` call. Defined in
+  `ij-plugin/.../execution/ApplyPatch.kt` (`ApplyPatchHunk` moved here
+  from the deleted tool's data classes).
+- Recipe article: `mcp-steroid://ide/apply-patch` — the agent-facing
+  multi-site-edit guide, now framed as a DSL-inside-`steroid_execute_code`
+  pattern.
+- Engine semantics tests: `ij-plugin/.../execution/ApplyPatchTest.kt`
+  pins atomicity / ordering / preflight / dryRun behavior.
 
-…and restore `ApplyPatchToolIntegrationTest.kt` from the `apply-patch`
-branch (or from history at `5a0486ea`).
+## Restoring the MCP tool later
 
-## Outstanding items
+Read `git log --grep="apply_patch"` for the removal commits and `git show`
+each in reverse to bring the surface back. Five removal commits, in order:
 
-- [ ] **Decide the contract on `main`.** The MCP tool is unregistered, but
-  these prompt resources still teach `steroid_apply_patch` as a callable
-  tool. Pick one path and apply it consistently:
-  (a) gate the prompts behind a feature flag,
-  (b) re-route the prompts to the `applyPatch { }` DSL inside
-      `steroid_execute_code`, or
-  (c) re-register the tool on `main`.
+1. `PHILOSOPHY: drop steroid_apply_patch from tool list (10→9)`
+2. `execute_code: wrap user-script body in McpEditingGuard`
+3. `apply_patch: drop the MCP tool surface (keep in-script DSL)`
+4. `arena: route multi-site edits through applyPatch { } DSL`
+5. `prompts: route corpus through applyPatch { } DSL`
 
-  Affected files (all on `main`):
-  - `prompts/src/main/prompts/ide/apply-patch.md` — entire article
-    describes the disabled tool.
-  - `prompts/src/main/prompts/skill/apply-patch-tool-description.md` —
-    ships the tool description for an unregistered tool.
-  - `prompts/src/main/prompts/skill/coding-with-intellij.md:32` — table row
-    "Multi-site literal edit" routes to `steroid_apply_patch`.
-  - `prompts/src/main/prompts/skill/execute-code-tool-description.md:10` —
-    "STOP before the 2nd Edit" guidance recommends `steroid_apply_patch`.
-
-- [ ] **`test-experiments/.../arena/ArenaTestRunner.kt:201,249`** — the arena
-  prompt prepares agents to call `steroid_apply_patch`. Decide whether
-  arena tests on `main` should target the new (no-tool) contract or stay
-  pinned to the feature branch and assert tool availability before running.
-
-- [ ] **`ij-plugin/src/main/kotlin/com/jonnyzzz/mcpSteroid/server/ApplyPatchToolHandler.kt:171,183`**
-  — `runCatching { analyticsBeacon.capture(...) }` swallows analytics
-  exceptions silently. Per `CLAUDE.md` "fail fast and log problems":
-  rewrite as `try { } catch (e: Exception) { log.warn(...) }`, or
-  document why fire-and-forget is acceptable. Currently dead on `main`,
-  active on `apply-patch` branch — fix on the feature branch first so the
-  fix is in place when re-enabled.
-
-- [ ] **`kotlin-cli/src/main/kotlin/com/jonnyzzz/mcpSteroid/koltinc/CodeWrapperForCompilation.kt:32-34`**
-  — re-exports `ApplyPatchBuilder` / `ApplyPatchException` /
-  `ApplyPatchResult` for prompt examples. Compiles fine; the surrounding
-  comment assumes the prompts teach the tool as available, which is no
-  longer true on `main`. Trim the comment or remove the re-exports if the
-  feature stays disabled.
-
-- [ ] **Long-term:** delete the `apply-patch` branch when the contract is
-  finalized. If re-enabled on `main`, merge from the branch then delete it.
-  If permanently dropped, delete the branch and remove the dead handler /
-  engine / tests / prompts from the tree.
-
-## Verification baseline (recorded 2026-04-28, commit `47e03ef2`)
-
-- `:ij-plugin:test --tests '*ApplyPatchTest*'` — engine-level: **9/9 pass**
-  on `main`. The DSL `applyPatch { }` still works inside
-  `steroid_execute_code` because the engine code (`ApplyPatch.kt`,
-  `McpScriptContext.applyPatch`) was deliberately left intact.
-- `:ij-plugin:test --tests '*McpServerIntegrationTest*'` — **30/30 pass**.
-  `tools/list` no longer advertises `steroid_apply_patch`; no other test
-  referenced the removed tool.
-- `:ij-plugin:test --tests '*McpServerCoreTest*' --tests '*McpProtocolTest*' --tests '*FetchResourceToolTest*'`
-  — **36/36 pass**.
-- No force push: `origin/main` `349d649c` → `47e03ef2` (fast-forward),
-  `jb/main` synced via the documented `jb-merge` procedure.
-- `apply-patch` branch published to `origin` only at `349d649c` (preserves
-  the full feature; no jb mirror).
+Don't restore wholesale — re-evaluate against Tenet 1's three gates first.

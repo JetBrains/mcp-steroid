@@ -19,8 +19,6 @@ class ExecutionManagerTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        // Disable review mode for tests
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
     }
 
     private fun getTextContent(result: ToolCallResult): String {

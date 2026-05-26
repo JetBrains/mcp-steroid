@@ -1,0 +1,55 @@
+[
+  {
+    "code": "RD",
+    "releases": [
+      {
+        "build": "261.23567.144",
+        "date": "2026-04-27",
+        "downloads": {
+          "linux": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.tar.gz",
+            "size": 2095721538
+          },
+          "linuxARM64": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.tar.gz",
+            "size": 2080788569
+          },
+          "mac": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.dmg.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.dmg",
+            "size": 2084590018
+          },
+          "macM1": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.dmg.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.dmg",
+            "size": 2113611281
+          },
+          "windows": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.exe.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.exe",
+            "size": 1753993400
+          },
+          "windowsARM64": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.exe.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.exe",
+            "size": 1808048656
+          },
+          "windowsZip": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.win.zip.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1.win.zip",
+            "size": 2429591974
+          },
+          "windowsZipARM64": {
+            "checksumLink": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.win.zip.sha256",
+            "link": "https://download.jetbrains.com/rider/JetBrains.Rider-2026.1.1-aarch64.win.zip",
+            "size": 2526586756
+          }
+        },
+        "type": "release",
+        "version": "2026.1.1"
+      }
+    ]
+  }
+]

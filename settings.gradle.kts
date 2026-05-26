@@ -11,18 +11,22 @@ rootProject.name = "mcp-steroid"
 
 include(":ai-agents")
 include(":agent-output-filter")
+include(":closeable-stack")
 
 include(":prompt-generator")
 include(":kotlin-cli")
 include(":prompts-api")
 include(":prompts")
 include(":intellij-downloader")
+include(":jdk-downloader")
+include(":pgp-verifier")
 
 include(":ij-plugin")
 include(":mcp-core")
 include(":mcp-http")
 include(":mcp-stdio")
 include(":mcp-steroid-server")
+include(":execution-storage")
 
 include(":ocr-common")
 include(":ocr-tesseract")

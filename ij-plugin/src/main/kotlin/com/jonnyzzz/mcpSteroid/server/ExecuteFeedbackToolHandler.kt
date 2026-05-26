@@ -1,20 +1,16 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
-import com.intellij.openapi.application.readAction
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.project.ProjectManager.getInstance
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.mcp.errorResult
 import com.jonnyzzz.mcpSteroid.mcp.successTextResult
-import com.jonnyzzz.mcpSteroid.storage.ExecutionStorage
+import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import com.jonnyzzz.mcpSteroid.updates.analyticsBeacon
 import kotlinx.serialization.json.*
 
 
-class ExecuteFeedbackToolHandlerIJ: ExecuteFeedbackToolHandler {
+class ExecuteFeedbackToolHandlerIJ : ProjectScopedToolHandler(), ExecuteFeedbackToolHandler {
     private val log = thisLogger()
     private val json = Json {
         prettyPrint = true
@@ -23,12 +19,10 @@ class ExecuteFeedbackToolHandlerIJ: ExecuteFeedbackToolHandler {
     override suspend fun handleFeedback(projectName: String, params: FeedbackParams): ToolCallResult {
         log.info("Feedback is submitted: " + json.encodeToString(params))
 
-        val project = readAction {
-            getInstance().openProjects.find { it.name == projectName }
-        } ?: return ToolCallResult.errorResult("Project not found: $projectName")
+        val project = resolveProject(projectName)
 
         try {
-            val executionStorage = project.service<ExecutionStorage>()
+            val executionStorage = project.executionStorage
             val executionId = executionStorage.writeExecutionFeedback(taskId = params.taskId, params)
             params.code?.let { code ->
                 executionStorage.writeCodeExecutionData(executionId, "script.kts", code)

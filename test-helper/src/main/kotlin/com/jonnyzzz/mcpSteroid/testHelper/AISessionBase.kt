@@ -35,8 +35,8 @@ abstract class AIContainerBase(
 ) : AiAgentSession {
 //     = this.ComCompanion.displayName
 
-    override fun registerNpxKtMcp(installDir: File, mcpName: String) {
-        registerNpxMcp(session.installNpxKtMcp(installDir), mcpName)
+    override fun registerDevrigMcp(installDir: File, mcpName: String) {
+        registerStdioMcp(session.installDevrigMcp(installDir), mcpName)
     }
 }
 

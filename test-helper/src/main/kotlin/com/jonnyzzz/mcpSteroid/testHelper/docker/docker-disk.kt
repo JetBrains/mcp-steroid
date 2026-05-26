@@ -20,10 +20,10 @@ fun ContainerDriver.copyFromContainer(containerPath: String, localPath: File) {
     newRunOnHost()
         .command("docker", "cp", "$containerId:$containerPath", localPath.absolutePath)
         .description("Copy container:$containerPath to ${localPath.name}")
-        .timeoutSeconds(30L)
+        .timeoutSeconds(300L)
         .quietly()
         .startProcess()
-        .assertExitCode(0) { "Failed to copy to container: $localPath: $stderr" }
+        .assertExitCode(0) { "Failed to copy from container: $containerPath to $localPath: $stderr" }
 }
 
 fun ContainerDriver.copyToContainer(localPath: File, containerPath: String) {
@@ -49,7 +49,7 @@ fun ContainerDriver.writeFileInContainer(
 
     startProcessInContainer {
         this
-            .args("bash", "-c", "cat > $containerPath << 'FILE_EOF'\n$content\nFILE_EOF")
+            .args("bash", "-c", "cat > ${shellQuote(containerPath)} << 'FILE_EOF'\n$content\nFILE_EOF")
             .description("Write content to $containerPath")
             .timeoutSeconds(5)
             .quietly()
@@ -65,3 +65,6 @@ fun ContainerDriver.writeFileInContainer(
         }.assertExitCode(0) { "Failed to chmod the created file in container to $containerPath: $stderr" }
     }
 }
+
+private fun shellQuote(value: String): String =
+    "'" + value.replace("'", "'\"'\"'") + "'"

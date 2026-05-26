@@ -72,28 +72,53 @@ class FindDuplicatesPromptTest {
         assertUsedExecuteCodeEvidence(combined)
         console.writeSuccess("execute_code evidence found")
 
-        // 2) Agent used IntelliJ's bundled DuplicatedCode feature — not a grep/regex/Bash substitute.
-        //    Concretely, evidence of the duplicates-detector classes in the agent's transcript.
-        console.writeInfo("Checking: agent used IntelliJ's DuplicatedCode feature")
-        val duplicateFeatureSignals = listOf(
+        // 2) Agent used one of the two IDE-based recipes from mcp-steroid://ide/find-duplicates —
+        //    NOT a grep/regex/Bash substitute (issue #33's whole point). Both recipes are valid:
+        //
+        //    - Cross-check recipe: bundled `DuplicatedCode` inspection (warm-index, broader clones).
+        //      Signals: DuplicateInspection / DuplicateProblemDescriptor / DuplicatedCode / com.jetbrains.clones.
+        //    - Primary recipe: PSI body comparison (fresh-session-safe, exact bodies).
+        //      Signals: KtNamedFunction.bodyBlockExpression / PsiMethod.body / byBody.
+        //
+        //    Article's "Agent fast path" callout intentionally steers fresh sessions to the Primary
+        //    recipe (S5 iter7 reorder, commit 34a36912) because the Cross-check silently returns 0
+        //    clusters when the HashFragmentIndex isn't warm. Accepting either set of signals here
+        //    matches the article's contract.
+        console.writeInfo("Checking: agent used one of the IDE-based find-duplicates recipes")
+        val crossCheckSignals = listOf(
             "DuplicateInspection",
             "DuplicateProblemDescriptor",
             "DuplicatedCode",
             "com.jetbrains.clones",
         )
-        val featureHits = duplicateFeatureSignals.filter { combined.contains(it) }
+        val primaryRecipeSignals = listOf(
+            "KtNamedFunction",
+            "bodyBlockExpression",
+            "PsiMethod",
+            "PsiTreeUtil.collectElementsOfType",
+        )
+        val crossCheckHits = crossCheckSignals.filter { combined.contains(it) }
+        val primaryHits = primaryRecipeSignals.filter { combined.contains(it) }
+        val featureHits = crossCheckHits + primaryHits
         check(featureHits.isNotEmpty()) {
             buildString {
-                appendLine("[${agent.displayName}] Agent did not use IntelliJ's bundled DuplicatedCode feature.")
-                appendLine("Expected at least one of: $duplicateFeatureSignals in the agent transcript.")
+                appendLine("[${agent.displayName}] Agent did not use either IDE-based recipe from mcp-steroid://ide/find-duplicates.")
+                appendLine("Expected at least one of:")
+                appendLine("  - Cross-check signals: $crossCheckSignals")
+                appendLine("  - Primary recipe signals: $primaryRecipeSignals")
                 appendLine()
                 appendLine("Agents that 'find duplicates' by grep/regex/Bash without invoking the IDE's")
-                appendLine("DuplicatedCode inspection fail this test — that is the whole point of issue #33.")
+                appendLine("PSI APIs or DuplicatedCode inspection fail this test — that is the whole point of issue #33.")
                 appendLine("The skill guides should steer them toward `mcp-steroid://ide/find-duplicates`.")
                 appendLine("Output:\n$combined")
             }
         }
-        console.writeSuccess("DuplicatedCode feature signals: $featureHits")
+        val pathTaken = when {
+            primaryHits.isNotEmpty() && crossCheckHits.isNotEmpty() -> "Primary + Cross-check"
+            primaryHits.isNotEmpty() -> "Primary recipe (PSI body comparison)"
+            else -> "Cross-check recipe (DuplicatedCode inspection)"
+        }
+        console.writeSuccess("IDE recipe used: $pathTaken (signals: $featureHits)")
 
         // 3) Agent's FINAL recipe call did not reach for private-field reflection.
         //    Probing reflection earlier (to learn the API) is allowed by policy; using it
@@ -227,6 +252,17 @@ class FindDuplicatesPromptTest {
                         val args: JsonObject? = item["arguments"]?.let { runCatching { it.jsonObject }.getOrNull() }
                             ?: item["input"]?.let { runCatching { it.jsonObject }.getOrNull() }
                         val code = args?.get("code")?.jsonPrimitive?.contentOrNull
+                        if (!code.isNullOrEmpty()) codes += code
+                    }
+                }
+                // Gemini format: ROOT object with type=tool_use, tool_name, parameters.
+                // Tool name shape is `mcp_<server-slug>_<tool-name>` with a SINGLE
+                // underscore between the prefix and the server slug (Claude uses
+                // `mcp__<server>__<tool>`), so a simple `endsWith` check matches.
+                if (obj["type"]?.jsonPrimitive?.contentOrNull == "tool_use") {
+                    val toolName = obj["tool_name"]?.jsonPrimitive?.contentOrNull
+                    if (toolName != null && toolName.endsWith("steroid_execute_code")) {
+                        val code = obj["parameters"]?.jsonObject?.get("code")?.jsonPrimitive?.contentOrNull
                         if (!code.isNullOrEmpty()) codes += code
                     }
                 }

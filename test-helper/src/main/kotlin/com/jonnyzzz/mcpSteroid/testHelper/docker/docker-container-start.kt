@@ -19,6 +19,7 @@ data class StartContainerRequest private constructor(
     val ports: List<ContainerPort> = emptyList(),
     val entryPoint: List<String> = emptyList(),
     val autoRemove: Boolean = true,
+    val init: Boolean = false,
     val quietly: Boolean = false,
     val timeout: Duration = Duration.ofMinutes(5),
 ) {
@@ -37,6 +38,7 @@ data class StartContainerRequest private constructor(
     fun entryPoint(args: List<String>) = copy(entryPoint = args)
     fun entryPoint(vararg args: String) = entryPoint(args.toList())
     fun autoRemove(autoRemove: Boolean) = copy(autoRemove = autoRemove)
+    fun enableInit() = copy(init = true)
     fun timeout(timeout: Duration) = copy(timeout = timeout)
     fun quietly() = copy(quietly = true)
 }
@@ -52,6 +54,7 @@ fun startDockerContainerAndForget(
         add("run")
         add("-d")
         if (request.autoRemove) add("--rm")
+        if (request.init) add("--init")
         add("--add-host=host.docker.internal:host-gateway")
 
         // NOTE: we deliberately do NOT pass --user $(id -u):$(id -g). Tried

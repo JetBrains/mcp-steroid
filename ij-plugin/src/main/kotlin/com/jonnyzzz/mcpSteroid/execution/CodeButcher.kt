@@ -21,10 +21,7 @@ class CodeButcher {
         val lineMapping: LineMapping = LineMapping.IDENTITY,
     )
 
-    /**
-     * Wrap user code with imports and execute binding.
-     * This is exposed so the review can show the final code.
-     */
+    /** Wrap user code with imports and execute binding. */
     fun wrapToKotlinClass(scriptClassName: String, code: String): ScriptCoordinates {
         val result = CodeWrapperForCompilation.wrap(
             className = scriptClassName,

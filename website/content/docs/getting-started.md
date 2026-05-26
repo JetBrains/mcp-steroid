@@ -30,8 +30,8 @@ MCP Steroid is distributed as an IntelliJ plugin. Currently, in early access - [
 
 ## Connecting Your AI Agent
 
-When the plugin starts, it automatically creates a description file at `.idea/mcp-steroid.md` in each open project. 
-This file contains all necessary instruction for you to continue. 
+When the plugin starts, it automatically creates a description file at `.idea/mcp-steroid.md` in each open project.
+This file contains all necessary instruction for you to continue.
 
 Verify the connection:
 ```bash
@@ -43,16 +43,6 @@ gemini "List all open projects using steroid_list_projects"
 Any MCP-compatible client can connect using the HTTP/SSE transport at the server URL.
 
 We recommend you to aks your AI Agent to use IntelliJ APIs and use IntelliJ while it is working.
-
-## Human Review Mode
-
-By default, MCP Steroid requires human approval for all code execution (**ALWAYS** mode). When your AI Agent sends code:
-
-1. A notification appears in IntelliJ
-2. You can review, edit, or reject the code
-3. Only approved code gets executed
-
-This ensures you maintain full control over what runs in your IDE. You can change that via the Registry..., look for `mcp.steroid.*` keys.
 
 ## Use Cases & Examples
 
@@ -87,5 +77,5 @@ For more troubleshooting help, see [GitHub Issues](https://github.com/jonnyzzz/m
 
 ## Next Steps
 
-- [Configuration Options](/docs/configuration/) - Customize server settings, timeouts, and review mode
+- [Configuration Options](/docs/configuration/) - Customize server settings and timeouts
 - [GitHub Issues](https://github.com/jonnyzzz/mcp-steroid/issues) - Report bugs or request features

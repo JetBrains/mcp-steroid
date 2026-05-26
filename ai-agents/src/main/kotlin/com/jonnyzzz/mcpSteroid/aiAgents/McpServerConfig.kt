@@ -3,7 +3,7 @@ package com.jonnyzzz.mcpSteroid.aiAgents
 
 import kotlin.collections.plus
 
-private const val DEFAULT_SERVER_NAME = "mcp-steroid"
+const val DEFAULT_SERVER_NAME = "mcp-steroid"
 
 /**
  * Structured model of the MCP server connection info.

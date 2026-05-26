@@ -1,0 +1,55 @@
+[
+  {
+    "code": "PCC",
+    "releases": [
+      {
+        "build": "252.28539.58",
+        "date": "2026-04-30",
+        "downloads": {
+          "linux": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.tar.gz",
+            "size": 921635353
+          },
+          "linuxARM64": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.tar.gz",
+            "size": 919455097
+          },
+          "mac": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.dmg.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.dmg",
+            "size": 1005645773
+          },
+          "macM1": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.dmg.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.dmg",
+            "size": 994094706
+          },
+          "windows": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.exe.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.exe",
+            "size": 805305944
+          },
+          "windowsARM64": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.exe.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.exe",
+            "size": 654906512
+          },
+          "windowsZip": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.win.zip.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1.win.zip",
+            "size": 1069093846
+          },
+          "windowsZipARM64": {
+            "checksumLink": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.win.zip.sha256",
+            "link": "https://download.jetbrains.com/python/pycharm-community-2025.2.6.1-aarch64.win.zip",
+            "size": 911816819
+          }
+        },
+        "type": "release",
+        "version": "2025.2.6.1"
+      }
+    ]
+  }
+]

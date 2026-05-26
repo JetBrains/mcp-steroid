@@ -1,0 +1,50 @@
+[
+  {
+    "code": "IIC",
+    "releases": [
+      {
+        "build": "252.28539.54",
+        "date": "2026-04-30",
+        "downloads": {
+          "linux": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.tar.gz",
+            "size": 1212721037
+          },
+          "linuxARM64": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.tar.gz",
+            "size": 1210177845
+          },
+          "mac": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.dmg.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.dmg",
+            "size": 1272355417
+          },
+          "macM1": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.dmg.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.dmg",
+            "size": 1260809163
+          },
+          "windows": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.exe.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.exe",
+            "size": 993349720
+          },
+          "windowsARM64": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.exe.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.exe",
+            "size": 842694200
+          },
+          "windowsZip": {
+            "checksumLink": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.win.zip.sha256",
+            "link": "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2.win.zip",
+            "size": 1349261848
+          }
+        },
+        "type": "release",
+        "version": "2025.2.6.2"
+      }
+    ]
+  }
+]

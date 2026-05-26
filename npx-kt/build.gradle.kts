@@ -1,4 +1,10 @@
+import com.jonnyzzz.mcpSteroid.gradle.GenerateMetadataTask
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.gradle.api.attributes.Usage
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.security.MessageDigest
+import java.util.SortedSet
 
 plugins {
     application
@@ -14,12 +20,86 @@ repositories {
 
 val ktorVersion = "3.1.0"
 
+fun sha512(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-512")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val bytesRead = input.read(buffer)
+            if (bytesRead < 0) break
+            if (bytesRead > 0) digest.update(buffer, 0, bytesRead)
+        }
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
+
+fun stableJson(value: Any?): String = JsonOutput.prettyPrint(JsonOutput.toJson(value)) + "\n"
+
+fun requireJsonString(row: Map<*, *>, rowIndex: Int, key: String): String {
+    val value = row[key]
+    require(value is String) {
+        "jdk-manifest.json row $rowIndex field '$key' must be a string, got ${value?.let { it::class.qualifiedName } ?: "null"}"
+    }
+    return value
+}
+
+fun parseJdkManifest(json: String): List<LinkedHashMap<String, Any?>> {
+    val parsed = JsonSlurper().parseText(json)
+    require(parsed is List<*>) { "jdk-manifest.json must be a JSON array" }
+    return parsed.mapIndexed { index, item ->
+        val row = item as? Map<*, *> ?: error("jdk-manifest.json row $index must be an object")
+        linkedMapOf<String, Any?>(
+            "name" to requireJsonString(row, index, "name"),
+            "os" to requireJsonString(row, index, "os"),
+            "cpu" to requireJsonString(row, index, "cpu"),
+            "downloadUrl" to requireJsonString(row, index, "downloadUrl"),
+            "sha-512" to requireJsonString(row, index, "sha-512"),
+        )
+    }
+}
+
+// Resolvable: pulls :ij-plugin's `buildPlugin` archive through the "plugin-zip"
+// Usage attribute (same hook :test-integration uses). The distribution bundles
+// this archive directly as ij-plugin.zip.
+val ijPluginZip by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "plugin-zip"))
+    }
+}
+
+// Resolvable: pulls :intellij-downloader's extracted 7-Zip binaries
+// tree through the "seven-zip-binaries" Usage attribute. The directory
+// (not a zip) lands here so distZip can copy it verbatim into 7z/.
+val sevenZipBinaries by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "seven-zip-binaries"))
+    }
+}
+
+// Resolvable: pulls :jdk-downloader's generated JDK URL + SHA-512 manifest.
+// The future bootstrapper consumes this metadata instead of bundled JDK trees.
+val jdkManifest by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "jdk-manifest"))
+    }
+}
+
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("com.github.ajalt.clikt:clikt:4.4.0")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
     implementation("com.posthog:posthog-server:2.3.0")
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation(project(":closeable-stack"))
+    implementation(project(":ai-agents"))
 
     // MCP transport: framed/NDJSON parser + McpStdioServer (replaces the old
     // StdioServer in this module — kept compiled but no longer wired into main()).
@@ -29,33 +109,165 @@ dependencies {
     // Brings :mcp-core and :prompts transitively.
     implementation(project(":mcp-steroid-server"))
 
+    // IDE-free ExecutionStorage core. Lets devrig persist execution
+    // history with the same on-disk layout the IntelliJ plugin uses, so
+    // downstream tooling that reads .idea/mcp-steroid/{eid}/ artefacts
+    // works against both backends without conditional logic.
+    implementation(project(":execution-storage"))
+
+    // Managed backends reuse the existing IntelliJ downloader/unpacker instead
+    // of carrying a second product-feed / archive-extraction implementation.
+    implementation(project(":intellij-downloader"))
+
+    // Bundles :ij-plugin's buildPlugin archive into the distZip as ij-plugin.zip.
+    // Resolved through the `ijPluginZip` configuration above.
+    ijPluginZip(project(":ij-plugin"))
+
+    // Bundles :intellij-downloader's extracted 7-Zip binaries into the distZip under 7z/.
+    // Resolved through the `sevenZipBinaries` configuration above.
+    sevenZipBinaries(project(":intellij-downloader"))
+
+    // Consumes :jdk-downloader's JDK package rows for build/version.json.
+    jdkManifest(project(":jdk-downloader"))
+
     // SLF4J binding for the launcher. We use Logback (not slf4j-simple) so
     // operators can drop in a `logback.xml` to add appenders, change levels,
     // or route specific loggers — slf4j-simple has no real configuration
     // surface. The bundled `logback.xml` (in src/main/resources) routes
     // everything to stderr only — never stdout, which is reserved for MCP
     // NDJSON frames.
-    runtimeOnly("ch.qos.logback:logback-classic:1.5.18")
+    implementation("ch.qos.logback:logback-classic:1.5.32")
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    // Spin up an in-process Ktor server in monitor round-trip tests so the
+    // monitor's HTTP client talks to a real socket. testImplementation only —
+    // the production `devrig` binary stays a pure ktor-client.
+    testImplementation("io.ktor:ktor-server-core:$ktorVersion")
+    testImplementation("io.ktor:ktor-server-cio:$ktorVersion")
+
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 application {
-    applicationName = "mcp-steroid-proxy"
-    mainClass.set("com.jonnyzzz.mcpSteroid.proxy.MainKt")
+    applicationName = "devrig"
+    mainClass.set("com.jonnyzzz.mcpSteroid.devrig.MainKt")
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+}
+
+tasks.jar {
+    archiveBaseName.set("devrig")
+}
+
+tasks.distZip {
+    archiveBaseName.set("devrig")
+}
+
+tasks.distTar {
+    archiveBaseName.set("devrig")
+}
+
+tasks.startScripts {
+    doFirst {
+        outputDir?.deleteRecursively()
+    }
+}
+
+// Provider<File> for the resolved plugin zip — derived from `Configuration.elements`
+// so Gradle carries the task dependency on `:ij-plugin:buildPlugin` through into
+// downstream tasks automatically. Going through `ijPluginZip.singleFile` is eager
+// and strips the Buildable, leaving the consumer without a path to producing the zip.
+val ijPluginZipFile = ijPluginZip.elements.map { it.single().asFile }
+val jdkManifestFile = jdkManifest.elements.map { it.single().asFile }
+val sevenZipBinariesDir = sevenZipBinaries.elements.map { it.single().asFile }
+val sevenZipLicenseFile = sevenZipBinariesDir.map { it.resolve("7z/License.txt") }
+
+distributions {
+    main {
+        contents {
+            // Repo-root EULA — same file `:ij-plugin` already ships inside its
+            // plugin zip. Bundled at the devrig dist root so the binary carries
+            // its own license text alongside the launcher and bundled plugin.
+            from(rootProject.layout.projectDirectory.file("EULA"))
+
+            // Keep the plugin as the original archive. Managed backend install
+            // expands it on demand, which avoids re-packing the plugin payload and
+            // preserves the mode bits recorded by :ij-plugin.
+            from(ijPluginZipFile) {
+                rename { "ij-plugin.zip" }
+            }
+
+            // 7-Zip binaries from :intellij-downloader's extractSevenZipResources.
+            // Bundled unpacked at the dist root under `7z/<platform>/` so devrig
+            // can call <install>/7z/<platform>/7zz directly — no extraction-on-
+            // first-use detour. The +x bit is preserved on the 7zz binaries.
+            from(sevenZipBinariesDir) {
+                eachFile {
+                    if (file.canExecute()) {
+                        permissions { unix("rwxr-xr-x") }
+                    }
+                }
+            }
+
+            // Operator-facing license consolidation. The component-local copies
+            // remain in place; these entries give admins one index under licenses/.
+            into("licenses/seven-zip") {
+                from(sevenZipLicenseFile)
+            }
+            into("licenses/mcp-steroid") {
+                from(rootProject.layout.projectDirectory.file("EULA"))
+            }
+
+            // JDK bundling intentionally disabled — see TODO-NPX-BOOTSTRAPPER.md; devrig expects Java on PATH today, version.json will tell future bootstraps which Corretto build to fetch.
+        }
+    }
 }
 
 tasks.test {
     useJUnitPlatform()
+    // Hand the build's project.version through to DevrigVersionMetadataTest so it can
+    // end-to-end-assert the generated runtime value.
+    systemProperty("devrig.expected.version", version.toString())
 }
 
 kotlin {
     jvmToolchain(21)
 }
 
+// `project.version` rendered as a String once so both the metadata generator
+// (just below) and the bundled-libraries verifier (further down) can use it without
+// re-evaluating Gradle's Provider chain.
+val devrigVersion: String = version.toString()
+
+// Generate the same encoded Kotlin metadata shape as :ij-plugin's PluginMetadata,
+// but in devrig's package so runtime version reporting needs no classpath
+// resource fallback.
+val generatedSourcesPath = layout.buildDirectory.dir("generated/kotlin")
+val generateDevrigVersionMetadata by tasks.registering(GenerateMetadataTask::class) {
+    group = "build"
+    description = "Generate encoded devrig version metadata"
+
+    versionString.set(devrigVersion)
+    packageName.set("com.jonnyzzz.mcpSteroid.devrig")
+    fileName.set("DevrigVersionMetadata")
+    objectName.set("DevrigVersionMetadata")
+    functionName.set("getDevrigVersion")
+    functionKdoc.set("devrig version (encoded)")
+    outputFile.set(generatedSourcesPath.map { it.file("DevrigVersionMetadata.kt") })
+}
+
+kotlin.sourceSets.main {
+    kotlin.srcDir(generatedSourcesPath)
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    dependsOn(generateDevrigVersionMetadata)
+}
+
 // Dedicated source set for stdio MCP server integration tests
-// (CliMcpStdioIntegrationTest). The tests spawn `bin/mcp-steroid-proxy` from the
+// (CliMcpStdioIntegrationTest). The tests spawn `bin/devrig` from the
 // `installDist` output as a subprocess and exchange JSON-RPC frames over stdio.
 // They are NOT part of the default `:npx-kt:test` run — invoke explicitly via
 // `./gradlew :npx-kt:integrationTest`.
@@ -82,7 +294,15 @@ dependencies {
     "integrationTestImplementation"(project(":ai-agents"))
 }
 
-val installDistTask = tasks.named<Sync>("installDist")
+val installDistTask = tasks.named<Sync>("installDist") {
+    doFirst {
+        destinationDir.takeIf { it.exists() }?.walkBottomUp()?.forEach { file ->
+            if (!file.setWritable(true)) {
+                logger.debug("installDist pre-clean: could not chmod +w on {}", file)
+            }
+        }
+    }
+}
 
 tasks.register<Test>("integrationTest") {
     description = "Stdio MCP server integration tests (subprocess-driven). Requires installDist."
@@ -99,22 +319,295 @@ tasks.register<Test>("integrationTest") {
     }
     inputs.file(launcherProvider)
     doFirst {
-        systemProperty("npx.kt.launcher", launcherProvider.get().absolutePath)
+        systemProperty("devrig.launcher", launcherProvider.get().absolutePath)
     }
 }
 
-val npxKtPackageElements by configurations.creating {
+val devrigPackageElements by configurations.creating {
     isCanBeConsumed = true
     isCanBeResolved = false
     attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "npx-kt-package"))
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "devrig-package"))
     }
 }
 
 artifacts {
-    add(npxKtPackageElements.name, tasks.distZip)
+    add(devrigPackageElements.name, tasks.distZip)
+}
+
+val generateVersionJson by tasks.registering {
+    group = "build"
+    description = "Emit the devrig version.json manifest"
+    dependsOn(tasks.distZip)
+    inputs.file(jdkManifestFile).withPropertyName("jdkManifest")
+    inputs.file(ijPluginZipFile).withPropertyName("ijPluginZip")
+    inputs.file(tasks.distZip.flatMap { it.archiveFile }).withPropertyName("distZip")
+    val projectVersion = project.provider { project.version.toString() }
+    inputs.property("projectVersion", projectVersion)
+    val outputFile = layout.buildDirectory.file("version.json")
+    outputs.file(outputFile)
+
+    doLast {
+        val jdkEntries = parseJdkManifest(jdkManifestFile.get().readText())
+        val baseUrl = "https://github.com/jonnyzzz/mcp-steroid/releases/download/v${projectVersion.get()}"
+
+        val distZip = tasks.distZip.get().archiveFile.get().asFile
+        val pluginZip = ijPluginZipFile.get()
+
+        val devrigEntry = linkedMapOf<String, Any?>(
+            "name" to "devrig",
+            "downloadUrl" to "$baseUrl/${distZip.name}",
+            "sha-512" to sha512(distZip),
+        )
+        val ijPluginEntry = linkedMapOf<String, Any?>(
+            "name" to "ij-plugin",
+            "downloadUrl" to "$baseUrl/${pluginZip.name}",
+            "sha-512" to sha512(pluginZip),
+        )
+        val signature = linkedMapOf<String, Any?>(
+            "algorithm" to "pgp",
+            "status" to "unsigned-dev-build",
+            "value" to null,
+        )
+        val manifest = linkedMapOf<String, Any?>(
+            "packages" to jdkEntries + listOf(devrigEntry, ijPluginEntry),
+            "signature" to signature,
+        )
+
+        val file = outputFile.get().asFile
+        file.parentFile.mkdirs()
+        file.writeText(stableJson(manifest))
+    }
 }
 
 tasks.named("assemble") {
+    dependsOn(tasks.distZip, generateVersionJson)
+}
+
+// Modelled on :ij-plugin's `verifyBundledLibraries`. Locks down what `distZip` ships so
+// transitive-dependency churn (a coroutine update, a Ktor bump, a new internal module)
+// fails the build instead of silently changing what end users `npx`-install. Update
+// `expectedFiles` below when the change is intentional.
+val verifyBundledLibraries by tasks.registering {
+    group = "verification"
+    description = "List and verify libraries bundled in the devrig distZip"
     dependsOn(tasks.distZip)
+    doLast {
+        val zip = tasks.distZip.get().outputs.files.singleFile
+
+        var allFiles: SortedSet<String> = run {
+            val collected = mutableListOf<String>()
+            zipTree(zip).visit {
+                if (!isDirectory) {
+                    val path = relativePath.pathString
+                    collected += if (permissions.user.execute) "$path:X" else path
+                }
+            }
+            collected
+        }.toSortedSet()
+
+        // distZip puts everything under a top-level `<archiveBaseName>-<version>/` dir
+        // (the `application` plugin convention). Strip that prefix so the expected list
+        // doesn't have to repeat it on every line.
+        val distName = tasks.distZip.get().archiveFile.get().asFile.nameWithoutExtension
+        val pluginPrefix = "$distName/"
+        check(allFiles.all { it.startsWith(pluginPrefix) }) {
+            "Entries must live under '$pluginPrefix': " + allFiles.map { it.substringBefore('/') }.toSortedSet()
+        }
+        allFiles = allFiles.map { it.removePrefix(pluginPrefix) }.toSortedSet()
+        check(allFiles.isNotEmpty()) { "distZip has no entries" }
+
+        val ijPluginZipEntry = "ij-plugin.zip"
+        check(ijPluginZipEntry in allFiles) {
+            "Expected $ijPluginZipEntry to be bundled in $distName"
+        }
+        check("$ijPluginZipEntry:X" !in allFiles) {
+            "$ijPluginZipEntry must not be marked executable"
+        }
+        // licenses/ subtree: additive operator-facing consolidation of each
+        // bundled component's license files. Original component-local copies stay
+        // under 7z/ and inside ij-plugin.zip.
+        val licensesPrefix = "licenses/"
+        val licensesFiles = allFiles.filter { it.startsWith(licensesPrefix) }.toSortedSet()
+        check(licensesFiles.isNotEmpty()) {
+            "licenses/ subtree must be populated in $distName"
+        }
+
+        val expectedLicensesFiles = sortedSetOf(
+            "licenses/README.md",
+            "licenses/seven-zip/License.txt",
+            "licenses/mcp-steroid/EULA",
+        )
+        if (licensesFiles != expectedLicensesFiles) {
+            val missing = expectedLicensesFiles - licensesFiles
+            val unexpected = licensesFiles - expectedLicensesFiles
+            throw GradleException(buildString {
+                appendLine("licenses/ subtree mismatch in :npx-kt devrig distZip!")
+                if (missing.isNotEmpty()) {
+                    appendLine("Missing entries:")
+                    missing.forEach { appendLine("  - $it") }
+                }
+                if (unexpected.isNotEmpty()) {
+                    appendLine("Unexpected entries:")
+                    unexpected.forEach { appendLine("  - $it") }
+                }
+                appendLine()
+                appendLine("Update `expectedLicensesFiles` in npx-kt/build.gradle.kts if this change is intentional.")
+            })
+        }
+        expectedLicensesFiles.forEach { sentinel ->
+            check(sentinel in licensesFiles) {
+                "licenses/ subtree missing sentinel '$sentinel'"
+            }
+        }
+        allFiles = (allFiles - licensesFiles).toSortedSet()
+
+        // 7z/ subtree: :intellij-downloader enforces the source layout; this task
+        // checks the distZip copy is present, contains no surprise entries, and
+        // keeps license files non-executable. The Windows 7z.exe bit is intentionally
+        // not pinned: POSIX build hosts may or may not preserve +x, and Windows ignores it.
+        val sevenZipPrefix = "7z/"
+        val sevenZipFiles = allFiles.filter { it.startsWith(sevenZipPrefix) }.toSortedSet()
+        check(sevenZipFiles.isNotEmpty()) {
+            "Expected 7z/ subtree to be populated in $distName"
+        }
+        val expectedSevenZipFiles = sortedSetOf(
+            "7z/License.txt",
+            "7z/win-x64/7z.exe",
+            "7z/win-x64/7z.dll",
+            "7z/win-x64/License.txt",
+        )
+        expectedSevenZipFiles.forEach { sentinel ->
+            check(sevenZipFiles.any { it.removeSuffix(":X") == sentinel }) {
+                "7z/ subtree is missing sentinel '$sentinel'. Present entries: " +
+                        sevenZipFiles.joinToString("\n  ", prefix = "\n  ")
+            }
+        }
+        listOf(
+            "7z/License.txt",
+            "7z/win-x64/License.txt",
+        ).forEach { licensePath ->
+            check("$licensePath:X" !in sevenZipFiles) {
+                "7z/ subtree wrongly marked '$licensePath' executable; license files must stay non-executable."
+            }
+        }
+        val unexpectedSevenZipFiles = sevenZipFiles
+            .filter { it.removeSuffix(":X") !in expectedSevenZipFiles }
+            .toSortedSet()
+        check(unexpectedSevenZipFiles.isEmpty()) {
+            "7z/ subtree has unexpected entries: " + unexpectedSevenZipFiles.joinToString("\n  ", prefix = "\n  ")
+        }
+        allFiles = (allFiles - sevenZipFiles).toSortedSet()
+
+        val expectedFiles = sortedSetOf(
+            // EULA — repo-root EULA at the distribution root, mirroring the
+            // copy `:ij-plugin` ships inside its plugin zip.
+            "EULA",
+            "ij-plugin.zip",
+
+            // Launchers — the `application` plugin marks BOTH executable in the zip
+            // (Windows ignores the bit; Unix needs it for the shell launcher).
+            "bin/devrig:X",
+            "bin/devrig.bat:X",
+
+            // Internal jars (this project + sibling subprojects).
+            "lib/devrig-$devrigVersion.jar",
+            "lib/ai-agents-$devrigVersion.jar",
+            "lib/closeable-stack-$devrigVersion.jar",
+            "lib/execution-storage-$devrigVersion.jar",
+            "lib/intellij-downloader-$devrigVersion.jar",
+            "lib/mcp-core-$devrigVersion.jar",
+            "lib/mcp-steroid-server-$devrigVersion.jar",
+            "lib/mcp-stdio-$devrigVersion.jar",
+            "lib/prompts-$devrigVersion.jar",
+            "lib/prompts-api-$devrigVersion.jar",
+
+            // Kotlin runtime.
+            "lib/kotlin-stdlib-2.2.20.jar",
+            "lib/kotlin-stdlib-jdk7-2.2.20.jar",
+            "lib/kotlin-stdlib-jdk8-2.2.20.jar",
+            "lib/kotlinx-coroutines-core-jvm-1.10.1.jar",
+            "lib/kotlinx-coroutines-slf4j-1.10.1.jar",
+            "lib/kotlinx-io-bytestring-jvm-0.6.0.jar",
+            "lib/kotlinx-io-core-jvm-0.6.0.jar",
+            "lib/kotlinx-serialization-core-jvm-1.9.0.jar",
+            "lib/kotlinx-serialization-json-jvm-1.9.0.jar",
+
+            // CLI parsing (Clikt) and its terminal/help rendering transitives.
+            "lib/clikt-jvm.jar",
+            "lib/colormath-jvm.jar",
+            "lib/fastutil-core-8.5.12.jar",
+            "lib/jna-5.14.0.jar",
+            "lib/markdown-jvm-0.7.0.jar",
+            "lib/mordant-jvm.jar",
+
+            // Ktor client transitives (CIO engine).
+            "lib/ktor-client-cio-jvm-3.1.0.jar",
+            "lib/ktor-client-core-jvm-3.1.0.jar",
+            "lib/ktor-events-jvm-3.1.0.jar",
+            "lib/ktor-http-cio-jvm-3.1.0.jar",
+            "lib/ktor-http-jvm-3.1.0.jar",
+            "lib/ktor-io-jvm-3.1.0.jar",
+            "lib/ktor-network-jvm-3.1.0.jar",
+            "lib/ktor-network-tls-jvm-3.1.0.jar",
+            "lib/ktor-serialization-jvm-3.1.0.jar",
+            "lib/ktor-sse-jvm-3.1.0.jar",
+            "lib/ktor-utils-jvm-3.1.0.jar",
+            "lib/ktor-websocket-serialization-jvm-3.1.0.jar",
+            "lib/ktor-websockets-jvm-3.1.0.jar",
+
+            // Analytics + HTTP transitives.
+            "lib/posthog-6.4.0.jar",
+            "lib/posthog-server-2.3.0.jar",
+            "lib/okhttp-4.11.0.jar",
+            "lib/okio-jvm-3.2.0.jar",
+            "lib/gson-2.10.1.jar",
+
+            // SLF4J + Logback (production logging binding).
+            "lib/logback-classic-1.5.32.jar",
+            "lib/logback-core-1.5.32.jar",
+            "lib/slf4j-api-2.0.17.jar",
+
+            // Other transitives.
+            "lib/annotations-23.0.0.jar",
+            "lib/commons-codec-1.19.0.jar",
+            "lib/commons-compress-1.28.0.jar",
+            "lib/commons-io-2.20.0.jar",
+            "lib/commons-lang3-3.18.0.jar",
+            "lib/xz-1.10.jar",
+        ).toSortedSet()
+
+        if (allFiles != expectedFiles) {
+            val missing = expectedFiles - allFiles
+            val unexpected = allFiles - expectedFiles
+            throw GradleException(buildString {
+                appendLine("Bundled libraries mismatch in :npx-kt devrig distZip!")
+                if (missing.isNotEmpty()) {
+                    appendLine("Missing entries:")
+                    missing.forEach { appendLine("  - $it") }
+                }
+                if (unexpected.isNotEmpty()) {
+                    appendLine("Unexpected entries:")
+                    unexpected.forEach { appendLine("  - $it") }
+                }
+                appendLine()
+                appendLine("Actual entries:")
+                allFiles.forEach { appendLine("  - $it") }
+                appendLine()
+                appendLine("Update `expectedFiles` in npx-kt/build.gradle.kts if this change is intentional.")
+            })
+        }
+    }
+}
+
+tasks.test {
+    dependsOn(verifyBundledLibraries)
+}
+
+tasks.distZip {
+    finalizedBy(verifyBundledLibraries)
+}
+
+tasks.named("check") {
+    dependsOn(verifyBundledLibraries)
 }

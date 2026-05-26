@@ -7,9 +7,13 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 
 /**
  * MCP Streamable HTTP Transport implementation for Ktor.
@@ -152,15 +156,10 @@ object McpHttpTransport {
         val truncatedBody = if (body.length > 500) body.take(500) + "...[truncated]" else body
         log.info("[MCP] Request body: $truncatedBody")
 
-        val response = try {
-            server.handleMessage(body, session)
-        } catch (e: Throwable) {
-            log.error("[MCP] Exception in handleMessage: ${e.message}", e)
-            call.respond(HttpStatusCode.InternalServerError, "Internal error: ${e.message}")
-            return
-        }
-
-        // Include session ID in response for new sessions (or when we created a replacement session)
+        // Set session-id headers BEFORE the boundary so a newly created
+        // session is communicated to the client even when `handleMessage`
+        // throws. Otherwise the client reconnects with its stale id and the
+        // server creates a *second* session for the same logical client.
         if (isNewSession) {
             log.info("[MCP] Returning new session ID: ${session.id}")
             call.response.header(SESSION_HEADER, session.id)
@@ -169,16 +168,81 @@ object McpHttpTransport {
             call.response.header(SESSION_NOTICE_HEADER, sessionNotice)
         }
 
-        if (response != null) {
-            // Log the response (truncated for large payloads)
-            val truncatedResponse = if (response.length > 500) response.take(500) + "...[truncated]" else response
-            log.info("[MCP] Response: $truncatedResponse")
-            call.respondText(response, ContentType.Application.Json)
-        } else {
-            // Notification - no response needed
-            log.info("[MCP] Notification processed, returning 202 Accepted")
-            call.respond(HttpStatusCode.Accepted)
+        // ── Boundary catch-all (issue #46 A0) ────────────────────────────────
+        // Every code path below sends exactly one response, so the global
+        // request-logging plugin's `ApplicationSendPipeline.After` interceptor
+        // logs the terminal status line exactly once per call. The server-side
+        // state stays healthy regardless of what `handleMessage` or the
+        // response phase throws.
+        //
+        // `CancellationException` is rethrown without logging per the
+        // `com.intellij.openapi.diagnostic.Logger` Javadoc contract for
+        // control-flow exceptions — Kotlin coroutine cancellation is normal
+        // structured flow, not an error to surface. Cancellation can arrive
+        // from the client (connection closed) OR from a server-side
+        // `withTimeout`; in either case ktor's pipeline finalizers handle
+        // the call closure and the global send-interceptor logs the
+        // terminal status exactly once via its `?: HttpStatusCode.OK`
+        // fallback in `SteroidsMcpServer.requestLoggingPlugin`.
+        //
+        // Any other `Throwable` is converted to a well-formed JSON-RPC error
+        // envelope (HTTP 200 with `error.code/message` in the body), not a
+        // bare HTTP 500. JSON-RPC clients can decode the envelope and retry
+        // or surface the error; a 500 with raw text looks like a transport
+        // failure and stalls the session. The fallback `respondText` itself
+        // is guarded — if the response stream is half-committed (the body
+        // started flushing before the throw), a secondary throw would
+        // otherwise escape the boundary and reintroduce #46's dual-status
+        // log; instead we warn and let ktor close the call.
+        try {
+            val response = server.handleMessage(body, session)
+
+            if (response != null) {
+                val truncatedResponse = if (response.length > 500) response.take(500) + "...[truncated]" else response
+                log.info("[MCP] Response: $truncatedResponse")
+                call.respondText(response, ContentType.Application.Json)
+            } else {
+                log.info("[MCP] Notification processed, returning 202 Accepted")
+                call.respond(HttpStatusCode.Accepted)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            log.error("[MCP] Unexpected error in handlePost", t)
+            val errorResponse = encodeJsonRpcError(
+                id = extractRequestId(body),
+                code = JsonRpcErrorCodes.INTERNAL_ERROR,
+                message = "Internal error: ${t.message ?: t.javaClass.simpleName}",
+            )
+            try {
+                call.respondText(errorResponse, ContentType.Application.Json)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (sendFailure: Throwable) {
+                // Response stream is likely half-committed (client disconnect,
+                // IO error mid-send). The primary failure is already logged
+                // above; do not let this secondary throw escape into ktor,
+                // which would emit a default 500 and double the log line.
+                log.warn(
+                    "[MCP] Failed to send JSON-RPC error response (response stream may be half-committed): " +
+                        "${sendFailure.message}",
+                    sendFailure,
+                )
+            }
         }
+    }
+
+    /**
+     * Extract the JSON-RPC `id` from a raw request body for use in an error
+     * envelope. Returns [JsonNull] if the body isn't valid JSON or has no `id`
+     * field — the diagnostic must never itself throw.
+     */
+    private fun extractRequestId(body: String): JsonElement = try {
+        McpJson.parseToJsonElement(body).jsonObject["id"] ?: JsonNull
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        JsonNull
     }
 
     /**

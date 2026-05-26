@@ -104,6 +104,13 @@ println("Test started — check RunContentManager for progress and results")
 > ambiguous "Choose run configuration" dialog. If the dialog appears, use `JUnitConfiguration`
 > directly — see [Run Tests](mcp-steroid://test/run-tests).
 
+> **Pitfall: `.gradle.kts` files.** Gradle Kotlin scripts paint a Run gutter on PSI patterns
+> (`task("…")`, `val x by tasks.registering { … }`), but the matching `RunConfigurationProducer`
+> only resolves a config when the file's module is a synced Gradle module. Outside that, every
+> `RunContextAction` hides itself and the gutter popup renders as **"Nothing here"** (the
+> `Utils.EMPTY_MENU_FILLER` placeholder). Launch Gradle tasks programmatically via
+> [Execute Code: Gradle Patterns](mcp-steroid://skill/execute-code-gradle) instead.
+
 Results are accessible via `RunContentManager.getInstance(project)` after execution.
 
 ###_END_IF_###
@@ -114,3 +121,4 @@ Results are accessible via `RunContentManager.getInstance(project)` after execut
 - [Inspect Test Results](mcp-steroid://test/inspect-test-results) - Access results after run
 - [Test Overview](mcp-steroid://test/overview) - Complete test execution workflow
 - [Test Runner Skill Guide](mcp-steroid://prompt/test-skill) - Essential test knowledge
+- [Execute Code: Gradle Patterns](mcp-steroid://skill/execute-code-gradle) - Launch Gradle tasks programmatically (avoids gutter "Nothing here" pitfall)

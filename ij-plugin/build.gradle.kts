@@ -75,6 +75,12 @@ dependencies {
         // LanguageSupportExecutionTest (Java/Kotlin language support actions)
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
+        // Direct (compile-time) access to IntelliJ's bundled MCP server plugin so
+        // `IntelliJMcpServerProbe` can call McpServerService.getInstance() without
+        // reflection. The plugin is bundled in IDEA 2025.3+ but the **user can
+        // disable it at runtime**, so the probe still gates every call site behind
+        // `PluginManagerCore.getPluginSet().enabledPlugins`.
+        bundledPlugin("com.intellij.mcpServer")
         testFramework(TestFrameworkType.Platform)
     }
 
@@ -84,6 +90,11 @@ dependencies {
     // Transport-agnostic tool-handler metadata + registrations (empty for now —
     // classes will migrate across from :ij-plugin in the steps 6-13 refactor series).
     implementation(project(":mcp-steroid-server"))
+
+    // IDE-free file-storage core for ExecutionStorage. The IntelliJ-side
+    // IjExecutionStorage service wraps the generic class with project-scoped
+    // path + identity providers.
+    implementation(project(":execution-storage"))
 
     // Prompt base classes + generated prompt code
     implementation(project(":prompts"))
@@ -105,6 +116,7 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation(project(":intellij-downloader"))
     testImplementation(project(":test-helper"))
 
     // https://mvnrepository.com/artifact/org.testcontainers/testcontainers-bom
@@ -174,7 +186,10 @@ intellijPlatform {
         }
 
         ideaVersion {
-            sinceBuild = "253"
+            // KEEP IN SYNC with `MANAGED_BACKEND_MIN_SUPPORTED_BUILD` in
+            // intellij-downloader/.../CompatibilityFloor.kt — enforced by
+            // PluginCompatibilityFloorTest.
+            sinceBuild = "252"
             untilBuild = null
         }
     }
@@ -398,6 +413,7 @@ val verifyBundledLibraries by tasks.registering {
             "lib/ij-plugin-$pluginVersion.jar",
             "lib/kotlin-cli-$pluginVersion.jar",
             "lib/ocr-common-$pluginVersion.jar",
+            "lib/execution-storage-$pluginVersion.jar",
             "lib/mcp-core-$pluginVersion.jar",
             "lib/mcp-http-$pluginVersion.jar",
             "lib/mcp-steroid-server-$pluginVersion.jar",

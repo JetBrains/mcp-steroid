@@ -32,6 +32,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.search.GlobalSearchScope
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import com.jonnyzzz.mcpSteroid.vision.VisionService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -114,9 +115,32 @@ class McpScriptContextImpl(
             }
             resultBuilder.logMessage(jsonString)
             resultBuilder.noteUserOutput()
+        } catch (e: CancellationException) {
+            // Cancellation propagates — don't wrap it as a serialization error.
+            throw e
         } catch (e: Exception) {
             resultBuilder.logMessage("Failed to serialize to JSON: ${e.message}")
         }
+    }
+
+    override fun printCsv(headers: List<String>, rows: Iterable<List<Any?>>, dictColumns: Set<String>) {
+        checkDisposed()
+        try {
+            val csv = formatCsv(headers, rows, dictColumns).trimEnd('\n')
+            resultBuilder.logMessage(csv)
+            resultBuilder.noteUserOutput()
+        } catch (e: IllegalArgumentException) {
+            // formatCsv validates row width and non-empty headers — surface
+            // the contract violation as a normal log line so the script
+            // doesn't crash mid-output.
+            resultBuilder.logMessage("printCsv: ${e.message}")
+        }
+    }
+
+    override fun printToon(value: Any?) {
+        checkDisposed()
+        resultBuilder.logMessage(formatToon(value))
+        resultBuilder.noteUserOutput()
     }
 
     override fun progress(message: String) {
@@ -139,6 +163,10 @@ class McpScriptContextImpl(
             resultBuilder.logMessage("Component tree saved to ${artifacts.treePath}")
             resultBuilder.logMessage("Screenshot metadata saved to ${artifacts.metaPath}")
             artifacts.imagePath.toString()
+        } catch (e: CancellationException) {
+            // Coroutine cancellation propagates — same rule as
+            // ProcessCanceledException (below): never log, never wrap.
+            throw e
         } catch (e: Exception) {
             if (e is ProcessCanceledException) throw e
             resultBuilder.logException("Failed to capture IDE screenshot", e)

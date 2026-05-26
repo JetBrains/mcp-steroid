@@ -73,6 +73,13 @@ fun IntelliJContainer.Companion.create(
      */
     sourceImage: ImageDriver? = null,
     /**
+     * When false, create only the GUI/container shell (Xvfb, fluxbox, video,
+     * screenshots, console, volumes) and let the test start its own IDE.
+     * Used by managed-backend tests where `devrig backend download` provides
+     * the IDE under the managed home instead of using `/opt/idea`.
+     */
+    startIde: Boolean = true,
+    /**
      * Reuse project sources from [sourceImage] instead of re-deploying project files/clone.
      * Use together with warm snapshot images that already contain project checkout + ide-system.
      */
@@ -138,7 +145,7 @@ fun IntelliJContainer.Companion.create(
         TeamCityServiceMessages.publishRunDirArtifact(runDir)
     }
     val imageId = sourceImage ?: run {
-        val ideArchive = distribution.resolveAndDownload()
+        val ideArchive = if (startIde) distribution.resolveAndDownload() else null
         // Unique suffix ensures parallel test runs each build their own image and context dir,
         // preventing races in buildIdeImage when multiple tests start concurrently.
         val uniqueSuffix = UUID.randomUUID().toString().take(8)
@@ -313,6 +320,7 @@ fun IntelliJContainer.Companion.create(
         lifetime,
         StartContainerRequest()
             .image(imageId)
+            .enableInit()
             .extraEnvVars(containerEnv)
             .volumes(volumes)
             .ports(
@@ -579,6 +587,69 @@ fun IntelliJContainer.Companion.create(
         disableProjectTrustChecks = disableProjectTrustChecks,
         trustAllProjectPaths = trustAllProjectPaths,
     )
+
+    fun writeSessionInfo(mcpUrl: String?) {
+        val videoPort = container.mapGuestPortToHostPort(XcvbVideoDriver.VIDEO_STREAMING_PORT)
+        val infoString = buildString {
+            appendLine("=".repeat(20))
+            appendLine("Use these parameters to debug the test")
+            appendLine("RUN_DIR=$runDir")
+            appendLine("CONTAINER_ID=${container.containerId}")
+            appendLine("DISPLAY=${xcvb.DISPLAY}")
+            appendLine("VIDEO_DASHBOARD=http://localhost:$videoPort/")
+            appendLine("VIDEO_STREAM=http://localhost:$videoPort/video.mp4")
+            if (mcpUrl != null) {
+                appendLine("MCP_STEROID=$mcpUrl")
+            }
+            appendLine("=".repeat(20))
+        }
+        val infoFile = File(runDir, "session-info.txt")
+        infoFile.writeText(infoString)
+    }
+
+    if (!startIde) {
+        console.writeSuccess("GUI container ready; IDE startup is delegated to the test")
+
+        // IntelliJContainer historically carries the IDE process and MCP driver.
+        // Managed-backend tests only need the GUI shell + Docker exec helpers, so
+        // keep a harmless long-lived placeholder process to satisfy that contract
+        // without requiring `/opt/idea` to exist in the image.
+        val idleProcess = container.runInContainerDetached(listOf("sleep", "infinity"))
+        lifetime.registerCleanupAction {
+            idleProcess.kill()
+        }
+
+        val mcpSteroidDriver = McpSteroidDriver(container, ijDriver)
+        val aiAgentDriver = AiAgentDriver(
+            container = container,
+            intellijDriver = ijDriver,
+            console = console,
+            mcp = mcpSteroidDriver,
+            mcpConnection = McpConnectionMode.None,
+            logDir = runDir,
+        )
+
+        writeSessionInfo(mcpUrl = null)
+
+        val session = IntelliJContainer(
+            lifetime = lifetime,
+            runDirInContainer = runDir,
+            scope = container,
+            intellijDriver = ijDriver,
+            console = console,
+            input = inputDriver,
+            mcpSteroid = mcpSteroidDriver,
+            aiAgents = aiAgentDriver,
+            intellij = idleProcess,
+            windows = windowsDriver,
+            windowLayout = windowsLayout,
+            openFileOnStart = null,
+        )
+
+        println("[IDE-AGENT] GUI container ready without preinstalled IDE: $runDir")
+        return session
+    }
+
     console.writeInfo("Deploying MCP Steroid plugin...")
     ijDriver.deployPluginToContainer(IdeTestFolders.pluginZip)
 
@@ -696,7 +767,7 @@ fun IntelliJContainer.Companion.create(
     val resolvedMcpConnectionMode: McpConnectionMode = mcpConnectionMode ?: when (aiMode) {
         AiMode.NONE -> McpConnectionMode.None
         AiMode.AI_MCP -> McpConnectionMode.Http
-        AiMode.AI_NPX -> McpConnectionMode.Npx(NpxSteroidDriver.deploy(container, mcpSteroidDriver))
+        AiMode.AI_DEVRIG -> McpConnectionMode.Devrig(DevrigSteroidDriver.deploy(container, mcpSteroidDriver))
     }
 
     val aiAgentDriver = AiAgentDriver(
@@ -711,21 +782,8 @@ fun IntelliJContainer.Companion.create(
     console.writeSuccess("MCP Steroid server ready")
 
     // Write info file with all ports and URLs for external tools
-    val videoPort = container.mapGuestPortToHostPort(XcvbVideoDriver.VIDEO_STREAMING_PORT)
     val mcpUrl = mcpSteroidDriver.hostMcpUrl
-    val infoString = buildString {
-        appendLine("=".repeat(20))
-        appendLine("Use these parameters to debug the test")
-        appendLine("RUN_DIR=$runDir")
-        appendLine("CONTAINER_ID=${container.containerId}")
-        appendLine("DISPLAY=${xcvb.DISPLAY}")
-        appendLine("VIDEO_DASHBOARD=http://localhost:$videoPort/")
-        appendLine("VIDEO_STREAM=http://localhost:$videoPort/video.mp4")
-        appendLine("MCP_STEROID=$mcpUrl")
-        appendLine("=".repeat(20))
-    }
-    val infoFile = File(runDir, "session-info.txt")
-    infoFile.writeText(infoString)
+    writeSessionInfo(mcpUrl)
 
     val session = IntelliJContainer(
         lifetime = lifetime,

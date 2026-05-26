@@ -26,7 +26,7 @@ Before reading further, if your task matches one of these, skip straight to the 
 | Find duplicate / cloned / DRY-violation / copy-paste code | `mcp-steroid://ide/find-duplicates` |
 | Run a single named inspection + apply quick-fix | `mcp-steroid://ide/inspect-and-fix` |
 | List enabled inspections in the project | `mcp-steroid://ide/inspection-summary` |
-| Multi-file literal-text edit (atomic) | `steroid_apply_patch` (or `mcp-steroid://ide/apply-patch`) |
+| Multi-file literal-text edit (atomic) | `mcp-steroid://ide/apply-patch` (the `applyPatch { }` DSL inside `steroid_execute_code`) |
 | Find usages of a symbol | `mcp-steroid://lsp/find-references` |
 | Run / debug a test | `mcp-steroid://ide/demo-debug-test` |
 | Run Maven / Gradle tests | `mcp-steroid://skill/execute-code-maven`, `mcp-steroid://skill/execute-code-gradle` |
@@ -75,16 +75,6 @@ List all open projects. Returns IDE metadata and project names for use with `ste
 ### `steroid_list_windows`
 List open IDE windows and their associated projects. Some windows may not be tied to a project and a project can have multiple windows.
 Use this in multi-window setups to pick the correct `project_name` and `window_id` for screenshot/input tools.
-
-### `steroid_action_discovery`
-Discover available editor actions, quick-fixes, and gutter actions for a file and caret context.
-
-**Parameters:**
-- `project_name` (required): Target project name
-- `file_path` (required): Absolute or project-relative path to the file
-- `caret_offset` (optional): Caret offset within the file (default: 0)
-- `action_groups` (optional): Action group IDs to expand (default: editor popup + gutter)
-- `max_actions_per_group` (optional): Cap actions returned per group (default: 200)
 
 ### `steroid_take_screenshot`
 Capture a screenshot of the IDE frame and return image content.
@@ -231,13 +221,46 @@ Built-in helpers available in every script (no imports needed):
 | Category | APIs |
 |----------|------|
 | **Properties** | `project`, `disposable`, `isDisposed` |
-| **Output** | `println()`, `printJson()`, `progress()`, `printException()` |
+| **Output (prose / JSON)** | `println()`, `printJson()`, `progress()`, `printException()` |
+| **Output (token-efficient tabular)** | `printCsv(headers, rows, dictColumns)` — CSV with optional path-dictionary preamble; `printToon(records)` — TOON (array-of-records) form |
 | **Read/Write** | `readAction { }`, `writeAction { }`, `smartReadAction { }` |
 | **Scopes** | `projectScope()`, `allScope()` |
-| **File access** | `findFile()`, `findPsiFile()`, `findProjectFile()`, `findProjectPsiFile()` |
+| **File access** | `findFile()`, `findPsiFile()`, `findProjectFile()`, `findProjectFiles("src/main/**/*.kt")`, `findProjectPsiFile()` |
 | **Analysis** | `runInspectionsDirectly()` |
 
-Full API reference: `mcp-steroid://skill/coding-with-intellij-context-api`
+**Tabular output cheat sheet** — for find-references, call-hierarchy, project-search, document-symbols, or any flat array-of-records result. Signatures are different on purpose; `printCsv` takes parallel lists (positional), `printToon` takes a list of maps (keyed). Mixing them up is the #1 first-try compile error.
+
+```kotlin
+// CSV — printCsv(headers: List<String>, rows: Iterable<List<Any?>>, dictColumns: Set<String> = emptySet())
+// Best when one column has repeated long values (absolute paths, FQNs).
+// `dictColumns` emits a per-column @col: preamble and replaces each cell with a short ID (`p1`, `p2`, ...).
+printCsv(
+    headers = listOf("idx", "path", "line"),
+    rows = emptyList<List<Any?>>(),
+    dictColumns = setOf("path"),
+)
+
+// TOON — Token-Oriented Object Notation; https://github.com/toon-format/toon.
+// printToon(value: Any?) — drop-in for printJson on uniform-shape lists.
+// Pass List<Map<String, Any?>>; column order comes from the FIRST map's keys, and every
+// subsequent map must have the same key set. Do NOT pass headers / rows / dictColumns — that's printCsv.
+printToon(listOf(mapOf("path" to "/abs/A.kt", "line" to 17), mapOf("path" to "/abs/B.kt", "line" to 42)))
+```
+
+**Same records, both formats** — most recipes finish by emitting one list of records twice:
+
+```kotlin
+val records: List<Triple<String, Int, String>> = emptyList()  // built once
+printCsv(
+    headers = listOf("idx", "path", "line", "snippet"),
+    rows = records.mapIndexed { i, (p, l, s) -> listOf(i + 1, p, l, s) },
+    dictColumns = setOf("path"),
+)
+printToon(records.map { (p, l, s) -> mapOf("path" to p, "line" to l, "snippet" to s) })
+```
+
+Full API reference with literal sample outputs and an end-to-end example:
+`mcp-steroid://skill/coding-with-intellij-context-api` → "Tabular Output".
 
 ### 5. Running Inspections
 
@@ -288,8 +311,11 @@ The MCP server runs inside IntelliJ. To verify:
 - `/mcp` - MCP protocol endpoint for tool calls
 - `/.well-known/mcp.json` - MCP server discovery
 
-### MCP Resources (Preferred)
-Use MCP `resources/list` and `resources/read` instead of HTTP fetching when possible.
+### Fetching mcp-steroid:// articles (preferred)
+Use the `steroid_fetch_resource` MCP tool (it requires `project_name`
+for correct IDE-conditional rendering) instead of HTTP fetching or
+`ReadMcpResourceTool`. The articles are NOT exposed via `resources/list`
+or `prompts/list` — the tool is the canonical discovery surface.
 
 ### Common Issues
 - **"Project not found"** - Run `steroid_list_projects` first to get exact project names

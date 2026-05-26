@@ -21,7 +21,7 @@ Generated from plugin verifier output for `com.jonnyzzz.mcp-steroid` against IU-
 
 | # | Experimental API | Plugin File | Stable Alternative | Priority |
 |---|---|---|---|---|
-| 9 | `writeAction {}` | `ReviewManager.kt`, `McpScriptContextImpl.kt` | `edtWriteAction {}` (stable since 2025.3) | **Done** (ReviewManager); McpScriptContextImpl kept for agent script API compat |
+| 9 | `writeAction {}` | `McpScriptContextImpl.kt` | `edtWriteAction {}` (stable since 2025.3) | McpScriptContextImpl kept for agent script API compat (ReviewManager removed) |
 | 10 | `serviceAsync<T>()` | DialogKiller, ExecutionManager, etc. | `service<T>()` (sync, stable) — only matters during startup | **Done** |
 
 ---
@@ -259,7 +259,7 @@ Alternatively, `ProjectUtil.openOrImport(path, projectToClose, forceOpenInNewFra
 
 ## 9. writeAction {} (Experimental)
 
-**Used in**: `ij-plugin/src/main/kotlin/com/jonnyzzz/mcpSteroid/review/ReviewManager.kt`, `ij-plugin/src/main/kotlin/com/jonnyzzz/mcpSteroid/execution/McpScriptContextImpl.kt`
+**Used in**: `ij-plugin/src/main/kotlin/com/jonnyzzz/mcpSteroid/execution/McpScriptContextImpl.kt`
 
 **Experimental API**: `com.intellij.openapi.application.writeAction {}` — `@ApiStatus.Experimental`.
 

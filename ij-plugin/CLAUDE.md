@@ -21,7 +21,6 @@ src/main/kotlin/com/jonnyzzz/mcpSteroid/
 ├── server/      # MCP server, tool handlers, skills
 ├── mcp/         # Core MCP protocol, tool registry
 ├── execution/   # ExecutionManager, CodeEvalManager, ScriptExecutor, McpScriptContext
-├── review/      # Human review workflow
 ├── storage/     # Append-only file storage
 ├── vision/      # Screenshot, input dispatch
 ├── demo/        # Demo mode overlay
@@ -63,7 +62,39 @@ Get services: `project.service<MyService>()` or `service<AppService>()`. Use `ch
 ### Error handling
 
 - Never catch `ProcessCanceledException` — rethrow it.
+- **Never log `CancellationException` (or any subclass) as an error.** On the
+  hot script-execution path (`mcp-http/`, `ij-plugin/.../execution/`,
+  `ij-plugin/.../server/`), every `catch (Throwable)` / `catch (Exception)`
+  must match `CancellationException` first and rethrow without logging —
+  this is the `c.i.openapi.diagnostic.Logger` Javadoc contract for
+  control-flow exceptions. Audit completed in commit `efcd3400` (2026-05-19);
+  see TASKS.md → "A2b" for the site-by-site list of fixed catches, sites
+  already correct (do not retouch), and intentionally-deferred sites
+  off the hot path. The user-visible failure from issue #46
+  (`SEVERE: StandaloneCoroutine was cancelled` + dual 200/500 log lines)
+  was driven by this rule being violated; A0's boundary catch-all
+  (`McpHttpTransport.handlePost`, commit `3a4e7c13`) plus the A2b
+  rethrows form the complete fix.
+- One exception: `ScriptExecutor.kt:150` deliberately catches
+  `TimeoutCancellationException` BEFORE the generic `CancellationException`
+  catch and calls `reportFailed("Execution timed out after $timeout seconds")`.
+  TCE is a CE subclass; the script-timeout case is a domain error that
+  needs to surface to the agent, not a control-flow signal to propagate.
 - Use `Logger.getInstance(MyClass::class.java)` for logging.
+
+### Cancellation and the `kotlinc` subprocess
+
+`KotlincProcessClient.kotlinc(args, workingDir)` is a regular (non-`suspend`)
+`fun` that calls `ExecUtil.execAndGetOutput(commandLine, 120_000)`. The
+blocking JVM call does NOT check `kotlinx.coroutines` cancellation, so a
+cancelled caller coroutine will NOT terminate the in-flight kotlinc
+subprocess — kotlinc runs to completion (or its 120 s upper bound). This
+is **intentional**: killing kotlinc mid-compile is flaky on macOS+JDK21
+and the saved cycles are small. Nothing in `ij-plugin/src/main` calls
+`process.destroyForcibly()` on the kotlinc process, and adding such a
+call would defeat the contract. After `kotlinc(...)` returns, the
+CE-rethrow wrappers above ensure the cancellation propagates upstream
+cleanly. (Cluster A's A3, verified-by-inspection 2026-05-19.)
 
 ## Build
 
@@ -125,10 +156,11 @@ If the gates pass, the wiring itself is two lines:
 
 Same gate applies to **adding methods on `McpScriptContext`** (Tenet 3 in
 PHILOSOPHY.md): the IntelliJ API is the extension point; context methods
-are last-resort. The `applyPatch { }` DSL stayed in the context class but
-production guidance routes agents to the dedicated `steroid_apply_patch`
-MCP tool first — new context methods must arrive with a similar fallback
-story from day one.
+are last-resort. The `applyPatch { }` DSL on the context class is the
+canonical example — it earned its place because composing multi-site
+literal edits with surrounding PSI / inspections work in one read/write
+cycle is genuinely worth the surface. New context methods must clear
+the same bar.
 
 ## IDE control via execute_code
 
@@ -263,9 +295,8 @@ rm -rf ij-plugin/build/idea-sandbox/                            # corrupted inde
 
 ## Configuration
 
-Registry keys: `mcp.steroid.server.port`, `.host`, `.review.mode` (ALWAYS/TRUSTED/NEVER), `.review.timeout`,
-`.execution.timeout`, `.dialog.killer.enabled`, `.demo.enabled`, `.storage.path`, `.kotlinc.parameters`,
-`.kotlinc.home`.
+Registry keys: `mcp.steroid.server.port`, `.host`, `.execution.timeout`, `.dialog.killer.enabled`,
+`.demo.enabled`, `.storage.path`, `.kotlinc.parameters`, `.kotlinc.home`.
 
 ### Kotlinc version-mismatch workaround
 

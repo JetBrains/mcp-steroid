@@ -1,26 +1,22 @@
 {
-  "name": "mcp-steroid-proxy",
+  "name": "devrig",
   "version": "0.0.0-dev",
-  "description": "NPX proxy that aggregates multiple MCP Steroid servers",
+  "description": "Thin npm launcher for the devrig Kotlin CLI",
   "type": "commonjs",
   "bin": {
-    "mcp-steroid-proxy": "dist/index.js"
+    "devrig": "dist/index.js"
   },
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "build:test": "tsc -p tsconfig.test.json",
-    "test": "npm run build --silent && npm run build:test --silent && node --test $(find dist-test/test -name '*.test.js')"
+    "test": "npm run build --silent"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.9.2"
   },
-  "license": "SEE LICENSE IN LICENSE",
-  "dependencies": {
-    "posthog-node": "^5.24.15"
-  }
+  "license": "SEE LICENSE IN LICENSE"
 }

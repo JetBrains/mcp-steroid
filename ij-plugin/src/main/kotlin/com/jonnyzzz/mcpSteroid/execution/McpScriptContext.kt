@@ -78,6 +78,52 @@ interface McpScriptContext {
     fun printJson(obj: Any?)
 
     /**
+     * Print rows as CSV (RFC 4180 escaping) with a single header line. Best
+     * fit for flat tabular results from PSI / index searches: find-references,
+     * call-hierarchy, project-search, hierarchy-search, document-symbols.
+     *
+     * When [dictColumns] is non-empty, those columns are emitted once as an
+     * `@<col>:` dictionary preamble; each cell in those columns is then
+     * replaced with a short ID (`p1`, `p2`, …) so duplicated values (such as
+     * absolute file paths repeated across rows) cost their tokens once
+     * instead of N times. Unknown column names in [dictColumns] are silently
+     * ignored; entries with the same first character collide on the ID
+     * prefix — pick column names with distinct first letters.
+     *
+     * ```kotlin
+     * printCsv(
+     *   headers = listOf("idx", "path", "line", "col", "snippet"),
+     *   rows = refs.mapIndexed { i, r -> listOf(i + 1, r.path, r.line, r.col, r.snippet) },
+     *   dictColumns = setOf("path"),
+     * )
+     * ```
+     */
+    fun printCsv(
+        headers: List<String>,
+        rows: Iterable<List<Any?>>,
+        dictColumns: Set<String> = emptySet(),
+    )
+
+    /**
+     * Encode a Kotlin/Java value as TOON (Token-Oriented Object Notation)
+     * and print it. Drop-in for [printJson] when the data is array-of-records
+     * shaped — TOON's array-with-header form is roughly 40% cheaper than the
+     * equivalent JSON for that case while preserving accuracy on extraction
+     * tasks (https://github.com/toon-format/toon).
+     *
+     * ```kotlin
+     * printToon(listOf(
+     *   mapOf("id" to 1, "name" to "Alice"),
+     *   mapOf("id" to 2, "name" to "Bob"),
+     * ))
+     * // [2]{id,name}:
+     * //   1,Alice
+     * //   2,Bob
+     * ```
+     */
+    fun printToon(value: Any?)
+
+    /**
      * Report an error to the MCP client with stack trace.
      * Does not mark the execution as failed.
      *

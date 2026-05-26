@@ -9,24 +9,20 @@ import org.junit.jupiter.api.Test
 class PromptRoutingContractTest {
 
     @Test
-    fun `execute code tool routes multi-site literal edits to dedicated apply patch tool`() {
+    fun `execute code tool routes multi-site literal edits to the applyPatch DSL`() {
         val prompt = ExecuteCodeToolDescriptionPromptArticle().readPayload(PromptsContext("IU", 253))
 
-        assertTrue(
+        assertFalse(
             prompt.contains("steroid_apply_patch"),
-            "execute-code tool description must name the dedicated apply-patch tool",
+            "steroid_apply_patch was removed — the prompt must not name it",
         )
         assertTrue(
-            prompt.contains("older script-context `applyPatch` DSL only"),
-            "execute-code tool description may mention the script-context DSL only as a fallback",
+            prompt.contains("`applyPatch { }` DSL"),
+            "execute-code tool description must route multi-site edits through the applyPatch { } DSL",
         )
-        assertFalse(
-            prompt.contains("Switch to a single `steroid_execute_code` call with the `applyPatch` DSL"),
-            "execute-code tool description must not route ordinary multi-site edits through steroid_execute_code",
-        )
-        assertFalse(
-            prompt.contains("| **Two or more literal-text edits, same or different files** | `applyPatch"),
-            "decision tree must route multi-site literal edits to steroid_apply_patch",
+        assertTrue(
+            prompt.contains("mcp-steroid://ide/apply-patch"),
+            "prompt should link to the apply-patch recipe",
         )
     }
 }

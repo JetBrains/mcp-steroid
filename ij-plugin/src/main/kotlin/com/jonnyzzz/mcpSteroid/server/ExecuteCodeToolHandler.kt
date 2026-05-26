@@ -1,13 +1,10 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
-import com.intellij.openapi.project.ProjectManager.getInstance
 import com.jonnyzzz.mcpSteroid.execution.ExecutionManager
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.mcp.errorResult
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeGradlePromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeMavenPromptArticle
 import com.jonnyzzz.mcpSteroid.updates.analyticsBeacon
@@ -15,19 +12,13 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 
-class ExecuteCodeToolHandlerIJ : ExecuteCodeToolHandler {
+class ExecuteCodeToolHandlerIJ : ProjectScopedToolHandler(), ExecuteCodeToolHandler {
     override suspend fun executeCode(
         projectName: String,
         execCodeParams: ExecCodeParams,
         callProgress: McpProgressReporter,
     ) : ToolCallResult {
-        val (project, availableNames) = readAction {
-            val openProjects = getInstance().openProjects
-            openProjects.find { it.name == projectName } to openProjects.map { it.name }
-        }
-        if (project == null) {
-            return ToolCallResult.errorResult("Project not found: \"$projectName\". Available projects: $availableNames")
-        }
+        val project = resolveProject(projectName)
 
         val result = project
             .service<ExecutionManager>()
@@ -48,7 +39,6 @@ class ExecuteCodeToolHandlerIJ : ExecuteCodeToolHandler {
             projectBasePath = project.basePath?.let(Path::of),
         )
     }
-
 }
 
 internal object ExecuteCodeBuildAbortGuidance {

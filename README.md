@@ -41,7 +41,6 @@ MCP Steroid is the **only MCP server** offering ALL of:
 - **UI automation** — Control the IDE like a human developer
 - **Native IntelliJ APIs** — PSI, inspections, refactorings, and more
 - **Kotlin scripting** — Full platform access at runtime
-- **Human-in-the-loop safety** — Review modes (ALWAYS / TRUSTED / NEVER)
 - **Standard MCP protocol** — Works with ANY MCP-compatible AI agent
 
 ### Benchmarks
@@ -89,7 +88,7 @@ When the plugin starts, it writes the server URL to `.idea/mcp-steroid.md` in ea
 
 ```bash
 # Claude Code
-claude mcp add --transport http mcp-steroid http://127.0.0.1:6315/mcp
+claude mcp add --transport http --scope user mcp-steroid http://127.0.0.1:6315/mcp
 
 # Or verify with any agent
 claude -p "List all open projects using steroid_list_projects"
@@ -126,17 +125,15 @@ better recipes are. The full canonical statement lives in
 [`docs/PHILOSOPHY.md`](docs/PHILOSOPHY.md) and is mirrored at runtime
 as `mcp-steroid://skill/design-philosophy`.
 
-### 10 MCP Tools
+### 8 MCP Tools
 
 | Tool | Description |
 |------|-------------|
 | **Execute Code** (`steroid_execute_code`) | Run Kotlin code inside the IDE's JVM with full API access |
-| **Apply Patch** (`steroid_apply_patch`) | Atomic multi-site literal-text edits across one or more files (data-only; no kotlinc compile cycle) |
 | **Execute Feedback** (`steroid_execute_feedback`) | Provide execution ratings back to agents |
 | **Fetch Resource** (`steroid_fetch_resource`) | Fetch any `mcp-steroid://` skill guide / recipe by URI |
 | **Vision Screenshot** (`steroid_take_screenshot`) | Capture IDE screenshots with component metadata |
 | **Vision Input** (`steroid_input`) | Send keyboard/mouse events to the IDE via a sequence-string DSL |
-| **Action Discovery** (`steroid_action_discovery`) | Find and invoke IDE actions and quick-fixes at a caret position |
 | **List Projects** (`steroid_list_projects`) | Discover all open IntelliJ projects |
 | **List Windows** (`steroid_list_windows`) | Enumerate IDE windows and components |
 | **Open Project** (`steroid_open_project`) | Open projects programmatically |
@@ -178,7 +175,6 @@ MCP Steroid can be configured via IntelliJ's Registry (`Help > Find Action > Reg
 |--------------|---------|-------------|
 | `mcp.steroid.server.port` | 6315 | MCP server port (0 for auto-assign) |
 | `mcp.steroid.server.host` | 127.0.0.1 | Bind address (use 0.0.0.0 for Docker) |
-| `mcp.steroid.review.mode` | ALWAYS | Review mode: ALWAYS, TRUSTED, or NEVER |
 | `mcp.steroid.storage.path` | (empty) | Custom storage path (default: .idea/mcp-steroid/) |
 
 See the full [Configuration Documentation](https://mcp-steroid.jonnyzzz.com/docs/configuration/) on the website.

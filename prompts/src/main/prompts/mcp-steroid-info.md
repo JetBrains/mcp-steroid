@@ -22,7 +22,7 @@ This is a **STATEFUL** API — every call changes the IDE state. The IntelliJ ID
 | Find duplicate / cloned / DRY-violation / copy-paste code across the project | `mcp-steroid://ide/find-duplicates` |
 | Run a single named inspection + apply its quick fix | `mcp-steroid://ide/inspect-and-fix` |
 | List which inspections are enabled in the project | `mcp-steroid://ide/inspection-summary` |
-| Apply the same edit across many files atomically | `mcp-steroid://ide/apply-patch` (or the dedicated `steroid_apply_patch` tool) |
+| Apply the same edit across many files atomically | `mcp-steroid://ide/apply-patch` (the `applyPatch { }` DSL inside `steroid_execute_code`) |
 | Find usages of a symbol | `mcp-steroid://lsp/find-references` |
 | Run a debug session on a test | `mcp-steroid://ide/demo-debug-test` |
 

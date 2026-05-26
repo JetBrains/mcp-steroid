@@ -16,7 +16,9 @@ class SteroidsMcpServerAppLifecycleListener : AppLifecycleListener {
     override fun appFrameCreated(commandLineArgs: MutableList<String>) {
         // startServerIfNeeded() is blocking, so run off the EDT
         ApplicationManager.getApplication().executeOnPooledThread {
-            SteroidsMcpServer.getInstance().startServerIfNeeded()
+            val server = SteroidsMcpServer.getInstance()
+            server.startServerIfNeeded()
+            ServerUrlWriter.getInstance().writeServerUrlToUserHome(server.mcpUrl)
         }
     }
 }

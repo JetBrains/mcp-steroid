@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test
 class ArenaPromptContractTest {
 
     @Test
-    fun `mcp prompt keeps apply patch schema and verification rerun guardrails`() {
+    fun `mcp prompt routes multi-site edits through applyPatch DSL and keeps verification rerun guardrails`() {
         val prompt = ArenaTestRunner(
             container = ContainerDriver(
                 logPrefix = "prompt-test",
@@ -20,21 +20,17 @@ class ArenaPromptContractTest {
             projectGuestDir = "/workspace",
         ).buildPrompt(testCase = sampleMavenTestCase(), projectDir = "/home/agent/project-home", withMcp = true)
 
-        assertTrue(
-            prompt.contains("steroid_apply_patch"),
-            "MCP prompt should keep the dedicated apply-patch tool as the multi-site edit path",
-        )
-        assertTrue(
-            prompt.contains("\"file_path\""),
-            "steroid_apply_patch examples must use ApplyPatchToolHandler's file_path schema",
-        )
         assertFalse(
-            prompt.contains("\"path\":"),
-            "steroid_apply_patch examples must not drift back to the invalid path schema",
+            prompt.contains("steroid_apply_patch"),
+            "The dedicated apply-patch tool was removed — prompts must not name it",
         )
         assertTrue(
-            prompt.contains("NOT the older `applyPatch {}` DSL"),
-            "The older applyPatch DSL may be mentioned only as the path to avoid",
+            prompt.contains("applyPatch { }") || prompt.contains("applyPatch {\n"),
+            "MCP prompt should route multi-site edits through the applyPatch { } DSL inside steroid_execute_code",
+        )
+        assertTrue(
+            prompt.contains("mcp-steroid://ide/apply-patch"),
+            "Prompt should link agents to the apply-patch recipe",
         )
         assertFalse(
             prompt.contains("Run each Maven/Gradle verification target at most once"),

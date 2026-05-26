@@ -1,0 +1,93 @@
+[
+  {
+    "code": "IIU",
+    "releases": [
+      {
+        "build": "261.24374.151",
+        "date": "2026-05-15",
+        "downloads": {
+          "linux": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2.tar.gz",
+            "size": 1568648331
+          },
+          "linuxARM64": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2-aarch64.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2-aarch64.tar.gz",
+            "size": 1563717775
+          },
+          "mac": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2.dmg.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2.dmg",
+            "size": 1498670262
+          },
+          "macM1": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2-aarch64.dmg.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2-aarch64.dmg",
+            "size": 1486259560
+          },
+          "windows": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2.exe.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2.exe",
+            "size": 1162131600
+          },
+          "windowsARM64": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2-aarch64.exe.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2-aarch64.exe",
+            "size": 1148139296
+          },
+          "windowsZip": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-2026.1.2.win.zip.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-2026.1.2.win.zip",
+            "size": 1583022175
+          }
+        },
+        "type": "release",
+        "version": "2026.1.2"
+      },
+      {
+        "build": "262.5752.32",
+        "date": "2026-05-14",
+        "downloads": {
+          "linux": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32.tar.gz",
+            "size": 1600527049
+          },
+          "linuxARM64": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32-aarch64.tar.gz.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32-aarch64.tar.gz",
+            "size": 1621737070
+          },
+          "mac": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32.dmg.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32.dmg",
+            "size": 1557095253
+          },
+          "macM1": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32-aarch64.dmg.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32-aarch64.dmg",
+            "size": 1511037069
+          },
+          "windows": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32.exe.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32.exe",
+            "size": 1182316520
+          },
+          "windowsARM64": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32-aarch64.exe.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32-aarch64.exe",
+            "size": 1170596144
+          },
+          "windowsZip": {
+            "checksumLink": "https://download.jetbrains.com/idea/idea-262.5752.32.win.zip.sha256",
+            "link": "https://download.jetbrains.com/idea/idea-262.5752.32.win.zip",
+            "size": 1613657349
+          }
+        },
+        "type": "eap",
+        "version": "2026.2"
+      }
+    ]
+  }
+]

@@ -9,8 +9,14 @@ import java.io.File
 interface AiAgentSession {
     val displayName: String
 
+    val mcpRegistrations: List<McpRegistration>
+        get() = emptyList()
+
+    val strictMcpConfigJson: String?
+        get() = null
+
     /**
-     * Run codex exec for non-interactive mode.
+     * Run a Codex command for non-interactive mode.
      */
     fun runPrompt(
         prompt: String,
@@ -19,26 +25,37 @@ interface AiAgentSession {
 
     fun registerHttpMcp(mcpUrl: String, mcpName: String)
 
-    fun registerNpxMcp(npxCommand: StdioMcpCommand, mcpName: String)
+    fun registerStdioMcp(command: StdioMcpCommand, mcpName: String)
 
     /**
-     * Ship the npx-kt installDist into the environment the agent runs in and
-     * register it as a stdio MCP server under [mcpName].
+     * Ship the devrig installDist into the environment the agent runs in and
+     * register it as an MCP stdio server under [mcpName].
      *
      * [installDir] is the local directory produced by `:npx-kt:installDist`
-     * (e.g. `npx-kt/build/install/mcp-steroid-proxy`). The session decides
+     * (e.g. `devrig/build/install/devrig`). The session decides
      * how to deliver it to the agent — for the Docker-backed sessions that's
-     * a `docker cp` followed by [registerNpxMcp] pointing at the launcher
+     * a `docker cp` followed by [registerStdioMcp] pointing at the launcher
      * inside the container. Used by the
      * `Cli{Claude,Codex,Gemini}IntegrationTest` suite under `:npx-kt`.
      *
-     * Centralising this in the session keeps the test code Docker-agnostic
+     * Centralizing this in the session keeps the test code Docker-agnostic
      * (no `ContainerDriver` on the public surface) while letting the session
-     * know what npx-kt is.
+     * know what devrig is.
      */
-    fun registerNpxKtMcp(installDir: File, mcpName: String)
+    fun registerDevrigMcp(installDir: File, mcpName: String)
 }
 
+enum class McpRegistrationTransport {
+    HTTP,
+    STDIO,
+}
+
+data class McpRegistration(
+    val name: String,
+    val transport: McpRegistrationTransport,
+    val url: String? = null,
+    val command: StdioMcpCommand? = null,
+)
 
 interface AiStartedProcess : StartedProcess {
     val outputFilter: AgentProgressOutputFilter

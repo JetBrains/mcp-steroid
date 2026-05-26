@@ -1,11 +1,11 @@
 FROM debian:bookworm-slim
 
-# Minimal Linux environment for running npx-kt's stdio MCP server end-to-end
+# Minimal Linux environment for running devrig's stdio MCP server end-to-end
 # from integration tests. No agent CLI here — this image exists so the
 # `CliMcpStdioStdoutCleanlinessTest` Docker variant can run the launcher
 # unattended and assert stdout cleanliness on Linux from a Mac/Windows host.
 #
-# Eclipse Temurin 21 JRE matches the npx-kt build's `jvmToolchain(21)`. Same
+# Eclipse Temurin 21 JRE matches the devrig build's `jvmToolchain(21)`. Same
 # Adoptium APT pattern as `test-integration/src/test/docker/ide-base/Dockerfile`.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

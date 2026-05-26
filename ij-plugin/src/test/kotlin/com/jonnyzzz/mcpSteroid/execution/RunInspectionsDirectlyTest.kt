@@ -30,7 +30,6 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
 
         // Create a Kotlin file with known issues:
         // - Unused variable (warning)

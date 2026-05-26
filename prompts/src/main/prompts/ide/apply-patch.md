@@ -1,10 +1,8 @@
 IDE: Apply Patch — Atomic Multi-Site Edit
 
-Apply N literal-text substitutions across one or more files as a single atomic undoable command. PSI stays in sync; the tail-of-exec VFS refresh handles disk sync automatically.
+Apply N literal-text substitutions across one or more files atomically. PSI stays in sync; the editing guard inlined into `steroid_execute_code` refreshes VFS after the script returns.
 
-Default agent path: use the dedicated `steroid_apply_patch` MCP tool for ordinary multi-site literal edits. It exposes this same engine directly and avoids a `steroid_execute_code` kotlinc compile cycle.
-
-This article documents the lower-level script-context DSL. Use it only when the patch must happen inside the same `steroid_execute_code` script as surrounding IntelliJ API work.
+Default agent path for multi-site literal edits: a single `steroid_execute_code` call that uses the script-context `applyPatch { hunk(...) }` DSL documented below. There is no dedicated MCP patch tool — the recipe + DSL is the surface.
 
 ```kotlin
 val result = applyPatch {
@@ -78,16 +76,15 @@ try {
 
 - **One literal, one occurrence, one file** — the compact `findProjectFile + String.replace + VfsUtil.saveText` pattern in the `steroid_execute_code` tool description is equivalent and slightly shorter.
 - **Cross-file semantic rename with type-aware reference chasing** — use [`mcp-steroid://lsp/rename`](mcp-steroid://lsp/rename). `RenameProcessor` follows imports, overrides, method references that literal-text match cannot see.
-- **Anything else with 2+ edit sites** — prefer `steroid_apply_patch`. Use `applyPatch { … }` only when you need to combine the patch with other `steroid_execute_code` operations in the same script.
+- **Anything else with 2+ edit sites** — the `applyPatch { … }` DSL is the default path. Combine it freely with other `steroid_execute_code` operations in the same script (PSI walk, inspections, builds).
 
 ## Why this is the right shape
 
-The dedicated `steroid_apply_patch` tool ships **data only**. The script-context DSL is still much smaller than hand-rolled write-action code, but it pays a `steroid_execute_code` compile cycle. Implementation lives in the plugin (`com.jonnyzzz.mcpSteroid.execution.ApplyPatch`), so the semantics — descending-offset ordering per file, per-hunk line/column capture under a single read action, PSI commit inside the write action — are tested once and can't drift per caller.
+The `applyPatch { }` DSL is much smaller than hand-rolled write-action code and composes cleanly with surrounding IntelliJ API work in the same `steroid_execute_code` script. Implementation lives in the plugin (`com.jonnyzzz.mcpSteroid.execution.ApplyPatch`), so the semantics — descending-offset ordering per file, per-hunk line/column capture under a single read action, PSI commit inside the write action — are tested once and can't drift per caller.
 
 # See also
 
 - [LSP Rename — semantic RenameProcessor](mcp-steroid://lsp/rename)
-- [Apply Patch Tool](mcp-steroid://skill/apply-patch-tool-description)
 - [Move Class](mcp-steroid://ide/move-class)
 - [Change Signature](mcp-steroid://ide/change-signature)
 - [IntelliJ API Power User Guide](mcp-steroid://prompt/skill)

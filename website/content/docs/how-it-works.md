@@ -39,7 +39,7 @@ Because the server runs **inside the IDE's JVM**, it has direct access to Intell
 To connect Claude Code, add the server to its MCP config:
 
 ```bash
-claude mcp add --transport http mcp-steroid http://127.0.0.1:6315/mcp
+claude mcp add --transport http --scope user mcp-steroid http://127.0.0.1:6315/mcp
 ```
 
 Or add it directly to your `claude_desktop_config.json`:
@@ -68,7 +68,6 @@ MCP Steroid exposes nine tools. Most are supporting utilities — the core capab
 | `steroid_execute_code` | Run Kotlin code inside the IDE's JVM |
 | `steroid_take_screenshot` | Capture a screenshot of the IDE window with component metadata |
 | `steroid_input` | Send keyboard and mouse events to the IDE |
-| `steroid_action_discovery` | Discover available IDE actions and quick-fixes at a code location |
 | `steroid_list_projects` | List open projects and IDE version info |
 | `steroid_list_windows` | List open IDE windows and their positions |
 | `steroid_open_project` | Open a project directory in the IDE |
@@ -116,34 +115,10 @@ Because the code runs inside the IDE's JVM, it is not limited to what MCP Steroi
 
 ---
 
-## Human oversight
-
-Before any submitted code runs, MCP Steroid opens it in the editor and shows a review banner:
-
-> **Review** — Edit code to add comments, then Approve or Reject
-
-Three actions are available:
-
-- **Always Approve** — run this code and auto-approve all future executions for this project
-- **Approve** — run this code once
-- **Reject (send edits to LLM)** — cancel execution and return any edits you made as feedback to the agent
-
-The agent receives a structured rejection response including the original code, your edited version, and a unified diff — so it can correct course and try again.
-
-Review can be disabled per-project (Settings → Tools → MCP Steroid) or globally via the `mcp.steroid.review.mode` registry key.
-
----
-
 ## End-to-end flow
 
 ```
 Agent calls steroid_execute_code(project="my-app", code="...", reason="...")
-    │
-    ▼
-MCP Steroid opens code in editor
-    │
-    ▼
-You review and click Approve  ──────────────► Rejection returned to agent
     │
     ▼
 Kotlin script engine compiles the code

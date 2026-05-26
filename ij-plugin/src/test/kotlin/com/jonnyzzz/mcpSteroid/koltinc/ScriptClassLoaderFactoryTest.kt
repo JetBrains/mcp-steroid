@@ -1,9 +1,12 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.koltinc
 
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.contentModules
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.net.URI
+import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -50,6 +53,72 @@ class ScriptClassLoaderFactoryTest : BasePlatformTestCase() {
         val loader = scriptClassLoaderFactory.execCodeClassloader(jar)
         val loaded = loader.loadClass(javaClass.name)
         assertEquals(javaClass.name, loaded.name)
+    }
+
+    fun testProductionCandidateLoadersIncludeContentModuleLoaders(): Unit = timeoutRunBlocking(30.seconds) {
+        // Regression for https://github.com/jonnyzzz/mcp-steroid/issues/76.
+        //
+        // newIdeClassloader() must consult content-module classloaders, not only each
+        // descriptor's main pluginClassLoader. Otherwise scripts compile against classes
+        // in content modules (since #16 added them to ideClasspath()) but fail at runtime,
+        // producing same-FQN-different-Class CCEs from service<T>() for plugins whose
+        // registered impl lives in a content-module classloader (e.g. AIA's
+        // AiaActivationAuthFacadeImpl in 2025.3+ IntelliJ).
+        //
+        // In a test sandbox that folds content modules into the main classloader,
+        // `expected` is empty and this test passes trivially as a canary.
+        val expected: Set<ClassLoader> = PluginManagerCore.loadedPlugins
+            .asSequence()
+            .filter { PluginManagerCore.isLoaded(it.pluginId) }
+            .flatMap { d ->
+                d.contentModules.asSequence()
+                    .mapNotNull { it.pluginClassLoader }
+                    .filter { it !== d.pluginClassLoader }
+            }
+            .toSet()
+
+        val candidates = scriptClassLoaderFactory.productionCandidateLoaders().toSet()
+        val missing = expected - candidates
+        assertTrue(
+            "productionCandidateLoaders() is missing ${missing.size} content-module classloader(s):\n" +
+                missing.take(5).joinToString("\n") { "  $it" },
+            missing.isEmpty(),
+        )
+    }
+
+    fun testIdeDelegateFindsClassOnlyVisibleViaContentModuleLoader(): Unit = timeoutRunBlocking(30.seconds) {
+        // Regression for https://github.com/jonnyzzz/mcp-steroid/issues/76.
+        //
+        // Real-IDE failure: the AIA plugin (`com.intellij.ml.llm`) registers
+        // AiaActivationAuthFacadeImpl through a content-module classloader, while the
+        // facade interface .class also exists in that same content-module loader.
+        // The script's `newIdeClassloader()`-delegated `URLClassLoader` used to walk only
+        // each descriptor's main `pluginClassLoader`, so it returned the *main*-loader copy
+        // of the interface — a different `Class` object than the impl extended. The
+        // resulting CCE blocked `service<T>()` for split plugins.
+        //
+        // The sandbox-trivial check at `testExecCodeClassloaderResolvesContentModuleClasses`
+        // cannot exhibit the split (content modules fold into the main CL). This test
+        // builds the split synthetically: two URLClassLoaders, only the second has `Foo`,
+        // both wired into a `newIdeClassloader()`-style delegate. Without #76's fix the
+        // delegate only consults the first loader and `loadClass("Foo")` throws CNFE.
+        val root = Files.createTempDirectory("ide-cl-cm")
+        val mainJar = createEmptyJar(root, "main.jar")
+        val contentJar = createSyntheticClassJar(root, "content.jar", "ScriptClassLoaderCMRegression")
+
+        val mainCl = URLClassLoader(arrayOf(mainJar.toUri().toURL()), null)
+        val contentCl = URLClassLoader(arrayOf(contentJar.toUri().toURL()), null)
+
+        val delegate = scriptClassLoaderFactory.newIdeDelegateLoaderForTests(
+            listOf(mainCl, contentCl),
+        )
+        val loaded = delegate.loadClass("ScriptClassLoaderCMRegression")
+        assertEquals("ScriptClassLoaderCMRegression", loaded.name)
+        assertSame(
+            "class must come from the content-module loader, not the main loader",
+            contentCl,
+            loaded.classLoader,
+        )
     }
 
     fun testIdeClasspathContainsContentModuleClasses(): Unit = timeoutRunBlocking(30.seconds) {
@@ -135,6 +204,53 @@ class ScriptClassLoaderFactoryTest : BasePlatformTestCase() {
         val bangIndex = text.indexOf("!/")
         require(text.startsWith("jar:") && bangIndex > 0) { "Unexpected jar URL: $text" }
         return text.substring("jar:".length, bangIndex)
+    }
+
+    private fun createEmptyJar(root: Path, name: String = "empty.jar"): Path {
+        val jarPath = root.resolve(name)
+        JarOutputStream(Files.newOutputStream(jarPath)).use { /* no entries */ }
+        return jarPath
+    }
+
+    /**
+     * Build a jar containing a single synthetic class with the given internal name.
+     * The class has no methods or fields; it only needs to be loadable.
+     */
+    private fun createSyntheticClassJar(root: Path, jarName: String, className: String): Path {
+        val jarPath = root.resolve(jarName)
+        JarOutputStream(Files.newOutputStream(jarPath)).use { jar ->
+            jar.putNextEntry(JarEntry("$className.class"))
+            jar.write(syntheticClassBytes(className))
+            jar.closeEntry()
+        }
+        return jarPath
+    }
+
+    /** Minimal valid class file: public class with default constructor, no fields/methods. */
+    private fun syntheticClassBytes(name: String): ByteArray {
+        val cw = org.objectweb.asm.ClassWriter(0)
+        cw.visit(
+            org.objectweb.asm.Opcodes.V1_8,
+            org.objectweb.asm.Opcodes.ACC_PUBLIC or org.objectweb.asm.Opcodes.ACC_SUPER,
+            name,
+            null,
+            "java/lang/Object",
+            null,
+        )
+        val mv = cw.visitMethod(
+            org.objectweb.asm.Opcodes.ACC_PUBLIC, "<init>", "()V", null, null,
+        )
+        mv.visitCode()
+        mv.visitVarInsn(org.objectweb.asm.Opcodes.ALOAD, 0)
+        mv.visitMethodInsn(
+            org.objectweb.asm.Opcodes.INVOKESPECIAL,
+            "java/lang/Object", "<init>", "()V", false,
+        )
+        mv.visitInsn(org.objectweb.asm.Opcodes.RETURN)
+        mv.visitMaxs(1, 1)
+        mv.visitEnd()
+        cw.visitEnd()
+        return cw.toByteArray()
     }
 
     private fun createClassJar(root: Path, klass: Class<*>): Path {

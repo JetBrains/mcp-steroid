@@ -2,8 +2,13 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.McpSession
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallParams
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.successTextResult
+import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -14,7 +19,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Unit tests for [ExecuteFeedbackToolSpec.handle] argument validation.
+ * Unit tests for [ExecuteFeedbackToolSpec.call] argument validation.
  *
  * The handler reports the first missing/invalid field via early return; each
  * test exercises one validation branch and prints the actual error text on
@@ -22,14 +27,24 @@ import org.junit.jupiter.api.Test
  */
 class ExecuteFeedbackToolHandlerTest {
     private fun validate(args: JsonObject): String? {
-        val result = runBlocking {
-            ExecuteFeedbackToolSpec {
-                object : ExecuteFeedbackToolHandler {
-                    override suspend fun handleFeedback(projectName: String, params: FeedbackParams): ToolCallResult {
-                        return ToolCallResult.successTextResult("Success")
-                    }
+        val spec = ExecuteFeedbackToolSpec {
+            object : ExecuteFeedbackToolHandler {
+                override suspend fun handleFeedback(projectName: String, params: FeedbackParams): ToolCallResult {
+                    return ToolCallResult.successTextResult("Success")
                 }
-            }.handle(args)
+            }
+        }
+        val context = ToolCallContext(
+            params = ToolCallParams(name = spec.name, arguments = args),
+            session = McpSession(),
+            mcpProgressReporter = object : McpProgressReporter { override fun report(message: String) = Unit },
+        )
+        val result = runBlocking {
+            try {
+                spec.call(context)
+            } catch (e: ToolCallErrorException) {
+                e.toolCallResult
+            }
         }
 
         return if (result.isError) {

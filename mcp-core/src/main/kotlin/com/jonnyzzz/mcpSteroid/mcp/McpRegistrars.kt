@@ -16,6 +16,16 @@ interface McpTool {
     suspend fun call(context: ToolCallContext): ToolCallResult
 }
 
+abstract class McpToolBase : McpTool {
+    private val params = mutableListOf<InputSchemaElement<*>>()
+
+    protected fun <R> InputSchemaElement<R>.registerToSchema() = apply { params.add(this) }
+
+    final override val inputSchema: JsonObject
+        get() = InputSchemaElement.buildSchema(params)
+}
+
+
 /**
  * Narrow role interface exposed by [McpToolRegistry] for registering a single MCP tool.
  * Callers pass an [McpTool] instance — name/description/schema/handler live on that object.

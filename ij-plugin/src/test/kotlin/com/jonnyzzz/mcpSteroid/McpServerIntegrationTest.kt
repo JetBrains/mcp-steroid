@@ -7,10 +7,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import com.jonnyzzz.mcpSteroid.mcp.*
-import com.jonnyzzz.mcpSteroid.server.ActionDiscoveryResponse
 import com.jonnyzzz.mcpSteroid.server.ListProductsResponse
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
+import com.jonnyzzz.mcpSteroid.server.NpxBridgeService
 import com.jonnyzzz.mcpSteroid.server.ServerMetadataResponse
 import com.jonnyzzz.mcpSteroid.server.SteroidsMcpServer
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
@@ -195,7 +195,9 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
     fun testNpxProductsEndpoint(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
-        val response = client.get("http://localhost:${server.port}/npx/v1/products")
+        val response = client.get("http://localhost:${server.port}/npx/v1/products") {
+            npxBridgeAuthorization()
+        }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val products = McpJson.decodeFromString(ListProductsResponse.serializer(), response.bodyAsText())
@@ -206,10 +208,25 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertTrue("Product plugin version should be reported", first.plugin.version.isNotBlank())
     }
 
+    fun testNpxProductsEndpointRejectsMissingOrWrongToken(): Unit = timeoutRunBlocking(30.seconds) {
+        val server = SteroidsMcpServer.getInstance()
+        server.startServerIfNeeded()
+
+        val missingTokenResponse = client.get("http://localhost:${server.port}/npx/v1/products")
+        assertEquals(HttpStatusCode.Unauthorized, missingTokenResponse.status)
+
+        val wrongTokenResponse = client.get("http://localhost:${server.port}/npx/v1/products") {
+            header(HttpHeaders.Authorization, "Bearer wrong-token")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, wrongTokenResponse.status)
+    }
+
     fun testNpxServerMetadataEndpoint(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
-        val response = client.get("http://localhost:${server.port}/npx/v1/server-metadata")
+        val response = client.get("http://localhost:${server.port}/npx/v1/server-metadata") {
+            npxBridgeAuthorization()
+        }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val metadata = McpJson.decodeFromString(ServerMetadataResponse.serializer(), response.bodyAsText())
@@ -233,7 +250,12 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
                 put("version", "1.0.0")
             }
         }
-    }.toString()
+    }
+        .toString()
+
+    private fun HttpRequestBuilder.npxBridgeAuthorization() {
+        header(HttpHeaders.Authorization, "Bearer ${NpxBridgeService.getInstance().token}")
+    }
 
     private fun buildExecuteCodeRequest(projectName: String) = buildJsonObject {
         put("jsonrpc", "2.0")
@@ -270,52 +292,6 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertNull("Initialize should not return error", initRpc.error)
 
         return sessionId!!
-    }
-
-    fun testActionDiscoveryToolReturnsContext(): Unit = timeoutRunBlocking(30.seconds) {
-        val server = SteroidsMcpServer.getInstance()
-        server.startServerIfNeeded()
-        val sessionId = startSession(server)
-
-        val fileText = "class ActionDiscoveryTest { void demo() { int x = 1; } }"
-        val virtualFile = myFixture.tempDirFixture.createFile("ActionDiscoveryTest.java", fileText)
-        val caretOffset = fileText.indexOf("ActionDiscoveryTest").coerceAtLeast(0)
-
-        val response = client.post(server.mcpUrl) {
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            header(McpHttpTransport.SESSION_HEADER, sessionId)
-            setBody(
-                buildJsonObject {
-                    put("jsonrpc", "2.0")
-                    put("id", "action-discovery-1")
-                    put("method", "tools/call")
-                    putJsonObject("params") {
-                        put("name", "steroid_action_discovery")
-                        putJsonObject("arguments") {
-                            put("project_name", project.name)
-                            put("file_path", virtualFile.url)
-                            put("caret_offset", caretOffset)
-                            putJsonArray("action_groups") { }
-                            put("max_actions_per_group", 0)
-                        }
-                    }
-                }.toString()
-            )
-        }
-
-        assertEquals(HttpStatusCode.OK, response.status)
-        val rpc = McpJson.decodeFromString<JsonRpcResponse>(response.bodyAsText())
-        assertNull("steroid_action_discovery should return result payload", rpc.error)
-        val toolResult = McpJson.decodeFromJsonElement<ToolCallResult>(rpc.result!!)
-        val output = toolResult.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
-        assertFalse("steroid_action_discovery should succeed, got: $output", toolResult.isError)
-
-        val payload = (toolResult.content.single() as ContentItem.Text).text
-        val discovery = McpJson.decodeFromString<ActionDiscoveryResponse>(payload)
-        assertEquals(project.name, discovery.projectName)
-        assertEquals(virtualFile.path, discovery.filePath)
-        assertTrue("Action groups should be empty when skipped", discovery.actionGroups.isEmpty())
     }
 
     /**
@@ -824,6 +800,141 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
     }
 
     /**
+     * Regression test for issue #46: a stuck `steroid_execute_code` script that
+     * exceeds its own `timeout` parameter must come back as a JSON-RPC result
+     * envelope with `isError=true` and a clear "timed out" message — never as
+     * an HTTP 500 or a top-level JSON-RPC `error` object. A 500 looks like a
+     * transport failure and stalls the agent session; a clean tool-error lets
+     * the agent decide to retry or change strategy.
+     *
+     * The synthetic script blocks via `kotlinx.coroutines.delay` (cancellation-
+     * cooperative) for far longer than the requested timeout, so `withTimeout`
+     * inside `ScriptExecutor` fires its `TimeoutCancellationException` path
+     * and `resultBuilder.reportFailed("Execution timed out after $timeout seconds")`
+     * is the user-visible signal.
+     */
+    fun testExecuteCodeTimeoutReturnsCleanErrorNotHttp500(): Unit = timeoutRunBlocking(60.seconds) {
+        val server = SteroidsMcpServer.getInstance()
+        server.startServerIfNeeded()
+        val sessionId = startSession(server)
+
+        // Smallest practical script timeout (2 seconds). Script body delays for
+        // 5 minutes — well beyond the timeout — and would otherwise pin the
+        // executor coroutine until the test's own 60 s budget expired.
+        val execRequest = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", "exec-timeout")
+            put("method", "tools/call")
+            putJsonObject("params") {
+                put("name", "steroid_execute_code")
+                putJsonObject("arguments") {
+                    put("project_name", project.name)
+                    put("timeout", 2)
+                    put("reason", "Timeout regression test (#46)")
+                    put("task_id", "timeout-test")
+                    put(
+                        "code",
+                        """
+                            import kotlinx.coroutines.delay
+                            import kotlin.time.Duration.Companion.minutes
+                            println("ABOUT_TO_BLOCK")
+                            // delay() is cancellation-cooperative — when ScriptExecutor's
+                            // withTimeout(timeout.seconds) fires, this throws
+                            // TimeoutCancellationException and the executor catches it.
+                            delay(5.minutes)
+                            println("UNREACHABLE")
+                        """.trimIndent()
+                    )
+                }
+            }
+        }.toString()
+
+        val execResponse = client.post(server.mcpUrl) {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody(execRequest)
+        }
+
+        assertEquals(
+            "Timeout must come back as HTTP 200 — agents treat 500 as a transport failure",
+            HttpStatusCode.OK,
+            execResponse.status,
+        )
+
+        val rpc = McpJson.decodeFromString<JsonRpcResponse>(execResponse.bodyAsText())
+        assertNull(
+            "Timeout must NOT be surfaced as a top-level JSON-RPC `error` — it's a tool error, not a protocol error",
+            rpc.error,
+        )
+        assertNotNull("Tool result envelope must be present even on timeout", rpc.result)
+
+        val toolResult = McpJson.decodeFromJsonElement<ToolCallResult>(rpc.result!!)
+        assertTrue("Timeout must mark the tool result as isError=true", toolResult.isError)
+
+        val output = toolResult.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
+        assertTrue(
+            "Error content must name the failure mode (got: $output)",
+            output.contains("timed out", ignoreCase = true) || output.contains("timeout", ignoreCase = true),
+        )
+        // Pin the exact substring `reportFailed` writes — `output.contains("2")`
+        // alone would match any incidental digit (execution id, stack-trace
+        // frame, timestamp), so a future change that drops the configured
+        // timeout from the message ("timed out after 600 seconds" as a stale
+        // fallback) would still pass that loose assertion.
+        assertTrue(
+            "Error content must name the configured timeout (got: $output)",
+            output.contains("after 2 second"),
+        )
+        // Defensive: prove the script body actually ran up to the suspension
+        // point before being cancelled, and that the line *after* the
+        // cancellation point did NOT run. If the timeout fired during
+        // waitForSmartMode() instead of during the user delay() — possible
+        // on a cold sandbox — these markers also catch that regression.
+        assertTrue(
+            "Script must have reached the user delay before cancellation (got: $output)",
+            output.contains("ABOUT_TO_BLOCK"),
+        )
+        assertFalse(
+            "Script must NOT have executed past the cancellation point (got: $output)",
+            output.contains("UNREACHABLE"),
+        )
+
+        // Sanity check: the server stays alive after a timeout. The next
+        // request on the same session must succeed end-to-end — decode the
+        // result and prove `!isError`, otherwise a server stuck in a
+        // degraded `isError=true on every call` state would pass an
+        // HTTP-200-only check.
+        val nextRequest = buildExecuteCodeRequest(project.name)
+        val nextResponse = client.post(server.mcpUrl) {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody(nextRequest)
+        }
+        assertEquals(
+            "MCP server must keep accepting requests after a timeout",
+            HttpStatusCode.OK,
+            nextResponse.status,
+        )
+        val nextRpc = McpJson.decodeFromString<JsonRpcResponse>(nextResponse.bodyAsText())
+        assertNull("Follow-up call must succeed cleanly", nextRpc.error)
+        assertNotNull("Follow-up must return a result envelope", nextRpc.result)
+        val nextResult = McpJson.decodeFromJsonElement<ToolCallResult>(nextRpc.result!!)
+        assertFalse(
+            "Server must process the follow-up cleanly, not in a degraded isError state",
+            nextResult.isError,
+        )
+        val nextOutput = nextResult.content
+            .filterIsInstance<ContentItem.Text>()
+            .joinToString("\n") { it.text }
+        assertTrue(
+            "Follow-up output must contain the echoed script marker (got: $nextOutput)",
+            nextOutput.contains("Integration test execution from MCP"),
+        )
+    }
+
+    /**
      * Tests that progress reporting works correctly over the MCP protocol.
      * When code calls progress(), the messages should be included in the response.
      *
@@ -1230,10 +1341,11 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * Tests that MCP resources are properly listed and can be read.
-     * Verifies the "IntelliJ API Power User Guide" resource is available.
+     * Tests that prompt articles are intentionally NOT exposed via MCP resources/list.
+     * The dedicated `steroid_fetch_resource` tool is the only discovery path because it
+     * requires `project_name` and so can render IDE-conditional content correctly.
      */
-    fun testResourcesListAndRead(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testResourcesListIsEmptyAfterFetchResourcePromotion(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -1258,47 +1370,20 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertNull("resources/list should succeed", listRpc.error)
 
         val resourcesList = McpJson.decodeFromJsonElement<ResourcesListResult>(listRpc.result!!)
-        assertTrue("Should have at least one resource", resourcesList.resources.isNotEmpty())
-
-        val skillResource = resourcesList.resources.find { it.name.contains("Power User Guide") }
-        assertNotNull("Should have IntelliJ API Power User Guide resource", skillResource)
-        assertEquals("text/markdown", skillResource!!.mimeType)
-        assertTrue("Resource should have catchy description", skillResource.description?.contains("RECOMMENDED") == true)
-
-        // Read the resource
-        val readResponse = client.post(server.mcpUrl) {
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            header(McpHttpTransport.SESSION_HEADER, sessionId)
-            setBody(buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", "resources-read")
-                put("method", "resources/read")
-                putJsonObject("params") {
-                    put("uri", skillResource.uri)
-                }
-            }.toString())
-        }
-
-        assertEquals(HttpStatusCode.OK, readResponse.status)
-        val readRpc = McpJson.decodeFromString<JsonRpcResponse>(readResponse.bodyAsText())
-        assertNull("resources/read should succeed", readRpc.error)
-
-        val readResult = McpJson.decodeFromJsonElement<ResourceReadResult>(readRpc.result!!)
-        assertTrue("Should have at least one content item", readResult.contents.isNotEmpty())
-
-        val content = readResult.contents.first()
-        assertEquals(skillResource.uri, content.uri)
-        assertEquals("text/markdown", content.mimeType)
-        assertNotNull("Resource should have text content", content.text)
-        assertTrue("Content should contain SKILL.md content", content.text!!.contains("MCP Steroid"))
-        assertTrue("Content should contain quickstart", content.text!!.contains("Quickstart"))
+        val steroidEntries = resourcesList.resources.filter { it.uri.startsWith("mcp-steroid://") }
+        assertTrue(
+            "mcp-steroid:// articles must not appear in resources/list — they are reached via steroid_fetch_resource. Got: ${steroidEntries.map { it.uri }}",
+            steroidEntries.isEmpty(),
+        )
     }
 
     /**
-     * Tests that MCP prompts expose Agent Skills and can be retrieved.
+     * After S6 dropped MCP prompt registration, prompts/list returns an
+     * empty list — the steroid_fetch_resource tool is the only discovery
+     * surface (it requires project_name for correct IDE-conditional
+     * rendering, which prompts/get cannot supply).
      */
-    fun testPromptsListAndGetForSkills(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testPromptsListIsEmptyAfterFetchResourcePromotion(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -1322,36 +1407,11 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertNull("prompts/list should succeed", listRpc.error)
 
         val promptsList = McpJson.decodeFromJsonElement<PromptsListResult>(listRpc.result!!)
-        val skillUri = SkillPromptArticle().uri
-        val mainPrompt = promptsList.prompts.find { it.name == skillUri }
-        assertNotNull("Should expose main skill prompt", mainPrompt)
-        assertEquals("IntelliJ API Power User Guide", mainPrompt!!.title)
-
-        val getResponse = client.post(server.mcpUrl) {
-            contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
-            header(McpHttpTransport.SESSION_HEADER, sessionId)
-            setBody(buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", "prompts-get")
-                put("method", "prompts/get")
-                putJsonObject("params") {
-                    put("name", skillUri)
-                }
-            }.toString())
-        }
-
-        assertEquals(HttpStatusCode.OK, getResponse.status)
-        val getRpc = McpJson.decodeFromString<JsonRpcResponse>(getResponse.bodyAsText())
-        assertNull("prompts/get should succeed", getRpc.error)
-
-        val getResult = McpJson.decodeFromJsonElement<PromptGetResult>(getRpc.result!!)
-        assertEquals(1, getResult.messages.size)
-        val message = getResult.messages.first()
-        assertEquals("user", message.role)
-        val content = message.content as PromptContent.Text
-        assertTrue(content.text.contains("MCP Steroid"))
-        assertFalse(content.text.trimStart().startsWith("---"))
+        val steroidEntries = promptsList.prompts.filter { it.name.startsWith("mcp-steroid://") }
+        assertTrue(
+            "mcp-steroid:// articles must not appear in prompts/list — they are reached via steroid_fetch_resource. Got: ${steroidEntries.map { it.name }}",
+            steroidEntries.isEmpty(),
+        )
     }
 
     /**
@@ -1853,7 +1913,7 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
      * re-issues the same tools/call (same session, same task_id, fresh JSON-RPC id).
      * The CliClaudeIntegrationTest hangs were traced to four parallel `steroid_execute_code`
      * requests piling up on a single ExecutionManager and contending on the VFS write-intent
-     * lock inside McpEditingGuard.awaitRefresh.
+     * lock inside ScriptExecutor's pre-flight awaitRefresh.
      *
      * This test fires N=4 concurrent tools/call requests on a single session and asserts:
      *  - every JSON-RPC id round-trips back unchanged (no cross-talk between requests),

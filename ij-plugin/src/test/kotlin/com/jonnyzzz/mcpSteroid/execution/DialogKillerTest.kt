@@ -30,7 +30,6 @@ class DialogKillerTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
     }
 
     private fun getTextContent(result: ToolCallResult): String {

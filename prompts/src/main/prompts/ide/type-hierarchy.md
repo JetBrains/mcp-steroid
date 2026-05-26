@@ -1,0 +1,102 @@
+IDE: Type Hierarchy (Supertypes and Subtypes)
+[IU]
+Walks the supertype DAG and subtype tree of a class via PSI — the same APIs IntelliJ's Type Hierarchy view (Ctrl+H) uses. Project-scope subtypes; no lambdas.
+
+```kotlin
+import com.intellij.psi.CommonClassNames
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.searches.ClassInheritorsSearch
+
+data class TypeHierarchyEntry(val depth: Int, val fqn: String)
+data class TypeHierarchy(
+    val base: String,
+    val supers: List<TypeHierarchyEntry>,
+    val subs: List<TypeHierarchyEntry>,
+    val subsTruncated: Boolean,
+)
+
+// Configuration - modify these for your use case
+val classFqn = "com.example.BaseType" // TODO: Set the class FQN
+val maxSubtypes = 50
+
+val hierarchy = smartReadAction {
+    val scope = projectScope()
+    val baseClass = JavaPsiFacade.getInstance(project)
+        .findClass(classFqn, GlobalSearchScope.allScope(project))
+        ?: return@smartReadAction null
+
+    val supers = mutableListOf<TypeHierarchyEntry>()
+    val seenSupers = HashSet<String>()
+    fun walkSupers(cls: PsiClass, depth: Int) {
+        val parents = cls.supers.sortedBy { it.qualifiedName ?: it.name ?: "" }
+        for (parent in parents) {
+            // Mirror SupertypesHierarchyTreeStructure: skip Object for interfaces.
+            if (baseClass.isInterface && parent.qualifiedName == CommonClassNames.JAVA_LANG_OBJECT) continue
+            val fqn = parent.qualifiedName ?: parent.name ?: continue
+            if (!seenSupers.add(fqn)) continue
+            supers += TypeHierarchyEntry(depth, fqn)
+            walkSupers(parent, depth + 1)
+        }
+    }
+    walkSupers(baseClass, 1)
+
+    val subs = mutableListOf<TypeHierarchyEntry>()
+    val seenSubs = HashSet<String>()
+    var truncated = false
+    fun walkSubs(cls: PsiClass, depth: Int) {
+        val direct = ClassInheritorsSearch.search(cls, scope, false).findAll()
+            .sortedBy { it.qualifiedName ?: it.name ?: "" }
+        for (child in direct) {
+            if (subs.size >= maxSubtypes) {
+                truncated = true
+                return
+            }
+            val fqn = child.qualifiedName ?: child.name ?: continue
+            if (!seenSubs.add(fqn)) continue
+            subs += TypeHierarchyEntry(depth, fqn)
+            walkSubs(child, depth + 1)
+        }
+    }
+    walkSubs(baseClass, 1)
+
+    TypeHierarchy(
+        baseClass.qualifiedName ?: baseClass.name ?: classFqn,
+        supers,
+        subs,
+        truncated,
+    )
+}
+
+if (hierarchy == null) {
+    println("Class not found: $classFqn")
+    return
+}
+
+println("Type hierarchy for ${hierarchy.base}")
+println()
+println("Supertypes (${hierarchy.supers.size}):")
+if (hierarchy.supers.isEmpty()) {
+    println("  (none — top of hierarchy)")
+} else {
+    for (entry in hierarchy.supers) {
+        println("  " + "  ".repeat(entry.depth - 1) + "^ " + entry.fqn)
+    }
+}
+println()
+val subsLabel = if (hierarchy.subsTruncated) "${hierarchy.subs.size}+ (truncated)" else "${hierarchy.subs.size}"
+println("Subtypes in project scope ($subsLabel):")
+if (hierarchy.subs.isEmpty()) {
+    println("  (none — no inheritors found)")
+} else {
+    for (entry in hierarchy.subs) {
+        println("  " + "  ".repeat(entry.depth - 1) + "v " + entry.fqn)
+    }
+}
+```
+
+# See also
+
+- [Hierarchy Search](mcp-steroid://ide/hierarchy-search) - Inheritors and method overrides
+- [Call Hierarchy](mcp-steroid://ide/call-hierarchy) - Find callers of a method
+- [Find References](mcp-steroid://lsp/find-references) - Find all usages of a symbol
+- [IntelliJ API Power User Guide](mcp-steroid://prompt/skill) - Core API patterns

@@ -6,24 +6,43 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
+import org.slf4j.LoggerFactory
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
+private val ideReleaseLookupLog = LoggerFactory.getLogger("com.jonnyzzz.mcpSteroid.ideDownloader.IdeReleaseLookup")
+
+data class IdeArchiveResolution(
+    val product: IdeProduct,
+    val channel: IdeChannel,
+    val version: String,
+    val build: String,
+    val url: String,
+    val downloadKey: String,
+    val releaseDate: String? = null,
+    val checksumUrl: String? = null,
+    val expectedSha256: String? = null,
+)
+
 /**
- * Returns the JetBrains API download key for the given OS and architecture combination.
+ * Returns the JetBrains products-API download key for the given OS / architecture combo.
  *
  * @see <a href="https://data.services.jetbrains.com/products">JetBrains Products API</a>
  */
-fun resolveDownloadKey(os: HostOs, architecture: HostArchitecture): String = when (os) {
+fun resolveDownloadKey(
+    os: HostOs,
+    architecture: HostArchitecture,
+): String = when (os) {
     HostOs.LINUX -> if (architecture.isArmArch) "linuxARM64" else "linux"
     HostOs.MAC -> if (architecture.isArmArch) "macM1" else "mac"
     HostOs.WINDOWS -> if (architecture.isArmArch) "windowsARM64" else "windows"
 }
 
 /**
- * Resolves the download URL for the latest IDE archive from JetBrains products API.
+ * Resolves the download URL for the latest IDE archive from the public products API.
  *
  * @param product the IDE product to look up
  * @param channel the release channel (stable or EAP)
@@ -37,55 +56,173 @@ fun resolveArchiveUrl(
     os: HostOs = resolveHostOs(),
     architecture: HostArchitecture = resolveHostArchitecture(),
 ): String {
+    return resolveArchive(product, channel, os, architecture).url
+}
+
+fun resolveArchive(
+    product: IdeProduct,
+    channel: IdeChannel,
+    os: HostOs = resolveHostOs(),
+    architecture: HostArchitecture = resolveHostArchitecture(),
+    version: String? = null,
+): IdeArchiveResolution = resolveArchiveWithUrlReader(
+    product = product,
+    channel = channel,
+    os = os,
+    architecture = architecture,
+    version = version,
+    productsApiReader = { url -> readUrlText(url) },
+    androidStudioReader = { url -> readUrlText(url, accept = "text/html,*/*") },
+)
+
+internal fun resolveArchiveWithUrlReader(
+    product: IdeProduct,
+    channel: IdeChannel,
+    os: HostOs = resolveHostOs(),
+    architecture: HostArchitecture = resolveHostArchitecture(),
+    version: String? = null,
+    urlReader: (String) -> String,
+): IdeArchiveResolution = resolveArchiveWithUrlReader(
+    product = product,
+    channel = channel,
+    os = os,
+    architecture = architecture,
+    version = version,
+    productsApiReader = urlReader,
+    androidStudioReader = urlReader,
+)
+
+private fun resolveArchiveWithUrlReader(
+    product: IdeProduct,
+    channel: IdeChannel,
+    os: HostOs,
+    architecture: HostArchitecture,
+    version: String?,
+    productsApiReader: (String) -> String,
+    androidStudioReader: (String) -> String,
+): IdeArchiveResolution {
+    // Android Studio is a Google product and lives on a different feed.
+    if (product === IdeProduct.AndroidStudio) {
+        return resolveAndroidStudioArchiveWithUrlReader(channel, os, architecture, version, androidStudioReader)
+    }
+
     val releaseType = URLEncoder.encode(channel.apiValue, StandardCharsets.UTF_8)
-    val url = "https://data.services.jetbrains.com/products?code=${product.jetbrainsProductCode}&release.type=$releaseType"
+    val url = "https://data.services.jetbrains.com/products?code=${product.code}&release.type=$releaseType"
 
-    println("[IDE-DOWNLOAD] Fetching products info from $url")
-    val payload = readUrlText(url)
+    logFetchingProductsInfo(url)
+    val payload = productsApiReader(url)
 
+    return resolveArchiveFromProductsApiPayload(
+        product = product,
+        channel = channel,
+        os = os,
+        architecture = architecture,
+        version = version,
+        productsApiUrl = url,
+        payload = payload,
+    )
+}
+
+internal fun resolveArchiveFromProductsApiPayload(
+    product: IdeProduct,
+    channel: IdeChannel,
+    os: HostOs,
+    architecture: HostArchitecture,
+    version: String? = null,
+    productsApiUrl: String,
+    payload: String,
+): IdeArchiveResolution {
     val json = Json { ignoreUnknownKeys = true }
     val products = json.parseToJsonElement(payload).jsonArray
 
     val matchingProduct = products
         .filterIsInstance<JsonObject>()
-        .firstOrNull { obj ->
-            (obj["code"] as? JsonPrimitive)?.content == product.jetbrainsProductCode
-        }
-        ?: error("Products response does not contain '${product.jetbrainsProductCode}' entry")
+        .firstOrNull { obj -> (obj["code"] as? JsonPrimitive)?.content == product.code }
+        ?: error("Products response does not contain '${product.code}' entry")
 
     val releases = (matchingProduct["releases"] as? JsonArray) ?: JsonArray(emptyList())
-
     val downloadKey = resolveDownloadKey(os, architecture)
-    val release = releases
-        .filterIsInstance<JsonObject>()
-        .firstOrNull { candidate ->
-            val type = (candidate["type"] as? JsonPrimitive)?.content
-            val version = (candidate["version"] as? JsonPrimitive)?.content
-            val build = (candidate["build"] as? JsonPrimitive)?.content
-            val downloads = candidate["downloads"] as? JsonObject
-            val link = (downloads?.get(downloadKey) as? JsonObject)?.get("link")?.let { (it as? JsonPrimitive)?.content }
+    val wantedVersion = version?.takeIf { it.isNotBlank() }
+    val skippedWrongFilename = mutableListOf<String>()
 
-            type.equals(channel.apiValue, ignoreCase = true) &&
-                    !version.isNullOrBlank() &&
-                    !build.isNullOrBlank() &&
-                    !link.isNullOrBlank()
+    for (release in releases.filterIsInstance<JsonObject>()) {
+        val type = (release["type"] as? JsonPrimitive)?.content
+        val releaseVersion = (release["version"] as? JsonPrimitive)?.content
+        val build = (release["build"] as? JsonPrimitive)?.content
+        val releaseDate = (release["date"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+        if (!type.equals(channel.apiValue, ignoreCase = true)) continue
+        if (releaseVersion.isNullOrBlank() || build.isNullOrBlank()) continue
+        if (wantedVersion != null && wantedVersion != releaseVersion && wantedVersion != build) continue
+
+        val downloads = release["downloads"] as? JsonObject ?: continue
+        val platformDownload = downloads[downloadKey] as? JsonObject ?: continue
+        val link = (platformDownload["link"] as? JsonPrimitive)?.content ?: continue
+        if (link.isBlank()) continue
+        val checksumLink = (platformDownload["checksumLink"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+        val filename = downloadFilenameFromUrl(link)
+        if (!product.acceptsDownloadFilename(filename)) {
+            skippedWrongFilename += "$releaseVersion -> $filename"
+            continue
         }
-        ?: error("Unable to resolve latest '${channel.apiValue}' release for product '${product.jetbrainsProductCode}' (download key '$downloadKey') from $url")
+        return IdeArchiveResolution(
+            product = product,
+            channel = channel,
+            version = releaseVersion,
+            build = build,
+            url = link,
+            downloadKey = downloadKey,
+            releaseDate = releaseDate,
+            checksumUrl = checksumLink,
+        )
+    }
 
-    val downloads = release["downloads"] as? JsonObject
-        ?: error("Missing 'downloads' in release")
-    val platformDownload = downloads[downloadKey] as? JsonObject
-        ?: error("Missing '$downloadKey' in downloads")
-    return (platformDownload["link"] as? JsonPrimitive)?.content
-        ?: error("Missing 'link' in $downloadKey download")
+    error(resolveArchiveFailureMessage(product, channel, wantedVersion, downloadKey, productsApiUrl, skippedWrongFilename))
 }
 
-internal fun readUrlText(url: String): String {
+internal fun IdeProduct.acceptsDownloadFilename(filename: String): Boolean {
+    val tokens = urlFilenameTokens
+    return tokens.isEmpty() || tokens.any { token -> filename.contains(token) }
+}
+
+internal fun downloadFilenameFromUrl(link: String): String =
+    URI(link).path.substringAfterLast('/').takeIf { it.isNotBlank() } ?: link.substringAfterLast('/')
+
+private fun resolveArchiveFailureMessage(
+    product: IdeProduct,
+    channel: IdeChannel,
+    wantedVersion: String?,
+    downloadKey: String,
+    productsApiUrl: String,
+    skippedWrongFilename: List<String>,
+): String {
+    val versionMessage = if (wantedVersion == null) "latest" else "version '$wantedVersion'"
+    val tokens = product.urlFilenameTokens
+    if (tokens.isEmpty()) {
+        return "Unable to resolve $versionMessage '${channel.apiValue}' release for product '${product.code}' " +
+            "(tried download key $downloadKey) from $productsApiUrl"
+    }
+    val tokensText = tokens.joinToString { "`$it`" }
+    val skippedText = skippedWrongFilename
+        .take(5)
+        .joinToString(prefix = " Skipped mismatched filenames: ")
+        .takeIf { skippedWrongFilename.isNotEmpty() }
+        .orEmpty()
+    return "No release in the '${channel.apiValue}' channel of code=${product.code} serves a download URL whose filename " +
+        "contains any of: $tokensText (tried download key $downloadKey) from $productsApiUrl. " +
+        "Latest matched: <none>.$skippedText JetBrains may not have published this edition for the most recent " +
+        "version; try --version with an older known-good build."
+}
+
+internal fun logFetchingProductsInfo(url: String) {
+    ideReleaseLookupLog.debug("[IDE-DOWNLOAD] Fetching products info from {}", url)
+}
+
+internal fun readUrlText(url: String, accept: String = "application/json"): String {
     val connection = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 15_000
         readTimeout = 15_000
-        setRequestProperty("Accept", "application/json")
+        setRequestProperty("Accept", accept)
     }
     try {
         val statusCode = connection.responseCode
@@ -94,7 +231,7 @@ internal fun readUrlText(url: String): String {
             ?.use { it.readText() }
             .orEmpty()
         if (statusCode !in 200..299) {
-            error("Failed to fetch from $url. HTTP $statusCode\n$body")
+            throw IOException("Failed to fetch from $url. HTTP $statusCode\n$body")
         }
         return body
     } finally {

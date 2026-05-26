@@ -22,7 +22,7 @@ dependencies {
     // MCP protocol types (McpTool, ToolCallContext, JsonRpc*, PromptsContextProvider)
     api(project(":mcp-core"))
 
-    // Generated prompt articles for ExecuteCode's dynamic description + ResourceRegistrar
+    // Generated prompt articles for tool descriptions + FetchResourceToolHandler
     api(project(":prompts"))
 
     testImplementation(platform("org.junit:junit-bom:5.11.4"))

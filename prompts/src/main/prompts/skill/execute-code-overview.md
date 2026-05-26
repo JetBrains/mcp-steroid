@@ -52,15 +52,15 @@ writeAction { VfsUtil.saveText(vf, updated) }  // write INSIDE writeAction
 
 ---
 
-## Multi-Site Literal Edits: Use `steroid_apply_patch`
+## Multi-Site Literal Edits: Use the `applyPatch { }` DSL
 
-When you need two or more literal substitutions in one file or across many files, use the dedicated
-`steroid_apply_patch` MCP tool instead of chaining native `Edit` calls or compiling a
-`steroid_execute_code` script just to call the older script-context apply-patch DSL.
+When you need two or more literal substitutions in one file or across many files, wrap them in a
+single `steroid_execute_code` call that uses the script-context `applyPatch { hunk(...); hunk(...) }`
+DSL — not a chain of native `Edit` calls.
 
-`steroid_apply_patch` validates all hunks before writing, applies them as one undoable IDE command,
-commits PSI, and avoids kotlinc compile overhead. Read
-`mcp-steroid://skill/apply-patch-tool-description` for the JSON schema.
+The DSL validates all hunks before writing, applies them as one undoable IDE command, commits PSI in
+place, and the editing guard inlined into `steroid_execute_code` refreshes VFS after the script returns. Read
+`mcp-steroid://ide/apply-patch` for the full recipe.
 
 ---
 

@@ -9,6 +9,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.RefreshQueue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +107,10 @@ class VfsRefreshService(
             withTimeoutOrNull(30.seconds) {
                 RefreshQueue.getInstance().refresh(/* recursive = */ true, listOf(base))
             }
+        } catch (e: CancellationException) {
+            // Outer-coroutine cancellation must propagate so the request slot
+            // frees promptly; it is NOT a non-fatal VFS refresh failure.
+            throw e
         } catch (e: Exception) {
             log.debug("awaitRefresh failed (non-fatal)", e)
             return

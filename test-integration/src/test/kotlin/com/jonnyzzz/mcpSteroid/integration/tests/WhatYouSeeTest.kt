@@ -80,7 +80,7 @@ class WhatYouSeeTest {
      * tools are strongly preferred for IDE-specific operations.
      *
      * Tasks are selected to cover both steroid_execute_code (scripted IDE automation)
-     * and dedicated steroid tools (list_projects, list_windows, action_discovery, etc.).
+     * and dedicated steroid tools (list_projects, list_windows, take_screenshot, etc.).
      */
     private fun toolPreference(agent: AiAgentSession) {
         val result = agent.runPrompt(

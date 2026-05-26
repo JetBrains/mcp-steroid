@@ -1,25 +1,20 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.project.ProjectManager
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.builder
-import com.jonnyzzz.mcpSteroid.mcp.errorResult
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import com.jonnyzzz.mcpSteroid.vision.VisionService
 import kotlinx.serialization.json.*
 
-class VisionInputToolHandlerIJ : VisionInputToolHandler {
+class VisionInputToolHandlerIJ : ProjectScopedToolHandler(), VisionInputToolHandler {
     private val log = thisLogger()
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun handleInputSequence(projectName: String, inputParams: InputParams): ToolCallResult {
-        val project = readAction {
-            ProjectManager.getInstance().openProjects.find { it.name == projectName }
-        } ?: return ToolCallResult.errorResult("Project not found: $projectName")
+        val project = resolveProject(projectName)
 
         val executionId = project.executionStorage.writeToolCall(
             toolName = "steroid_input",

@@ -16,7 +16,6 @@ class ScriptExecutionAvailabilityTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        setSystemPropertyForTest("mcp.steroid.review.mode", "NEVER")
     }
 
     fun testScriptExecutionCompiles(): Unit = timeoutRunBlocking(30.seconds) {

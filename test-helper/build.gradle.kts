@@ -1,6 +1,5 @@
-import org.gradle.api.attributes.Usage
-
 plugins {
+    `java-library`
     kotlin("jvm")
 }
 
@@ -8,18 +7,15 @@ repositories {
     mavenCentral()
 }
 
-val npxPackage by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "npx-package"))
-    }
-}
-
 dependencies {
-    npxPackage(project(path = ":npx", configuration = "npxPackageElements"))
+    api(project(":closeable-stack"))
     implementation(project(":ai-agents"))
     implementation(project(":agent-output-filter"))
+    implementation(project(":prompts"))
+    // PidMarker / IdeInfo / PluginInfo for the test-only fake marker file.
+    // :mcp-steroid-server is plain JVM Kotlin (no com.intellij imports), so it
+    // is safe to pull into test-helper's main classpath.
+    implementation(project(":mcp-steroid-server"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
@@ -46,10 +42,4 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
-}
-
-tasks.processResources {
-    from(npxPackage) {
-        rename { "mcp-steroid-npx.zip" }
-    }
 }

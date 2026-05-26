@@ -1,7 +1,7 @@
 FROM registry.jetbrains.team/p/ij/docker-hub/debian:bookworm-slim
 
-# Install Node.js 20 + Eclipse Temurin 21 JRE. The JRE lets the npx-kt MCP
-# proxy (Kotlin/JVM, jvmToolchain(21)) run as a stdio MCP under the agent's
+# Install Node.js 20 + Eclipse Temurin 21 JRE. The JRE lets the devrig MCP
+# devrig (Kotlin/JVM, jvmToolchain(21)) run as a stdio MCP under the agent's
 # launcher — used by :npx-kt:integrationTest's CliClaudeIntegrationTest.
 # Adoptium APT mirrors the test-integration ide-base pattern.
 RUN apt-get update && \

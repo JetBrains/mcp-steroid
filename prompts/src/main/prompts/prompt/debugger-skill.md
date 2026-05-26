@@ -7,9 +7,31 @@ Use IntelliJ debugger APIs via steroid_execute_code to set breakpoints, start de
 
 Use IntelliJ debugger APIs from `steroid_execute_code` to control debug sessions, evaluate variables, and step through code.
 
+## Choosing the right breakpoint
+
+Always set a line breakpoint on a specific **statement inside the method body** — that compiles to a single scoped JDI `BreakpointRequest` and is by far the cheapest stopping primitive.
+
+- **Method (entry/exit) breakpoints are dramatically slow.** IntelliJ implements them via JDI `MethodEntryRequest` / `MethodExitRequest`, which fire on every method entry/exit in the JVM and are post-filtered by the debugger. The IDE itself surfaces the warning *"Method breakpoints may dramatically slow down debugging"*. If you want to stop on entry to `foo()`, place a line breakpoint on the first executable statement of `foo()` — same observation point, orders of magnitude cheaper. See `mcp-steroid://debugger/add-breakpoint`.
+- **Several statements on the same line** (lambdas, chained calls, conditional returns). A plain line breakpoint stops at the line's **first** executable instruction. For Kotlin/Java lines like `collection.map { it.someMethod().plus(42) }` there are two distinct positions: the outer `collection.map { ... }` call and the inner lambda body `it.someMethod().plus(42)`. They generate different bytecode locations and different hit-counts. Use `mcp-steroid://debugger/add-inline-breakpoint` to enumerate variants via `XLineBreakpointType.computeVariantsAsync(project, position)` and pick the right one — usually the lambda body for "what happens to each element", not the whole-line position.
+- **Read the variant labels.** Variant `.text` values include `"Line"`, `"Lambda body"`, `"Lambda 1"` / `"Lambda 2"` (for multi-lambda lines), and `"Conditional return"`. `variant.highlightRange` points at the exact source range — print it before choosing so the agent knows what it picked.
+
+## Monitoring IDE state across calls
+
+When you need to observe **more than one** debugger event across **more than one** `steroid_execute_code` call (multiple breakpoint hits during a long run, breakpoint changes from an action, session lifecycle), do not keep a coroutine alive inside a single script call — the script returns and your `withTimeout` block will never run again.
+
+Use the file-based monitor pattern from `mcp-steroid://debugger/monitor-debug-events`:
+
+1. One script registers `XDebugSessionListener` (via `XDebugSession.addSessionListener(listener, parent)`) and `XBreakpointListener` (via `project.messageBus.connect(parent).subscribe(XBreakpointListener.TOPIC, listener)`) under a single `Disposable parent`.
+2. Each callback writes (appends) one JSON line to `.idea/mcp-steroid/debug-events.ndjson`.
+3. The script returns immediately. The IDE keeps firing events into the file.
+4. The agent reads the file from outside `steroid_execute_code` (via `Read`, `tail`, `grep`) and reacts.
+5. The listener cleans itself up via three paths: time-based self-expiry (`startedAt + maxAgeMs`), `sessionStopped` callback, and `Disposer.register(project, parent)` for project close.
+
+**Classloader caution.** Each `steroid_execute_code` call uses a fresh classloader. A listener that stays registered keeps that classloader alive. `Key` identities do not survive across classloaders, so a second script **cannot** look up a Disposable that the first one stashed. The listener must therefore terminate itself based on conditions inside its own callback — there is no "unsubscribe by name" path from a sibling script. Always bound listener lifetime.
+
 ## Quickstart
 
-1) Set breakpoints: read `mcp-steroid://debugger/add-breakpoint`, adapt the file path and line number
+1) Set breakpoints: read `mcp-steroid://debugger/add-breakpoint` for a single statement inside the method body; read `mcp-steroid://debugger/add-inline-breakpoint` when several statements share a line (lambdas, conditional returns)
 2) Launch the debug session:
    - For **JUnit/Kotlin test**: read `mcp-steroid://debugger/demo-debug-test` — it creates a JUnitConfiguration (with module) and launches it
    - For **Rider/.NET test**: read `mcp-steroid://debugger/demo-debug-test` — it opens the file and fires `RiderUnitTestDebugContextAction`
@@ -115,12 +137,14 @@ After `stepOver()`, the debugger may land in a different method scope:
 
 ### Debugger Resources
 - [Debugger Overview](mcp-steroid://debugger/overview) - Complete debugger examples overview
-- [Add Breakpoint](mcp-steroid://debugger/add-breakpoint) - Add breakpoint idempotently
+- [Add Breakpoint](mcp-steroid://debugger/add-breakpoint) - Line breakpoint on a statement inside the method body (idempotent)
+- [Add Inline Breakpoint](mcp-steroid://debugger/add-inline-breakpoint) - Lambda / conditional-return variant for multi-statement lines
 - [Remove Breakpoint](mcp-steroid://debugger/remove-breakpoint) - Remove breakpoints from a line
 - [Set Line Breakpoint](mcp-steroid://debugger/set-line-breakpoint) - Combined add/remove reference
 - [Create Application Config](mcp-steroid://debugger/create-application-config) - Create run configuration
 - [Debug Run Configuration](mcp-steroid://debugger/debug-run-configuration) - Start debugging a run config
-- [Wait for Suspend](mcp-steroid://debugger/wait-for-suspend) - Wait for breakpoint hit (event-driven)
+- [Wait for Suspend](mcp-steroid://debugger/wait-for-suspend) - Wait for one suspend within the current script
+- [Monitor Debug Events](mcp-steroid://debugger/monitor-debug-events) - Append events to NDJSON; agent polls across calls
 - [Evaluate Expression](mcp-steroid://debugger/evaluate-expression) - Full evaluation example with reusable eval() helper
 - [Step Over](mcp-steroid://debugger/step-over) - Step through code (with scope change docs)
 - [Debug Session Control](mcp-steroid://debugger/debug-session-control) - Pause, resume, and stop sessions

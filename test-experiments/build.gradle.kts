@@ -21,19 +21,9 @@ val agentOutputFilterDist by configurations.creating {
     isCanBeResolved = true
 }
 
-// Resolvable configuration to get the NPX package zip from :npx subproject
-val npxPackageDist by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "npx-package"))
-    }
-}
-
 dependencies {
     pluginZip(project(":ij-plugin"))
     agentOutputFilterDist(project(path = ":agent-output-filter", configuration = "executableDistribution"))
-    npxPackageDist(project(":npx"))
 
     // Shared infrastructure (containers, MCP client, drivers) lives in :test-integration's main source set.
     testImplementation(project(":test-integration"))
@@ -78,7 +68,7 @@ fun Test.configureExperimentalTest() {
         .filterKeys { it.toString().startsWith("arena.test.") }
         .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
 
-    dependsOn(pluginZip, agentOutputFilterDist, npxPackageDist)
+    dependsOn(pluginZip, agentOutputFilterDist)
     doFirst {
         delete(layout.buildDirectory.dir("test-results/${this@configureExperimentalTest.name}/binary"))
         val testOutDir = layout.buildDirectory
@@ -101,10 +91,6 @@ fun Test.configureExperimentalTest() {
         systemProperty(
             "test.integration.agent.output.filter.zip",
             agentOutputFilterDist.singleFile.absolutePath,
-        )
-        systemProperty(
-            "test.integration.npx.package.zip",
-            npxPackageDist.singleFile.absolutePath,
         )
         systemProperty(
             "test.integration.repo.cache.dir",

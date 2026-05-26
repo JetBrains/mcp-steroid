@@ -9,7 +9,6 @@ import com.intellij.openapi.project.Project
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.builder
-import com.jonnyzzz.mcpSteroid.review.ReviewManager
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
@@ -70,26 +69,24 @@ class ExecutionManager(
                 try {
                     builder.logMessage("execution_id: ${executionId.executionId}")
 
-                    val finalResult = project.service<ReviewManager>().requestReview(executionId, exec, builder)
-                    if (!finalResult) {
-                        yield()
-                    }
-
-                    log.info("Review result for $executionId: $finalResult")
-                    yield()
-
-                    // Run the script. The McpEditingGuard wrapping (dialog
-                    // killer, modality fail-fast, BEFORE/AFTER awaitRefresh)
-                    // lives inside ScriptExecutor so it surrounds only the
-                    // run-blocks phase — kotlinc itself runs outside the guard
-                    // because it doesn't touch the project tree and would
-                    // otherwise pin a write-intent across compile wall-time.
+                    // Run the script. ScriptExecutor wraps the user-script
+                    // body in the editing-guard steps (dialog killer,
+                    // modality fail-fast, BEFORE/AFTER awaitRefresh) so they
+                    // surround only the run-blocks phase — kotlinc itself
+                    // runs outside that wrapping because it doesn't touch the
+                    // project tree and would otherwise pin a write-intent
+                    // across compile wall-time.
                     project.scriptExecutor.executeWithProgress(
                         executionId,
                         exec,
                         builder
                     )
                     log.info("Execution $executionId completed")
+                } catch (e: CancellationException) {
+                    // Coroutine cancellation must propagate — never log, never wrap.
+                    // The boundary catch-all in McpHttpTransport converts it to a
+                    // structured tool result via `JsonRpcErrorCodes.INTERNAL_ERROR`.
+                    throw e
                 } catch (t: Throwable) {
                     log.warn("Unexpected error: ${t.message}", t)
                     builder.logException("Unexpected error", t)

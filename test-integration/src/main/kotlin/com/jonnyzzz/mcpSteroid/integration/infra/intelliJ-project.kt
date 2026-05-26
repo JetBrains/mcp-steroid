@@ -68,7 +68,10 @@ sealed class IntelliJProject{
         openFile = "src/main/kotlin/com/example/util/Logging.kt",
     )
 
+    object BroadleafCommerceProject : ProjectFromRemoteGit("https://github.com/BroadleafCommerce/BroadleafCommerce.git")
     object KeycloakProject : ProjectFromRemoteGit("https://github.com/keycloak/keycloak.git")
+    object KillBillProject : ProjectFromRemoteGit("https://github.com/killbill/killbill.git")
+    object ThingsBoardProject : ProjectFromRemoteGit("https://github.com/thingsboard/thingsboard.git")
     object YouTrackDbProject : ProjectFromRemoteGit("https://github.com/JetBrains/youtrackdb.git")
     object IntelliJPlatformGradlePluginProject : ProjectFromRemoteGit("https://github.com/JetBrains/intellij-platform-gradle-plugin.git")
     object IntelliJMasterProject : ProjectFromIntelliJMasterZip(

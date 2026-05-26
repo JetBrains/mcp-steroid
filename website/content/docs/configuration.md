@@ -14,12 +14,10 @@ MCP Steroid can be configured via IntelliJ's Registry (`Help > Find Action > Reg
 | `mcp.steroid.server.port` | `6315` | MCP server port. Use `0` for auto-assign. The actual URL is written to `.idea/mcp-steroid.md`. |
 | `mcp.steroid.server.host` | `127.0.0.1` | MCP server bind address. Use `0.0.0.0` for Docker/remote access. |
 
-## Review & Execution
+## Execution
 
 | Registry Key | Default | Description |
 |-------------|---------|-------------|
-| `mcp.steroid.review.mode` | `ALWAYS` | Code review mode: `ALWAYS` (default), or `NEVER`. |
-| `mcp.steroid.review.timeout` | `600` | Review timeout in seconds. |
 | `mcp.steroid.execution.timeout` | `600` | Script execution timeout in seconds. |
 | `mcp.steroid.dialog.killer.enabled` | `true` | Automatically close modal dialogs before code execution. Prevents execution failures when dialogs are blocking the IDE. |
 

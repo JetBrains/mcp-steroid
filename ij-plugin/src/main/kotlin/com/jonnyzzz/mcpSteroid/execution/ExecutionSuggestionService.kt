@@ -118,7 +118,7 @@ class ExecutionSuggestionService(
                 "TIP: Use XDebuggerUtil.toggleLineBreakpoint() instead of breakpointManager.addLineBreakpoint() with null properties. See ${DebuggerOverview().uri}"
 
             errorMessage.contains("breakpoint", ignoreCase = true) || errorMessage.contains("debug", ignoreCase = true) ->
-                "TIP: For debugger help, see ${DebuggerOverview().uri} resource (run resources/list)"
+                "TIP: For debugger help, fetch ${DebuggerOverview().uri} via steroid_fetch_resource"
 
             errorMessage.contains("runBlocking") ->
                 "TIP: Never use runBlocking - the script body already runs in a coroutine context."

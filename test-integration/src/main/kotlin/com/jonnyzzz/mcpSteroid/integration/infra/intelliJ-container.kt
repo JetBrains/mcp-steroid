@@ -6,8 +6,10 @@ import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ImageDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.RunningContainerProcess
 import com.jonnyzzz.mcpSteroid.testHelper.docker.commitContainerToImage
+import com.jonnyzzz.mcpSteroid.testHelper.docker.copyToContainer
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
+import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import java.io.File
 
 /**
@@ -32,11 +34,11 @@ enum class AiMode {
     AI_MCP,
 
     /**
-     * Agents connect to MCP Steroid via an NPX stdio proxy.
-     * [NpxSteroidDriver] is deployed before agents are initialized; each agent
-     * has [AiAgentSession.registerNpxMcp] called with the resulting command.
+     * Agents connect to MCP Steroid via devrig stdio.
+     * [DevrigSteroidDriver] is deployed before agents are initialized; each agent
+     * has [AiAgentSession.registerStdioMcp] called with the resulting command.
      */
-    AI_NPX,
+    AI_DEVRIG,
 }
 
 /**
@@ -79,15 +81,96 @@ class IntelliJContainer(
 ) {
     val pid by intellij::pid
 
+    fun execAndAssert(
+        description: String,
+        script: String,
+        timeoutSeconds: Long = 300,
+    ): ProcessResult {
+        return scope.startProcessInContainer {
+            this
+                .args("bash", "-lc", script)
+                .timeoutSeconds(timeoutSeconds)
+                .description(description)
+        }.awaitForProcessFinish()
+            .assertExitCode(0) { "$description failed\nstdout=$stdout\nstderr=$stderr" }
+    }
+
+    fun deployDevrigLauncher(packageZip: File = IdeTestFolders.devrigPackageZip): String {
+        require(packageZip.isFile) { "devrig distribution ZIP does not exist: ${packageZip.absolutePath}" }
+
+        val launcherPath = "/home/agent/devrig"
+        scope.copyToContainer(packageZip, "/tmp/devrig.zip")
+        execAndAssert(
+            description = "install devrig launcher",
+            timeoutSeconds = 120,
+            script = """
+                set -euo pipefail
+                rm -rf /home/agent/devrig-cli "$launcherPath"
+                mkdir -p /home/agent/devrig-cli
+                unzip -q /tmp/devrig.zip -d /home/agent/devrig-cli
+                app_dir="${'$'}(find /home/agent/devrig-cli -mindepth 1 -maxdepth 1 -type d -name 'devrig-*' | head -1)"
+                test -n "${'$'}app_dir"
+                mv "${'$'}app_dir" /home/agent/devrig-cli/app
+                chmod +x /home/agent/devrig-cli/app/bin/devrig
+                ln -sfn devrig /home/agent/devrig-cli/app/bin/devrig
+                ln -sfn /home/agent/devrig-cli/app/bin/devrig "$launcherPath"
+                "$launcherPath" --version
+            """.trimIndent(),
+        )
+        return launcherPath
+    }
+
+    fun waitForIntelliJBuiltInHttpServer(timeoutSeconds: Long = 180): ProcessResult {
+        val result = execAndAssert(
+            description = "wait for IntelliJ built-in HTTP server",
+            timeoutSeconds = timeoutSeconds + 15L,
+            script = """
+                set -euo pipefail
+                deadline=${'$'}((SECONDS + $timeoutSeconds))
+                found=0
+                while [ "${'$'}SECONDS" -lt "${'$'}deadline" ]; do
+                  for port in ${'$'}(seq 63342 63361); do
+                    body="${'$'}(curl -fsS --max-time 2 "http://127.0.0.1:${'$'}port/api/about" 2>/dev/null || true)"
+                    if [ -n "${'$'}body" ] && printf '%s\n' "${'$'}body" | jq -e '.productName == "IDEA" or ((.productName // "") | test("IntelliJ"))' >/dev/null 2>&1; then
+                      echo "port=${'$'}port"
+                      echo "${'$'}body"
+                      found=1
+                      break 2
+                    fi
+                  done
+                  sleep 2
+                done
+                if [ "${'$'}found" = "1" ]; then
+                  :
+                else
+                echo "IntelliJ IDEA did not answer /api/about on ports 63342..63361 within ${timeoutSeconds}s" >&2
+                exit 1
+                fi
+            """.trimIndent(),
+        )
+        console.writeSuccess("IntelliJ built-in HTTP server is reachable")
+        return result
+    }
+
     private fun latestScreenshotPath(): String? =
         File(runDirInContainer, "screenshot")
             .listFiles { file -> file.isFile && file.extension.equals("png", ignoreCase = true) }
             ?.maxByOrNull { it.lastModified() }
             ?.absolutePath
 
+    fun diagnosticsSummary(): String = buildString {
+        appendLine("RUN_DIR=${runDirInContainer.absolutePath}")
+        appendLine("SESSION_INFO=${File(runDirInContainer, "session-info.txt").absolutePath}")
+        appendLine("SCREENSHOT_DIR=${File(runDirInContainer, "screenshot").absolutePath}")
+        appendLine("VIDEO_DIR=${File(runDirInContainer, "video").absolutePath}")
+        appendLine("IDE_LOG=${File(runDirInContainer, "intellij/ide-log/idea.log").absolutePath}")
+        appendLine("AGENT_LOG_DIR=${runDirInContainer.absolutePath}")
+        appendLine("AGENT_LOG_PATTERN=agent-<name>-<N>-raw.ndjson / agent-<name>-<N>-decoded.txt")
+    }.trimEnd()
+
     private fun problemDetailsWithScreenshot(baseDetails: String): String {
         val screenshot = latestScreenshotPath() ?: "<none>"
-        return "$baseDetails; latestScreenshot=$screenshot"
+        return "$baseDetails; latestScreenshot=$screenshot\n${diagnosticsSummary()}"
     }
 
     /**

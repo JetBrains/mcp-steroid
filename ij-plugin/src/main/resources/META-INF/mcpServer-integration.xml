@@ -1,0 +1,20 @@
+<idea-plugin>
+    <!--
+      Loaded by the IDE only when the optional dependency on
+      `com.intellij.mcpServer` is satisfied (see ../plugin.xml).
+      Registers the real IntelliJMcpServerProbeImpl as the
+      application service for IntelliJMcpServerProbe so
+      `ServerUrlWriter` can surface the bundled IntelliJ MCP
+      server's endpoint on the pid marker.
+
+      When the optional dependency is missing or disabled, this file
+      is not processed, `IntelliJMcpServerProbeImpl` stays unloaded,
+      `IntelliJMcpServerProbe.getInstanceOrNull()` returns null, and
+      the pid marker's `intellijMcpServer` field is omitted.
+    -->
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService
+            serviceInterface="com.jonnyzzz.mcpSteroid.server.IntelliJMcpServerProbe"
+            serviceImplementation="com.jonnyzzz.mcpSteroid.server.IntelliJMcpServerProbeImpl"/>
+    </extensions>
+</idea-plugin>

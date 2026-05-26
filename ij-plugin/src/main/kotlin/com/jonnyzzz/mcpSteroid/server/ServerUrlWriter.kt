@@ -2,27 +2,33 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationInfo
-import com.intellij.openapi.application.ApplicationNamesInfo
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.Disposer
-import com.jonnyzzz.mcpSteroid.PluginDescriptorProvider
+import com.intellij.util.Urls
+import com.jonnyzzz.mcpSteroid.IdeInfo
+import com.jonnyzzz.mcpSteroid.IntelliJWebServerInfo
+import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
+import com.jonnyzzz.mcpSteroid.PidMarker
+import com.jonnyzzz.mcpSteroid.PidMarkerJson
+import com.jonnyzzz.mcpSteroid.PluginInfo
+import org.jetbrains.ide.BuiltInServerManager
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.text.SimpleDateFormat
-import java.time.ZonedDateTime
+import java.time.Instant
 import java.time.format.DateTimeFormatter
-import java.util.*
 
 /**
- * Writes the MCP server URL to user home directory and project description files.
+ * Writes the MCP server URL marker to the managed MCP Steroid marker directory.
  *
- * This service is responsible for creating marker files that provide
- * connection instructions to users and AI agents:
- * - Per-project: .idea/mcp-steroid.md (via IdeaDescriptionWriter)
- * - User home: .<pid>.mcp-steroid (PID-based marker file)
+ * The marker file is `~/.mcp-steroid/markers/<pid>.mcp-steroid`, a JSON
+ * document defined by [PidMarker]. External monitors, including devrig, read
+ * it to discover where this IDE's MCP server is reachable. The `.idea/mcp-steroid.md` per-project description is written
+ * separately by [IdeaDescriptionWriter].
  */
 @Service(Service.Level.APP)
 class ServerUrlWriter : Disposable {
@@ -30,107 +36,121 @@ class ServerUrlWriter : Disposable {
     private var markerFile: Path? = null
 
     /**
-     * Write the MCP server URL to user home directory.
-     * Creates a PID-based marker file that is cleaned up on IDE exit.
+     * Write the MCP server URL to the user's home as a JSON marker file.
+     * Stale marker files from dead processes are cleaned up first.
      *
-     * @param serverUrl The MCP server URL (e.g., "http://localhost:<port>/mcp")
+     * The marker carries the IntelliJ-hosted MCP server's port (matches
+     * [SteroidsMcpServer.port]) and bearer auth token (matches
+     * [NpxBridgeService.token]) so external monitors can address the
+     * server without parsing the URL or guessing the token.
+     *
+     * @param serverUrl The MCP server URL.
      */
     fun writeServerUrlToUserHome(serverUrl: String) {
         val userHome = Path.of(System.getProperty("user.home"))
-
-        // Clean up stale marker files from dead processes
-        cleanupStaleMarkerFiles(userHome)
-
         val pid = ProcessHandle.current().pid()
-        val file = userHome.resolve(".$pid.mcp-steroid")
+        val markerDir = PidMarker.markerDirectory(userHome)
+        val file = markerDir.resolve(PidMarker.markerFileNameFor(pid))
 
-        val content = buildMarkerContent(serverUrl)
-        log.info("Writing MCP Steroid is ready\n$content")
+        val marker = PidMarker(
+            schema = PidMarker.SCHEMA_VERSION,
+            pid = pid,
+            mcpSteroidServer = McpSteroidServerInfo(
+                mcpUrl = serverUrl,
+                port = SteroidsMcpServer.getInstance().port,
+                headers = bearerHeaders(NpxBridgeService.getInstance().token),
+            ),
+            ide = IdeInfo.ofApplication(),
+            plugin = PluginInfo.ofCurrentPlugin(),
+            createdAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+            intellijWebServer = buildIntelliJWebServerInfo(),
+            intellijMcpServer = IntelliJMcpServerProbe.getInstanceOrNull()?.probe(),
+        )
+        val content = PidMarkerJson.encode(marker)
+        log.info("Writing MCP Steroid marker (pid=$pid)\n$content")
 
         try {
+            Files.createDirectories(markerDir)
+            cleanupStaleMarkers(markerDir)
             Files.writeString(file, content)
             markerFile = file
             log.info("MCP Steroid marker file created: $file")
         } catch (e: Exception) {
-            log.warn("Failed to create marker file in user home", e)
+            log.warn("Failed to create MCP Steroid marker file", e)
         }
 
-        // Register cleanup on dispose
         Disposer.register(this) {
             try {
                 markerFile?.let { Files.deleteIfExists(it) }
-            } catch (_: Exception) {
-                // Ignore cleanup errors
+            } catch (e: Exception) {
+                log.warn("Failed to clean up MCP Steroid marker file on shutdown", e)
             }
         }
     }
 
-    private fun buildMarkerContent(serverUrl: String): String = buildString {
-        val plugin = PluginDescriptorProvider.getInstance()
-        val appInfo = ApplicationInfo.getInstance()
+    private fun buildIntelliJWebServerInfo(): IntelliJWebServerInfo? {
+        return try {
+            val rawManager = BuiltInServerManager.getInstance()
+            val manager = if (ApplicationManager.getApplication().isDispatchThread) {
+                rawManager
+            } else {
+                rawManager.waitForStart()
+            }
+            if (manager.serverDisposable == null) return null
 
-        appendLine(serverUrl)
-        appendLine()
-        appendLine("MCP Steroid Server")
-        appendLine("URL: $serverUrl")
-        appendLine()
-        appendLine("Created: ${ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)}")
-        appendLine("Plugin Version: ${plugin.version}")
-        appendLine("Plugin ID: ${plugin.pluginId}")
-        appendLine("IDE Version: ${appInfo.fullVersion}")
-        appendLine("IDE Build: ${appInfo.build.asString()}")
-        appendLine()
-        appendLine(IdeaDescriptionWriter.getInstance().buildDescriptionContent(serverUrl))
-        appendLine()
-        buildIdeInfo()
-    }
+            val host = "127.0.0.1"
+            val authority = "$host:${manager.port}"
+            val baseUrl = Urls.newHttpUrl(authority, "", null).toExternalForm()
+            val aboutUrl = Urls.newHttpUrl(authority, "/api/about", null)
+            val authorizedAboutUrl = manager.addAuthToken(aboutUrl)
+            val token = extractQueryParameter(authorizedAboutUrl.parameters, "_ijt")
 
-    private fun StringBuilder.buildIdeInfo() {
-        val appInfo = ApplicationInfo.getInstance()
-        val namesInfo = ApplicationNamesInfo.getInstance()
-
-        appendLine("${namesInfo.fullProductName} ${appInfo.fullVersion}")
-        appendLine("Build #${appInfo.build.asString()}")
-
-        val buildDate = appInfo.buildDate
-        if (buildDate != null) {
-            val formatter = SimpleDateFormat("MMMM d, yyyy", Locale.ENGLISH)
-            appendLine("Built on ${formatter.format(buildDate.time)}")
+            IntelliJWebServerInfo(
+                enabled = true,
+                host = host,
+                port = manager.port,
+                baseUrl = baseUrl,
+                aboutUrl = authorizedAboutUrl.toExternalForm(),
+                headers = ijtHeaders(token.orEmpty()),
+            )
+        } catch (e: Exception) {
+            log.warn("Failed to query IntelliJ's built-in web server", e)
+            null
         }
-
-        appendLine()
-        appendLine("Runtime: ${System.getProperty("java.runtime.version", "unknown")}")
-        appendLine("OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")} (${System.getProperty("os.arch")})")
-        appendLine()
     }
 
-    /**
-     * Remove marker files for processes that are no longer running.
-     */
-    private fun cleanupStaleMarkerFiles(userHome: Path) {
-        val markerPattern = Regex("\\.(\\d+)\\.mcp-steroid")
+    private fun extractQueryParameter(parameters: String?, name: String): String? {
+        val query = parameters?.removePrefix("?") ?: return null
+        return query.split('&')
+            .asSequence()
+            .mapNotNull { pair ->
+                val key = pair.substringBefore('=', missingDelimiterValue = pair)
+                if (key != name) return@mapNotNull null
+                val value = pair.substringAfter('=', missingDelimiterValue = "")
+                URLDecoder.decode(value, StandardCharsets.UTF_8)
+            }
+            .firstOrNull()
+    }
 
+    /** Remove marker files left behind by IDE processes that no longer exist. */
+    private fun cleanupStaleMarkers(markerDir: Path) {
+        if (!Files.isDirectory(markerDir)) return
         try {
-            Files.list(userHome).use { stream ->
+            Files.list(markerDir).use { stream ->
                 stream.filter { file ->
-                    val match = markerPattern.find(file.fileName.toString())
-                    if (match != null) {
-                        val pid = match.groupValues[1].toLongOrNull()
-                        pid != null && !ProcessHandle.of(pid).isPresent
-                    } else {
-                        false
-                    }
+                    val pid = PidMarker.pidFromFileName(file.fileName.toString())
+                    pid != null && Files.isRegularFile(file) && !ProcessHandle.of(pid).isPresent
                 }.forEach { staleFile ->
                     try {
                         Files.deleteIfExists(staleFile)
                         log.info("Removed stale MCP marker file: $staleFile")
-                    } catch (_: Exception) {
-                        // Ignore individual file deletion errors
+                    } catch (e: Exception) {
+                        log.warn("Failed to delete stale MCP marker file: $staleFile", e)
                     }
                 }
             }
         } catch (e: Exception) {
-            log.warn("Failed to cleanup stale marker files", e)
+            log.warn("Failed to cleanup stale marker files in $markerDir", e)
         }
     }
 
@@ -140,3 +160,9 @@ class ServerUrlWriter : Disposable {
         fun getInstance(): ServerUrlWriter = service()
     }
 }
+
+private fun bearerHeaders(token: String): Map<String, String> =
+    mapOf("Authorization" to "Bearer $token")
+
+private fun ijtHeaders(token: String): Map<String, String> =
+    mapOf("x-ijt" to token)

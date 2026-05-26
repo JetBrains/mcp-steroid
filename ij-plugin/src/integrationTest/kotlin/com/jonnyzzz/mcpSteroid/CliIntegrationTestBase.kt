@@ -25,7 +25,7 @@ abstract class CliIntegrationTestBase : BasePlatformTestCase() {
      * Run the test body OFF the EDT. Default `BasePlatformTestCase` parks the test
      * method on the EDT inside a write-intent transaction; while the test parks in
      * `timeoutRunBlocking { runPrompt(...) }` the EDT keeps the write-intent permit
-     * held. The MCP server's `McpEditingGuard.awaitRefresh()` suspend call then can
+     * held. The MCP server's pre-flight `awaitRefresh()` suspend call (inside ScriptExecutor) then can
      * never acquire write-intent and hits its 30 s safety timeout — twice per
      * `steroid_execute_code` and once per Claude retry — turning a sub-second
      * refresh into 3-4 minutes of wall time and tripping the 60 s MCP-tool timeout.
@@ -120,7 +120,7 @@ abstract class CliIntegrationTestBase : BasePlatformTestCase() {
 
                 After execution, extract the SYSPROP_VALUE line from the output and print it as:
                 FINAL_VALUE: <the value you found>
-                
+
                 Ensure the output is plain text. Do NOT use bold, italics, or code blocks for the FINAL_VALUE line.
                 Example:
                 FINAL_VALUE: ai-1234-5678

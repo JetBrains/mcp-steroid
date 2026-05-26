@@ -55,4 +55,73 @@ class DebuggerPromptQualityTest {
             prompt.contains("not `com.intellij.execution.runners.ProgramRunnerUtil`")
         ) { "Expected explicit anti-pattern warning for old ProgramRunnerUtil package" }
     }
+
+    @Test
+    fun testDebuggerSkillWarnsAboutMethodBreakpointSlowness() {
+        val prompt = promptIndex.debuggerSkillMd.readPayload(ideaContext)
+        assertTrue(
+            prompt.contains("method", ignoreCase = true)
+                && prompt.contains("slow", ignoreCase = true)
+        ) { "Expected method-breakpoint slowness guidance in debugger-skill" }
+        assertTrue(
+            prompt.contains("MethodEntryRequest") || prompt.contains("method.breakpoints")
+        ) { "Expected MethodEntryRequest reference or JDI explanation in debugger-skill" }
+    }
+
+    @Test
+    fun testAddBreakpointWarnsAboutMethodBreakpointsAndPointsAtInlineVariant() {
+        val prompt = debuggerIndex.addBreakpointMd.readPayload(ideaContext)
+        assertTrue(
+            prompt.contains("method", ignoreCase = true)
+                && prompt.contains("slow", ignoreCase = true)
+        ) { "Expected method-breakpoint slowness warning in add-breakpoint" }
+        assertTrue(
+            prompt.contains("mcp-steroid://debugger/add-inline-breakpoint")
+        ) { "Expected pointer to add-inline-breakpoint for multi-statement lines" }
+    }
+
+    @Test
+    fun testAddInlineBreakpointTeachesVariantApi() {
+        val prompt = debuggerIndex.addInlineBreakpointMd.readPayload(ideaContext)
+        assertTrue(
+            prompt.contains("computeVariantsAsync")
+        ) { "Expected XLineBreakpointType.computeVariantsAsync usage" }
+        assertTrue(
+            prompt.contains("createProperties")
+        ) { "Expected variant.createProperties() usage" }
+        assertTrue(
+            prompt.contains("variantAndBreakpointMatch")
+        ) { "Expected variantAndBreakpointMatch idempotency check" }
+    }
+
+    @Test
+    fun testMonitorDebugEventsTeachesAppendOnlyAndDisposable() {
+        val prompt = debuggerIndex.monitorDebugEventsMd.readPayload(ideaContext)
+        assertTrue(
+            prompt.contains("appendText")
+        ) { "Expected append-only file write guidance" }
+        assertTrue(
+            prompt.contains("Disposer.newDisposable") && prompt.contains("Disposer.register")
+        ) { "Expected Disposable creation + parent registration guidance" }
+        assertTrue(
+            prompt.contains("XDebugSessionListener") && prompt.contains("XBreakpointListener")
+        ) { "Expected both session and breakpoint listeners" }
+        assertTrue(
+            prompt.contains("classloader", ignoreCase = true)
+        ) { "Expected classloader-leak caveat" }
+        assertTrue(
+            prompt.contains("maxAgeMs") || prompt.contains("self-dispose") || prompt.contains("self-expir")
+        ) { "Expected time-based self-disposal guidance" }
+    }
+
+    @Test
+    fun testDebuggerOverviewListsNewResources() {
+        val prompt = debuggerIndex.overviewMd.readPayload(ideaContext)
+        assertTrue(
+            prompt.contains("mcp-steroid://debugger/add-inline-breakpoint")
+        ) { "Expected add-inline-breakpoint to be listed in overview" }
+        assertTrue(
+            prompt.contains("mcp-steroid://debugger/monitor-debug-events")
+        ) { "Expected monitor-debug-events to be listed in overview" }
+    }
 }

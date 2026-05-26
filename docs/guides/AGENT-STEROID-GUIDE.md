@@ -16,6 +16,15 @@ The IDE has indexed everything. It knows the code better than any file search. *
 
 ## Available MCP Tools
 
+> **Project / backend naming contract:** if you reach this guide via
+> the **devrig stdio MCP server** (`devrig mpc`), the `project_name`
+> values returned by `steroid_list_projects` follow the
+> [`docs/devrig-naming.md`](../devrig-naming.md) spec — they include a
+> hash suffix (`<slug(name)>-<hash8>`) and are routed through an
+> on-demand snapshot per call. The in-IDE MCP Steroid endpoint exposes
+> the raw IntelliJ `Project.name` instead; pick one transport and
+> stick to its naming.
+
 ### `steroid_list_projects`
 List all open projects in the IDE. Use this to get project names for `steroid_execute_code`.
 
@@ -45,9 +54,6 @@ Use this in multi-window setups to pick the right `project_name` and `window_id`
 | `projectName` | Associated project name |
 
 Use the modality/indexing fields and `backgroundTasks` to poll for project readiness after `steroid_open_project`.
-
-### `steroid_action_discovery`
-Discover available editor actions, quick-fixes, and gutter actions for a file and caret context.
 
 ### `steroid_take_screenshot`
 Capture a screenshot of the IDE frame and return image content.
@@ -493,7 +499,6 @@ All MCP Steroid tools work identically in Rider:
 - `steroid_list_windows` - Works with Rider windows
 - `steroid_take_screenshot` - Capture Rider UI
 - `steroid_input` - Interact with Rider
-- `steroid_action_discovery` - Discover Rider-specific actions
 - `steroid_open_project` - Open C# solutions
 
 ### C# File Operations

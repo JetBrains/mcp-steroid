@@ -7,10 +7,6 @@ import com.jonnyzzz.mcpSteroid.testHelper.DockerClaudeSession
 import com.jonnyzzz.mcpSteroid.testHelper.DockerCodexSession
 import com.jonnyzzz.mcpSteroid.testHelper.DockerGeminiSession
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
-import com.jonnyzzz.mcpSteroid.testHelper.docker.copyToContainer
-import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
-import com.jonnyzzz.mcpSteroid.testHelper.docker.writeFileInContainer
-import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import java.io.File
 import kotlin.getValue
 
@@ -21,14 +17,14 @@ import kotlin.getValue
  * to the appropriate [McpConnectionMode] before constructing [AiAgentDriver].
  */
 sealed class McpConnectionMode {
-    /** Agents are available but MCP Steroid is NOT registered. */
+    /** Agents are available, but MCP Steroid is not registered. */
     data object None : McpConnectionMode()
 
     /** Agents connect to MCP Steroid via direct HTTP. */
     data object Http : McpConnectionMode()
 
-    /** Agents connect to MCP Steroid via an NPX stdio proxy. */
-    data class Npx(val driver: NpxSteroidDriver) : McpConnectionMode()
+    /** Agents connect to MCP Steroid via devrig stdio. */
+    data class Devrig(val driver: DevrigSteroidDriver) : McpConnectionMode()
 }
 
 /**
@@ -42,7 +38,7 @@ sealed class McpConnectionMode {
  * MCP Steroid connectivity is determined by [mcpConnection]:
  * - [McpConnectionMode.None]  — no MCP registered (baseline / control group)
  * - [McpConnectionMode.Http]  — HTTP transport ([AiMode.AI_MCP])
- * - [McpConnectionMode.Npx]   — NPX stdio proxy ([AiMode.AI_NPX])
+     * - [McpConnectionMode.Devrig] — devrig stdio ([AiMode.AI_DEVRIG]).
  */
 class AiAgentDriver(
     container: ContainerDriver,
@@ -57,7 +53,6 @@ class AiAgentDriver(
         container.configureContainerExec { this.workingDirInContainer(intellijDriver.getGuestProjectDir()) }
     }
 
-    val mcpSteroidHostUrl by mcp::hostMcpUrl
     val mcpSteroidGuestUrl by mcp::guestMcpUrl
     val mcpSteroidName: String = "mcp-steroid"
 
@@ -68,7 +63,7 @@ class AiAgentDriver(
         when (val conn = mcpConnection) {
             is McpConnectionMode.None -> { /* no MCP registered */ }
             is McpConnectionMode.Http -> agent.registerHttpMcp(mcpSteroidGuestUrl, mcpSteroidName)
-            is McpConnectionMode.Npx -> agent.registerNpxMcp(conn.driver.npxCommand, mcpSteroidName)
+            is McpConnectionMode.Devrig -> agent.registerStdioMcp(conn.driver.devrigCommand, mcpSteroidName)
         }
 
         // Wrap with console-aware session for real-time UI feedback and log file writing

@@ -26,7 +26,15 @@ val removed = breakpointManager.allBreakpoints
 if (removed.isEmpty()) {
     println("No breakpoint at $filePath:$lineNumberInEditor")
 } else {
-    removed.forEach { breakpointManager.removeBreakpoint(it) }
+    // `removeBreakpoint` does not assert write-intent the way
+    // `addLineBreakpoint` does, but the breakpoint platform's
+    // presentation-update listeners can route through Kotlin PSI on
+    // removal — the WIRA wrap is precautionary and symmetric with the
+    // add recipe. Safe to drop if a future change proves the wrap
+    // unnecessary at this site.
+    writeIntentReadAction {
+        removed.forEach { breakpointManager.removeBreakpoint(it) }
+    }
     println("Removed ${removed.size} breakpoint(s) at $filePath:$lineNumberInEditor")
 }
 ```

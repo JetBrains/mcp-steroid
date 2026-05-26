@@ -16,7 +16,6 @@
         <li><b>80+ MCP Resources:</b> Comprehensive guides covering LSP, IDE operations, debugger, tests, VCS, and more</li>
         <li><b>Vision Capabilities:</b> AI agents can see your IDE with screenshots and OCR (unique to MCP Steroid)</li>
         <li><b>Deep Integration:</b> Access PSI, inspections, refactorings, and full IntelliJ Platform API</li>
-        <li><b>Human Oversight:</b> Review and approve code execution with configurable safety controls</li>
     </ul>
 
     <h3>Why MCP Steroid?</h3>
@@ -37,6 +36,16 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+
+    <!--
+      Optional integration with IntelliJ's bundled MCP Server plugin
+      (com.intellij.mcpServer). When that plugin is loaded and enabled,
+      mcpServer-integration.xml registers IntelliJMcpServerProbeImpl,
+      which surfaces the IDE-bundled MCP server's endpoint on our pid
+      marker so external monitors can discover both servers from one
+      file. Plugin loads normally when the dependency is missing.
+    -->
+    <depends optional="true" config-file="mcpServer-integration.xml">com.intellij.mcpServer</depends>
 
     <extensionPoints>
         <!-- Extension point for screenshot metadata providers -->
@@ -68,14 +77,8 @@
             serviceInterface="com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler"
             serviceImplementation="com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandlerIJ"/>
         <applicationService
-            serviceInterface="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandler"
-            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ApplyPatchToolHandlerIJ"/>
-        <applicationService
             serviceInterface="com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandler"
             serviceImplementation="com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandlerIJ"/>
-        <applicationService
-            serviceInterface="com.jonnyzzz.mcpSteroid.server.ActionDiscoveryToolHandler"
-            serviceImplementation="com.jonnyzzz.mcpSteroid.server.ActionDiscoveryToolHandlerIJ"/>
         <applicationService
             serviceInterface="com.jonnyzzz.mcpSteroid.server.VisionInputToolHandler"
             serviceImplementation="com.jonnyzzz.mcpSteroid.server.VisionInputToolHandlerIJ"/>
@@ -93,23 +96,7 @@
         <notificationGroup id="jonnyzzz.mcp.steroid.updates"
                            displayType="BALLOON"/>
 
-        <!-- Per-project settings page under Tools > MCP Steroid -->
-        <projectConfigurable parentId="tools"
-            id="com.jonnyzzz.mcp-steroid.settings"
-            displayName="MCP Steroid"
-            instance="com.jonnyzzz.mcpSteroid.review.McpSteroidProjectConfigurable"/>
-
-        <!-- Review panel notification -->
-        <editorNotificationProvider
-            implementation="com.jonnyzzz.mcpSteroid.review.McpReviewNotificationProvider"/>
-
         <!-- Registry keys for configuration -->
-        <registryKey key="mcp.steroid.review.mode" defaultValue="ALWAYS"
-            description="Code review mode: ALWAYS (default, requires manual review), NEVER (skip review, auto-approve all executions)"/>
-
-        <registryKey key="mcp.steroid.review.timeout" defaultValue="600"
-            description="Review timeout in seconds"/>
-
         <registryKey key="mcp.steroid.execution.timeout" defaultValue="600"
             description="Script execution timeout in seconds"/>
 
