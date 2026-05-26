@@ -73,21 +73,31 @@ rather than new code:
 - [x] R2. **GH Actions runs after the recent pushes.** Run
   `26476991148` (TASKS.md sweep + #9 follow-up) **green** — both
   `build number` + `build plugin` jobs success.
-- [ ] R3. **TC builds blocked by agent-pool composition** (no admin
-  action — needs user). Queued personal builds
-  `958485340` (IjPluginTest_Linux_amd64) and `958485362`
-  (IjPluginTest_Mac_aarc64) both report **0 compatible agents**.
-  Diagnosis: the `mcp_steroid` project's agent pools currently hold
-  only 4 agents total — "Default" (3 ARM-only Linux), "Default MacOS
-  x64" (0), "Default Windows" (0), "Shared/default macOS iCRI" (1).
-  Zero Linux amd64 agents in any pool. The previous successful run
-  (`0.94.0.528` on 2026-05-10) used `default-linux-aws-C-i-09e7a53b…`
-  — that EC2 pool is no longer assigned. Two paths to unblock:
-  (a) re-assign / re-provision an `amd64` Linux pool to the
-  `mcp_steroid` project (TC admin action), or (b) revert
-  `cf786b9` on `JetBrains/mcp-steroid-teamcity` and unblock these
-  builds by switching back to the prior `JDK_21_0` agents (which
-  presumably were on a different pool layout).
+- [ ] R3. **TC builds: revert committed, watching ingestion.**
+  Initial diagnosis (pool composition) was **wrong**. The pool is
+  fine — EC2 Linux amd64 agents exist and are assigned (proven by
+  SettingsTest `958485364` landing on
+  `default-linux-aws-C-i-0853bd8a81e8415c8` and succeeding in 52 s
+  with build number `0.96.533-jb-fc48d25`). The real blocker was
+  the `%env.JDK_25_0%` substitution in `jdkHome`: TC marks an
+  agent incompatible when any `%env.X%` reference doesn't resolve
+  to a value on the agent, and the shared TC agents have
+  `env.JDK_21_0` but not `env.JDK_25_0`.
+  Reverted `cf786b9` on JetBrains/mcp-steroid-teamcity →
+  commit `d3b749c` (`JDK_25_0` → `JDK_21_0` across the same six
+  files; XML diff exactly mirrors the original). Gradle still
+  requires JDK 25 (daemon `toolchainVersion=25` +
+  `kotlin { jvmToolchain(25) }`); satisfied by foojay-resolver
+  auto-download on first build — same mechanism the GH Actions
+  container uses when its preinstalled JDK isn't reachable.
+  Re-queued personal build `958485367`. Verification window: TC
+  needs ~1-5 min to ingest the new DSL XML before
+  `compatibleAgents=count:0` flips to ≥1. Once an agent picks it
+  up, the first real signal is whether Gradle daemon-criteria
+  triggers foojay successfully — expect a ~30 s preamble before
+  the normal build-task timeline.
+  Earlier stuck builds (`958485340`, `958485362`) are queued on
+  the OLD DSL; let them age out / TC garbage-collect.
 - [x] R4. **Local deploy to IDEA 2026.1 done.** Added
   `deployPluginLocallyTo261` task (`cd38b33e`) mirroring the
   legacy 253 sibling; ran it; the new
