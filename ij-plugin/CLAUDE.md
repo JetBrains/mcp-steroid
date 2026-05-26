@@ -127,6 +127,18 @@ ProgramRunnerUtil.executeConfiguration(settings, DefaultRunExecutor.getRunExecut
 
 - IDE cached under `.intellijPlatform/ides/IU-2025.3`.
 - Tests use `localPlugin(...)` for Kotlin/Java plugins to align with IDE classpath.
+- **`com.intellij.java` + `org.jetbrains.kotlin` are declared via `testBundledPlugin(...)`** in the main `dependencies.intellijPlatform { }` block — they live on the project-level test classpath
+  (`intellijPlatformTestBundledPlugins`), NOT on the main IDE classpath. Two safety nets
+  enforce this: `NoForbiddenPluginImportsTest` (compile-time, scans every production Kotlin
+  source root) and `PluginRuntimeCompatibilityTest.runtime compat pycharm*` (PyCharm
+  doesn't bundle either plugin and the .zip still loads).
+  - **Latent footgun**: the custom integrationTest source set wired via
+    `intellijPlatformTesting.testIde.register("integrationTest")` does NOT inherit project-level
+    `testBundledPlugin` declarations — IPGP creates a suffixed
+    `intellijPlatformTestBundledPlugins_integrationTest` config that doesn't `extendsFrom` the
+    project-level one. The Cli*IntegrationTest classes today don't import any Java/Kotlin plugin
+    types so this is fine, but if a future integration test needs them, add them explicitly inside
+    the `register("integrationTest") { ... }` block.
 
 ## Plugin deployment
 

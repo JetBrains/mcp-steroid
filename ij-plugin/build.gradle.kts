@@ -46,6 +46,24 @@ val targetIdeProduct = when (targetIdeProductRaw.trim().lowercase()) {
     )
 }
 
+// Map the IPGP-side product enum to the intellij-downloader product. The build
+// IDE selector (line ~140) and the Plugin Verifier loop (line ~287) both need
+// this mapping so the verifier IDEs match the build IDE — running the
+// IDEA verifier against a PyCharm-built plugin checks compatibility against
+// the wrong API surface and would miss PyCharm-side issues that the runtime
+// compat test catches at test time but the verifier should catch at build time.
+//
+// Closes audit #11 ("PyCharm-side verifier matrix. `verifierTargets` is
+// IDEA-only. `-Pmcp.platform.product=pycharm` switches build IDE to PyCharm
+// but Plugin Verifier still runs against IDEA").
+val verifierIdeProduct: IdeProduct = when (targetIdeProduct) {
+    JetBrainsIdeProduct.IntelliJIdeaUltimate -> IdeProduct.IntelliJIdea
+    JetBrainsIdeProduct.PyCharm -> IdeProduct.PyCharm
+    JetBrainsIdeProduct.GoLand,
+    JetBrainsIdeProduct.WebStorm,
+    -> error("Plugin build targets IntelliJ IDEA or PyCharm only. GoLand/WebStorm are for integration tests.")
+}
+
 repositories {
     mavenCentral()
 
@@ -151,10 +169,15 @@ dependencies {
             JetBrainsIdeProduct.WebStorm,
             -> error("Plugin build targets IntelliJ IDEA or PyCharm only. GoLand/WebStorm are for integration tests.")
         }
-        // Required for IdeExamplesExecutionTest (Java refactoring APIs) and
-        // LanguageSupportExecutionTest (Java/Kotlin language support actions)
-        bundledPlugin("com.intellij.java")
-        bundledPlugin("org.jetbrains.kotlin")
+        // Java + Kotlin plugins are TEST-ONLY. Two safety nets keep
+        // production code free of either plugin's types:
+        // `NoForbiddenPluginImportsTest` (compile-time) and
+        // `PluginRuntimeCompatibilityTest.runtime compat pycharm*` (PyCharm
+        // doesn't ship them; the .zip still loads). `testBundledPlugin`
+        // puts the jars on the test classpath via
+        // `intellijPlatformTestBundledPlugins`, never the main IDE classpath.
+        testBundledPlugin("com.intellij.java")
+        testBundledPlugin("org.jetbrains.kotlin")
         // Direct (compile-time) access to IntelliJ's bundled MCP server plugin so
         // `IntelliJMcpServerProbe` can call McpServerService.getInstance() without
         // reflection. The plugin is bundled in IDEA 2025.3+ but the **user can
@@ -279,12 +302,15 @@ intellijPlatform {
     pluginVerification {
         ides {
             // Verifier IDEs go through `intellij-downloader` too. Each entry is
-            // downloaded + unpacked into `build/local-ides/IU-<build>-<os>-<arch>/`
-            // and fed to IPGP via `local(file)`. The per-major matrix lives in
+            // downloaded + unpacked into `build/local-ides/<P>-<build>-<os>-<arch>/`
+            // (where <P> is IU for IDEA, PY for PyCharm) and fed to IPGP via
+            // `local(file)`. The per-major matrix lives in
             // `McpSteroidIdeTargets.verifierTargets` so adding 263 EAP later is
-            // a single-place edit covered by `McpSteroidIdeTargetsTest`.
+            // a single-place edit covered by `McpSteroidIdeTargetsTest`. The
+            // product axis follows `targetIdeProduct` so a PyCharm build
+            // verifies against PyCharm IDEs, not IDEA ones (audit #11).
             McpSteroidIdeTargets.verifierTargets.forEach { target ->
-                local(ideRootProviderFor(target))
+                local(ideRootProviderFor(target, verifierIdeProduct))
             }
         }
     }

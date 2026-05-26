@@ -52,6 +52,8 @@ fun unpackIdeArchive(archiveFile: File, unpackDir: File) {
         }
         unpackDir.mkdirs()
 
+        warnIfLowFreeDiskSpace(unpackDir, archiveFile)
+
         val name = archiveFile.name.lowercase()
         when {
             name.endsWith(".tar.gz") || name.endsWith(".tgz") -> unpackTarGz(archiveFile, unpackDir)
@@ -65,6 +67,49 @@ fun unpackIdeArchive(archiveFile: File, unpackDir: File) {
         }
 
         writeUnpackCompleteMarker(unpackDir, archiveFile)
+    }
+}
+
+/**
+ * Soft-fail early with a clear diagnostic when the filesystem hosting
+ * [unpackDir] is close to running out of space. An IntelliJ IDE archive
+ * unpacks to roughly 3 × its compressed size on disk (1.5 GB .tar.gz →
+ * ~3 GB unpacked, plus the build/local-ides retention of every matrix
+ * entry). When CI agents accumulate several majors + OS+arch entries
+ * the disk fills silently — the unpack then aborts mid-stream with
+ * `IOException: No space left on device`, which surfaces as a confusing
+ * extract failure deep inside Apache Commons Compress.
+ *
+ * This is a WARN rather than a hard error: the conservative `4 × archiveSize`
+ * estimate is slightly over-budget on tar.gz (compression ratio is closer
+ * to 3 × on IntelliJ archives), so a borderline case still completes if
+ * we let it try. The agent-side fix (clean `build/local-ides/`) is the same
+ * either way; surfacing the warning earlier and louder beats a half-unpack
+ * + cryptic IOException at extraction step 90 %.
+ *
+ * Closes audit #16 ("IDE archive disk usage. `build/local-ides/` now holds
+ * full unpacked 261 + 262 IDEs (~3 GB each). CI runners may need a
+ * free-disk gate").
+ */
+private fun warnIfLowFreeDiskSpace(unpackDir: File, archiveFile: File) {
+    val targetVolume = unpackDir.parentFile ?: unpackDir
+    val freeBytes = targetVolume.usableSpace
+    if (freeBytes <= 0L) {
+        // FileStore unavailable (rare on macOS / Linux for a real dir);
+        // skip the check rather than guess.
+        return
+    }
+    val needBytes = archiveFile.length() * 4L
+    if (freeBytes < needBytes) {
+        ideUnpackerLog.warn(
+            "[IDE-DOWNLOAD] Low free disk on {}: {} GB free, ~{} GB likely needed to unpack {}. " +
+                "Consider cleaning `build/local-ides/` if extraction fails — partial unpack will be " +
+                "wiped on retry and re-attempted from scratch.",
+            targetVolume,
+            "%.2f".format(freeBytes / 1_000_000_000.0),
+            "%.2f".format(needBytes / 1_000_000_000.0),
+            archiveFile.name,
+        )
     }
 }
 
