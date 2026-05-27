@@ -68,7 +68,17 @@ class ServerUrlWriterTest : BasePlatformTestCase() {
     }
 
     private fun deadPid(): Long {
-        val process = ProcessBuilder("/bin/echo", "server-url-writer-test").start()
+        // Spawn a short-lived process to get a PID that's reliably dead by
+        // the time the cleanup code runs. `/bin/echo` is fine on Unix; on
+        // Windows it doesn't exist — use the always-present `cmd.exe /c rem`
+        // (rem is a no-op so the process exits immediately).
+        val isWindows = System.getProperty("os.name").lowercase().startsWith("windows")
+        val command = if (isWindows) {
+            listOf(System.getenv("ComSpec") ?: "cmd.exe", "/c", "rem")
+        } else {
+            listOf("/bin/echo", "server-url-writer-test")
+        }
+        val process = ProcessBuilder(command).start()
         check(process.waitFor(5, TimeUnit.SECONDS)) { "short-lived helper process should exit" }
         return process.pid()
     }
