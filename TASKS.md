@@ -73,31 +73,37 @@ rather than new code:
 - [x] R2. **GH Actions runs after the recent pushes.** Run
   `26476991148` (TASKS.md sweep + #9 follow-up) **green** — both
   `build number` + `build plugin` jobs success.
-- [ ] R3. **TC builds: revert committed, watching ingestion.**
-  Initial diagnosis (pool composition) was **wrong**. The pool is
-  fine — EC2 Linux amd64 agents exist and are assigned (proven by
-  SettingsTest `958485364` landing on
-  `default-linux-aws-C-i-0853bd8a81e8415c8` and succeeding in 52 s
-  with build number `0.96.533-jb-fc48d25`). The real blocker was
-  the `%env.JDK_25_0%` substitution in `jdkHome`: TC marks an
-  agent incompatible when any `%env.X%` reference doesn't resolve
-  to a value on the agent, and the shared TC agents have
-  `env.JDK_21_0` but not `env.JDK_25_0`.
-  Reverted `cf786b9` on JetBrains/mcp-steroid-teamcity →
-  commit `d3b749c` (`JDK_25_0` → `JDK_21_0` across the same six
-  files; XML diff exactly mirrors the original). Gradle still
-  requires JDK 25 (daemon `toolchainVersion=25` +
-  `kotlin { jvmToolchain(25) }`); satisfied by foojay-resolver
-  auto-download on first build — same mechanism the GH Actions
-  container uses when its preinstalled JDK isn't reachable.
-  Re-queued personal build `958485367`. Verification window: TC
-  needs ~1-5 min to ingest the new DSL XML before
-  `compatibleAgents=count:0` flips to ≥1. Once an agent picks it
-  up, the first real signal is whether Gradle daemon-criteria
-  triggers foojay successfully — expect a ~30 s preamble before
-  the normal build-task timeline.
-  Earlier stuck builds (`958485340`, `958485362`) are queued on
-  the OLD DSL; let them age out / TC garbage-collect.
+- [x] R3. **TC IjPluginTest_Linux_amd64 GREEN.** Final build
+  `958561363` (`0.96.537-jb-8ee0e26`) finished SUCCESS in ~15 min:
+  **795 passed / 0 failed / 1 ignored** on EC2 agent
+  `default-linux-aws-C-i-00e3fa94e4931e40f`. Four changes stacked
+  to unblock the path end-to-end:
+  - TC DSL `JDK_25_0` → `JDK_21_0` revert (`d3b749c` on
+    JetBrains/mcp-steroid-teamcity) — shared agents only expose
+    `env.JDK_21_0`. Initial pool-composition diagnosis was wrong:
+    the EC2 Linux amd64 pool IS assigned, proven by SettingsTest
+    `958485364` succeeding in 52 s on the same agent fleet.
+  - `gradle/gradle-daemon-jvm.properties` `toolchainUrl.*` for
+    Linux x86_64+aarch64, macOS aarch64+x86_64, Windows x86_64
+    (`b93071af`). foojay-resolver-convention handles project
+    toolchains only; the daemon-JVM provisioning service is a
+    separate code path that needs explicit Adoptium Temurin 25.0.3+9
+    URLs to download the daemon JDK 25 when the agent's launcher
+    JDK 21 doesn't satisfy the daemon-criteria.
+  - `pgp-verifier` `CliTest` JAVA_HOME forward (`9a2789e7`) —
+    ProcessBuilder must forward `System.getProperty("java.home")` as
+    JAVA_HOME so the start-script launcher uses the same JDK 25 the
+    project was compiled with; without it, the launcher inherits
+    the agent's JDK 21 and hits `UnsupportedClassVersionError`
+    (class file version 69.0). Mirrors `OcrCliSmokeTest.kt:91`.
+  - `McpStdioServer` grace-period drain (`d3ac5ab7`) — bounded
+    `withTimeoutOrNull(500 ms) { dispatchJobs.joinAll() }` after
+    readLoop EOF, before `removeSession` closes channels. Hides a
+    real race that `runTest`'s TestCoroutineScheduler papered over
+    locally but TC's real-IO threading surfaced.
+
+  Mac aarc64 + Windows amd64 not re-queued explicitly — same fixes
+  cover them by construction, queue if needed for completeness.
 - [x] R4. **Local deploy to IDEA 2026.1 done.** Added
   `deployPluginLocallyTo261` task (`cd38b33e`) mirroring the
   legacy 253 sibling; ran it; the new

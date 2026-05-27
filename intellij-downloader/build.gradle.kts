@@ -116,8 +116,34 @@ val sevenZipResourceDir = layout.buildDirectory.dir("7z-extracted")
 
 data class BootstrapPlatform(val id: String, val archiveSuffix: String)
 
+/**
+ * Builds the per-host 7-Zip bootstrap descriptor.
+ *
+ * The 7-Zip Windows installer (`7z${ver}-x64.exe`) is an NSIS self-extractor;
+ * unpacking it at build time requires a 7-Zip that supports the NSIS format,
+ * and the only off-the-shelf binaries with NSIS support on this side of the
+ * chicken-and-egg are the Unix `7zz` variants. The reduced Windows `7zr.exe`
+ * does NOT support NSIS, so a Windows build host has no usable bootstrap to
+ * unpack the installer.
+ *
+ * Windows is therefore returned as `null` — the caller treats absence of a
+ * bootstrap as "skip the Windows-payload extraction tasks on this host."
+ * The release plugin .zip is built on Linux/Mac (where this returns a
+ * concrete platform) and the produced bundle contains the same
+ * `7z/win-x64/{7z.exe,7z.dll,License.txt}` resources regardless of which
+ * of those two host families ran the build. A Windows TC agent that only
+ * runs `:ij-plugin:test` does not need those resources to compile or run
+ * the test classpath.
+ *
+ * `null` cases NEVER fail script evaluation — that was the previous design
+ * (a top-level `val resolveSevenZipBootstrapPlatform()` call), which
+ * blocked even `./gradlew help` on Windows because Kotlin DSL evaluates
+ * top-level vals during configuration phase. The wrapper [sevenZipBootstrapPlatform]
+ * below is a lazy [Provider] so the absent-host case only surfaces when a
+ * task that actually uses the bootstrap runs.
+ */
 @Suppress("SpellCheckingInspection")
-fun resolveSevenZipBootstrapPlatform(): BootstrapPlatform {
+fun resolveSevenZipBootstrapPlatform(): BootstrapPlatform? {
     val os = OperatingSystem.current()
     val arch = System.getProperty("os.arch").lowercase()
     return when {
@@ -126,12 +152,18 @@ fun resolveSevenZipBootstrapPlatform(): BootstrapPlatform {
             "aarch64", "arm64" -> BootstrapPlatform("linux-arm64", "linux-arm64.tar.xz")
             else -> BootstrapPlatform("linux-x64", "linux-x64.tar.xz")
         }
-        os.isWindows -> error("7-Zip Windows payload extraction requires a Linux or macOS build host; Windows bootstrap is intentionally unsupported")
+        os.isWindows -> null    // see kdoc — no NSIS-capable Windows bootstrap
         else -> error("Unsupported build host for 7-Zip bootstrap: ${os.name} ($arch)")
     }
 }
 
-val sevenZipBootstrapPlatform = resolveSevenZipBootstrapPlatform()
+/**
+ * Lazy provider so the bootstrap-platform lookup runs at task-execution
+ * time, not at script-evaluation. The unwrap-or-skip path lives in each
+ * consuming task's `onlyIf { }` gate (search for `sevenZipBootstrapPlatform.orNull`).
+ */
+val sevenZipBootstrapPlatform: Provider<BootstrapPlatform> =
+    providers.provider { resolveSevenZipBootstrapPlatform() }
 
 val downloadConnectTimeoutMs = 30_000
 val downloadReadTimeoutMs = 15 * 60_000
@@ -148,20 +180,29 @@ fun Download.configureReliableDownload() {
 val downloadSevenZipBootstrap by tasks.registering(Download::class) {
     description = "Downloads the host 7-Zip bootstrap archive used to unpack Windows payloads."
     group = "build setup"
-    val destFile = sevenZipBootstrapDir.get().asFile
-        .resolve("7z${sevenZipVersion}-${sevenZipBootstrapPlatform.archiveSuffix}")
-    src("$sevenZipBaseUrl/7z${sevenZipVersion}-${sevenZipBootstrapPlatform.archiveSuffix}")
+    // Build-host-specific path — only runs when the host has a usable
+    // bootstrap (Linux + Mac). Windows hosts skip via the `onlyIf` below.
+    val platformProvider = sevenZipBootstrapPlatform
+    val destFile = sevenZipBootstrapDir.zip(platformProvider) { dir, platform ->
+        dir.asFile.resolve("7z${sevenZipVersion}-${platform.archiveSuffix}")
+    }
+    src(platformProvider.map { "$sevenZipBaseUrl/7z${sevenZipVersion}-${it.archiveSuffix}" })
     dest(destFile)
     configureReliableDownload()
-    // 7-zip.org artifacts are immutable for a given version; skip if already on disk.
-    onlyIf { !destFile.exists() }
+    // Two gates: (1) skip when this host has no NSIS-capable 7-Zip (Windows),
+    // (2) 7-zip.org artifacts are immutable for a given version, skip if cached.
+    onlyIf { platformProvider.orNull != null && !destFile.get().exists() }
 }
 
 val extractSevenZipBootstrap by tasks.registering {
     description = "Extracts the host 7-Zip bootstrap executable."
     group = "build setup"
     dependsOn(downloadSevenZipBootstrap)
-    val archiveFile = sevenZipBootstrapDir.map { it.asFile.resolve("7z${sevenZipVersion}-${sevenZipBootstrapPlatform.archiveSuffix}") }
+    onlyIf { sevenZipBootstrapPlatform.orNull != null }
+    val platformProvider = sevenZipBootstrapPlatform
+    val archiveFile = sevenZipBootstrapDir.zip(platformProvider) { dir, platform ->
+        dir.asFile.resolve("7z${sevenZipVersion}-${platform.archiveSuffix}")
+    }
     inputs.file(archiveFile)
     outputs.dir(sevenZipBootstrapExtractedDir)
 
@@ -213,6 +254,13 @@ val extractSevenZipResources by tasks.registering {
     description = "Extracts the bundled 7-Zip Windows resources for consumers."
     group = "build setup"
     dependsOn(extractSevenZipBootstrap, downloadSevenZipWindowsInstaller)
+    // Windows host has no NSIS-capable bootstrap (see [resolveSevenZipBootstrapPlatform]).
+    // The Windows-payload extraction simply doesn't run on Windows; the resource
+    // dir stays empty and downstream `processResources` walks zero files under
+    // `resources/main/7z`. Release plugin .zips are produced on Linux/Mac so the
+    // shipped artifact still carries the same `7z/win-x64/*` payload on every
+    // release — only Windows-host test runs see the empty tree.
+    onlyIf { sevenZipBootstrapPlatform.orNull != null }
     val bootstrapExecutable = sevenZipBootstrapExtractedDir.map { it.asFile.resolve("7zz") }
     val windowsInstaller = sevenZipDownloadDir.map { it.asFile.resolve("7z${sevenZipVersion}-x64.exe") }
     inputs.file(bootstrapExecutable)
