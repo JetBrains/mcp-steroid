@@ -199,11 +199,17 @@ distributions {
                 rename { "ij-plugin.zip" }
             }
 
-            // 7-Zip binaries from :intellij-downloader's extractSevenZipResources.
-            // Bundled unpacked at the dist root under `7z/<platform>/` so devrig
-            // can call <install>/7z/<platform>/7zz directly — no extraction-on-
-            // first-use detour. The +x bit is preserved on the 7zz binaries.
-            from(sevenZipBinariesDir) {
+            // 7-Zip Windows binaries from :intellij-downloader's extractSevenZipResources.
+            // Placed under a dedicated `7z/` folder (NOT `bin/`) to keep them off the
+            // JVM's `java.library.path` search list — `bin/` is often on that list and
+            // a stray `System.loadLibrary("7z")` would pick the wrong DLL by mistake.
+            // The companion License.txt sits next to the binaries mirroring 7-Zip's own
+            // distribution layout. devrig calls <install>/7z/7z.exe directly — no
+            // extraction-on-first-use, no classpath unpacking. The +x bit is preserved.
+            into("7z") {
+                from(sevenZipBinariesDir.map { it.resolve("7z/win-x64/7z.exe") })
+                from(sevenZipBinariesDir.map { it.resolve("7z/win-x64/7z.dll") })
+                from(sevenZipBinariesDir.map { it.resolve("7z/win-x64/License.txt") })
                 eachFile {
                     if (file.canExecute()) {
                         permissions { unix("rwxr-xr-x") }
@@ -424,9 +430,10 @@ val verifyBundledLibraries by tasks.registering {
         check("$ijPluginZipEntry:X" !in allFiles) {
             "$ijPluginZipEntry must not be marked executable"
         }
-        // licenses/ subtree: additive operator-facing consolidation of each
-        // bundled component's license files. Original component-local copies stay
-        // under 7z/ and inside ij-plugin.zip.
+        // licenses/ subtree: operator-facing consolidation of each bundled
+        // component's license files. The plugin zip still carries its own copy
+        // inside ij-plugin.zip; the 7-Zip license lives only here (the bin/ copy
+        // would just be a duplicate of the operator-visible licenses/seven-zip one).
         val licensesPrefix = "licenses/"
         val licensesFiles = allFiles.filter { it.startsWith(licensesPrefix) }.toSortedSet()
         check(licensesFiles.isNotEmpty()) {
@@ -462,42 +469,21 @@ val verifyBundledLibraries by tasks.registering {
         }
         allFiles = (allFiles - licensesFiles).toSortedSet()
 
-        // 7z/ subtree: :intellij-downloader enforces the source layout; this task
-        // checks the distZip copy is present, contains no surprise entries, and
-        // keeps license files non-executable. The Windows 7z.exe bit is intentionally
-        // not pinned: POSIX build hosts may or may not preserve +x, and Windows ignores it.
-        val sevenZipPrefix = "7z/"
-        val sevenZipFiles = allFiles.filter { it.startsWith(sevenZipPrefix) }.toSortedSet()
-        check(sevenZipFiles.isNotEmpty()) {
-            "Expected 7z/ subtree to be populated in $distName"
-        }
-        val expectedSevenZipFiles = sortedSetOf(
-            "7z/License.txt",
-            "7z/win-x64/7z.exe",
-            "7z/win-x64/7z.dll",
-            "7z/win-x64/License.txt",
-        )
-        expectedSevenZipFiles.forEach { sentinel ->
-            check(sevenZipFiles.any { it.removeSuffix(":X") == sentinel }) {
-                "7z/ subtree is missing sentinel '$sentinel'. Present entries: " +
-                        sevenZipFiles.joinToString("\n  ", prefix = "\n  ")
+        // Bundled Windows 7-Zip binaries live under a dedicated `7z/` folder
+        // (NOT bin/ — see distZip comment about java.library.path). The +x bit
+        // on 7z.exe / 7z.dll is not pinned: POSIX build hosts may strip it for
+        // non-launcher files and Windows ignores it. Pre-strip `:X` from these
+        // two entries so the final expectedFiles set comparison tolerates either
+        // form. The launcher bit (bin/devrig, bin/devrig.bat) IS pinned.
+        val sevenZipBinaryEntries = sortedSetOf("7z/7z.exe", "7z/7z.dll")
+        sevenZipBinaryEntries.forEach { sentinel ->
+            check(allFiles.any { it.removeSuffix(":X") == sentinel }) {
+                "7z/ subtree missing sentinel '$sentinel'"
             }
         }
-        listOf(
-            "7z/License.txt",
-            "7z/win-x64/License.txt",
-        ).forEach { licensePath ->
-            check("$licensePath:X" !in sevenZipFiles) {
-                "7z/ subtree wrongly marked '$licensePath' executable; license files must stay non-executable."
-            }
-        }
-        val unexpectedSevenZipFiles = sevenZipFiles
-            .filter { it.removeSuffix(":X") !in expectedSevenZipFiles }
-            .toSortedSet()
-        check(unexpectedSevenZipFiles.isEmpty()) {
-            "7z/ subtree has unexpected entries: " + unexpectedSevenZipFiles.joinToString("\n  ", prefix = "\n  ")
-        }
-        allFiles = (allFiles - sevenZipFiles).toSortedSet()
+        allFiles = allFiles.map { entry ->
+            if (entry.removeSuffix(":X") in sevenZipBinaryEntries) entry.removeSuffix(":X") else entry
+        }.toSortedSet()
 
         val expectedFiles = sortedSetOf(
             // EULA — repo-root EULA at the distribution root, mirroring the
@@ -509,6 +495,13 @@ val verifyBundledLibraries by tasks.registering {
             // (Windows ignores the bit; Unix needs it for the shell launcher).
             "bin/devrig:X",
             "bin/devrig.bat:X",
+
+            // Bundled 7-Zip Windows binaries + companion License.txt
+            // (:intellij-downloader → 7z/). Executable bit pre-stripped above
+            // before this set comparison for the .exe / .dll entries.
+            "7z/7z.exe",
+            "7z/7z.dll",
+            "7z/License.txt",
 
             // Internal jars (this project + sibling subprojects).
             "lib/devrig-$devrigVersion.jar",

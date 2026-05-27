@@ -6,12 +6,12 @@ import kotlin.io.path.isDirectory
 
 /**
  * Resolves the `devrig` installDist root — the directory that contains `lib/` (the runtime classpath),
- * `bin/` (the launcher scripts), and the bundled package payloads (`ij-plugin.zip`, `7z/`).
+ * `bin/` (the launcher scripts), `7z/` (the bundled Windows NSIS extractor), and `ij-plugin.zip`.
  *
  * Hard requirement: this function MUST succeed when called from any production class in devrig.
  * If it cannot locate the root, throw an [IllegalStateException] with the diagnostic path it inspected;
- * there is no fallback. Callers may rely on [path].resolve("7z") and [path].resolve("ij-plugin.zip")
- * existing on disk.
+ * there is no fallback. Callers may rely on [path].resolve("ij-plugin.zip") existing, and on
+ * [sevenZipBinary] resolving on Windows-host builds.
  */
 object DevrigRoot {
     private val lock = Any()
@@ -33,7 +33,13 @@ object DevrigRoot {
             cachedPath ?: resolveOrFail().also { cachedPath = it }
         }
 
-    fun sevenZipDir(): Path = path.resolve("7z")
+    /**
+     * Path to the bundled Windows 7-Zip executable. Only present on Windows-host builds.
+     * Lives under a dedicated `7z/` folder (NOT under `bin/`) so it stays off the JVM's
+     * `java.library.path` — `bin/` is typically on that list and a stray
+     * `System.loadLibrary("7z")` would otherwise pick the bundled DLL by mistake.
+     */
+    fun sevenZipBinary(): Path = path.resolve("7z").resolve("7z.exe")
 
     fun ijPluginZip(): Path = path.resolve("ij-plugin.zip")
 
@@ -42,9 +48,9 @@ object DevrigRoot {
         val candidate = walkUpForInstallDistRoot(codeSourcePath)
             ?: error(
                 "Cannot resolve devrig root from $codeSourcePath. " +
-                    "Expected to find a parent dir containing both 'lib/' and at least " +
-                    "one of 'ij-plugin.zip' or '7z/'. devrig must be launched via " +
-                    "the installDist tree (`./npx-kt/build/install/devrig/bin/...`)."
+                    "Expected to find a parent dir containing both 'lib/' and 'ij-plugin.zip'. " +
+                    "devrig must be launched via the installDist tree " +
+                    "(`./npx-kt/build/install/devrig/bin/...`)."
             )
 
         check(candidate.resolve("lib").isDirectory()) {
@@ -70,15 +76,15 @@ object DevrigRoot {
     }
 
     /**
-     * Walk parent dirs of [start] up to the filesystem root. Return the first parent that has `lib/`
-     * and at least one bundled package payload. Return `null` if no such parent exists.
+     * Walk parent dirs of [start] up to the filesystem root. Return the first parent that has
+     * both `lib/` and `ij-plugin.zip`. Return `null` if no such parent exists.
      */
     private fun walkUpForInstallDistRoot(start: Path): Path? {
         var p: Path? = start.parent
         while (p != null) {
             val hasLib = p.resolve("lib").isDirectory()
-            val hasPackagePayload = p.resolve("ij-plugin.zip").toFile().isFile || p.resolve("7z").isDirectory()
-            if (hasLib && hasPackagePayload) return p
+            val hasPluginZip = p.resolve("ij-plugin.zip").toFile().isFile
+            if (hasLib && hasPluginZip) return p
             p = p.parent
         }
         return null

@@ -244,7 +244,7 @@ class DefaultManagedBackendDownloader(
 
         Files.createDirectories(archiveDownloadDir)
         val archive = distribution.resolveAndDownload(archiveDownloadDir.toFile(), os = os)
-        unpackIdeArchive(archive, targetDir.toFile())
+        unpackIdeArchive(archive, targetDir.toFile(), sevenZipBinary = DevrigRoot.sevenZipBinary())
         BackendDownloadArtifact(
             sourceArchiveSha256 = sha256(archive.toPath()),
             archivePath = archive.toPath().toAbsolutePath().normalize(),
