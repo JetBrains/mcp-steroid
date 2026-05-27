@@ -103,7 +103,11 @@ tasks.test {
     // resource invariants are exercised on every release-host build.
     if (org.gradle.internal.os.OperatingSystem.current().isWindows) {
         filter {
-            excludeTestsMatching("com.jonnyzzz.mcpSteroid.ideDownloader.IdeUnpackerSecurityTest")
+            // SevenZipLocatorTest still excluded — its bundled-resource
+            // assertions only hold when the Windows-host build extracted the
+            // 7z payload, which today's intellij-downloader skips
+            // (no NSIS-capable bootstrap available off-the-shelf, tracked as
+            // task #79: two-stage Windows bootstrap).
             excludeTestsMatching("com.jonnyzzz.mcpSteroid.ideDownloader.SevenZipLocatorTest")
         }
     }

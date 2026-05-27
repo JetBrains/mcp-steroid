@@ -102,8 +102,38 @@ rather than new code:
     real race that `runTest`'s TestCoroutineScheduler papered over
     locally but TC's real-IO threading surfaced.
 
-  Mac aarc64 + Windows amd64 not re-queued explicitly — same fixes
-  cover them by construction, queue if needed for completeness.
+  Mac aarc64 + Windows amd64 explicitly re-queued in a later iteration
+  (2026-05-27): both green.
+
+  Cross-OS stability matrix (all on JDK 25 + 261/262 build target):
+  | Host         | TC build    | Result                                |
+  |---           |---          |---                                    |
+  | Linux amd64  | `958561363` | 795 passed / 0 failed                 |
+  | Mac aarch64  | `958776354` | 795 passed / 0 failed                 |
+  | Windows amd64| `958912483` | 777 passed / 0 failed / 1 ignored¹    |
+
+  ¹ Windows excludes 7 Linux/macOS-specific tests at the Gradle task
+  level (`com.jonnyzzz.mcpSteroid.ideDownloader.IdeUnpackerSecurityTest`
+  + `SevenZipLocatorTest`) — tracked as follow-ups #78 (cross-platform
+  `IdeUnpacker` tar/symlink handling) and #79 (two-stage Windows 7z
+  bootstrap so bundle is uniform on all hosts). Both are
+  improvements, not blockers; nothing on Linux/macOS is affected.
+
+  Six commits stacked to unblock Windows + cross-OS:
+    `7056a952` skip Download-task **registration** on Windows hosts
+    `cbd84ccb` `@argfile` for the verify-kotlinx classpath (cmd-line
+               length cap on Windows)
+    `3759782e` Gradle-task-level Windows-host excludes for
+               IdeUnpackerSecurityTest + SevenZipLocatorTest
+    `778e57c2` McpStdioServerProtocolTest "two framed messages" —
+               id-set assertion (parallel-dispatch order is
+               unspecified per JSON-RPC 2.0)
+    `70276ac1` ServerUrlWriterTest `deadPid()` cross-platform process
+               (`cmd.exe /c rem` on Windows)
+    `d69690e6` lazy bootstrap-platform resolution + Windows-host skip
+               for the 7-Zip Windows-payload extraction (no
+               NSIS-capable bootstrap exists off-the-shelf without
+               two-stage chain — see #79)
 - [x] R4. **Local deploy to IDEA 2026.1 done.** Added
   `deployPluginLocallyTo261` task (`cd38b33e`) mirroring the
   legacy 253 sibling; ran it; the new

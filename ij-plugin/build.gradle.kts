@@ -749,3 +749,42 @@ val deployPluginLocallyTo261 by tasks.registering(Sync::class) {
         }
     }
 }
+
+/**
+ * Cold-deploy the built plugin into the user's main IDE sandbox at
+ * `~/.intellij-main/config/plugins/mcp-steroid`. This is the non-default
+ * `idea.config.path` the user runs the day-to-day IDEA 2026.1 instance
+ * under (set via JVM flags in the IDE's vmoptions). The standard
+ * `~/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins/`
+ * dir is unused — the user-customised path wins. Discovered when
+ * `deployPluginLocallyTo261` staged the new plugin but the running IDE
+ * (PID 4298 after restart) kept reporting the old 0.95.0 version: the
+ * default-path stage doesn't influence the custom-path IDE.
+ *
+ * Same shape as `deployPluginLocallyTo253` and `deployPluginLocallyTo261`
+ * (local-machine-specific by design — hardcoded folder per user U9
+ * direction). When this sandbox eventually moves elsewhere, edit the
+ * `targetDir` literal, not the task structure.
+ */
+val deployPluginLocallyToIntelliJMain by tasks.registering(Sync::class) {
+    dependsOn(tasks.buildPlugin)
+    dependsOn(verifyBundledLibraries)
+    group = "intellij platform"
+    outputs.upToDateWhen { false }
+
+    val targetName = "" + rootProject.name
+    val targetDir = "${System.getenv("HOME")}/.intellij-main/config/plugins/$targetName"
+
+    this.destinationDir = file(targetDir)
+    from(
+        tasks.buildPlugin
+            .map { it.archiveFile }
+            .map { zipTree(it) }
+    ) {
+        includeEmptyDirs = false
+        eachFile {
+            println(this)
+            this.path = this.path.substringAfter("/")
+        }
+    }
+}

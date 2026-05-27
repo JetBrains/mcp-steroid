@@ -101,7 +101,16 @@ class IdeUnpackerSecurityTest {
 
         val link = File(unpackDir, "bin/idea").toPath()
         assertTrue("expected extracted symlink at $link", Files.isSymbolicLink(link))
-        assertEquals("symlink text must be preserved verbatim", linkName, Files.readSymbolicLink(link).toString())
+        // Windows symlinks store the target with native `\` separators —
+        // Java's `Files.readSymbolicLink(...)` returns the platform-form Path.
+        // Compare against the tar-form (`/`) after normalising both sides so the
+        // assertion is portable. The semantic invariant (target resolves to the
+        // same file) is preserved either way.
+        assertEquals(
+            "symlink text must be preserved verbatim (slashes normalised for portable comparison)",
+            linkName,
+            Files.readSymbolicLink(link).toString().replace('\\', '/'),
+        )
     }
 
     @Test
@@ -141,7 +150,8 @@ class IdeUnpackerSecurityTest {
         assertTrue("executable bit must be preserved on $java", java.canExecute())
         val idea = File(unpackDir, "bin/idea").toPath()
         assertTrue("expected symlink at $idea", Files.isSymbolicLink(idea))
-        assertEquals("../jbr/bin/java", Files.readSymbolicLink(idea).toString())
+        // Slash normalisation per the "tar preserves relative symlink" test above.
+        assertEquals("../jbr/bin/java", Files.readSymbolicLink(idea).toString().replace('\\', '/'))
     }
 
     @Test

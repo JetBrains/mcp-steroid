@@ -422,7 +422,14 @@ private fun unpackDirAlreadyPopulated(unpackDir: File): Boolean {
 }
 
 private fun requireUnderTarget(outputFile: File, unpackDir: File, entryName: String) {
-    require(!File(entryName).isAbsolute) {
+    // Tar/zip entry names always use `/` as the separator. On Windows
+    // `File("/etc/passwd").isAbsolute` returns `false` (Windows expects
+    // `C:\` or `\\server`), so a leading-`/` entry would slip past the
+    // single isAbsolute check below and `File(unpackDir, "/etc/passwd")`
+    // would silently resolve to `<unpackDir>\etc\passwd` (the leading
+    // slash gets stripped). Reject `/`-prefixed entries explicitly so the
+    // "absolute entry" safety check holds on every platform.
+    require(!entryName.startsWith("/") && !entryName.startsWith("\\") && !File(entryName).isAbsolute) {
         "Archive entry escapes target directory: $entryName"
     }
     val outputCanonical = outputFile.canonicalPath
