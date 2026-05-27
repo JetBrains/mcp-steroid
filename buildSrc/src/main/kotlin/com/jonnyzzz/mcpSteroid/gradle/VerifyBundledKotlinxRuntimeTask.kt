@@ -106,11 +106,38 @@ abstract class VerifyBundledKotlinxRuntimeTask
             ?: System.getProperty("java.home")?.let { "$it/bin/java" }
             ?: "java"
 
+        // Java 9+ `@argfile` syntax — bypass the Windows ~32 KB command-line
+        // limit. IDE `lib/` carries 100+ jars and the joined classpath
+        // routinely exceeds 40 KB; on Linux/Mac the kernel ARG_MAX caps are
+        // much higher (typically 128 KB+) so it works there too, but Windows
+        // CreateProcess errors with "command line exceed operating system
+        // limits" before the JVM ever starts.
+        //
+        // Argfile syntax: one argument per line, double-quote any token that
+        // contains whitespace (Windows install paths regularly do), and
+        // escape backslashes inside quoted tokens. We quote unconditionally
+        // because the classpath token always contains path separators that
+        // could be misread.
+        val argFile = temporaryDir.resolve("kotlinx-runtime-probe.argfile")
+        argFile.parentFile.mkdirs()
+        argFile.writeText(
+            buildString {
+                appendLine("-cp")
+                // Inside a double-quoted argfile token, backslashes must be
+                // escaped (`\\`). The classpath has a lot of them on Windows
+                // — encode once, write once.
+                val classpathEscaped = fullClasspath.replace("\\", "\\\\").replace("\"", "\\\"")
+                append('"'); append(classpathEscaped); appendLine('"')
+                appendLine(probeMainClass.get())
+                probeArgs.getOrElse(emptyList()).forEach { appendLine(it) }
+            },
+            Charsets.UTF_8,
+        )
+
         val stdout = ByteArrayOutputStream()
         val stderr = ByteArrayOutputStream()
         val result = execOps.exec {
-            commandLine = listOf(java, "-cp", fullClasspath, probeMainClass.get()) +
-                probeArgs.getOrElse(emptyList())
+            commandLine = listOf(java, "@${argFile.absolutePath}")
             standardOutput = stdout
             errorOutput = stderr
             isIgnoreExitValue = true
