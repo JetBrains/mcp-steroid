@@ -165,6 +165,19 @@ fun resolveSevenZipBootstrapPlatform(): BootstrapPlatform? {
 val sevenZipBootstrapPlatform: Provider<BootstrapPlatform> =
     providers.provider { resolveSevenZipBootstrapPlatform() }
 
+/**
+ * Eager unwrap of the bootstrap platform for task **registration** gating.
+ * `de.undercouch.download`'s `src(...)` does NOT support `Provider<String>` —
+ * `convertSource()` is called during graph-validation (before `onlyIf` can
+ * short-circuit) and throws "Download source must either be a URL, a URI,
+ * a CharSequence, a Collection or an array." We therefore skip REGISTERING
+ * the Download tasks on Windows hosts; downstream tasks check this value
+ * for the same skip decision. Reading at script-eval is safe because
+ * [resolveSevenZipBootstrapPlatform] is null-returning for Windows (never
+ * throws) since the lazy refactor above.
+ */
+val sevenZipHostBootstrap: BootstrapPlatform? = sevenZipBootstrapPlatform.orNull
+
 val downloadConnectTimeoutMs = 30_000
 val downloadReadTimeoutMs = 15 * 60_000
 val downloadRetryCount = 5
@@ -177,31 +190,36 @@ fun Download.configureReliableDownload() {
     tempAndMove(true)
 }
 
-val downloadSevenZipBootstrap by tasks.registering(Download::class) {
-    description = "Downloads the host 7-Zip bootstrap archive used to unpack Windows payloads."
-    group = "build setup"
-    // Build-host-specific path — only runs when the host has a usable
-    // bootstrap (Linux + Mac). Windows hosts skip via the `onlyIf` below.
-    val platformProvider = sevenZipBootstrapPlatform
-    val destFile = sevenZipBootstrapDir.zip(platformProvider) { dir, platform ->
-        dir.asFile.resolve("7z${sevenZipVersion}-${platform.archiveSuffix}")
+// Windows hosts skip Download-task registration entirely (see
+// `sevenZipHostBootstrap` kdoc). On non-null hosts the task is registered with
+// concrete `src` + `dest` strings — the values are stable for the host, so
+// there's no benefit to making them lazy beyond avoiding eager evaluation,
+// which we've already achieved by gating the whole registration.
+val downloadSevenZipBootstrap = sevenZipHostBootstrap?.let { platform ->
+    tasks.register<Download>("downloadSevenZipBootstrap") {
+        description = "Downloads the host 7-Zip bootstrap archive used to unpack Windows payloads."
+        group = "build setup"
+        val destFile = sevenZipBootstrapDir.get().asFile
+            .resolve("7z${sevenZipVersion}-${platform.archiveSuffix}")
+        src("$sevenZipBaseUrl/7z${sevenZipVersion}-${platform.archiveSuffix}")
+        dest(destFile)
+        configureReliableDownload()
+        // 7-zip.org artifacts are immutable for a given version; skip if already on disk.
+        onlyIf { !destFile.exists() }
     }
-    src(platformProvider.map { "$sevenZipBaseUrl/7z${sevenZipVersion}-${it.archiveSuffix}" })
-    dest(destFile)
-    configureReliableDownload()
-    // Two gates: (1) skip when this host has no NSIS-capable 7-Zip (Windows),
-    // (2) 7-zip.org artifacts are immutable for a given version, skip if cached.
-    onlyIf { platformProvider.orNull != null && !destFile.get().exists() }
 }
 
 val extractSevenZipBootstrap by tasks.registering {
     description = "Extracts the host 7-Zip bootstrap executable."
     group = "build setup"
-    dependsOn(downloadSevenZipBootstrap)
-    onlyIf { sevenZipBootstrapPlatform.orNull != null }
-    val platformProvider = sevenZipBootstrapPlatform
-    val archiveFile = sevenZipBootstrapDir.zip(platformProvider) { dir, platform ->
-        dir.asFile.resolve("7z${sevenZipVersion}-${platform.archiveSuffix}")
+    downloadSevenZipBootstrap?.let { dependsOn(it) }
+    onlyIf { sevenZipHostBootstrap != null }
+    val platform = sevenZipHostBootstrap
+    val archiveFile = sevenZipBootstrapDir.map { dir ->
+        // Use a stable per-task input path even when the platform is null
+        // so Gradle's task-graph validation succeeds; the file is only ever
+        // read inside the doLast block, which is gated by the onlyIf above.
+        dir.asFile.resolve("7z${sevenZipVersion}-${platform?.archiveSuffix ?: "unused"}")
     }
     inputs.file(archiveFile)
     outputs.dir(sevenZipBootstrapExtractedDir)
@@ -239,28 +257,36 @@ val extractSevenZipBootstrap by tasks.registering {
     }
 }
 
-val downloadSevenZipWindowsInstaller by tasks.registering(Download::class) {
-    description = "Downloads the pinned 7-Zip Windows installer."
-    group = "build setup"
-    val destFile = sevenZipDownloadDir.get().asFile.resolve("7z${sevenZipVersion}-x64.exe")
-    src("$sevenZipBaseUrl/7z${sevenZipVersion}-x64.exe")
-    dest(destFile)
-    configureReliableDownload()
-    // 7-zip.org artifacts are immutable for a given version; skip if already on disk.
-    onlyIf { !destFile.exists() }
+// Likewise registered only on hosts that can run the bootstrap — there's no
+// point downloading the installer on Windows because we have no
+// NSIS-capable tool to unpack it on the build host. The release plugin .zip
+// is built on Linux/Mac where this DOES run, and ships the extracted
+// `7z/win-x64/*` payload via the resources tree below.
+val downloadSevenZipWindowsInstaller = sevenZipHostBootstrap?.let {
+    tasks.register<Download>("downloadSevenZipWindowsInstaller") {
+        description = "Downloads the pinned 7-Zip Windows installer."
+        group = "build setup"
+        val destFile = sevenZipDownloadDir.get().asFile.resolve("7z${sevenZipVersion}-x64.exe")
+        src("$sevenZipBaseUrl/7z${sevenZipVersion}-x64.exe")
+        dest(destFile)
+        configureReliableDownload()
+        // 7-zip.org artifacts are immutable for a given version; skip if already on disk.
+        onlyIf { !destFile.exists() }
+    }
 }
 
 val extractSevenZipResources by tasks.registering {
     description = "Extracts the bundled 7-Zip Windows resources for consumers."
     group = "build setup"
-    dependsOn(extractSevenZipBootstrap, downloadSevenZipWindowsInstaller)
     // Windows host has no NSIS-capable bootstrap (see [resolveSevenZipBootstrapPlatform]).
     // The Windows-payload extraction simply doesn't run on Windows; the resource
     // dir stays empty and downstream `processResources` walks zero files under
     // `resources/main/7z`. Release plugin .zips are produced on Linux/Mac so the
     // shipped artifact still carries the same `7z/win-x64/*` payload on every
     // release — only Windows-host test runs see the empty tree.
-    onlyIf { sevenZipBootstrapPlatform.orNull != null }
+    dependsOn(extractSevenZipBootstrap)
+    downloadSevenZipWindowsInstaller?.let { dependsOn(it) }
+    onlyIf { sevenZipHostBootstrap != null }
     val bootstrapExecutable = sevenZipBootstrapExtractedDir.map { it.asFile.resolve("7zz") }
     val windowsInstaller = sevenZipDownloadDir.map { it.asFile.resolve("7z${sevenZipVersion}-x64.exe") }
     inputs.file(bootstrapExecutable)
