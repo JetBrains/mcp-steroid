@@ -1081,8 +1081,15 @@ class McpStdioServerProtocolTest {
         h.sendFramed(req("2", "ping"))
         val responses = h.runAndGetObjects()
         assertEquals(2, responses.size)
-        assertEquals("1", responses[0]["id"]?.jsonPrimitive?.content)
-        assertEquals("2", responses[1]["id"]?.jsonPrimitive?.content)
+        // Non-initialize requests are dispatched as parallel child coroutines
+        // (see McpStdioServer.readLoop) — the server is explicitly allowed to
+        // emit responses in either order, and the client correlates by `id`
+        // per JSON-RPC 2.0. On Linux+Mac the local scheduler happens to keep
+        // submission order; on Windows TC agents the order can flip
+        // (observed on TC build 958838055). Assert the set of returned ids
+        // matches the set sent, not the per-position correspondence.
+        val responseIds = responses.mapNotNull { it["id"]?.jsonPrimitive?.content }.toSet()
+        assertEquals(setOf("1", "2"), responseIds)
     }
 
     @Test
