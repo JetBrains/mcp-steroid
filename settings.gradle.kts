@@ -9,6 +9,14 @@ plugins {
 
 rootProject.name = "mcp-steroid"
 
+// On Windows hosts: pre-materialize the bundled 7-Zip Windows binaries before any
+// project is configured, so LocalIdeProvisioner's config-phase .exe unpack has the
+// extractor on disk via SevenZipLocator's system-property hook. Mac/Linux config
+// phases unpack the IDE via .tar.gz / .dmg and never hit the .exe path.
+if (System.getProperty("os.name").lowercase().contains("win")) {
+    apply(from = "gradle/seven-zip-bootstrap.settings.gradle.kts")
+}
+
 include(":ai-agents")
 include(":agent-output-filter")
 include(":closeable-stack")

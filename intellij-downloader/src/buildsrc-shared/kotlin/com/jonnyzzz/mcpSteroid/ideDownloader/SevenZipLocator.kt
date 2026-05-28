@@ -19,6 +19,14 @@ import java.security.MessageDigest
  * distributions are handled in pure Java by IdeUnpacker), so the locator is intentionally
  * Windows-only. The host's PATH is never consulted.
  */
+/**
+ * JVM system property set by `gradle/seven-zip-bootstrap.settings.gradle.kts`
+ * (Windows hosts only). Points at a directory containing `win-x64/7z.exe`
+ * + `win-x64/7z.dll` + `win-x64/License.txt`. Read at config phase before
+ * the classpath-resource fallback.
+ */
+private const val SEVEN_ZIP_BUNDLE_DIR_PROPERTY: String = "mcp.intellij-downloader.sevenZipBundleDir"
+
 object SevenZipLocator {
     private val payload = BundledPayload(
         primaryName = "7z.exe",
@@ -46,7 +54,17 @@ object SevenZipLocator {
         @Suppress("UNUSED_PARAMETER") architecture: HostArchitecture = resolveHostArchitecture(),
     ): String? {
         if (os != HostOs.WINDOWS) return null
-        return extractBundledResource()?.absolutePath
+        return locateFromSystemProperty() ?: extractBundledResource()?.absolutePath
+    }
+
+    // Settings-phase bootstrap (gradle/seven-zip-bootstrap.settings.gradle.kts on
+    // Windows hosts) sets the system property to a directory containing the
+    // win-x64 payload. Read at Gradle CONFIG PHASE — earlier than the
+    // classpath-resource fallback, which sees nothing on the buildSrc classloader.
+    private fun locateFromSystemProperty(): String? {
+        val bundleDir = System.getProperty(SEVEN_ZIP_BUNDLE_DIR_PROPERTY)?.takeIf { it.isNotBlank() } ?: return null
+        val binary = File(bundleDir, "win-x64/${payload.primaryName}")
+        return if (binary.isFile) binary.absolutePath else null
     }
 
     private fun extractBundledResource(): File? {
