@@ -1,9 +1,9 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.execution
 
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 /**
  * Unit tests for [CodeButcher.wrapToKotlinClass].
@@ -23,8 +23,8 @@ class CodeButcherTest {
             println(Foo())
         """.trimIndent()
         val result = butcher.wrapToKotlinClass("TestClass", code)
-        assertTrue(result.code.contains("import com.example.Foo"),
-            "Top-level import should be in generated code")
+        assertTrue("Top-level import should be in generated code",
+            result.code.contains("import com.example.Foo"))
     }
 
     @Test
@@ -43,13 +43,13 @@ class CodeButcherTest {
         val result = butcher.wrapToKotlinClass("TestClass2", code)
         // The generated code should NOT have these as top-level imports
         val topLevelSection = result.code.substringBefore("class TestClass2")
-        assertFalse(topLevelSection.contains("import jakarta.persistence.Entity"),
-            "import jakarta.persistence.Entity should NOT appear as top-level import")
-        assertFalse(topLevelSection.contains("import jakarta.persistence.Id"),
-            "import jakarta.persistence.Id should NOT appear as top-level import")
+        assertFalse("import jakarta.persistence.Entity should NOT appear as top-level import",
+            topLevelSection.contains("import jakarta.persistence.Entity"))
+        assertFalse("import jakarta.persistence.Id should NOT appear as top-level import",
+            topLevelSection.contains("import jakarta.persistence.Id"))
         // The string content should still be present in the method body
-        assertTrue(result.code.contains("import jakarta.persistence.Entity"),
-            "The java source content should appear in the method body")
+        assertTrue("The java source content should appear in the method body",
+            result.code.contains("import jakarta.persistence.Entity"))
     }
 
     @Test
@@ -63,8 +63,8 @@ class CodeButcherTest {
         """.trimIndent()
         val result = butcher.wrapToKotlinClass("TestClass3", code)
         val topLevelSection = result.code.substringBefore("class TestClass3")
-        assertTrue(topLevelSection.contains("import com.example.Bar"),
-            "Import after closing triple-quote should be extracted")
+        assertTrue("Import after closing triple-quote should be extracted",
+            topLevelSection.contains("import com.example.Bar"))
     }
 
     @Test
@@ -78,7 +78,7 @@ class CodeButcherTest {
         """.trimIndent()
         val result = butcher.wrapToKotlinClass("TestClass4", code)
         val topLevelSection = result.code.substringBefore("class TestClass4")
-        assertTrue(topLevelSection.contains("import com.example.Baz"),
-            "Import after single-line triple-quote string should be extracted")
+        assertTrue("Import after single-line triple-quote string should be extracted",
+            topLevelSection.contains("import com.example.Baz"))
     }
 }

@@ -2,22 +2,17 @@
 package com.jonnyzzz.mcpSteroid.updates
 
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.testFramework.junit5.TestApplication
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 /**
  * Tests for UpdateChecker version comparison logic.
  */
-@TestApplication
-class UpdateCheckerTest {
+class UpdateCheckerTest : BasePlatformTestCase() {
 
     /**
      * Test that base version extraction works correctly.
      */
-    @Test
-    fun extractBaseVersion() {
+    fun testExtractBaseVersion() {
         // Simple version
         assertEquals("0.86.0", extractBaseVersion("0.86.0"))
 
@@ -34,8 +29,7 @@ class UpdateCheckerTest {
     /**
      * Test version comparison logic using StringUtil.compareVersionNumbers.
      */
-    @Test
-    fun versionComparison() {
+    fun testVersionComparison() {
         // Remote newer
         assertTrue(StringUtil.compareVersionNumbers("0.87.0", "0.86.0") > 0)
         assertTrue(StringUtil.compareVersionNumbers("1.0.0", "0.99.99") > 0)
@@ -52,8 +46,7 @@ class UpdateCheckerTest {
     /**
      * Test comparing extracted base versions.
      */
-    @Test
-    fun extractedVersionComparison() {
+    fun testExtractedVersionComparison() {
         // Current has SNAPSHOT suffix, remote is plain - should detect update when remote is higher
         val current = extractBaseVersion("0.86.0-SNAPSHOT-20260212-193000-a1b2c3d")
         val remoteNewer = "0.87.0"
@@ -68,8 +61,7 @@ class UpdateCheckerTest {
     /**
      * Test user agent format.
      */
-    @Test
-    fun userAgentFormat() {
+    fun testUserAgentFormat() {
         val userAgent = buildUserAgent("0.86.0-SNAPSHOT", "IU-253.12345")
         assertEquals("MCP-Steroid/0.86.0-SNAPSHOT (IntelliJ/IU-253.12345)", userAgent)
     }

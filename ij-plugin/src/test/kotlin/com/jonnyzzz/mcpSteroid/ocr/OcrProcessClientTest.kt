@@ -2,33 +2,29 @@
 package com.jonnyzzz.mcpSteroid.ocr
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.junit5.TestApplication
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
-@TestApplication
-class OcrProcessClientTest {
+class OcrProcessClientTest : BasePlatformTestCase() {
 
-    @Test
-    fun extractsHelloOcrText(): Unit = timeoutRunBlocking(90.seconds) {
+    override fun runInDispatchThread(): Boolean = false
+
+    fun testExtractsHelloOcrText(): Unit = timeoutRunBlocking(90.seconds) {
         val image = loadImage("hello-ocr.png")
         val result = OcrProcessClient.getInstance().extractText(image)
         assertContainsTokens(result, "HELLO", "OCR")
     }
 
-    @Test
-    fun extractsMultiLineText(): Unit = timeoutRunBlocking(90.seconds) {
+    fun testExtractsMultiLineText(): Unit = timeoutRunBlocking(90.seconds) {
         val image = loadImage("multi-line.png")
         val result = OcrProcessClient.getInstance().extractText(image)
         assertContainsTokens(result, "FIRST", "LINE", "SECOND")
     }
 
-    @Test
-    fun extractsNumbers(): Unit = timeoutRunBlocking(90.seconds) {
+    fun testExtractsNumbers(): Unit = timeoutRunBlocking(90.seconds) {
         val image = loadImage("numbers.png")
         val result = OcrProcessClient.getInstance().extractText(image)
         assertContainsTokens(result, "12345", "TEST")
@@ -42,7 +38,7 @@ class OcrProcessClientTest {
         val text = result.blocks.joinToString(" ") { it.text }
         val normalized = normalize(text)
         for (token in tokens) {
-            assertTrue(normalized.contains(token), "Expected OCR output to contain '$token' in: $normalized")
+            assertTrue("Expected OCR output to contain '$token' in: $normalized", normalized.contains(token))
         }
     }
 

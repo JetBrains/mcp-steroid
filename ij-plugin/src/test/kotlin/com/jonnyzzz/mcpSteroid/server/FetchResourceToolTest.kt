@@ -2,9 +2,9 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.junit5.TestApplication
-import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.mcp.*
+import com.jonnyzzz.mcpSteroid.setServerPortProperties
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.*
@@ -14,36 +14,21 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * Integration tests for the steroid_fetch_resource MCP tool.
  * Verifies that agents can fetch MCP Steroid resources by URI via the tool protocol.
  */
-@TestApplication
-class FetchResourceToolTest {
+class FetchResourceToolTest : BasePlatformTestCase() {
 
-    private val projectFixture = projectFixture()
     private lateinit var client: HttpClient
-    private val previousProps = mutableMapOf<String, String?>()
 
-    @BeforeEach
-    fun setUp() {
-        // Bind MCP server to 0.0.0.0 so Docker containers can reach it via host.docker.internal
-        setProp("mcp.steroid.server.host", "0.0.0.0")
-        // Allow CI/release-builder to override the test port to avoid host port conflicts.
-        val testPort = System.getenv("MCP_STEROID_TEST_PORT")
-            ?.takeIf { it.isNotBlank() }
-            ?: "17820"
-        setProp("mcp.steroid.server.port", testPort)
+    override fun runInDispatchThread(): Boolean = false
+
+    override fun setUp() {
+        setServerPortProperties()
+        super.setUp()
         client = HttpClient(CIO) {
             expectSuccess = false
             install(io.ktor.client.plugins.HttpTimeout) {
@@ -53,25 +38,15 @@ class FetchResourceToolTest {
         }
     }
 
-    @AfterEach
-    fun tearDown() {
+    override fun tearDown() {
         try {
             client.close()
         } finally {
-            for ((name, oldValue) in previousProps) {
-                if (oldValue != null) System.setProperty(name, oldValue) else System.clearProperty(name)
-            }
-            previousProps.clear()
+            super.tearDown()
         }
     }
 
-    private fun setProp(name: String, value: String) {
-        previousProps.getOrPut(name) { System.getProperty(name) }
-        System.setProperty(name, value)
-    }
-
-    @Test
-    fun fetchResourceReturnsSkillGuide(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testFetchResourceReturnsSkillGuide(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -79,14 +54,13 @@ class FetchResourceToolTest {
         val skillUri = com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle().uri
         val result = callFetchResource(server, sessionId, skillUri)
 
-        assertFalse(result.isError, "steroid_fetch_resource should succeed")
+        assertFalse("steroid_fetch_resource should succeed", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
-        assertTrue(text.isNotBlank(), "Response should be non-empty")
-        assertTrue(text.contains("MCP Steroid"), "Response should contain skill guide content")
+        assertTrue("Response should be non-empty", text.isNotBlank())
+        assertTrue("Response should contain skill guide content", text.contains("MCP Steroid"))
     }
 
-    @Test
-    fun fetchResourceToolIsAdvertised(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testFetchResourceToolIsAdvertised(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -100,17 +74,16 @@ class FetchResourceToolTest {
         }
 
         val toolsRpc = McpJson.decodeFromString<JsonRpcResponse>(toolsResponse.bodyAsText())
-        assertNull(toolsRpc.error, "tools/list should succeed")
+        assertNull("tools/list should succeed", toolsRpc.error)
         val toolsList = McpJson.decodeFromJsonElement<ToolsListResult>(toolsRpc.result!!)
         val toolNames = toolsList.tools.map { it.name }.toSet()
         assertTrue(
-            toolNames.contains("steroid_fetch_resource"),
             "steroid_fetch_resource should be in the tool list",
+            toolNames.contains("steroid_fetch_resource")
         )
     }
 
-    @Test
-    fun fetchResourceWithNonExistentUri(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testFetchResourceWithNonExistentUri(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -118,13 +91,12 @@ class FetchResourceToolTest {
         // Use a URI that follows the protocol but doesn't match any registered resource
         val result = callFetchResource(server, sessionId, "mcp-steroid://nonexistent/resource-that-does-not-exist")
 
-        assertTrue(result.isError, "Should return error for non-existent resource")
+        assertTrue("Should return error for non-existent resource", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
-        assertTrue(text.contains("not found"), "Error message should mention resource not found")
+        assertTrue("Error message should mention resource not found", text.contains("not found"))
     }
 
-    @Test
-    fun fetchResourceWithMissingUri(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testFetchResourceWithMissingUri(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -151,15 +123,15 @@ class FetchResourceToolTest {
             McpJson.decodeFromString<JsonRpcResponse>(response.bodyAsText()).result!!
         )
 
-        assertTrue(result.isError, "Should return error for missing uri")
+        assertTrue("Should return error for missing uri", result.isError)
         val text = result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
         // Pin the specific branch — the schema DSL throws
         // 'Parameter <name> of type <type> is required' for missing required
         // params, so naming both 'uri' and the type pins the specific branch
         // (project_name-missing would say 'Parameter project_name ...').
         assertTrue(
-            text.contains("Parameter uri of type string is required"),
             "Error message should specifically mention the missing uri parameter, got: $text",
+            text.contains("Parameter uri of type string is required"),
         )
     }
 
@@ -184,7 +156,7 @@ class FetchResourceToolTest {
 
         assertEquals(HttpStatusCode.OK, initResponse.status)
         val sessionId = initResponse.headers[McpHttpTransport.SESSION_HEADER]
-        assertNotNull(sessionId, "Server must issue an MCP session ID")
+        assertNotNull("Server must issue an MCP session ID", sessionId)
         return sessionId!!
     }
 
@@ -209,7 +181,7 @@ class FetchResourceToolTest {
                         // though PromptsContextHandlerIJ doesn't read it (it builds the
                         // context purely from ApplicationInfo). Pass the test fixture's
                         // project name so the call shape matches what a real agent sends.
-                        put("project_name", projectFixture.get().name)
+                        put("project_name", project.name)
                     }
                 }
             }.toString())
@@ -217,7 +189,7 @@ class FetchResourceToolTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         val rpc = McpJson.decodeFromString<JsonRpcResponse>(response.bodyAsText())
-        assertNull(rpc.error, "steroid_fetch_resource should not return JSON-RPC error")
+        assertNull("steroid_fetch_resource should not return JSON-RPC error", rpc.error)
         return McpJson.decodeFromJsonElement(rpc.result!!)
     }
 }

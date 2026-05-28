@@ -1,11 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.execution
 
-import com.intellij.testFramework.junit5.TestApplication
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.io.File
 import javax.script.ScriptException
 
@@ -16,23 +12,20 @@ import javax.script.ScriptException
  * Note: Tests that interact with actual daemon files may affect
  * running Kotlin daemons on the system.
  */
-@TestApplication
-class KotlinDaemonManagerTest {
+class KotlinDaemonManagerTest : BasePlatformTestCase() {
     private val manager: KotlinDaemonManager get() = kotlinDaemonManager
 
-    @Test
-    fun cleanupClientMarkersWithEmptyDir() {
+    fun testCleanupClientMarkersWithEmptyDir() {
         val tempDir = createTempDirectory("daemon-test")
         try {
             val cleaned = manager.cleanupClientMarkers(tempDir)
-            assertEquals(0, cleaned, "Should return 0 for empty directory")
+            assertEquals("Should return 0 for empty directory", 0, cleaned)
         } finally {
             tempDir.deleteRecursively()
         }
     }
 
-    @Test
-    fun cleanupClientMarkersDeletesMarkerFiles() {
+    fun testCleanupClientMarkersDeletesMarkerFiles() {
         val tempDir = createTempDirectory("daemon-test")
         try {
             // Create marker files
@@ -43,32 +36,29 @@ class KotlinDaemonManagerTest {
 
             val cleaned = manager.cleanupClientMarkers(tempDir)
 
-            assertEquals(2, cleaned, "Should delete 2 marker files")
-            assertFalse(File(tempDir, "client1-is-running").exists(), "Marker file 1 should be deleted")
-            assertFalse(File(tempDir, "client2-is-running").exists(), "Marker file 2 should be deleted")
-            assertTrue(File(tempDir, "daemon.run").exists(), "Non-marker file should still exist")
+            assertEquals("Should delete 2 marker files", 2, cleaned)
+            assertFalse("Marker file 1 should be deleted", File(tempDir, "client1-is-running").exists())
+            assertFalse("Marker file 2 should be deleted", File(tempDir, "client2-is-running").exists())
+            assertTrue("Non-marker file should still exist", File(tempDir, "daemon.run").exists())
         } finally {
             tempDir.deleteRecursively()
         }
     }
 
-    @Test
-    fun cleanupClientMarkersWithNullDir() {
+    fun testCleanupClientMarkersWithNullDir() {
         val cleaned = manager.cleanupClientMarkers(null)
-        assertEquals(0, cleaned, "Should return 0 for null directory")
+        assertEquals("Should return 0 for null directory", 0, cleaned)
     }
 
-    @Test
-    fun cleanupClientMarkersWithNonExistentDir() {
+    fun testCleanupClientMarkersWithNonExistentDir() {
         val nonExistentDir = File("/non/existent/path/daemon")
         val cleaned = manager.cleanupClientMarkers(nonExistentDir)
-        assertEquals(0, cleaned, "Should return 0 for non-existent directory")
+        assertEquals("Should return 0 for non-existent directory", 0, cleaned)
     }
 
-    @Test
-    fun getRunningDaemonCountNonNegative() {
+    fun testGetRunningDaemonCountNonNegative() {
         val count = manager.getRunningDaemonCount()
-        assertTrue(count >= 0, "Running daemon count should be non-negative")
+        assertTrue("Running daemon count should be non-negative", count >= 0)
     }
 
     private fun createTempDirectory(prefix: String): File {

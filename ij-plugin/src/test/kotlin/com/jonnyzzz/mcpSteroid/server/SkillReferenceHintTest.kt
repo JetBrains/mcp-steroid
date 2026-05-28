@@ -1,136 +1,123 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
-import com.intellij.testFramework.junit5.TestApplication
-import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.execution.executionSuggestionService
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 
-@TestApplication
-class SkillReferenceHintTest {
+class SkillReferenceHintTest : BasePlatformTestCase() {
 
-    private val projectFixture = projectFixture()
+    override fun runInDispatchThread(): Boolean = false
 
-    @Test
-    fun hintForProtectedApplicationConfigurationConstructor() {
+    fun testHintForProtectedApplicationConfigurationConstructor() {
         val compilerError = """
             input.kt:39:22: error: cannot access 'constructor(p0: String!, p1: Project, p2: ConfigurationFactory): ApplicationConfiguration': it is protected in 'com.intellij.execution.application.ApplicationConfiguration'.
         """.trimIndent()
 
-        val hint = projectFixture.get().executionSuggestionService.computeHint(compilerError)
+        val hint = project.executionSuggestionService.computeHint(compilerError)
         assertTrue(
-            hint.contains("RunManager.createConfiguration"),
             "Hint should recommend modern run configuration creation APIs:\n$hint",
+            hint.contains("RunManager.createConfiguration")
         )
         assertTrue(
-            hint.contains("ApplicationConfiguration"),
             "Hint should direct agents away from direct ApplicationConfiguration constructor usage:\n$hint",
+            hint.contains("ApplicationConfiguration")
         )
     }
 
-    @Test
-    fun hintForPsiFileVirtualFileMismatch() {
+    fun testHintForPsiFileVirtualFileMismatch() {
         val compilerError = """
             input.kt:45:55: error: argument type mismatch: actual type is 'PsiFile', but 'VirtualFile' was expected.
             input.kt:40:29: error: unresolved reference 'path'.
             input.kt:71:31: error: unresolved reference 'url'.
         """.trimIndent()
 
-        val hint = projectFixture.get().executionSuggestionService.computeHint(compilerError)
+        val hint = project.executionSuggestionService.computeHint(compilerError)
         assertTrue(
-            hint.contains("FilenameIndex.getVirtualFilesByName"),
             "Hint should suggest a VirtualFile-oriented search/read pattern:\n$hint",
+            hint.contains("FilenameIndex.getVirtualFilesByName")
         )
         assertTrue(
-            hint.contains("psiFile.virtualFile"),
             "Hint should explain how to convert PsiFile to VirtualFile safely:\n$hint",
+            hint.contains("psiFile.virtualFile")
         )
     }
 
-    @Test
-    fun hintForDeprecatedFindFilesHelper() {
+    fun testHintForDeprecatedFindFilesHelper() {
         val compilerError = """
             input.kt:24:17: error: unresolved reference 'findFiles'.
             input.kt:27:45: error: unresolved reference 'contentsToByteArray'.
         """.trimIndent()
 
-        val hint = projectFixture.get().executionSuggestionService.computeHint(compilerError)
+        val hint = project.executionSuggestionService.computeHint(compilerError)
         assertTrue(
-            hint.contains("findProjectFiles"),
             "Hint should point to currently supported file discovery helpers:\n$hint",
+            hint.contains("findProjectFiles")
         )
         assertTrue(
-            hint.contains("VfsUtilCore"),
             "Hint should suggest VirtualFile loading pattern when helper is unavailable:\n$hint",
+            hint.contains("VfsUtilCore")
         )
     }
 
-    @Test
-    fun hintForLegacyExecuteSuspendLabel() {
+    fun testHintForLegacyExecuteSuspendLabel() {
         val compilerError = """
             input.kt:28:15: error: unresolved label.
                     return@executeSuspend
                           ^^^^^^^^^^^^^^^
         """.trimIndent()
 
-        val hint = projectFixture.get().executionSuggestionService.computeHint(compilerError)
+        val hint = project.executionSuggestionService.computeHint(compilerError)
         assertTrue(
-            hint.contains("return@executeSteroidCode or return@executeSuspend"),
             "Hint should mention both legacy execute wrapper labels:\n$hint",
+            hint.contains("return@executeSteroidCode or return@executeSuspend")
         )
         assertTrue(
-            hint.contains("Use plain return"),
             "Hint should recommend plain return in script body context:\n$hint",
+            hint.contains("Use plain return")
         )
     }
 
-    @Test
-    fun emptyOutputHintFiresOnSuccessfulSilentScript() {
-        val service = projectFixture.get().executionSuggestionService
+    fun testEmptyOutputHintFiresOnSuccessfulSilentScript() {
+        val service = project.executionSuggestionService
         val suggestions = service.generateSuggestions(
             isFailed = false,
             errorMessages = emptyList(),
             userOutputCount = 0,
         )
         assertEquals(
-            1, suggestions.size,
             "Successful but silent script must yield exactly one hint:\n$suggestions",
+            1, suggestions.size
         )
         val hint = suggestions.single()
         assertTrue(
-            hint.contains("println(value)"),
             "Hint must call out the missing println(...) explicitly:\n$hint",
+            hint.contains("println(value)")
         )
         assertTrue(
-            hint.contains("printJson(value)"),
             "Hint must mention printJson for structured data:\n$hint",
+            hint.contains("printJson(value)")
         )
         assertTrue(
-            hint.contains("NOT auto-printed"),
             "Hint must explain that the last expression is not auto-printed:\n$hint",
+            hint.contains("NOT auto-printed")
         )
     }
 
-    @Test
-    fun emptyOutputHintStaysQuietWhenScriptPrinted() {
-        val service = projectFixture.get().executionSuggestionService
+    fun testEmptyOutputHintStaysQuietWhenScriptPrinted() {
+        val service = project.executionSuggestionService
         val suggestions = service.generateSuggestions(
             isFailed = false,
             errorMessages = emptyList(),
             userOutputCount = 3,
         )
         assertTrue(
-            suggestions.isEmpty(),
             "Successful script with output must produce no suggestions:\n$suggestions",
+            suggestions.isEmpty()
         )
     }
 
-    @Test
-    fun emptyOutputHintIsNotEmittedOnFailure() {
-        val service = projectFixture.get().executionSuggestionService
+    fun testEmptyOutputHintIsNotEmittedOnFailure() {
+        val service = project.executionSuggestionService
         // Failed execution that ALSO printed nothing must surface the failure-side hint,
         // never the empty-output one (the failure is the actionable signal).
         val suggestions = service.generateSuggestions(
@@ -139,22 +126,21 @@ class SkillReferenceHintTest {
             userOutputCount = 0,
         )
         assertEquals(
-            1, suggestions.size,
             "Failure path must produce exactly the failure hint:\n$suggestions",
+            1, suggestions.size
         )
         assertFalse(
-            suggestions.single().contains("NOT auto-printed"),
             "Failure path must not surface the empty-output hint:\n${suggestions.single()}",
+            suggestions.single().contains("NOT auto-printed")
         )
         assertTrue(
-            suggestions.single().contains("readAction"),
             "Failure hint must still steer toward readAction:\n${suggestions.single()}",
+            suggestions.single().contains("readAction")
         )
     }
 
-    @Test
-    fun readActionHintEnumeratesCommonWrapTargets() {
-        val hint = projectFixture.get().executionSuggestionService.computeHint(
+    fun testReadActionHintEnumeratesCommonWrapTargets() {
+        val hint = project.executionSuggestionService.computeHint(
             "Read access is allowed from inside read-action only (see Application.runReadAction())"
         )
         for (api in listOf(
@@ -167,59 +153,56 @@ class SkillReferenceHintTest {
             "ChangeListManager.allChanges",
         )) {
             assertTrue(
-                hint.contains(api),
                 "Read-action hint must enumerate $api as a wrap target:\n$hint",
+                hint.contains(api)
             )
         }
     }
 
-    @Test
-    fun readActionHintLinksToThreadingArticle() {
-        val hint = projectFixture.get().executionSuggestionService.computeHint(
+    fun testReadActionHintLinksToThreadingArticle() {
+        val hint = project.executionSuggestionService.computeHint(
             "Read access is allowed from inside read-action only"
         )
         assertTrue(
-            hint.contains("mcp-steroid://skill/coding-with-intellij-threading"),
             "Read-action hint must surface the coding-with-intellij-threading article URI:\n$hint",
+            hint.contains("mcp-steroid://skill/coding-with-intellij-threading")
         )
         assertTrue(
-            hint.contains("EVERY script") || hint.contains("every script"),
             "Read-action hint must remind that the wrap is required on EVERY script:\n$hint",
+            hint.contains("EVERY script") || hint.contains("every script")
         )
     }
 
-    @Test
-    fun generateSuggestionsBackwardCompatWhenUserOutputCountUnknown() {
-        val service = projectFixture.get().executionSuggestionService
+    fun testGenerateSuggestionsBackwardCompatWhenUserOutputCountUnknown() {
+        val service = project.executionSuggestionService
         // The default -1 must keep the old behavior: success + no error => no hint.
         val suggestions = service.generateSuggestions(
             isFailed = false,
             errorMessages = emptyList(),
         )
         assertTrue(
-            suggestions.isEmpty(),
             "Default userOutputCount must NOT trigger the empty-output hint:\n$suggestions",
+            suggestions.isEmpty()
         )
     }
 
-    @Test
-    fun hintForIndexNotReadyException() {
+    fun testHintForIndexNotReadyException() {
         val error = """
             com.intellij.openapi.project.IndexNotReadyException: Please change caller according to com.intellij.openapi.project.IndexNotReadyException documentation
         """.trimIndent()
 
-        val hint = projectFixture.get().executionSuggestionService.computeHint(error)
+        val hint = project.executionSuggestionService.computeHint(error)
         assertTrue(
-            hint.contains("smartReadAction"),
             "Hint should recommend smartReadAction for indexed PSI work:\n$hint",
+            hint.contains("smartReadAction")
         )
         assertTrue(
-            hint.contains("Observation.awaitConfiguration"),
             "Hint should recommend Observation.awaitConfiguration after project configuration:\n$hint",
+            hint.contains("Observation.awaitConfiguration")
         )
         assertTrue(
-            hint.contains("point-in-time"),
             "Hint should explain that waitForSmartMode is point-in-time only:\n$hint",
+            hint.contains("point-in-time")
         )
     }
 }

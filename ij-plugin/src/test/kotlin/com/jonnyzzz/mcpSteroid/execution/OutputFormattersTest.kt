@@ -1,10 +1,10 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.execution
 
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 /**
  * Pure-Kotlin tests for the [formatCsv] and [formatToon] helpers. No IDE
@@ -87,7 +87,7 @@ class OutputFormattersTest {
                 rows = listOf(listOf("x", "y"), listOf("only-one")),
             )
         }
-        assertTrue(e.message!!.contains("row[1]"), "Error names the offending row index: ${e.message}")
+        assertTrue("Error names the offending row index: ${e.message}", e.message!!.contains("row[1]"))
     }
 
     @Test
@@ -130,8 +130,8 @@ class OutputFormattersTest {
             dictColumns = setOf("path", "no-such-column"),
         )
         // "no-such-column" is silently ignored — no extra preamble block.
-        assertTrue(out.startsWith("@path:\n"), "Output must start with the @path preamble: $out")
-        assertTrue(!out.contains("no-such-column"), "Unknown dictColumns must not surface: $out")
+        assertTrue("Output must start with the @path preamble: $out", out.startsWith("@path:\n"))
+        assertTrue("Unknown dictColumns must not surface: $out", !out.contains("no-such-column"))
     }
 
     @Test
@@ -259,7 +259,7 @@ class OutputFormattersTest {
             linkedMapOf("path" to "/a.kt", "line" to 1),
             linkedMapOf("path" to "/b.kt", "line" to 2),
         ))
-        assertTrue(out.startsWith("[2]{path,line}:\n"), "Header columns must follow insertion order: $out")
+        assertTrue("Header columns must follow insertion order: $out", out.startsWith("[2]{path,line}:\n"))
     }
 
     @Test
@@ -269,8 +269,8 @@ class OutputFormattersTest {
             mapOf("b" to 2),
         ))
         // Not uniform → indented per-element rendering (NOT the [N]{cols}: form).
-        assertTrue(!out.contains("{"), "Mixed maps must not be rendered with the array-header form: $out")
-        assertTrue(out.contains("[2]:"), "Mixed list must be tagged with its length: $out")
+        assertTrue("Mixed maps must not be rendered with the array-header form: $out", !out.contains("{"))
+        assertTrue("Mixed list must be tagged with its length: $out", out.contains("[2]:"))
     }
 
     @Test

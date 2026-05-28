@@ -184,12 +184,7 @@ dependencies {
         // disable it at runtime**, so the probe still gates every call site behind
         // `PluginManagerCore.getPluginSet().enabledPlugins`.
         bundledPlugin("com.intellij.mcpServer")
-        // Platform: BasePlatformTestCase + UsefulTestCase — still needed until
-        // every test extending BasePlatformTestCase migrates. JUnit5 does NOT
-        // transitively bring it in (verified — compile fails with just JUnit5).
-        // Drop once nothing extends BasePlatformTestCase.
         testFramework(TestFrameworkType.Platform)
-        testFramework(TestFrameworkType.JUnit5)
     }
 
     implementation(project(":mcp-core"))
@@ -222,19 +217,7 @@ dependencies {
     // PostHog analytics
     implementation("com.posthog:posthog-server:2.3.0")
 
-    // Testing — JUnit Platform runs both Jupiter (JUnit 5) and Vintage (JUnit 3/4)
-    // engines side by side so the JUnit 3 BasePlatformTestCase tests keep running
-    // while the suite is migrated file-by-file. junit:junit:4.13.2 stays on the
-    // *compile* classpath because BasePlatformTestCase -> UsefulTestCase ->
-    // junit.framework.TestCase still drives unmigrated tests.
-    // 5.13.0+ is required by IntelliJ's TestFixtureExtension — it calls
-    // `ExtensionContext.getEnclosingTestClasses()` which was added in 5.13.
-    testImplementation(platform("org.junit:junit-bom:5.13.4"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine")
-    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testImplementation("org.opentest4j:opentest4j:1.3.0")
+    // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation(project(":intellij-downloader"))
     testImplementation(project(":test-helper"))
@@ -336,14 +319,6 @@ intellijPlatform {
 // Register a dedicated `integrationTest` task via the IntelliJ Platform testing DSL so it
 // gets its own sandbox (prepareSandbox_integrationTest) and the proper IDE JVM argument
 // providers, while compiling from `src/integrationTest/kotlin` instead of `src/test/kotlin`.
-//
-// Also register a sibling `testJUnit5` task that runs the JUnit 5 (Jupiter) tests in a
-// SEPARATE JVM from the default `tasks.test` (which keeps running the JUnit 3 / Vintage
-// suite). Reason: `@TestApplication` (JUnit 5 IDE fixture) and `BasePlatformTestCase`
-// (JUnit 3) BOTH manage the IntelliJ Application as a JVM-wide singleton — mixing them
-// in one JVM tears the Application down at the wrong moment ("TestLoggerFactory: Already
-// shutdown" against `FSRecordsImpl.connect`). Splitting them by engine into separate
-// processes is the only clean isolation.
 intellijPlatformTesting {
     testIde {
         register("integrationTest") {
@@ -356,11 +331,7 @@ intellijPlatformTesting {
                 group = "verification"
                 description = "Runs Docker-based CLI integration tests (Claude/Codex/Gemini). " +
                         "Requires Docker and API keys. Not run by default `:ij-plugin:test`."
-                // Cli*IntegrationTest classes still extend BasePlatformTestCase (JUnit 3),
-                // so restrict to the Vintage engine to keep Application lifecycle clean.
-                useJUnitPlatform {
-                    includeEngines("junit-vintage")
-                }
+                useJUnit()
 
                 // Replace (not append) testClassesDirs: the TestIdeTask default includes
                 // the plugin's instrumented default-test-set classes — keeping them would
@@ -374,56 +345,12 @@ intellijPlatformTesting {
                 classpath += integrationTest.output + integrationTest.runtimeClasspath
             }
         }
-
-        register("testJUnit5") {
-            testFramework(TestFrameworkType.Platform)
-            testFramework(TestFrameworkType.JUnit5)
-
-            task {
-                group = "verification"
-                description = "JUnit 5 (Jupiter) tests for the main 'test' source set. " +
-                        "Runs in a separate JVM from `tasks.test` so the `@TestApplication` " +
-                        "IDE fixture does not contend with the JUnit 3 BasePlatformTestCase " +
-                        "Application lifecycle still in use by unmigrated tests."
-                useJUnitPlatform {
-                    includeEngines("junit-jupiter")
-                }
-
-                // Run the main 'test' source set's classes — sharing produces a single
-                // compiled artifact that both Vintage and Jupiter engines can pick from.
-                testClassesDirs = sourceSets["test"].output.classesDirs
-                classpath = sourceSets["test"].runtimeClasspath +
-                        sourceSets["test"].output.classesDirs +
-                        classpath
-
-                // Mirror the system properties from tasks.test so KotlinxBundledVersionTest
-                // and friends see the same project-resolved pins.
-                systemProperty(
-                    "mcp.steroid.test.expected.kotlinxCoroutinesVersion",
-                    providers.gradleProperty("mcp.kotlinx.coroutines.version").get(),
-                )
-                systemProperty(
-                    "mcp.steroid.test.expected.kotlinxSerializationVersion",
-                    providers.gradleProperty("mcp.kotlinx.serialization.version").get(),
-                )
-            }
-        }
     }
 }
 
 tasks {
     test {
-        // Restrict to the Vintage engine — `@TestApplication` (Jupiter) tests live
-        // in the sibling `testJUnit5` task instead, in their own JVM. See the
-        // `intellijPlatformTesting.testIde.register("testJUnit5")` block above for
-        // the lifecycle conflict that forces the split.
-        useJUnitPlatform {
-            includeEngines("junit-vintage")
-        }
-        // Both tasks operate on the same 'test' source set; the engine filter
-        // decides who picks each class up. Run `testJUnit5` automatically when
-        // someone says `:ij-plugin:test`.
-        finalizedBy("testJUnit5")
+        useJUnit()
 
         // Explicitly restrict to the main 'test' source set. Without this, the
         // IntelliJ Platform plugin's TestIdeTask includes instrumented classes from
@@ -444,22 +371,6 @@ tasks {
         systemProperty(
             "mcp.steroid.test.expected.kotlinxSerializationVersion",
             providers.gradleProperty("mcp.kotlinx.serialization.version").get(),
-        )
-
-        // Feed the bundled 7-Zip Windows binary path to LocalIdeProvisioner via
-        // a JVM system property — picked up by `defaultSevenZipBinary()` only
-        // when the test path provisions a Windows IDE (.exe NSIS installer)
-        // and no explicit `sevenZipBinary` is passed. Without this, Windows-host
-        // `:ij-plugin:test` runs that unpack a Windows IDE fail with
-        // "unpackIdeArchive: sevenZipBinary is required for .exe archives".
-        val sevenZipBinaryProvider = project(":intellij-downloader")
-            .layout.buildDirectory
-            .file("7z-extracted/7z/win-x64/7z.exe")
-        inputs.file(sevenZipBinaryProvider).withPropertyName("sevenZipBinary")
-        dependsOn(":intellij-downloader:extractSevenZipResources")
-        systemProperty(
-            "mcp.intellij-downloader.sevenZipBinary",
-            sevenZipBinaryProvider.get().asFile.absolutePath,
         )
     }
 
@@ -536,19 +447,13 @@ dependencies {
 
 // Apply the same plugin-content wiring (ocr-tesseract, kotlinc, EULA) to every sandbox
 // that runs the plugin: production (prepareSandbox), default test (prepareTestSandbox),
-// the dedicated integrationTest sandbox, and the new testJUnit5 sandbox created by
-// `intellijPlatformTesting.testIde { register("...") }` above.
-// Without the matching entry, steroid_execute_code fails at runtime with
-// "Kotlinc executable not found: .../plugins_<name>/mcp-steroid/kotlinc/bin/kotlinc".
+// and the dedicated integrationTest sandbox created by
+// `intellijPlatformTesting.testIde { register("integrationTest") }` above.
+// Without the integrationTest entry, steroid_execute_code fails at runtime with
+// "Kotlinc executable not found: .../plugins_integrationTest/mcp-steroid/kotlinc/bin/kotlinc".
 val prepareSandbox_integrationTest = tasks.named<Sync>("prepareSandbox_integrationTest")
-val prepareSandbox_testJUnit5 = tasks.named<Sync>("prepareSandbox_testJUnit5")
 
-listOf(
-    tasks.prepareSandbox,
-    tasks.prepareTestSandbox,
-    prepareSandbox_integrationTest,
-    prepareSandbox_testJUnit5,
-).forEach { r ->
+listOf(tasks.prepareSandbox, tasks.prepareTestSandbox, prepareSandbox_integrationTest).forEach { r ->
     r.configure {
         from(ocrToolDist) {
             into(intellijPlatform.projectName.map { "$it/ocr-tesseract" })

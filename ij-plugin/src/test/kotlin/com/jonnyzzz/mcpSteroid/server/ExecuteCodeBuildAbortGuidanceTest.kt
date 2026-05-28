@@ -5,12 +5,12 @@ import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeGradlePromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeMavenPromptArticle
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
 import java.nio.file.Path
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
@@ -20,7 +20,7 @@ class ExecuteCodeBuildAbortGuidanceTest {
 
     private val tempDirs = mutableListOf<Path>()
 
-    @AfterEach
+    @After
     fun tearDown() {
         tempDirs.forEach { it.toFile().deleteRecursively() }
     }
@@ -36,12 +36,12 @@ class ExecuteCodeBuildAbortGuidanceTest {
         )
 
         assertNotNull(guidance)
-        assertTrue(guidance!!.contains("REQUIRED ACTION"), "should make the recovery mandatory: $guidance")
-        assertTrue(guidance.contains(claudeFetchResourceTool), "should name Claude's fetch tool: $guidance")
-        assertTrue(guidance.contains("NEXT TOOL CALL"), "should identify that tool as the next call: $guidance")
-        assertTrue(guidance.contains(ExecuteCodeGradlePromptArticle().uri), "should include Gradle resource URI: $guidance")
-        assertFalse(guidance.contains(ExecuteCodeMavenPromptArticle().uri), "should not include Maven URI for a Gradle project: $guidance")
-        assertTrue(guidance.contains("before using Bash"), "should tell the agent not to jump straight to Bash: $guidance")
+        assertTrue("should make the recovery mandatory: $guidance", guidance!!.contains("REQUIRED ACTION"))
+        assertTrue("should name Claude's fetch tool: $guidance", guidance.contains(claudeFetchResourceTool))
+        assertTrue("should identify that tool as the next call: $guidance", guidance.contains("NEXT TOOL CALL"))
+        assertTrue("should include Gradle resource URI: $guidance", guidance.contains(ExecuteCodeGradlePromptArticle().uri))
+        assertFalse("should not include Maven URI for a Gradle project: $guidance", guidance.contains(ExecuteCodeMavenPromptArticle().uri))
+        assertTrue("should tell the agent not to jump straight to Bash: $guidance", guidance.contains("before using Bash"))
     }
 
     @Test
@@ -55,8 +55,8 @@ class ExecuteCodeBuildAbortGuidanceTest {
         )
 
         assertNotNull(guidance)
-        assertTrue(guidance!!.contains(ExecuteCodeMavenPromptArticle().uri), "should include Maven resource URI: $guidance")
-        assertFalse(guidance.contains(ExecuteCodeGradlePromptArticle().uri), "should not include Gradle URI for a Maven project: $guidance")
+        assertTrue("should include Maven resource URI: $guidance", guidance!!.contains(ExecuteCodeMavenPromptArticle().uri))
+        assertFalse("should not include Gradle URI for a Maven project: $guidance", guidance.contains(ExecuteCodeGradlePromptArticle().uri))
     }
 
     @Test
@@ -95,9 +95,9 @@ class ExecuteCodeBuildAbortGuidanceTest {
         )
 
         assertNotNull(guidance)
-        assertTrue(guidance!!.contains(ExecuteCodeGradlePromptArticle().uri), "should include Gradle resource URI: $guidance")
-        assertTrue(guidance.contains(ExecuteCodeMavenPromptArticle().uri), "should include Maven resource URI: $guidance")
-        assertTrue(guidance.contains("the matching resource"), "should ask the agent to choose the matching resource: $guidance")
+        assertTrue("should include Gradle resource URI: $guidance", guidance!!.contains(ExecuteCodeGradlePromptArticle().uri))
+        assertTrue("should include Maven resource URI: $guidance", guidance.contains(ExecuteCodeMavenPromptArticle().uri))
+        assertTrue("should ask the agent to choose the matching resource: $guidance", guidance.contains("the matching resource"))
     }
 
     @Test
@@ -112,8 +112,8 @@ class ExecuteCodeBuildAbortGuidanceTest {
         )
 
         assertNotNull(guidance)
-        assertTrue(guidance!!.contains(ExecuteCodeGradlePromptArticle().uri), "should include Gradle resource URI: $guidance")
-        assertTrue(guidance.contains(ExecuteCodeMavenPromptArticle().uri), "should include Maven resource URI: $guidance")
+        assertTrue("should include Gradle resource URI: $guidance", guidance!!.contains(ExecuteCodeGradlePromptArticle().uri))
+        assertTrue("should include Maven resource URI: $guidance", guidance.contains(ExecuteCodeMavenPromptArticle().uri))
     }
 
     @Test
@@ -124,8 +124,8 @@ class ExecuteCodeBuildAbortGuidanceTest {
         )
 
         assertNotNull(guidance)
-        assertTrue(guidance!!.contains(ExecuteCodeGradlePromptArticle().uri), "should include Gradle resource URI: $guidance")
-        assertTrue(guidance.contains(ExecuteCodeMavenPromptArticle().uri), "should include Maven resource URI: $guidance")
+        assertTrue("should include Gradle resource URI: $guidance", guidance!!.contains(ExecuteCodeGradlePromptArticle().uri))
+        assertTrue("should include Maven resource URI: $guidance", guidance.contains(ExecuteCodeMavenPromptArticle().uri))
     }
 
     @Test
@@ -140,9 +140,9 @@ class ExecuteCodeBuildAbortGuidanceTest {
         val updated = ExecuteCodeBuildAbortGuidance.appendTo(original, root)
         val text = updated.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
 
-        assertFalse(updated.isError, "result should stay non-error")
-        assertTrue(text.contains("execution_id: test"), "original text should remain: $text")
-        assertTrue(text.contains(ExecuteCodeGradlePromptArticle().uri), "guidance should be appended: $text")
+        assertFalse("result should stay non-error", updated.isError)
+        assertTrue("original text should remain: $text", text.contains("execution_id: test"))
+        assertTrue("guidance should be appended: $text", text.contains(ExecuteCodeGradlePromptArticle().uri))
     }
 
     @Test
@@ -157,9 +157,9 @@ class ExecuteCodeBuildAbortGuidanceTest {
         val updated = ExecuteCodeBuildAbortGuidance.appendTo(original, root)
         val text = updated.content.filterIsInstance<ContentItem.Text>().joinToString("") { it.text }
 
-        assertFalse(text.contains("trueREQUIRED ACTION"), "guidance should not be glued to the aborted flag: $text")
-        assertTrue(text.contains("true\nREQUIRED ACTION"), "guidance should start on a separate line: $text")
-        assertTrue(text.contains(claudeFetchResourceTool), "guidance should name Claude's fetch tool: $text")
+        assertFalse("guidance should not be glued to the aborted flag: $text", text.contains("trueREQUIRED ACTION"))
+        assertTrue("guidance should start on a separate line: $text", text.contains("true\nREQUIRED ACTION"))
+        assertTrue("guidance should name Claude's fetch tool: $text", text.contains(claudeFetchResourceTool))
     }
 
     private fun tempProjectRoot(): Path {

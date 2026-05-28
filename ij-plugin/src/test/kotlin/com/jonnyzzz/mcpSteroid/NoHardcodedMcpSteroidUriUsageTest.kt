@@ -1,10 +1,8 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid
 
-import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
@@ -61,8 +59,7 @@ import java.util.stream.Collectors
  * referencing a specific resource), add it to [ALLOWED_FILES] below with a comment explaining
  * why.
  */
-@TestApplication
-class NoHardcodedMcpSteroidUriUsageTest {
+class NoHardcodedMcpSteroidUriUsageTest : BasePlatformTestCase() {
 
     companion object {
         /**
@@ -79,8 +76,7 @@ class NoHardcodedMcpSteroidUriUsageTest {
         )
     }
 
-    @Test
-    fun noHardcodedMcpSteroidUriInKotlinSources() {
+    fun testNoHardcodedMcpSteroidUriInKotlinSources() {
         val projectHome = ProjectHomeDirectory.requireProjectHomeDirectory()
         // Match specific resource URIs like "mcp-steroid://prompt/skill" but NOT the bare
         // protocol prefix "mcp-steroid://". Mentioning the protocol is fine; hardcoding
@@ -119,8 +115,8 @@ class NoHardcodedMcpSteroidUriUsageTest {
         }
 
         assertTrue(
-            matches.isEmpty(),
-            "Hardcoded MCP resource URI literals found in Kotlin code:\n${matches.joinToString("\n")}"
+            "Hardcoded MCP resource URI literals found in Kotlin code:\n${matches.joinToString("\n")}",
+            matches.isEmpty()
         )
     }
 

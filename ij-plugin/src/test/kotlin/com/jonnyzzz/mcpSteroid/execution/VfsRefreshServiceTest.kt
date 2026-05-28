@@ -2,10 +2,7 @@
 package com.jonnyzzz.mcpSteroid.execution
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.junit5.TestApplication
-import com.intellij.testFramework.junit5.fixture.projectFixture
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlin.system.measureTimeMillis
 import kotlin.time.Duration.Companion.seconds
 
@@ -21,14 +18,15 @@ import kotlin.time.Duration.Companion.seconds
  * assertions flaky in unit tests. The production semantics are validated
  * end-to-end by the integration tests.
  */
-@TestApplication
-class VfsRefreshServiceTest {
+class VfsRefreshServiceTest : BasePlatformTestCase() {
 
-    private val projectFixture = projectFixture()
+    // Run tests off the EDT so `timeoutRunBlocking` doesn't park the dispatch
+    // thread while the service-under-test needs `withContext(Dispatchers.EDT)`
+    // or similar platform-coroutine dispatches — classic deadlock otherwise.
+    override fun runInDispatchThread(): Boolean = false
 
-    @Test
-    fun scheduleAsyncRefreshReturnsImmediately(): Unit = timeoutRunBlocking(30.seconds) {
-        val service = projectFixture.get().vfsRefreshService
+    fun testScheduleAsyncRefreshReturnsImmediately(): Unit = timeoutRunBlocking(30.seconds) {
+        val service = project.vfsRefreshService
         val elapsedMs = measureTimeMillis {
             service.scheduleAsyncRefresh()
         }
@@ -36,14 +34,13 @@ class VfsRefreshServiceTest {
         // Give it a generous cap (500 ms) to protect against CI jitter — a blocking
         // implementation would take multiple seconds for a real refresh.
         assertTrue(
-            elapsedMs < 500L,
             "scheduleAsyncRefresh should be fire-and-forget, took ${elapsedMs}ms",
+            elapsedMs < 500L,
         )
     }
 
-    @Test
-    fun awaitRefreshCompletesWithinCap(): Unit = timeoutRunBlocking(40.seconds) {
-        val service = projectFixture.get().vfsRefreshService
+    fun testAwaitRefreshCompletesWithinCap(): Unit = timeoutRunBlocking(40.seconds) {
+        val service = project.vfsRefreshService
         val elapsedMs = measureTimeMillis {
             service.awaitRefresh()
         }
@@ -53,28 +50,26 @@ class VfsRefreshServiceTest {
         // regression where the callback bridge breaks and the function hangs
         // longer than the advertised 30 s cap.
         assertTrue(
-            elapsedMs < 35_000L,
             "awaitRefresh honoured the 30 s cap but took ${elapsedMs}ms",
+            elapsedMs < 35_000L,
         )
     }
 
-    @Test
-    fun scheduleAsyncRefreshTwiceIsSafe(): Unit = timeoutRunBlocking(30.seconds) {
+    fun testScheduleAsyncRefreshTwiceIsSafe(): Unit = timeoutRunBlocking(30.seconds) {
         // Back-to-back steroid_execute_code calls stack two schedules; they must
         // both succeed without throwing (RefreshQueue's coalescing handles the
         // redundancy internally).
-        val service = projectFixture.get().vfsRefreshService
+        val service = project.vfsRefreshService
         service.scheduleAsyncRefresh()
         service.scheduleAsyncRefresh()
         // If we got here without an exception, the contract holds.
     }
 
-    @Test
-    fun awaitRefreshWithNoProjectBasePathIsNoOp(): Unit = timeoutRunBlocking(5.seconds) {
+    fun testAwaitRefreshWithNoProjectBasePathIsNoOp(): Unit = timeoutRunBlocking(5.seconds) {
         // In BasePlatformTestCase the light project always has a basePath. We can't
         // easily simulate a null basePath without reflection shenanigans, so this
         // test simply asserts the happy path returns cleanly — the no-project-
         // basePath skip branch is exercised by integration (project close) paths.
-        projectFixture.get().vfsRefreshService.awaitRefresh()
+        project.vfsRefreshService.awaitRefresh()
     }
 }

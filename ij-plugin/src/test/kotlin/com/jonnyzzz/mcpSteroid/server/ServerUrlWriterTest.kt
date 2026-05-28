@@ -2,47 +2,41 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.util.Disposer
-import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PidMarkerJson
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
 import java.util.concurrent.TimeUnit
 
-@TestApplication
-class ServerUrlWriterTest {
+class ServerUrlWriterTest : BasePlatformTestCase() {
 
-    @Test
-    fun writeCreatesMarkerUnderManagedMarkersDirectory() = withTemporaryUserHome { userHome ->
+    override fun runInDispatchThread(): Boolean = false
+
+    fun testWriteCreatesMarkerUnderManagedMarkersDirectory() = withTemporaryUserHome { userHome ->
         val writer = ServerUrlWriter()
         try {
             writer.writeServerUrlToUserHome("http://localhost:6315/mcp")
 
             val pid = ProcessHandle.current().pid()
             val markerFile = PidMarker.markerDirectory(userHome).resolve(PidMarker.markerFileNameFor(pid))
-            assertTrue(Files.isRegularFile(markerFile), "marker should be written to $markerFile")
+            assertTrue("marker should be written to $markerFile", Files.isRegularFile(markerFile))
             val marker = PidMarkerJson.decode(Files.readString(markerFile))
             assertEquals(pid, marker.pid)
             assertEquals("http://localhost:6315/mcp", marker.mcpSteroidServer.mcpUrl)
-            assertNotNull(marker.intellijWebServer, "IntelliJ built-in web server info should be present")
-            assertTrue(marker.intellijWebServer!!.port > 0, "web server port should be known")
+            assertNotNull("IntelliJ built-in web server info should be present", marker.intellijWebServer)
+            assertTrue("web server port should be known", marker.intellijWebServer!!.port > 0)
             assertTrue(
-                marker.intellijWebServer!!.headers["x-ijt"]?.isNotBlank() == true,
                 "web server headers should carry the x-ijt token",
+                marker.intellijWebServer!!.headers["x-ijt"]?.isNotBlank() == true,
             )
         } finally {
             Disposer.dispose(writer)
         }
     }
 
-    @Test
-    fun writeCleansStaleMarkersInManagedDirectory() = withTemporaryUserHome { userHome ->
+    fun testWriteCleansStaleMarkersInManagedDirectory() = withTemporaryUserHome { userHome ->
         val writer = ServerUrlWriter()
         try {
             val deadPid = deadPid()
@@ -53,9 +47,9 @@ class ServerUrlWriterTest {
 
             writer.writeServerUrlToUserHome("http://localhost:6317/mcp")
 
-            assertFalse(Files.exists(staleMarker), "stale marker for dead pid should be removed")
+            assertFalse("stale marker for dead pid should be removed", Files.exists(staleMarker))
             val currentMarker = markerDir.resolve(PidMarker.markerFileNameFor(ProcessHandle.current().pid()))
-            assertTrue(Files.isRegularFile(currentMarker), "current marker should remain")
+            assertTrue("current marker should remain", Files.isRegularFile(currentMarker))
         } finally {
             Disposer.dispose(writer)
         }

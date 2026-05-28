@@ -2,12 +2,7 @@
 package com.jonnyzzz.mcpSteroid.koltinc
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.junit5.TestApplication
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.net.URI
 import java.net.URLClassLoader
 import java.nio.charset.StandardCharsets
@@ -19,11 +14,11 @@ import java.util.jar.JarOutputStream
 import java.util.zip.ZipFile
 import kotlin.time.Duration.Companion.seconds
 
-@TestApplication
-class KotlincCommandLineBuilderIntegrationTest {
+class KotlincCommandLineBuilderIntegrationTest : BasePlatformTestCase() {
 
-    @Test
-    fun compilesJarWithDirectoryClasspathAndJvmTarget(): Unit = timeoutRunBlocking(90.seconds) {
+    override fun runInDispatchThread(): Boolean = false
+
+    fun testCompilesJarWithDirectoryClasspathAndJvmTarget(): Unit = timeoutRunBlocking(90.seconds) {
         val root = Files.createTempDirectory("kotlinc-builder")
         val outputJar = root.resolve("out/compiled.jar")
         val resourceEntry = classpathEntryFromResource(KotlincCommandLineBuilderIntegrationTest::class.java)
@@ -55,14 +50,13 @@ class KotlincCommandLineBuilderIntegrationTest {
 
         kotlincProcessClient.kotlinc(commandLine.args)
 
-        assertTrue(Files.exists(commandLine.outputJar), "Expected output jar at ${commandLine.outputJar}")
+        assertTrue("Expected output jar at ${commandLine.outputJar}", Files.exists(commandLine.outputJar))
         ZipFile(commandLine.outputJar.toFile()).use { zip ->
-            assertNotNull(zip.getEntry("MainKt.class"), "Expected MainKt.class in jar")
+            assertNotNull("Expected MainKt.class in jar", zip.getEntry("MainKt.class"))
         }
     }
 
-    @Test
-    fun compilesJarWithNoStdLibClasspathFromIdeClasspath(): Unit = timeoutRunBlocking(90.seconds) {
+    fun testCompilesJarWithNoStdLibClasspathFromIdeClasspath(): Unit = timeoutRunBlocking(90.seconds) {
         val root = Files.createTempDirectory("kotlinc-nostdlib")
         val outputJar = root.resolve("out/nostdlib.jar")
         val ideClasspathEntries = ideClasspathEntries()
@@ -99,9 +93,9 @@ class KotlincCommandLineBuilderIntegrationTest {
 
         kotlincProcessClient.kotlinc(commandLine.args)
 
-        assertTrue(Files.exists(commandLine.outputJar), "Expected output jar at ${commandLine.outputJar}")
+        assertTrue("Expected output jar at ${commandLine.outputJar}", Files.exists(commandLine.outputJar))
         ZipFile(commandLine.outputJar.toFile()).use { zip ->
-            assertNotNull(zip.getEntry("TestKt.class"), "Expected TestKt.class in jar")
+            assertNotNull("Expected TestKt.class in jar", zip.getEntry("TestKt.class"))
         }
 
         val runtimeUrls = buildList {
@@ -118,8 +112,7 @@ class KotlincCommandLineBuilderIntegrationTest {
         }
     }
 
-    @Test
-    fun compilesJarWithClasspathArgFile(): Unit = timeoutRunBlocking(90.seconds) {
+    fun testCompilesJarWithClasspathArgFile(): Unit = timeoutRunBlocking(90.seconds) {
         val root = Files.createTempDirectory("kotlinc-argfile")
         val outputJar = root.resolve("out/argfile.jar")
         val classpathEntry = classpathEntryFromResource(KotlincCommandLineBuilderIntegrationTest::class.java)
@@ -146,20 +139,19 @@ class KotlincCommandLineBuilderIntegrationTest {
             .build()
             .toArgFile(argFile)
 
-        assertTrue(Files.exists(argFile), "Expected argfile to be created at $argFile")
+        assertTrue("Expected argfile to be created at $argFile", Files.exists(argFile))
         assertTrue(commandLine.args.any { it == "@${argFile.toAbsolutePath()}" })
-        assertFalse(commandLine.args.contains("-classpath"), "Expected -classpath to be omitted from command line when using argfile")
+        assertFalse("Expected -classpath to be omitted from command line when using argfile", commandLine.args.contains("-classpath"))
 
         kotlincProcessClient.kotlinc(commandLine.args)
 
-        assertTrue(Files.exists(commandLine.outputJar), "Expected output jar at ${commandLine.outputJar}")
+        assertTrue("Expected output jar at ${commandLine.outputJar}", Files.exists(commandLine.outputJar))
         ZipFile(commandLine.outputJar.toFile()).use { zip ->
-            assertNotNull(zip.getEntry("MainKt.class"), "Expected MainKt.class in jar")
+            assertNotNull("Expected MainKt.class in jar", zip.getEntry("MainKt.class"))
         }
     }
 
-    @Test
-    fun compilesJarWithClasspathArgFileContainingSpaces(): Unit = timeoutRunBlocking(90.seconds) {
+    fun testCompilesJarWithClasspathArgFileContainingSpaces(): Unit = timeoutRunBlocking(90.seconds) {
         val root = Files.createTempDirectory("kotlinc-spaces")
         val outputJar = root.resolve("out/spaces.jar")
 
@@ -188,26 +180,26 @@ class KotlincCommandLineBuilderIntegrationTest {
         // Verify the argfile uses whole-arg quoting (not IntelliJ per-character style)
         val argFileContent = Files.readString(argFile)
         assertTrue(
-            argFileContent.contains("\""),
             "Argfile should contain quoted classpath due to space in path, but was: $argFileContent",
+            argFileContent.contains("\"")
         )
         assertFalse(
-            argFileContent.contains("\" \""),
             "Argfile should NOT use per-character quoting (IntelliJ style), but was: $argFileContent",
+            argFileContent.contains("\" \"")
         )
 
         // Actually compile with kotlinc to verify the argfile is parsed correctly
         kotlincProcessClient.kotlinc(commandLine.args)
 
-        assertTrue(Files.exists(commandLine.outputJar), "Expected output jar at ${commandLine.outputJar}")
+        assertTrue("Expected output jar at ${commandLine.outputJar}", Files.exists(commandLine.outputJar))
         ZipFile(commandLine.outputJar.toFile()).use { zip ->
-            assertNotNull(zip.getEntry("MainKt.class"), "Expected MainKt.class in jar")
+            assertNotNull("Expected MainKt.class in jar", zip.getEntry("MainKt.class"))
         }
     }
 
     private fun ideClasspathEntries(): List<Path> {
         val entries = scriptClassLoaderFactory.ideClasspath()
-        assertTrue(entries.isNotEmpty(), "Expected ideClasspath to contain entries")
+        assertTrue("Expected ideClasspath to contain entries", entries.isNotEmpty())
         return entries
     }
 

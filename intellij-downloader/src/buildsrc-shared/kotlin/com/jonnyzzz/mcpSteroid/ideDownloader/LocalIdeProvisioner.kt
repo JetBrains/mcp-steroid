@@ -42,23 +42,10 @@ fun resolveAndUnpackLocally(
     os: HostOs = resolveHostOs(),
     arch: HostArchitecture = resolveHostArchitecture(),
     product: IdeProduct = IdeProduct.IntelliJIdea,
-    sevenZipBinary: java.nio.file.Path? = defaultSevenZipBinary(),
 ): File {
     val resolution = resolveTargetArchive(target, product, os, arch)
     val unpackDir = File(unpackBaseDir, ideRootFolderName(resolution.build, os, arch, product))
-    return finalizeLocalIde(target, product, resolution, downloadDir, unpackDir, sevenZipBinary)
-}
-
-/**
- * Test-side convenience: read the bundled 7z.exe path from a JVM system
- * property so a Gradle test task can point at `:intellij-downloader:
- * extractSevenZipResources`'s output without modifying call sites. Returns
- * `null` if the property isn't set (the unpacker only needs the binary
- * for `.exe` archives, so non-Windows IDE provisioning runs are unaffected).
- */
-private fun defaultSevenZipBinary(): java.nio.file.Path? {
-    val raw = System.getProperty("mcp.intellij-downloader.sevenZipBinary") ?: return null
-    return java.nio.file.Path.of(raw)
+    return finalizeLocalIde(target, product, resolution, downloadDir, unpackDir)
 }
 
 private fun finalizeLocalIde(
@@ -67,7 +54,6 @@ private fun finalizeLocalIde(
     resolution: IdeArchiveResolution,
     downloadDir: File,
     unpackDir: File,
-    sevenZipBinary: java.nio.file.Path?,
 ): File {
 
     // Single network round-trip: feed the resolved URL to FromUrl so the
@@ -78,7 +64,7 @@ private fun finalizeLocalIde(
         checksumUrl = resolution.checksumUrl,
     )
     val archive = distribution.resolveAndDownload(downloadDir, resolveHostOs())
-    unpackIdeArchive(archive, unpackDir, sevenZipBinary)
+    unpackIdeArchive(archive, unpackDir)
 
     val ideRoot = findIdeRoot(unpackDir)
     localIdeProvisionerLog.info(

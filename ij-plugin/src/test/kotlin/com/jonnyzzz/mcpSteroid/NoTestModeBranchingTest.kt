@@ -1,18 +1,14 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid
 
-import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
 
-@TestApplication
-class NoTestModeBranchingTest {
-    @Test
-    fun noIsUnitTestModeUsageInProject() {
+class NoTestModeBranchingTest : BasePlatformTestCase() {
+    fun testNoIsUnitTestModeUsageInProject() {
         val sourceRoot = ProjectHomeDirectory.requireProjectHomeDirectory().resolve("ij-plugin").resolve("src")
         check(Files.isDirectory(sourceRoot)) {
             "Project src directory is missing: $sourceRoot"
@@ -31,8 +27,8 @@ class NoTestModeBranchingTest {
         }
 
         assertTrue(
-            matches.isEmpty(),
-            "Forbidden test-only branching found in:\n${matches.joinToString("\n")}"
+            "Forbidden test-only branching found in:\n${matches.joinToString("\n")}",
+            matches.isEmpty()
         )
     }
 

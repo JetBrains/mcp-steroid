@@ -2,23 +2,17 @@
 package com.jonnyzzz.mcpSteroid.execution
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertSame
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.seconds
 import java.util.logging.Level
 import java.util.logging.LogRecord
 import java.util.logging.Logger
 
-@TestApplication
-class ExceptionCaptureServiceTest {
-    @Test
-    fun julSevereErrorIsCaptured(): Unit = timeoutRunBlocking(100.seconds) {
+class ExceptionCaptureServiceTest : BasePlatformTestCase() {
+    fun testJulSevereErrorIsCaptured(): Unit = timeoutRunBlocking(100.seconds) {
         val service = ExceptionCaptureService()
         val rootLogger = Logger.getLogger("")
         val handlersBefore = rootLogger.handlers.toList()
@@ -42,7 +36,7 @@ class ExceptionCaptureServiceTest {
 
             val captured = capturedException.await()
 
-            assertSame(failure, captured.throwable, "The original throwable should be preserved")
+            assertSame("The original throwable should be preserved", failure, captured.throwable)
             assertEquals("Failure while testing: boom\ndetail-1", captured.message)
             assertTrue(captured.stacktrace.contains("IllegalStateException: boom"))
         } finally {
@@ -50,8 +44,7 @@ class ExceptionCaptureServiceTest {
         }
     }
 
-    @Test
-    fun julHandlerIsRemovedOnDispose() {
+    fun testJulHandlerIsRemovedOnDispose() {
         val service = ExceptionCaptureService()
         val rootLogger = Logger.getLogger("")
         val handlersBefore = rootLogger.handlers.toList()
@@ -66,8 +59,7 @@ class ExceptionCaptureServiceTest {
         assertEquals(handlersBefore.size, rootLogger.handlers.size)
     }
 
-    @Test
-    fun julSevereErrorWithNullParametersIsCaptured(): Unit = timeoutRunBlocking(100.seconds) {
+    fun testJulSevereErrorWithNullParametersIsCaptured(): Unit = timeoutRunBlocking(100.seconds) {
         val service = ExceptionCaptureService()
         val failure = IllegalStateException("missing params")
 
@@ -85,7 +77,7 @@ class ExceptionCaptureServiceTest {
             logger.log(record)
 
             val captured = capturedException.await()
-            assertSame(failure, captured.throwable, "The original throwable should be preserved")
+            assertSame("The original throwable should be preserved", failure, captured.throwable)
             assertEquals("Failure with null parameters: missing params", captured.message)
             assertTrue(captured.stacktrace.contains("IllegalStateException: missing params"))
         } finally {
