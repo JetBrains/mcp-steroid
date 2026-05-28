@@ -65,11 +65,19 @@ fun unpackIdeArchive(archiveFile: File, unpackDir: File, sevenZipBinary: Path? =
             name.endsWith(".zip") -> unpackZip(archiveFile, unpackDir)
             name.endsWith(".dmg") -> unpackDmgViaMount(archiveFile, unpackDir)
             name.endsWith(".exe") -> {
-                val bin = requireNotNull(sevenZipBinary) {
-                    "unpackIdeArchive(${archiveFile.name}): sevenZipBinary is required for .exe archives. " +
-                        "Pass com.jonnyzzz.mcpSteroid.devrig.DevrigRoot.sevenZipBinary() from devrig callers."
-                }
-                unpackExeWith7z(archiveFile, unpackDir, bin)
+                // Production devrig callers pass DevrigRoot.sevenZipBinary() explicitly.
+                // Build / test infra (LocalIdeProvisioner) lets it default to null and
+                // we fall back to SevenZipLocator (extracts the bundled 7z.exe from
+                // intellij-downloader.jar classpath to ~/.cache/mcp-steroid/7z/ once
+                // per dev machine).
+                val bin = sevenZipBinary?.toAbsolutePath()?.toString()
+                    ?: SevenZipLocator.locate()
+                    ?: error(
+                        "unpackIdeArchive(${archiveFile.name}): cannot resolve a 7z.exe to unpack the NSIS installer. " +
+                            "Either pass `sevenZipBinary` explicitly (production: DevrigRoot.sevenZipBinary()) " +
+                            "or ensure the bundled `7z/win-x64/7z.exe` resource is on the test classpath."
+                    )
+                unpackExeWith7z(archiveFile, unpackDir, java.nio.file.Path.of(bin))
             }
             else -> error(
                 "Unsupported archive format: ${archiveFile.name}. " +

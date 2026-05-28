@@ -53,11 +53,17 @@ class IdeUnpackerDispatchTest {
     }
 
     @Test
-    fun `dispatcher requires sevenZipBinary for exe archives`() {
+    fun `dispatcher requires sevenZipBinary or SevenZipLocator fallback for exe archives`() {
+        // On non-Windows hosts SevenZipLocator returns null (the bundled
+        // 7z.exe is Windows-only), so this `.exe` dispatch path errors out
+        // with a clear "cannot resolve a 7z.exe" message. The require(WINDOWS)
+        // assertion in unpackExeWith7z is hit BEFORE this on Windows hosts
+        // because the dispatcher walks past the host check first.
+        if (resolveHostOs() == HostOs.WINDOWS) return
         val archive = tmp.newFile("idea.exe").apply { writeBytes(byteArrayOf(0)) }
         val ex = expectError { unpackIdeArchive(archive, tmp.newFolder("out")) }
         assertTrue("expected missing-binary error, got: ${ex.message}",
-            ex.message!!.contains("sevenZipBinary is required"))
+            ex.message!!.contains("cannot resolve a 7z.exe"))
     }
 
     private inline fun expectError(block: () -> Unit): Throwable {

@@ -358,9 +358,29 @@ artifacts {
     }
 }
 
-// The bundled 7z payload is NOT exposed via the classpath. :npx-kt's distZip
-// consumes the `sevenZipBinariesElements` configuration above (via the
-// "seven-zip-binaries" Usage attribute) and places `7z.exe` + `7z.dll` +
-// `License.txt` under <devrig-root>/7z/. Runtime code resolves the absolute
-// path via `com.jonnyzzz.mcpSteroid.devrig.DevrigRoot.sevenZipBinary()` and
-// passes it explicitly to `unpackIdeArchive(..., sevenZipBinary = ...)`.
+// Two distribution channels for the bundled 7-Zip payload:
+//
+// 1. :npx-kt's distZip places `7z/7z.exe` + `7z/7z.dll` + `7z/License.txt` at
+//    the dist root via the `sevenZipBinariesElements` configuration above.
+//    DevrigRoot.sevenZipBinary() returns that path for production devrig runs
+//    — no extract-on-first-use, the binary sits next to the launcher.
+//
+// 2. The intellij-downloader.jar ALSO carries the same payload under its
+//    classpath at `7z/win-x64/{7z.exe,7z.dll,License.txt}`. This serves the
+//    Gradle-build / test-infra path: LocalIdeProvisioner.resolveAndUnpackLocally
+//    runs at Gradle config time when IPGP resolves the IDE classpath — and
+//    on Windows that path needs `7z.exe` to unpack the NSIS installer BEFORE
+//    `:intellij-downloader:extractSevenZipResources` has had a chance to
+//    run as a task. SevenZipLocator (in buildsrc-shared) handles this case
+//    by extracting from the JAR to `~/.cache/mcp-steroid/7z/` once per dev
+//    machine. The cache extraction is invisible to devrig users (DevrigRoot
+//    path wins for them).
+sourceSets.named("main") {
+    resources.srcDir(extractSevenZipResources)
+}
+tasks.named("processResources") {
+    dependsOn(extractSevenZipResources)
+    doFirst {
+        delete(layout.buildDirectory.dir("resources/main/7z"))
+    }
+}
