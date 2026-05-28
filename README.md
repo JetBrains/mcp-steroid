@@ -84,17 +84,34 @@ Download the latest ZIP from [GitHub Releases](https://github.com/jonnyzzz/mcp-s
 
 ## Connect Your AI Agent
 
-When the plugin starts, it writes the server URL to `.idea/mcp-steroid.md` in each open project. Connect any MCP-compatible client to it:
+MCP Steroid ships a small stdio launcher (`devrig`) that bridges your agent to the in-IDE MCP server and discovers every running IntelliJ instance automatically. It's the recommended way to wire up Claude Code, Codex CLI, and Gemini CLI — one registration per agent, applies to every project on the machine.
+
+### One-time setup (from a checkout of this repo)
 
 ```bash
-# Claude Code
-claude mcp add --transport http --scope user mcp-steroid http://127.0.0.1:6315/mcp
+# Build :npx-kt:installDist and stage the launcher under ~/.mcp-steroid/devrig/
+./gradlew deployNpx
 
-# Or verify with any agent
+# Register `mcp-steroid` (stdio) at user scope for each agent — once per machine
+~/.mcp-steroid/devrig/bin/devrig install claude
+~/.mcp-steroid/devrig/bin/devrig install codex
+~/.mcp-steroid/devrig/bin/devrig install gemini
+```
+
+Each `install` call delegates to the agent's own `mcp add` CLI, so the entry lands in the user-scope config (`~/.claude.json`, `~/.codex/config.toml`, `~/.gemini/settings.json`) and is visible from every project.
+
+### Refreshing the launcher
+
+After pulling new commits, run `./gradlew deployNpx` again. It rebuilds `:npx-kt:installDist` and re-syncs `~/.mcp-steroid/devrig/` — the launcher path stays the same, so no re-registration is needed. Runtime state under `~/.mcp-steroid/{backends,caches,logs,markers,state}` is preserved.
+
+### Verifying it works
+
+```bash
+claude mcp list                                 # mcp-steroid: ... - ✓ Connected
 claude -p "List all open projects using steroid_list_projects"
 ```
 
-Any MCP client can connect using the Streamable HTTP transport at `http://127.0.0.1:6315/mcp`.
+The plugin also writes the raw server URL to `.idea/mcp-steroid.md` in each open project at `http://127.0.0.1:6315/mcp` (Streamable HTTP transport) for clients that prefer to talk to the IDE directly.
 
 ---
 
