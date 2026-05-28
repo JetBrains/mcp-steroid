@@ -445,6 +445,22 @@ tasks {
             "mcp.steroid.test.expected.kotlinxSerializationVersion",
             providers.gradleProperty("mcp.kotlinx.serialization.version").get(),
         )
+
+        // Feed the bundled 7-Zip Windows binary path to LocalIdeProvisioner via
+        // a JVM system property — picked up by `defaultSevenZipBinary()` only
+        // when the test path provisions a Windows IDE (.exe NSIS installer)
+        // and no explicit `sevenZipBinary` is passed. Without this, Windows-host
+        // `:ij-plugin:test` runs that unpack a Windows IDE fail with
+        // "unpackIdeArchive: sevenZipBinary is required for .exe archives".
+        val sevenZipBinaryProvider = project(":intellij-downloader")
+            .layout.buildDirectory
+            .file("7z-extracted/7z/win-x64/7z.exe")
+        inputs.file(sevenZipBinaryProvider).withPropertyName("sevenZipBinary")
+        dependsOn(":intellij-downloader:extractSevenZipResources")
+        systemProperty(
+            "mcp.intellij-downloader.sevenZipBinary",
+            sevenZipBinaryProvider.get().asFile.absolutePath,
+        )
     }
 
     patchPluginXml {

@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import java.time.Instant
@@ -50,6 +51,14 @@ class ExecutionEventBroadcaster {
             recentLines = emptyList()
         )
         activeExecutions[executionId] = state
+
+        // Drop the entry if the project disposes before the natural
+        // completion path runs. Without this, a project closed mid-execution
+        // leaves a ProjectImpl reference dangling on this app-scoped service
+        // (and JUnit 5's @TestApplication leak hunter fails the test).
+        Disposer.register(project) {
+            activeExecutions.remove(executionId)
+        }
 
         publisher.onExecutionStarted(
             ExecutionEvent.Started(executionId, now, taskId, reason, project)

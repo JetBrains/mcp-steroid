@@ -3,12 +3,18 @@ package com.jonnyzzz.mcpSteroid.execution
 
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.jonnyzzz.mcpSteroid.TestResultBuilder
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
-import kotlinx.serialization.json.buildJsonObject
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
@@ -35,12 +41,10 @@ import kotlin.time.Duration.Companion.seconds
  * thread; `timeoutRunBlocking` on that thread leaves EDT free to pump the
  * `Dispatchers.EDT` queue for the write action.
  */
-class ApplyPatchTest : BasePlatformTestCase() {
+@TestApplication
+class ApplyPatchTest {
 
-    // See the class KDoc above — the apply-patch engine requires a live EDT
-    // dispatcher during its `withContext(Dispatchers.EDT)` phase; running the
-    // test itself on EDT would deadlock `timeoutRunBlocking` against that.
-    override fun runInDispatchThread(): Boolean = false
+    private val projectFixture = projectFixture()
 
     // Production apply-patch resolves files via `McpScriptContext.findFile`,
     // which goes through `LocalFileSystem`. The test uses a real on-disk temp
@@ -48,25 +52,27 @@ class ApplyPatchTest : BasePlatformTestCase() {
     // `temp://` via `myFixture.tempDirFixture` would bypass LocalFileSystem and
     // miss regressions in the production resolver.
     private lateinit var tempRoot: Path
+    private val disposables = mutableListOf<com.intellij.openapi.Disposable>()
 
-    override fun setUp() {
-        super.setUp()
+    @BeforeEach
+    fun setUp() {
         tempRoot = createTempDirectory("apply-patch-test-")
     }
 
-    override fun tearDown() {
+    @AfterEach
+    fun tearDown() {
         try {
-            Files.walk(tempRoot).sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+            disposables.forEach { Disposer.dispose(it) }
         } finally {
-            super.tearDown()
+            Files.walk(tempRoot).sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
         }
     }
 
     private fun createContext(): McpScriptContextImpl {
         val executionId = ExecutionId("test-apply-patch")
-        val disposable = Disposer.newDisposable(testRootDisposable, "apply-patch-$executionId")
+        val disposable = Disposer.newDisposable("apply-patch-$executionId").also { disposables.add(it) }
         return McpScriptContextImpl(
-            project = project,
+            project = projectFixture.get(),
             executionId = executionId,
             disposable = disposable,
             resultBuilder = TestResultBuilder(),
@@ -91,7 +97,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
         return String(vf.contentsToByteArray(), vf.charset)
     }
 
-    fun testSingleHunkSingleFile(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun singleHunkSingleFile(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("A.java", "class A { int x = 1; }\n")
 
@@ -110,7 +117,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals(10, h.newLen) // "int x = 42".length
     }
 
-    fun testSingleHunkPersistsToDiskBeforeReturning(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun singleHunkPersistsToDiskBeforeReturning(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Persist.java", "class Persist { int x = 1; }\n")
 
@@ -121,7 +129,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals("class Persist { int x = 42; }\n", Files.readString(vf))
     }
 
-    fun testMultiHunkSameFileDescendingOrder(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun multiHunkSameFileDescendingOrder(): Unit = timeoutRunBlocking(30.seconds) {
         // Multi-hunk in the same file. If the DSL applied in file order (top-down),
         // the first replacement would shift the second's offset and the second hunk
         // would miss its target. Descending offset order is the only correct policy.
@@ -142,9 +151,9 @@ class ApplyPatchTest : BasePlatformTestCase() {
         }
 
         val updated = vf.readViaIde()
-        assertTrue("x replaced: $updated", updated.contains("int x = 100"))
-        assertTrue("y replaced: $updated", updated.contains("int y = 200"))
-        assertTrue("z replaced: $updated", updated.contains("int z = 300"))
+        assertTrue( updated.contains("int x = 100"),"x replaced: $updated")
+        assertTrue( updated.contains("int y = 200"),"y replaced: $updated")
+        assertTrue( updated.contains("int z = 300"),"z replaced: $updated")
         assertEquals(3, result.hunkCount)
         assertEquals(1, result.fileCount)
         // Line numbers captured pre-edit: x at line 2, y at line 3, z at line 4.
@@ -152,7 +161,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals(listOf(2, 3, 4), result.applied.map { it.line })
     }
 
-    fun testMultipleFiles(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun multipleFiles(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val a = writeTempFile("Multi_A.java", "int count = 1;\n")
         val b = writeTempFile("Multi_B.java", "int count = 2;\n")
@@ -168,11 +178,12 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals(2, result.fileCount)
     }
 
-    fun testReadOnlyFileFailsBeforeEditingDisk(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun readOnlyFileFailsBeforeEditingDisk(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("ReadOnly.java", "class ReadOnly { int value = 1; }\n")
         val file = vf.toFile()
-        assertTrue("Test setup should make the file read-only", file.setWritable(false))
+        assertTrue( file.setWritable(false),"Test setup should make the file read-only")
         LocalFileSystem.getInstance().refreshAndFindFileByNioFile(vf)
 
         try {
@@ -185,18 +196,18 @@ class ApplyPatchTest : BasePlatformTestCase() {
                 e
             }
 
-            assertNotNull("Expected ApplyPatchException for read-only file", err)
+            assertNotNull( err,"Expected ApplyPatchException for read-only file")
             assertTrue(
-                "Error explains read-only or save failure: ${err!!.message}",
-                err.message!!.contains("file is read-only") || err.message!!.contains("Failed to save"),
-            )
+                err!!.message!!.contains("file is read-only") || err.message!!.contains("Failed to save"),
+                "Error explains read-only or save failure: ${err.message}")
             assertEquals("class ReadOnly { int value = 1; }\n", Files.readString(vf))
         } finally {
             file.setWritable(true)
         }
     }
 
-    fun testOldStringMissingFailsCleanlyNoPartialEdit(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun oldStringMissingFailsCleanlyNoPartialEdit(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val a = writeTempFile("Fail_A.java", "content_A\n")
         val b = writeTempFile("Fail_B.java", "content_B\n")
@@ -211,15 +222,16 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException", err)
-        assertTrue("Error names the missing hunk index", err!!.message!!.contains("Hunk #1"))
-        assertTrue("Error names the path", err.message!!.contains("Fail_B.java"))
+        assertNotNull( err,"Expected ApplyPatchException")
+        assertTrue( err!!.message!!.contains("Hunk #1"),"Error names the missing hunk index")
+        assertTrue( err.message!!.contains("Fail_B.java"),"Error names the path")
         // Crucial: neither file was modified, because pre-flight ran before any edit.
         assertEquals("content_A\n", a.readViaIde())
         assertEquals("content_B\n", b.readViaIde())
     }
 
-    fun testNonUniqueOldStringFailsCleanly(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun nonUniqueOldStringFailsCleanly(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Dup.java", "token\nother\ntoken\n")
 
@@ -232,13 +244,14 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException on non-unique old_string", err)
-        assertTrue("Error explains non-unique", err!!.message!!.contains("occurs more than once"))
-        assertTrue("Error suggests context expansion", err.message!!.contains("expand old_string"))
+        assertNotNull( err,"Expected ApplyPatchException on non-unique old_string")
+        assertTrue( err!!.message!!.contains("occurs more than once"),"Error explains non-unique")
+        assertTrue( err.message!!.contains("expand old_string"),"Error suggests context expansion")
         assertEquals("token\nother\ntoken\n", vf.readViaIde())
     }
 
-    fun testZeroHunksThrows(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun zeroHunksThrows(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val err = try {
             ctx.applyPatch { }
@@ -246,11 +259,12 @@ class ApplyPatchTest : BasePlatformTestCase() {
         } catch (e: IllegalArgumentException) {
             e
         }
-        assertNotNull("Zero hunks should throw IllegalArgumentException", err)
+        assertNotNull( err,"Zero hunks should throw IllegalArgumentException")
         assertTrue(err!!.message!!.contains("zero hunks"))
     }
 
-    fun testResultToStringContainsAuditLines(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun resultToStringContainsAuditLines(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Audit.java", "AAA\nBBB\n")
 
@@ -258,11 +272,11 @@ class ApplyPatchTest : BasePlatformTestCase() {
             hunk(vf.toString(), "AAA", "aaa-aaa")
         }
         val summary = result.toString()
-        assertTrue("Summary mentions hunk count: $summary", summary.contains("1 hunk"))
-        assertTrue("Summary mentions file count: $summary", summary.contains("1 file"))
-        assertTrue("Summary lists the hunk path:line:col: $summary",
-            summary.contains(vf.toString() + ":1:1"))
-        assertTrue("Summary lists the char delta: $summary", summary.contains("3→7 chars"))
+        assertTrue( summary.contains("1 hunk"),"Summary mentions hunk count: $summary")
+        assertTrue( summary.contains("1 file"),"Summary mentions file count: $summary")
+        assertTrue(
+            summary.contains(vf.toString() + ":1:1"),"Summary lists the hunk path:line:col: $summary")
+        assertTrue( summary.contains("3→7 chars"),"Summary lists the char delta: $summary")
     }
 
     // --- Tricky edge cases below pin behaviour that has bitten apply-patch agents
@@ -281,7 +295,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * also set a deadline here without losing assertion power because the
      * write phase is sub-millisecond on a 1-line patch.
      */
-    fun testCompletesWellUnderTimeoutGuardingEdtDeadlock(): Unit = timeoutRunBlocking(5.seconds) {
+    @Test
+    fun completesWellUnderTimeoutGuardingEdtDeadlock(): Unit = timeoutRunBlocking(5.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Deadline.java", "x = 1\n")
         val result = ctx.applyPatch {
@@ -297,7 +312,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * keep the original CRLF via the file's `LineSeparator` system. If we ever
      * accidentally roundtrip through a normalised `String` write, this catches it.
      */
-    fun testCrlfLineEndingsPreservedOnDisk(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun crlfLineEndingsPreservedOnDisk(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val path = tempRoot / "Crlf.java"
         path.parent.createDirectories()
@@ -311,15 +327,16 @@ class ApplyPatchTest : BasePlatformTestCase() {
 
         // Document.text ships \n; on-disk bytes must keep \r\n.
         val onDisk = Files.readAllBytes(path).toString(Charsets.UTF_8)
-        assertTrue("CRLF preserved on disk: ${onDisk.replace("\r", "<CR>").replace("\n", "<LF>\n")}",
-            onDisk.contains("\r\n"))
-        assertTrue("New value present", onDisk.contains("int x = 42"))
-        assertFalse("No bare LF leaked into a CRLF region",
-            onDisk.contains("int x = 42;\n") && !onDisk.contains("int x = 42;\r\n"))
+        assertTrue(
+            onDisk.contains("\r\n"),"CRLF preserved on disk: ${onDisk.replace("\r", "<CR>").replace("\n", "<LF>\n")}")
+        assertTrue( onDisk.contains("int x = 42"),"New value present")
+        assertFalse(
+            onDisk.contains("int x = 42;\n") && !onDisk.contains("int x = 42;\r\n"),"No bare LF leaked into a CRLF region")
     }
 
     /** Empty `new_string` is a valid deletion. Production agents use this for "remove import". */
-    fun testEmptyNewStringDeletes(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun emptyNewStringDeletes(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Delete.java", "import a.B;\nimport a.C;\nclass X {}\n")
 
@@ -335,7 +352,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * loop). The engine uses single-pass `replaceString(offset, end, new)`, so
      * one application is the correct semantics. This test pins it.
      */
-    fun testNewStringContainsOldStringAppliesOnce(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun newStringContainsOldStringAppliesOnce(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Wrap.java", "fun foo() { return 1 }\n")
 
@@ -348,7 +366,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
     }
 
     /** Hunk at offset 0 — a regression target since `indexOf` returns 0 on hit. */
-    fun testHunkAtFileStart(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun hunkAtFileStart(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Start.java", "package old;\nclass A {}\n")
 
@@ -363,7 +382,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
     }
 
     /** Hunk at file end (no trailing newline) — verifies offset arithmetic with EOF. */
-    fun testHunkAtFileEndNoTrailingNewline(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun hunkAtFileEndNoTrailingNewline(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Eof.java", "class A {\n    int x = 1;\n}")  // no trailing \n
         ctx.applyPatch {
@@ -371,12 +391,13 @@ class ApplyPatchTest : BasePlatformTestCase() {
         }
         // Note: Document loaders may add a trailing newline back; we just assert the body.
         val updated = vf.readViaIde()
-        assertTrue("Class body intact: $updated", updated.contains("    int x = 1;"))
-        assertTrue("Trailing brace present: $updated", updated.contains("}"))
+        assertTrue( updated.contains("    int x = 1;"),"Class body intact: $updated")
+        assertTrue( updated.contains("}"),"Trailing brace present: $updated")
     }
 
     /** Multi-line `old_string` spanning many lines — common for block edits. */
-    fun testMultiLineHunkSpanningSeveralLines(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun multiLineHunkSpanningSeveralLines(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Block.java", """
             class A {
@@ -397,9 +418,9 @@ class ApplyPatchTest : BasePlatformTestCase() {
         }
 
         val updated = vf.readViaIde()
-        assertTrue("Comment placeholder inserted: $updated", updated.contains("// body removed"))
-        assertFalse("Old lines gone: $updated", updated.contains("val x = 1"))
-        assertFalse("Old lines gone: $updated", updated.contains("val z = 3"))
+        assertTrue( updated.contains("// body removed"),"Comment placeholder inserted: $updated")
+        assertFalse( updated.contains("val x = 1"),"Old lines gone: $updated")
+        assertFalse( updated.contains("val z = 3"),"Old lines gone: $updated")
         // line/column captured at first char of `val x = 1` (line 3, after indent).
         val h = result.applied.single()
         assertEquals(3, h.line)
@@ -410,7 +431,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * reversed for descending-offset replays. Regression target: keep callers'
      * audit trail aligned with the order they shipped hunks.
      */
-    fun testResultPreservesInputIndexOrder(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun resultPreservesInputIndexOrder(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Order.java", "A=1;\nB=2;\nC=3;\nD=4;\n")
 
@@ -436,7 +458,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
     }
 
     /** Unicode/multi-byte content. IntelliJ Documents use UTF-16 internally; offsets must match the original encoding. */
-    fun testUnicodeMultiByteContent(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun unicodeMultiByteContent(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         // Mix of ASCII, BMP, and supplementary plane characters.
         val original = "val msg = \"héllo 🌍 world\"\n"
@@ -456,7 +479,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * `testOldStringMissingFailsCleanlyNoPartialEdit` because it places the
      * failing hunk on a different *physical* document.
      */
-    fun testCrossFileAtomicityOnMidBatchFailure(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun crossFileAtomicityOnMidBatchFailure(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val a = writeTempFile("Atomic1.java", "class A { int v = 1; }\n")
         val b = writeTempFile("Atomic2.java", "class B { int v = 2; }\n")
@@ -473,7 +497,7 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Pre-flight must reject hunk #2", err)
+        assertNotNull( err,"Pre-flight must reject hunk #2")
         // Files A and B must be untouched even though their hunks pre-flighted OK.
         assertEquals("class A { int v = 1; }\n", Files.readString(a))
         assertEquals("class B { int v = 2; }\n", Files.readString(b))
@@ -484,7 +508,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * `forEach` idiom from the prompt: same old/new applied to N files. Pins
      * the recipe documented in `prompts/src/main/prompts/ide/apply-patch.md`.
      */
-    fun testForEachShareOldNewAcrossFiles(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun forEachShareOldNewAcrossFiles(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val a = writeTempFile("Each_A.java", "@SpringBootApplication\npublic class AppA { }\n")
         val b = writeTempFile("Each_B.java", "@SpringBootApplication\npublic class AppB { }\n")
@@ -500,8 +525,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals(3, result.hunkCount)
         assertEquals(3, result.fileCount)
         listOf(a, b, c).forEach {
-            assertTrue("ComponentScan added to $it: ${Files.readString(it)}",
-                Files.readString(it).contains("@ComponentScan(\"shop\")"))
+            assertTrue(
+                Files.readString(it).contains("@ComponentScan(\"shop\")"),"ComponentScan added to $it: ${Files.readString(it)}")
         }
     }
 
@@ -514,7 +539,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
      * and fail with "not found" rather than "not unique". This test pins the
      * single-pre-flight contract.
      */
-    fun testDuplicateHunkSamePathSameOld(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun duplicateHunkSamePathSameOld(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         val vf = writeTempFile("Dup2.java", "x = 1\ny = 2\n")
 
@@ -542,16 +568,15 @@ class ApplyPatchTest : BasePlatformTestCase() {
             // Most likely outcome: "x = 1" still matches inside "x = 10" so
             // the replacement chains to "x = 1000" or similar — pin behaviour.
             assertTrue(
-                "Duplicate-target patch left file in a known state, got: $updated",
                 updated.contains("x = 10") || updated.contains("x = 100"),
-            )
+                "Duplicate-target patch left file in a known state, got: $updated")
         } else {
             // If the engine learns to reject duplicate paths-with-same-old,
             // make sure the error message is helpful.
-            assertTrue("Error mentions duplicate or non-unique: ${err.message}",
+            assertTrue(
                 err.message!!.contains("duplicate", ignoreCase = true)
                     || err.message!!.contains("once")
-                    || err.message!!.contains("unique"))
+                    || err.message!!.contains("unique"),"Error mentions duplicate or non-unique: ${err.message}")
         }
     }
 
@@ -563,17 +588,18 @@ class ApplyPatchTest : BasePlatformTestCase() {
     // directly to keep coverage on the dryRun code path in case a future
     // recipe needs it.
 
-    fun testDryRunDoesNotModifyFile(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunDoesNotModifyFile(): Unit = timeoutRunBlocking(30.seconds) {
         val original = "class A { int x = 1; }\n"
         val vf = writeTempFile("DryRun_NoMod.java", original)
 
         val result = executeApplyPatch(
-            project = project,
+            project = projectFixture.get(),
             hunks = listOf(ApplyPatchHunk(vf.toString(), "int x = 1", "int x = 42")),
             dryRun = true,
         ) { path -> LocalFileSystem.getInstance().findFileByPath(path) }
 
-        assertTrue("Result must flag dry-run", result.isDryRun)
+        assertTrue( result.isDryRun,"Result must flag dry-run")
         assertEquals(1, result.hunkCount)
         assertEquals(1, result.fileCount)
         // Critical: file bytes unchanged on disk AND in VFS.
@@ -581,7 +607,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals(original, Files.readString(vf))
     }
 
-    fun testDryRunMultiHunkReportsAllResolvedPositions(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunMultiHunkReportsAllResolvedPositions(): Unit = timeoutRunBlocking(30.seconds) {
         val original = """
             class A {
                 int x = 1;
@@ -592,7 +619,7 @@ class ApplyPatchTest : BasePlatformTestCase() {
         val vf = writeTempFile("DryRun_Multi.java", original)
 
         val result = executeApplyPatch(
-            project = project,
+            project = projectFixture.get(),
             hunks = listOf(
                 ApplyPatchHunk(vf.toString(), "int x = 1", "int x = 100"),
                 ApplyPatchHunk(vf.toString(), "int y = 2", "int y = 200"),
@@ -608,12 +635,13 @@ class ApplyPatchTest : BasePlatformTestCase() {
         assertEquals(original, vf.readViaIde())
     }
 
-    fun testDryRunSurfacesFileNotFoundSameAsLive(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunSurfacesFileNotFoundSameAsLive(): Unit = timeoutRunBlocking(30.seconds) {
         val missing = tempRoot.resolve("NoSuchFile.java").toString()
 
         val err = try {
             executeApplyPatch(
-                project = project,
+                project = projectFixture.get(),
                 hunks = listOf(ApplyPatchHunk(missing, "anything", "replacement")),
                 dryRun = true,
             ) { path -> LocalFileSystem.getInstance().findFileByPath(path) }
@@ -622,19 +650,20 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException on missing file under dryRun", err)
-        assertTrue("Error names hunk index: ${err!!.message}", err.message!!.contains("Hunk #0"))
-        assertTrue("Error preserves 'file not found' substring: ${err.message}",
-            err.message!!.contains("file not found"))
+        assertNotNull( err,"Expected ApplyPatchException on missing file under dryRun")
+        assertTrue( err!!.message!!.contains("Hunk #0"),"Error names hunk index: ${err.message}")
+        assertTrue(
+            err.message!!.contains("file not found"),"Error preserves 'file not found' substring: ${err.message}")
     }
 
-    fun testDryRunSurfacesAnchorMismatchSameAsLive(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunSurfacesAnchorMismatchSameAsLive(): Unit = timeoutRunBlocking(30.seconds) {
         val original = "class A { int x = 1; }\n"
         val vf = writeTempFile("DryRun_AnchorMiss.java", original)
 
         val err = try {
             executeApplyPatch(
-                project = project,
+                project = projectFixture.get(),
                 hunks = listOf(ApplyPatchHunk(vf.toString(), "NOT_IN_FILE_XYZ", "replacement")),
                 dryRun = true,
             ) { path -> LocalFileSystem.getInstance().findFileByPath(path) }
@@ -643,30 +672,32 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException on missing anchor under dryRun", err)
-        assertTrue("Error preserves 'old_string not found' substring: ${err!!.message}",
-            err.message!!.contains("old_string not found"))
+        assertNotNull( err,"Expected ApplyPatchException on missing anchor under dryRun")
+        assertTrue(
+            err!!.message!!.contains("old_string not found"),"Error preserves 'old_string not found' substring: ${err.message}")
         // File must remain unmodified after a failed dry-run preflight, just
         // as it would after a failed live preflight.
         assertEquals(original, vf.readViaIde())
     }
 
-    fun testDryRunResultStringSaysWouldApply(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunResultStringSaysWouldApply(): Unit = timeoutRunBlocking(30.seconds) {
         val vf = writeTempFile("DryRun_String.java", "class A { int x = 1; }\n")
         val result = executeApplyPatch(
-            project = project,
+            project = projectFixture.get(),
             hunks = listOf(ApplyPatchHunk(vf.toString(), "int x = 1", "int x = 42")),
             dryRun = true,
         ) { path -> LocalFileSystem.getInstance().findFileByPath(path) }
 
         val asString = result.toString()
-        assertTrue("Audit trail flags dry-run: $asString", asString.contains("dry-run"))
-        assertTrue("Audit trail says 'would apply': $asString", asString.contains("would apply"))
-        assertFalse("Live wording must not leak into dry-run audit: $asString",
-            asString.contains("applied atomically"))
+        assertTrue( asString.contains("dry-run"),"Audit trail flags dry-run: $asString")
+        assertTrue( asString.contains("would apply"),"Audit trail says 'would apply': $asString")
+        assertFalse(
+            asString.contains("applied atomically"),"Live wording must not leak into dry-run audit: $asString")
     }
 
-    fun testDryRunSurfacesAmbiguousAnchorSameAsLive(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunSurfacesAmbiguousAnchorSameAsLive(): Unit = timeoutRunBlocking(30.seconds) {
         // The third leg of C1's structured fallout — non-unique anchor — must
         // behave identically under dryRun. Two occurrences of `dup_token`:
         val original = "dup_token line one\nmiddle\ndup_token line three\n"
@@ -674,7 +705,7 @@ class ApplyPatchTest : BasePlatformTestCase() {
 
         val err = try {
             executeApplyPatch(
-                project = project,
+                project = projectFixture.get(),
                 hunks = listOf(ApplyPatchHunk(vf.toString(), "dup_token", "rep_token")),
                 dryRun = true,
             ) { path -> LocalFileSystem.getInstance().findFileByPath(path) }
@@ -683,13 +714,13 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException on ambiguous anchor under dryRun", err)
-        assertTrue("Error preserves 'occurs more than once': ${err!!.message}",
-            err.message!!.contains("occurs more than once"))
-        assertTrue("Error preserves expansion hint: ${err.message}",
-            err.message!!.contains("expand old_string"))
-        assertEquals("Failed dry-run preflight must not write to disk",
-            original, vf.readViaIde())
+        assertNotNull( err,"Expected ApplyPatchException on ambiguous anchor under dryRun")
+        assertTrue(
+            err!!.message!!.contains("occurs more than once"),"Error preserves 'occurs more than once': ${err.message}")
+        assertTrue(
+            err.message!!.contains("expand old_string"),"Error preserves expansion hint: ${err.message}")
+        assertEquals(
+            original, vf.readViaIde(),"Failed dry-run preflight must not write to disk")
     }
 
     // -- C1: structured candidate tails on rejection -----------------------
@@ -701,7 +732,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
     // whole point of issue #50's recovery-hint contract. A future change that
     // accidentally drops the helpers would be invisible without these.
 
-    fun testAnchorNotFoundIncludesFileSizeAndFuzzyCandidates(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun anchorNotFoundIncludesFileSizeAndFuzzyCandidates(): Unit = timeoutRunBlocking(30.seconds) {
         val ctx = createContext()
         // Two lines containing "findByStatus" — the longest stable token in
         // the bad anchor — so the fuzzy candidates should surface both lines.
@@ -728,26 +760,24 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException for missing anchor", err)
+        assertNotNull( err,"Expected ApplyPatchException for missing anchor")
         val msg = err!!.message!!
-        assertTrue("Lead preserved: $msg", msg.contains("old_string not found"))
-        assertTrue("File line count surfaced: $msg", Regex("""\d+ lines""").containsMatchIn(msg))
-        assertTrue("File byte count surfaced: $msg", Regex("""\d+ bytes""").containsMatchIn(msg))
+        assertTrue( msg.contains("old_string not found"),"Lead preserved: $msg")
+        assertTrue( Regex("""\d+ lines""").containsMatchIn(msg),"File line count surfaced: $msg")
+        assertTrue( Regex("""\d+ bytes""").containsMatchIn(msg),"File byte count surfaced: $msg")
         assertTrue(
-            "Fuzzy candidates section present: $msg",
             msg.contains("Fuzzy candidates"),
-        )
+            "Fuzzy candidates section present: $msg")
         assertTrue(
-            "Stable token 'findByStatus' named in the candidates section: $msg",
             msg.contains("findByStatus"),
-        )
+            "Stable token 'findByStatus' named in the candidates section: $msg")
         assertTrue(
-            "At least one candidate line number (Lnnn:) printed: $msg",
             Regex("""\bL\d+:""").containsMatchIn(msg),
-        )
+            "At least one candidate line number (Lnnn:) printed: $msg")
     }
 
-    fun testAnchorNotFoundShowsStaleAnchorHintWhenTokenIsAbsent(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun anchorNotFoundShowsStaleAnchorHintWhenTokenIsAbsent(): Unit = timeoutRunBlocking(30.seconds) {
         // Anchor has a 4+ char token but the file does NOT contain any token
         // from it — the diagnostic must say so explicitly, so the agent
         // knows expanding the anchor won't help.
@@ -767,15 +797,15 @@ class ApplyPatchTest : BasePlatformTestCase() {
 
         assertNotNull(err)
         val msg = err!!.message!!
-        assertTrue("Lead preserved: $msg", msg.contains("old_string not found"))
-        assertTrue("File size surfaced: $msg", msg.contains(" bytes"))
+        assertTrue( msg.contains("old_string not found"),"Lead preserved: $msg")
+        assertTrue( msg.contains(" bytes"),"File size surfaced: $msg")
         assertTrue(
-            "Either 'not present in file' or 'no stable token' hint appears: $msg",
             msg.contains("not present in file") || msg.contains("no stable token"),
-        )
+            "Either 'not present in file' or 'no stable token' hint appears: $msg")
     }
 
-    fun testFileNotFoundIncludesBasenameDiagnostic(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun fileNotFoundIncludesBasenameDiagnostic(): Unit = timeoutRunBlocking(30.seconds) {
         // Light test project has no files in scope by this basename, so the
         // diagnostic falls back to the "no candidates by basename" message.
         // Either branch is acceptable for the contract — what matters is the
@@ -794,19 +824,18 @@ class ApplyPatchTest : BasePlatformTestCase() {
 
         assertNotNull(err)
         val msg = err!!.message!!
-        assertTrue("Lead preserved: $msg", msg.contains("file not found"))
+        assertTrue( msg.contains("file not found"),"Lead preserved: $msg")
         assertTrue(
-            "Either nearby-candidates or no-candidates note is present: $msg",
             msg.contains("Nearby candidates by basename") ||
                 msg.contains("no candidates by basename"),
-        )
+            "Either nearby-candidates or no-candidates note is present: $msg")
         assertTrue(
-            "Basename is surfaced for grep: $msg",
             msg.contains("DoesNotExist_Unique_XYZ.java"),
-        )
+            "Basename is surfaced for grep: $msg")
     }
 
-    fun testDryRunMultiFileAllOrNothingOnPartialFailure(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun dryRunMultiFileAllOrNothingOnPartialFailure(): Unit = timeoutRunBlocking(30.seconds) {
         // Multi-file preflight: one valid + one missing-anchor hunk. Dry-run
         // must reject the batch atomically — no per-file partial "would apply"
         // result for the valid hunk.
@@ -817,7 +846,7 @@ class ApplyPatchTest : BasePlatformTestCase() {
 
         val err = try {
             executeApplyPatch(
-                project = project,
+                project = projectFixture.get(),
                 hunks = listOf(
                     ApplyPatchHunk(vfA.toString(), "int value = 1", "int value = 42"), // valid
                     ApplyPatchHunk(vfB.toString(), "NOT_PRESENT_XYZ", "rep"),           // fails
@@ -829,9 +858,9 @@ class ApplyPatchTest : BasePlatformTestCase() {
             e
         }
 
-        assertNotNull("Expected ApplyPatchException on partial-failure dry-run", err)
-        assertTrue("Error names the failing hunk index: ${err!!.message}",
-            err.message!!.contains("Hunk #1"))
+        assertNotNull( err,"Expected ApplyPatchException on partial-failure dry-run")
+        assertTrue(
+            err!!.message!!.contains("Hunk #1"),"Error names the failing hunk index: ${err.message}")
         // Both files must be unmodified — the valid hunk in #0 must NOT
         // partially "apply" even in dry-run audit.
         assertEquals(originalA, vfA.readViaIde())
