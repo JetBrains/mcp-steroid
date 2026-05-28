@@ -27,6 +27,11 @@ rather than mirroring their contents into per-folder guides):
 - [`devrig-scanning-research.md`](devrig-scanning-research.md) —
   decision record for on-demand `rebuildSnapshot()` vs background
   scanners (option A).
+- [`devrig-deployment-spec.md`](devrig-deployment-spec.md) — locked v7
+  design for `~/.mcp-steroid/` install layout: wrapper-driven
+  content-addressed cache, bundled Corretto JDK, two-key signed
+  self-update, auto-GC, agent registration wizard, dev-mode
+  pre-population, and a native-binary alternative appendix.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — top-level architecture
   map.
 - [`TESTING-STRATEGY.md`](TESTING-STRATEGY.md) — test layout +
