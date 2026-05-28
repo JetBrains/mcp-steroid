@@ -2,10 +2,10 @@
 package com.jonnyzzz.mcpSteroid.plugin
 
 import com.jonnyzzz.mcpSteroid.ideDownloader.MANAGED_BACKEND_MIN_SUPPORTED_BUILD
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.io.File
 
 class PluginCompatibilityFloorTest {
@@ -27,8 +27,8 @@ class PluginCompatibilityFloorTest {
         }
 
         assertTrue(
-            "Expected clear sync-drift message, got: ${error.message}",
             error.message!!.contains("must move together"),
+            "Expected clear sync-drift message, got: ${error.message}",
         )
     }
 
@@ -42,8 +42,8 @@ class PluginCompatibilityFloorTest {
         }
 
         assertTrue(
-            "Expected clear sync-drift message, got: ${error.message}",
             error.message!!.contains("must move together"),
+            "Expected clear sync-drift message, got: ${error.message}",
         )
     }
 
@@ -71,11 +71,11 @@ internal fun assertPluginCompatibilityFloor(
     resolverFloor: String,
 ) {
     assertEquals(
+        resolverFloor,
+        sinceBuild,
         "ij-plugin/build.gradle.kts `sinceBuild` and " +
             "intellij-downloader's `MANAGED_BACKEND_MIN_SUPPORTED_BUILD` must move " +
             "together. Updating one without the other risks a managed backend that " +
             "installs the plugin but cannot load it.",
-        resolverFloor,
-        sinceBuild,
     )
 }

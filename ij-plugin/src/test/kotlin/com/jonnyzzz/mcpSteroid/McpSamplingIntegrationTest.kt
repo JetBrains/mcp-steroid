@@ -2,7 +2,7 @@
 package com.jonnyzzz.mcpSteroid
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
 import com.jonnyzzz.mcpSteroid.mcp.*
 import com.jonnyzzz.mcpSteroid.server.SteroidsMcpServer
 import io.ktor.client.HttpClient
@@ -13,6 +13,14 @@ import io.ktor.http.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.*
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -25,24 +33,41 @@ import kotlin.time.Duration.Companion.seconds
  * 3. Tool can request sampling from client
  * 4. Server correctly routes sampling responses
  */
-class McpSamplingIntegrationTest : BasePlatformTestCase() {
+@TestApplication
+class McpSamplingIntegrationTest {
 
     private lateinit var client: HttpClient
+    private val previousProps = mutableMapOf<String, String?>()
 
-    override fun setUp() {
-        setServerPortProperties()
-        super.setUp()
+    @BeforeEach
+    fun setUp() {
+        // Bind MCP server to 0.0.0.0 so Docker containers can reach it via host.docker.internal
+        setProp("mcp.steroid.server.host", "0.0.0.0")
+        // Allow CI/release-builder to override the test port to avoid host port conflicts.
+        val testPort = System.getenv("MCP_STEROID_TEST_PORT")
+            ?.takeIf { it.isNotBlank() }
+            ?: "17820"
+        setProp("mcp.steroid.server.port", testPort)
         client = HttpClient(CIO) {
             expectSuccess = false
         }
     }
 
-    override fun tearDown() {
+    @AfterEach
+    fun tearDown() {
         try {
             client.close()
         } finally {
-            super.tearDown()
+            for ((name, oldValue) in previousProps) {
+                if (oldValue != null) System.setProperty(name, oldValue) else System.clearProperty(name)
+            }
+            previousProps.clear()
         }
+    }
+
+    private fun setProp(name: String, value: String) {
+        previousProps.getOrPut(name) { System.getProperty(name) }
+        System.setProperty(name, value)
     }
 
     // testSamplingProtocolTypes — pure JSON round-trip — moved to
@@ -52,7 +77,8 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
     /**
      * Tests that the server detects client sampling capability during initialization.
      */
-    fun testClientSamplingCapabilityDetection(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun clientSamplingCapabilityDetection(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -81,12 +107,12 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
 
         assertEquals(HttpStatusCode.OK, responseWithSampling.status)
         val sessionIdWithSampling = responseWithSampling.headers[McpHttpTransport.SESSION_HEADER]
-        assertNotNull("Should get session ID", sessionIdWithSampling)
+        assertNotNull(sessionIdWithSampling, "Should get session ID")
 
         // Verify the session detected sampling support
         val sessionWithSampling = server.getServer().sessionManager.getSession(sessionIdWithSampling!!)
-        assertNotNull("Session should exist", sessionWithSampling)
-        assertTrue("Session should support sampling", sessionWithSampling!!.supportsSampling())
+        assertNotNull(sessionWithSampling, "Session should exist")
+        assertTrue(sessionWithSampling!!.supportsSampling(), "Session should support sampling")
 
         // Initialize WITHOUT sampling capability
         val initRequestWithoutSampling = buildJsonObject {
@@ -115,15 +141,16 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         val sessionIdWithoutSampling = responseWithoutSampling.headers[McpHttpTransport.SESSION_HEADER]
 
         val sessionWithoutSampling = server.getServer().sessionManager.getSession(sessionIdWithoutSampling!!)
-        assertNotNull("Session should exist", sessionWithoutSampling)
-        assertFalse("Session should NOT support sampling", sessionWithoutSampling!!.supportsSampling())
+        assertNotNull(sessionWithoutSampling, "Session should exist")
+        assertFalse(sessionWithoutSampling!!.supportsSampling(), "Session should NOT support sampling")
     }
 
     /**
      * Tests that the test sampling tool returns appropriate error when client
      * doesn't support sampling.
      */
-    fun testSamplingToolWithoutClientSupport(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun samplingToolWithoutClientSupport(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -171,7 +198,7 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
 
         assertEquals(HttpStatusCode.OK, toolResponse.status)
         val rpcResponse = McpJson.decodeFromString<JsonRpcResponse>(toolResponse.bodyAsText())
-        assertNull("No JSON-RPC error", rpcResponse.error)
+        assertNull(rpcResponse.error, "No JSON-RPC error")
 
         val toolResult = McpJson.decodeFromJsonElement<ToolCallResult>(rpcResponse.result!!)
         val output = toolResult.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
@@ -181,15 +208,16 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         println("Output: $output")
         println("=== END ===")
 
-        assertTrue("Should be marked as error", toolResult.isError)
-        assertTrue("Should indicate sampling not supported", output.contains("SAMPLING_NOT_SUPPORTED"))
+        assertTrue(toolResult.isError, "Should be marked as error")
+        assertTrue(output.contains("SAMPLING_NOT_SUPPORTED"), "Should indicate sampling not supported")
     }
 
     /**
      * Tests the bidirectional sampling flow using coroutines.
      * This simulates a client that responds to sampling requests.
      */
-    fun testSamplingBidirectionalFlow(): Unit = timeoutRunBlocking(60.seconds) {
+    @Test
+    fun samplingBidirectionalFlow(): Unit = timeoutRunBlocking(60.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
 
@@ -220,7 +248,7 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         val sessionId = initResponse.headers[McpHttpTransport.SESSION_HEADER]!!
         val session = server.getServer().sessionManager.getSession(sessionId)!!
 
-        assertTrue("Session should support sampling", session.supportsSampling())
+        assertTrue(session.supportsSampling(), "Session should support sampling")
 
         // Start a coroutine to listen for outgoing requests and respond
         val samplingResponseJob = launch {
@@ -277,7 +305,7 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
 
         assertEquals(HttpStatusCode.OK, toolResponse.status)
         val rpcResponse = McpJson.decodeFromString<JsonRpcResponse>(toolResponse.bodyAsText())
-        assertNull("No JSON-RPC error: ${rpcResponse.error}", rpcResponse.error)
+        assertNull(rpcResponse.error, "No JSON-RPC error: ${rpcResponse.error}")
 
         val toolResult = McpJson.decodeFromJsonElement<ToolCallResult>(rpcResponse.result!!)
         val output = toolResult.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
@@ -287,22 +315,24 @@ class McpSamplingIntegrationTest : BasePlatformTestCase() {
         println("Output: $output")
         println("=== END ===")
 
-        assertFalse("Should NOT be marked as error", toolResult.isError)
-        assertTrue("Should contain success marker", output.contains("SAMPLING_SUCCESS"))
-        assertTrue("Should contain the mock response", output.contains("The answer is 4."))
+        assertFalse(toolResult.isError, "Should NOT be marked as error")
+        assertTrue(output.contains("SAMPLING_SUCCESS"), "Should contain success marker")
+        assertTrue(output.contains("The answer is 4."), "Should contain the mock response")
     }
 
     /**
      * Tests that the McpMethods constant for sampling is correct.
      */
-    fun testSamplingMethodConstant() {
+    @Test
+    fun samplingMethodConstant() {
         assertEquals("sampling/createMessage", McpMethods.SAMPLING_CREATE_MESSAGE)
     }
 
     /**
      * Tests that image content in sampling messages serializes correctly.
      */
-    fun testSamplingImageContent(): Unit = timeoutRunBlocking(10.seconds) {
+    @Test
+    fun samplingImageContent(): Unit = timeoutRunBlocking(10.seconds) {
         val imageMessage = SamplingMessage(
             role = "user",
             content = SamplingContent.Image(

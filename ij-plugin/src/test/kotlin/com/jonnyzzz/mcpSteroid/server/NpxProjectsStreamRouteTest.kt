@@ -25,12 +25,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.milliseconds
@@ -50,7 +50,7 @@ class NpxProjectsStreamRouteTest {
     private val clientInfos = mutableListOf<NpxStreamClientInfo>()
     private var port: Int = 0
 
-    @Before
+    @BeforeEach
     fun setUp() {
         port = freePort()
         server = embeddedServer(ServerCIO, port = port, host = "127.0.0.1") {
@@ -79,7 +79,7 @@ class NpxProjectsStreamRouteTest {
         }
     }
 
-    @After
+    @AfterEach
     fun tearDown() {
         client.close()
         server.stop(0L, 0L)
@@ -123,8 +123,8 @@ class NpxProjectsStreamRouteTest {
 
         val snapshots = collected.filter { it.type == "snapshot" }
         assertTrue(
-            "expected at least 2 snapshots (initial + update), got: $snapshots",
-            snapshots.size >= 2
+            snapshots.size >= 2,
+            "expected at least 2 snapshots (initial + update), got: $snapshots"
         )
         val final = snapshots.last()
         assertEquals(2, final.projects?.size)

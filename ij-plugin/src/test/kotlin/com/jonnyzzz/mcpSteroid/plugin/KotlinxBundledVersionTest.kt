@@ -4,9 +4,9 @@ package com.jonnyzzz.mcpSteroid.plugin
 import com.jonnyzzz.mcpSteroid.ideDownloader.IdeTarget
 import com.jonnyzzz.mcpSteroid.ideDownloader.McpSteroidIdeTargets
 import com.jonnyzzz.mcpSteroid.ideDownloader.resolveAndUnpackLocally
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Test
 import java.io.File
 import java.util.jar.JarFile
 
@@ -54,24 +54,24 @@ class KotlinxBundledVersionTest {
             val ideRoot = resolveLocally(target)
             val jar = File(ideRoot, "lib/intellij.libraries.kotlinx.coroutines.core.jar")
             assertTrue(
-                "IDE-bundled coroutines jar missing at $jar (target=$target)",
                 jar.isFile,
+                "IDE-bundled coroutines jar missing at $jar (target=$target)",
             )
 
             val ideVersionRaw = readVersionFile(jar, "META-INF/kotlinx_coroutines_core.version")
             assertNotNull(
-                "Expected META-INF/kotlinx_coroutines_core.version in $jar (target=$target)",
                 ideVersionRaw,
+                "Expected META-INF/kotlinx_coroutines_core.version in $jar (target=$target)",
             )
             val ideBase = stripJetBrainsForkSuffix(ideVersionRaw!!)
 
             assertEquals(
+                expected,
+                ideBase,
                 "kotlinx-coroutines-core IDE-bundled base version drifted from project pin " +
                     "for $target. Update the implementation pins in :mcp-core / :mcp-stdio / " +
                     ":mcp-http / :execution-storage / :mcp-steroid-server (and re-run " +
                     ":ij-plugin:test).",
-                expected,
-                ideBase,
             )
         }
     }
@@ -83,25 +83,25 @@ class KotlinxBundledVersionTest {
             val ideRoot = resolveLocally(target)
             val jar = File(ideRoot, "lib/intellij.libraries.kotlinx.serialization.core.jar")
             assertTrue(
-                "IDE-bundled serialization-core jar missing at $jar (target=$target)",
                 jar.isFile,
+                "IDE-bundled serialization-core jar missing at $jar (target=$target)",
             )
 
             val implVersion = JarFile(jar).use { jf ->
                 jf.manifest?.mainAttributes?.getValue("Implementation-Version")
             }
             assertNotNull(
-                "Expected Implementation-Version in MANIFEST.MF of $jar (target=$target)",
                 implVersion,
+                "Expected Implementation-Version in MANIFEST.MF of $jar (target=$target)",
             )
 
             assertEquals(
+                expected,
+                implVersion,
                 "kotlinx-serialization-core IDE-bundled version drifted from project pin " +
                     "for $target. Update the implementation pins in :mcp-core / :mcp-stdio / " +
                     ":mcp-http / :execution-storage / :mcp-steroid-server / :ocr-common (and " +
                     "re-run :ij-plugin:test).",
-                expected,
-                implVersion,
             )
         }
     }
@@ -139,8 +139,8 @@ class KotlinxBundledVersionTest {
 
     companion object {
         /** JUnit-friendly assertTrue with descriptive message. */
-        private fun assertTrue(message: String, condition: Boolean) {
-            org.junit.Assert.assertTrue(message, condition)
+        private fun assertTrue(condition: Boolean, message: String) {
+            org.junit.jupiter.api.Assertions.assertTrue(condition, message)
         }
     }
 }

@@ -2,29 +2,33 @@
 package com.jonnyzzz.mcpSteroid.ocr
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
-class OcrProcessClientTest : BasePlatformTestCase() {
+@TestApplication
+class OcrProcessClientTest {
 
-    override fun runInDispatchThread(): Boolean = false
-
-    fun testExtractsHelloOcrText(): Unit = timeoutRunBlocking(90.seconds) {
+    @Test
+    fun extractsHelloOcrText(): Unit = timeoutRunBlocking(90.seconds) {
         val image = loadImage("hello-ocr.png")
         val result = OcrProcessClient.getInstance().extractText(image)
         assertContainsTokens(result, "HELLO", "OCR")
     }
 
-    fun testExtractsMultiLineText(): Unit = timeoutRunBlocking(90.seconds) {
+    @Test
+    fun extractsMultiLineText(): Unit = timeoutRunBlocking(90.seconds) {
         val image = loadImage("multi-line.png")
         val result = OcrProcessClient.getInstance().extractText(image)
         assertContainsTokens(result, "FIRST", "LINE", "SECOND")
     }
 
-    fun testExtractsNumbers(): Unit = timeoutRunBlocking(90.seconds) {
+    @Test
+    fun extractsNumbers(): Unit = timeoutRunBlocking(90.seconds) {
         val image = loadImage("numbers.png")
         val result = OcrProcessClient.getInstance().extractText(image)
         assertContainsTokens(result, "12345", "TEST")
@@ -38,7 +42,7 @@ class OcrProcessClientTest : BasePlatformTestCase() {
         val text = result.blocks.joinToString(" ") { it.text }
         val normalized = normalize(text)
         for (token in tokens) {
-            assertTrue("Expected OCR output to contain '$token' in: $normalized", normalized.contains(token))
+            assertTrue(normalized.contains(token), "Expected OCR output to contain '$token' in: $normalized")
         }
     }
 

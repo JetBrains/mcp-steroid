@@ -2,10 +2,14 @@
 package com.jonnyzzz.mcpSteroid.koltinc
 
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
-class KotlincRegistryDefaultsTest : BasePlatformTestCase() {
-    fun testDefaultKotlincParametersTargetKotlin22() {
+@TestApplication
+class KotlincRegistryDefaultsTest {
+    @Test
+    fun defaultKotlincParametersTargetKotlin22() {
         assertEquals(
             "-language-version 2.2 -api-version 2.2",
             Registry.stringValue("mcp.steroid.kotlinc.parameters")

@@ -1,8 +1,10 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid
 
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
@@ -76,7 +78,8 @@ import java.util.stream.Collectors
  * fast on PyCharm), add it to [ALLOWED_FILES] below with a comment
  * explaining the gate.
  */
-class NoForbiddenPluginImportsTest : BasePlatformTestCase() {
+@TestApplication
+class NoForbiddenPluginImportsTest {
 
     companion object {
         /**
@@ -122,7 +125,8 @@ class NoForbiddenPluginImportsTest : BasePlatformTestCase() {
         )
     }
 
-    fun testNoForbiddenPluginImportsInProductionKotlin() {
+    @Test
+    fun noForbiddenPluginImportsInProductionKotlin() {
         val projectHome = ProjectHomeDirectory.requireProjectHomeDirectory()
         val sourceRoots = PRODUCTION_SOURCE_ROOTS.map(projectHome::resolve)
 
@@ -159,11 +163,11 @@ class NoForbiddenPluginImportsTest : BasePlatformTestCase() {
         }
 
         assertTrue(
+            violations.isEmpty(),
             "Forbidden plugin-typed imports found in production Kotlin code. " +
                 "These pull in Java-plugin or Kotlin-plugin types that PyCharm " +
                 "does not load, causing NoClassDefFoundError on plugin startup. " +
-                "See class-level KDoc for fix patterns.\n${violations.joinToString("\n")}",
-            violations.isEmpty()
+                "See class-level KDoc for fix patterns.\n${violations.joinToString("\n")}"
         )
     }
 

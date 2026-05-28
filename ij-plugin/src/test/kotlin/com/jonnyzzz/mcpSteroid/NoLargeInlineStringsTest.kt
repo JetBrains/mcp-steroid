@@ -1,8 +1,10 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid
 
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.stream.Collectors
@@ -17,9 +19,11 @@ import java.util.stream.Collectors
  * Both patterns indicate that documentation/content should be moved to resource files
  * (ij-plugin/src/main/prompts/ -> codegen -> MCP resource URIs).
  */
-class NoLargeInlineStringsTest : BasePlatformTestCase() {
+@TestApplication
+class NoLargeInlineStringsTest {
 
-    fun testNoLargeTripleQuotedStrings() {
+    @Test
+    fun noLargeTripleQuotedStrings() {
         val projectHome = ProjectHomeDirectory.requireProjectHomeDirectory()
         val sourceRoot = projectHome.resolve("ij-plugin/src/main/kotlin")
         val selfPath = projectHome
@@ -33,14 +37,15 @@ class NoLargeInlineStringsTest : BasePlatformTestCase() {
         }
 
         assertTrue(
+            violations.isEmpty(),
             "Triple-quoted strings spanning > 20 lines found in production code.\n" +
                 "Move content to src/main/prompts/ resource files instead.\n" +
-                violations.joinToString("\n"),
-            violations.isEmpty()
+                violations.joinToString("\n")
         )
     }
 
-    fun testNoLargeAppendLineSequences() {
+    @Test
+    fun noLargeAppendLineSequences() {
         val projectHome = ProjectHomeDirectory.requireProjectHomeDirectory()
         val sourceRoot = projectHome.resolve("ij-plugin/src/main/kotlin")
         val selfPath = projectHome
@@ -54,10 +59,10 @@ class NoLargeInlineStringsTest : BasePlatformTestCase() {
         }
 
         assertTrue(
+            violations.isEmpty(),
             "Sequences of >= 15 consecutive appendLine() calls found in production code.\n" +
                 "Move content to src/main/prompts/ resource files instead.\n" +
-                violations.joinToString("\n"),
-            violations.isEmpty()
+                violations.joinToString("\n")
         )
     }
 

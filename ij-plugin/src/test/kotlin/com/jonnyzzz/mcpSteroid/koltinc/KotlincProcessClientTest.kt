@@ -2,16 +2,18 @@
 package com.jonnyzzz.mcpSteroid.koltinc
 
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.seconds
 
-class KotlincProcessClientTest : BasePlatformTestCase() {
+@TestApplication
+class KotlincProcessClientTest {
 
-    override fun runInDispatchThread(): Boolean = false
-
-    fun testKotlincVersion(): Unit = timeoutRunBlocking(30.seconds) {
+    @Test
+    fun kotlincVersion(): Unit = timeoutRunBlocking(30.seconds) {
         val output = kotlincProcessClient.kotlinc(listOf("-version"))
         val text = (output.stdout + "\n" + output.stderr).trim()
-        assertTrue("Expected kotlinc version output, got: $text", text.contains("kotlin", ignoreCase = true))
+        assertTrue(text.contains("kotlin", ignoreCase = true), "Expected kotlinc version output, got: $text")
     }
 }
