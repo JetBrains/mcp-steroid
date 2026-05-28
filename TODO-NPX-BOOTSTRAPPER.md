@@ -1,5 +1,72 @@
 # TODO — npx bootstrapper, per-user lazy-fetch architecture
 
+## 2026-05-28 — Design phase complete; spec at v7 (commit b403efb7)
+
+**Authoritative design:**
+[`docs/devrig-deployment-spec.md`](docs/devrig-deployment-spec.md). The spec
+was iterated through seven rounds, including a three-agent (claude/codex/
+gemini) quorum review via `run-agent.sh` and an MCP-spec-grounded
+verdict on mid-session restart. v7 is locked. The older roadmap below
+predates the spec and is preserved for context only — when there's a
+conflict, the spec wins.
+
+**Key design decisions locked in v7** (everything below this line is now
+a spec section, not a TODO):
+
+- Wrapper at `~/.mcp-steroid/bin/devrig` (POSIX shell) +
+  `~/.mcp-steroid/bin/devrig.ps1` (PowerShell). No `.bat` shim — the
+  agent config on Windows records `powershell.exe -File devrig.ps1`
+  directly.
+- Manifest is `~/.mcp-steroid/version.properties` — Java Properties
+  format (flat `binaries.<os>-<cpu>.devrig.url=…` keys). Picked over
+  JSON/YAML/TOML so POSIX `awk`, PowerShell, and Java's built-in
+  `Properties` class all parse it with zero deps.
+- Content-addressed cache under `~/.mcp-steroid/binaries/devrig-<os>-<cpu>-<sha>/`
+  and `…/jdk-<os>-<cpu>-<sha>/`. Archives deleted after unpack; wrapper
+  never re-verifies on launch.
+- Bundled Amazon Corretto 25 **JDK** (not JRE — `steroid_execute_code`
+  may want `jcmd`/`jstack`). `DEVRIG_JDK_HOME` env opts out for offline
+  installs.
+- Two ed25519 SSH signatures on `version.properties.signatures`, both
+  required, verified ONLY by the inner Java binary during `devrig upgrade`.
+  Wrappers never touch sigs.
+- **No mid-session restart.** Per MCP spec §lifecycle + observed behavior
+  of all three agent CLIs (Claude / Codex / Gemini all mark stdio
+  registrations as `failed` on process exit, by design), a stdio session
+  ≡ the inner devrig process lifetime. New versions take effect on the
+  user's next agent CLI restart. The wrapper does NOT loop on exit code.
+- **Automatic cache GC** at every `mpc` startup keeps current + 1
+  previous per artifact; per-version `FileChannel` lock prevents deleting
+  in-use dirs. **No user-facing prune subcommand.**
+- Wrappers self-update via `bin/devrig.new` + rename-on-next-launch (the
+  only file op that succeeds against an in-use script on Windows).
+- All wrapper output to **stderr only** — stdout is reserved for the
+  JVM's MCP protocol traffic after `exec`.
+- Agent registration wizard lives in the inner Java binary (probe PATH
+  + `<agent> --version` with timeout, prompt to register/re-register).
+- `./gradlew deployNpx` pre-populates the cache so dev mode never hits
+  the network; signature verification deliberately disabled in dev.
+- **Native binary alternative** (Go / Rust / GraalVM native-image of
+  npx-kt / jpackage) evaluated in an appendix. Recommendation: ship
+  shell scripts in Phase 1; defer GraalVM native-image of npx-kt to a
+  future Phase 4 if shell-script reliability proves insufficient. Key
+  finding: `curl` does NOT set `com.apple.quarantine` xattr on macOS,
+  so a curl-installed native binary would not need notarization.
+
+**Implementation phasing** (from the spec):
+
+| Phase | Scope | LOC |
+|---|---|---|
+| **1** (unblocks dev) | Wrappers (POSIX + PS), `deployNpx` rewrite with cache pre-population, Properties manifest schema + parser, JDK download + `DEVRIG_JDK_HOME` opt-out, multi-process locking, `install` bootstrap mode, agent wizard, auto-GC coroutine, `InstallCommand.kt` config-shape change, all-stderr discipline, full test suites | ~850 |
+| **2** (before public release) | Key generation playbook, two-key `releaseDevrig`, `devrig upgrade` Java subcommand, GH Pages publish, weekly URL-liveness GH Action, sig-verify test suite | ~400 |
+| **3** (nice) | Standalone `install.sh` / `install.ps1` shims, key-rotation docs | ~80 |
+
+**Status: design done, implementation pending user go-ahead.**
+
+---
+
+## Older roadmap (predates the v7 spec; kept for context)
+
 ## Current status after devrig rename (2026-05-19)
 
 > **Contract reference.** The devrig CLI's project/backend naming,

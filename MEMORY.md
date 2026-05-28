@@ -327,3 +327,127 @@
 - Raw metrics: 1,370,218 total tokens, 26 total calls, 4 MCP calls, 22 native calls, 3 `steroid_execute_code`, 1 `steroid_apply_patch`, 12 Read, 4 Glob, 3 Write, 2 Bash, 0 tool errors, and 0 resource fetches.
 - Delta versus the post-JDK24/final-tasks baseline (`run-20260427-161050-dpaia__spring__boot__microshop-2-mcp`): tokens 1,773,570 -> 1,370,218, calls 36 -> 26, native calls 33 -> 22, Bash 5 -> 2, Read 17 -> 12, Glob 7 -> 4, errors stayed 0.
 - Measurement review artifacts: `/tmp/mcp-steroid-review/gradle-ide-guidance-measurement-20260427/runs/`. Claude, Codex, and Gemini approved the patch and converged on the next low-hanging improvement: batch source discovery and related file reads in one IDE/VFS `steroid_execute_code` pass before falling back to native `Glob`/`Read`.
+
+## 2026-05-28 — Session findings (Windows TC + deployNpx + devrig deployment spec)
+
+### Windows TC IjPluginTest regression (commits 0b7bbe78 + spec v7)
+
+- Root cause of the `unpackIdeArchive(idea-2026.1.exe): sevenZipBinary is required`
+  failure: IPGP resolves `local(provider)` at **Gradle CONFIG PHASE**, calling
+  `LocalIdeProvisioner.resolveAndUnpackLocally` → `unpackIdeArchive(.exe)` →
+  `SevenZipLocator.locate()`. The daemon JVM loads `SevenZipLocator` via
+  **buildSrc's classloader** (since `intellij-downloader/src/buildsrc-shared/kotlin`
+  is added as a srcDir to buildSrc); buildSrc has no `7z/win-x64/*` resources,
+  so the classpath fallback returns null at config phase.
+- The previous JAR-classpath fallback (commit 5d976b19) was inoperative for
+  this reason — the JAR is on the test-worker JVM classpath, not the daemon's.
+- The earlier Provider-chain attempt (850f6021) failed because
+  `:intellij-downloader:extractSevenZipResources` hadn't executed when IPGP
+  resolved the provider at config phase.
+- **Fix (0b7bbe78):** `gradle/seven-zip-bootstrap.settings.gradle.kts`
+  pre-materializes the bundled 7-Zip Windows binaries under
+  `<gradle.user.home>/caches/mcp-steroid/7z-bundle-v1/win-x64/` *before any
+  project is configured*. `settings.gradle.kts` applies it on
+  `os.name.contains("win")` only; Mac/Linux config phase doesn't need 7z. The
+  bootstrap sets sys-prop `mcp.intellij-downloader.sevenZipBundleDir`;
+  `SevenZipLocator.locate()` reads that first, then falls back to the
+  classpath path for test-worker JVMs.
+- TC Windows IjPluginTest #960017067 went green after the fix (791 tests
+  passed). Pattern is reusable: **anything that needs to be on the gradle
+  daemon's classpath at config phase must be materialized in `settings.gradle.kts`,
+  not in `buildSrc` (chicken-and-egg) and not at task-execution time (too late).**
+
+### Kotlin KDoc nested comment gotcha (caught during 0b7bbe78)
+
+- Kotlin doc comments support **nested `/* */`**. A literal `/*` inside a
+  KDoc body starts an inner comment; the next `*/` closes the INNER, leaving
+  the outer `/**` unterminated.
+- Symptom: cryptic `Syntax error: Unclosed comment` at the end of the file
+  plus a cascade of "Unresolved reference" errors. The actual offending
+  position is the first `/*` *inside* a doc comment body, often introduced
+  innocently (e.g., a path like `7z/win-x64/*`).
+- Workaround: rewrite as `//` line comments or quote the offending substring
+  to avoid the `/*` sequence.
+
+### Agent CLI behavior on MCP stdio process exit (drove devrig spec v2+)
+
+- MCP spec is explicit: stdio shutdown is **one-way only** (client closes
+  stdin → server exits). The spec defines NO reconnection path for stdio;
+  resumability exists only for Streamable HTTP. Per §lifecycle, `initialize`
+  MUST be the first interaction in every session.
+- **Empirical posture of all three target agent CLIs (verified via GH issue
+  trackers):**
+  - **Claude Code**: stdio server exit → marks `type:"failed"`; **never**
+    auto-reconnects (issues #43177, #33468, #36308, #57207). HTTP/SSE gets 5
+    reconnect attempts; stdio gets zero, by design.
+  - **Codex CLI**: "MCP server connections do not auto-recover after a
+    disconnect" (issue #11489). Manual reconnect or full process restart.
+  - **Gemini CLI**: same — restart the CLI to recover (#23776, #25992, #2363).
+- **Implication for any future MCP integration:** mid-session restart of an
+  MCP stdio server is **impossible without becoming a full proxy** that
+  replays the `initialize` handshake. The wrapper-loop pattern (exit code
+  239 + re-spawn) does not work because the new child has no session state.
+  Devrig spec v2 dropped this approach; v7 stays dropped.
+
+### Claude CLI `--scope user` requirement (fixed in 6c427d86)
+
+- The Claude CLI's `mcp add` defaults to **`--scope local`** (= current
+  project), which writes to
+  `claude.json.projects.<cwd>.mcpServers.<name>` instead of the top-level
+  user-scope `mcpServers`. Without `--scope user`, the registration is
+  invisible from any project other than the one where `mcp add` ran.
+- Caught during `devrig install claude` test: ai-agents'
+  `claudeMcpAddStdioArgs` (and `claudeMcpAddArgs` for HTTP) was missing
+  `--scope user`. Fixed in commit 6c427d86; install tests updated to match.
+- **General rule for new agent-registration code:** Claude's `mcp add`
+  always needs `--scope user` (for user-wide / all-projects registration).
+  Codex's `mcp add` and Gemini's `mcp add` default to global/user-wide
+  already, so they don't need the flag.
+
+### macOS curl quarantine bypass (for future native-binary work)
+
+- `curl ... -o <file>` does **not** set the `com.apple.quarantine` xattr on
+  the downloaded file (HackTricks Gatekeeper docs). Gatekeeper only inspects
+  files carrying that attribute.
+- Therefore a binary fetched via `curl ... | sh` or `curl -o <bin>` on macOS
+  is **not** subject to Gatekeeper notarization. The user never sees a
+  Gatekeeper dialog; no `xattr -dr` step required.
+- This dissolves the largest deployment objection to native binaries for the
+  `curl | sh` install channel. (Documented in devrig-deployment-spec.md's
+  appendix; relevant if/when we migrate to a GraalVM native-image launcher.)
+
+### deployNpx task (6c427d86)
+
+- New root `deployNpx` Gradle task: builds `:npx-kt:installDist` and `Sync`s
+  to `~/.mcp-steroid/devrig/`. Pure deployment — registration is delegated
+  to npx-kt's existing `devrig install <agent>` CLI (which uses each agent's
+  own `mcp add` subcommand). The original instinct to re-implement
+  registration in Gradle was wrong; the user's correction: "we already have
+  the register feature in npx-kt … use the CLI of all these agents to manage
+  that, no need to re-implement that via Gradle."
+- Touches only `~/.mcp-steroid/devrig/`, never the parent
+  `~/.mcp-steroid/` (which holds runtime state — `backends/`, `caches/`,
+  `logs/`, `markers/`, `state/`, `eid_*` sessions). General rule: any task
+  that deploys binaries into `~/.mcp-steroid/` must scope its deletes to the
+  subdir it owns.
+
+### devrig deployment spec v7 (committed b403efb7)
+
+- Lives at [`docs/devrig-deployment-spec.md`](docs/devrig-deployment-spec.md).
+  Seven design iterations, including a three-agent `run-agent.sh` quorum
+  review. Spec section in TODO-NPX-BOOTSTRAPPER.md summarizes the locked
+  decisions.
+- **Format choice for the manifest: Java Properties.** Picked over
+  JSON/YAML/TOML because the wrapper script needs zero parser deps —
+  `awk '/^binaries.linux-x86_64.devrig.url=/ {…}'` works; PowerShell uses
+  `Get-Content … | Where-Object`; Java uses `java.util.Properties`. Nesting
+  is encoded via dot-separated keys.
+- **No prune subcommand** — automatic GC on every `mpc` startup, keeping
+  current + 1 previous per artifact, per-version `FileChannel` lock
+  protects in-use dirs.
+- **All scripts use stderr only** (hard MCP-stdio constraint — stdout is
+  reserved for JSON-RPC traffic after `exec`).
+- Implementation phasing: Phase 1 (~850 LOC, wrappers + deployNpx rewrite +
+  manifest + JDK download + wizard + auto-GC + tests) → Phase 2 (~400, key
+  generation + signing workflow + `devrig upgrade` + URL-liveness GH
+  Action) → Phase 3 (~80, optional curl shims).

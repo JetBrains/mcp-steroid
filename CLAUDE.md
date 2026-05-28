@@ -110,6 +110,31 @@ When changing files across multiple sub-folders, read the guides for each.
 - **`./gradlew test` at the repo root.** It fans out to every module and can take hours. Always scope:
   `./gradlew :ij-plugin:test`, `./gradlew :kotlin-cli:test`, `./gradlew :prompts:test --tests '<pattern>'`.
   See per-module guidance in `ij-plugin/CLAUDE.md`.
+- **Literal `/*` inside KDoc bodies.** Kotlin doc comments support nested
+  `/* */`, so a string like ``"`7z/win-x64/*`"`` in a `/** */` block starts an
+  inner comment; the next `*/` closes the INNER, leaving the outer open. The
+  compiler reports `Unclosed comment` at the end of the file plus a cascade
+  of unresolved-reference errors. Rewrite as `//` line comments or quote the
+  substring to avoid the `/*` sequence.
+- **MCP stdio scripts writing to stdout.** Any shell/PowerShell wrapper
+  invoked by an agent CLI as a stdio MCP server (`devrig mpc`, etc.) must
+  emit **only stderr** before `exec`-ing the inner binary. Stdout is the
+  JSON-RPC channel — a single stray byte corrupts the protocol. Use `>&2`
+  (POSIX) or `Write-Error` / `[Console]::Error.WriteLine` (PowerShell).
+- **`claude mcp add` without `--scope user`.** The Claude CLI defaults to
+  `--scope local`, which writes to `claude.json.projects.<cwd>.mcpServers`
+  instead of the top-level user-scope `mcpServers`. Registration is then
+  invisible from any other project. All user-wide Claude `mcp add` calls
+  must pass `--scope user`. Codex and Gemini default to global/user-wide and
+  do not need the flag.
+- **Materializing files for Gradle's daemon classpath at CONFIG phase.**
+  Anything that needs to be on the gradle daemon's classloader during config
+  phase (e.g., resources read by `:ij-plugin`'s IPGP `local(provider)` at
+  task-graph time) must be pre-staged in `settings.gradle.kts` — `buildSrc`
+  is chicken-and-egg (its tasks don't run until after settings + buildSrc
+  itself), and main-project task outputs are too late. See
+  `gradle/seven-zip-bootstrap.settings.gradle.kts` for the canonical
+  example (commit 0b7bbe78).
 
 ## Test execution discipline
 
