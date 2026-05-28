@@ -41,7 +41,8 @@ class InstallCommandTest {
         assertEquals(0, result.exitCode)
         assertEquals("claude", result.invocation.binary)
         assertEquals(
-            listOf("mcp", "add", "mcp-steroid", "--", "/usr/bin/env", "JAVA_HOME=/opt/jdk-21", "/opt/devrig/bin/devrig", "mpc"),
+            listOf("mcp", "add", "--scope", "user", "mcp-steroid", "--",
+                "/usr/bin/env", "JAVA_HOME=/opt/jdk-21", "/opt/devrig/bin/devrig", "mpc"),
             result.invocation.args,
         )
         assertTrue(result.stdout.contains("Installed devrig MCP for Claude as mcp-steroid."), result.stdout)

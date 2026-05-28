@@ -373,3 +373,15 @@ gradle.projectsEvaluated {
         taskForPath(later).configure { mustRunAfter(earlierTask) }
     }
 }
+
+// Build :npx-kt:installDist and sync it to ~/.mcp-steroid/devrig/, leaving the
+// rest of ~/.mcp-steroid/ (runtime state — backends, caches, logs, markers,
+// eid_* sessions) untouched. Agent registration (claude/codex/gemini) is a
+// one-time setup handled by the devrig launcher's own CLI, not by this task.
+val deployNpx by tasks.registering(Sync::class) {
+    description = "Build :npx-kt:installDist and sync it into ~/.mcp-steroid/devrig/."
+    group = "deployment"
+    dependsOn(":npx-kt:installDist")
+    from(project(":npx-kt").layout.buildDirectory.dir("install/devrig"))
+    into(File(System.getProperty("user.home"), ".mcp-steroid/devrig"))
+}

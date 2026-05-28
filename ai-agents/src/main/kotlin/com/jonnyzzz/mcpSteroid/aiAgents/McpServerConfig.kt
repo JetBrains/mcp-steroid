@@ -77,7 +77,7 @@ fun codexMcpAddArgs(serverUrl: String, serverName: String = DEFAULT_SERVER_NAME)
     listOf("mcp", "add", serverName, "--url", serverUrl)
 
 fun claudeMcpAddArgs(serverUrl: String, serverName: String = DEFAULT_SERVER_NAME): List<String> =
-    listOf("mcp", "add", "--transport", "http", serverName, serverUrl)
+    listOf("mcp", "add", "--transport", "http", "--scope", "user", serverName, serverUrl)
 
 fun geminiMcpAddStdioArgs(command: StdioMcpCommand, serverName: String = DEFAULT_SERVER_NAME): List<String> =
     listOf("mcp", "add", "--type", "stdio", "--scope", "user", "--trust", serverName, command.command) + command.args
@@ -86,7 +86,7 @@ fun codexMcpAddStdioArgs(command: StdioMcpCommand, serverName: String = DEFAULT_
     listOf("mcp", "add", serverName, "--", command.command) + command.args
 
 fun claudeMcpAddStdioArgs(command: StdioMcpCommand, serverName: String = DEFAULT_SERVER_NAME): List<String> =
-    listOf("mcp", "add", serverName, "--", command.command) + command.args
+    listOf("mcp", "add", "--scope", "user", serverName, "--", command.command) + command.args
 
 private fun renderCommand(binary: String, args: List<String>): String =
     (listOf(binary) + args).joinToString(" ")
