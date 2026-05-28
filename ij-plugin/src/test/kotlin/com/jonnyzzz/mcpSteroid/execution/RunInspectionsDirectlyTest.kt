@@ -7,12 +7,17 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.fixture.moduleFixture
+import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
-import com.jonnyzzz.mcpSteroid.setSystemPropertyForTest
 import com.jonnyzzz.mcpSteroid.testExecParams
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import java.nio.file.Paths
 import kotlin.time.Duration.Companion.seconds
 
@@ -22,15 +27,16 @@ import kotlin.time.Duration.Companion.seconds
  * This tests the workaround for GitHub issue #20 where the daemon code analyzer
  * returns stale results when the IDE window is not focused.
  */
-class RunInspectionsDirectlyTest : BasePlatformTestCase() {
+@TestApplication
+class RunInspectionsDirectlyTest {
+
+    private val projectFixture = projectFixture()
+    private val moduleFixture = projectFixture.moduleFixture()
 
     private lateinit var testFilePath: String
 
-    override fun runInDispatchThread(): Boolean = false
-
-    override fun setUp() {
-        super.setUp()
-
+    @BeforeEach
+    fun setUp() {
         // Create a Kotlin file with known issues:
         // - Unused variable (warning)
         // - Unnecessary safe call (warning)
@@ -47,6 +53,8 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
             }
         """.trimIndent()
 
+        val project = projectFixture.get()
+        val module = moduleFixture.get()
         val basePath = project.basePath ?: error("Project base path is not available")
         val srcVf = WriteAction.computeAndWait<VirtualFile, RuntimeException> {
             VfsUtil.createDirectories(Paths.get(basePath, "src").toString())
@@ -68,8 +76,9 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         return result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
     }
 
-    fun testRunInspectionsDirectlyFindsProblems(): Unit = timeoutRunBlocking(60.seconds) {
-        val manager = project.service<ExecutionManager>()
+    @Test
+    fun runInspectionsDirectlyFindsProblems(): Unit = timeoutRunBlocking(60.seconds) {
+        val manager = projectFixture.get().service<ExecutionManager>()
 
         val code = $$"""
             val file = findFile("$$testFilePath") ?: error("File not found")
@@ -97,18 +106,19 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         println("Test output:\n$text")
 
         // Should execute without error
-        assertFalse("Should execute without error. Output:\n$text", result.isError)
+        assertFalse(result.isError, "Should execute without error. Output:\n$text")
 
         // Should find at least some problems (unused variable is a common inspection)
         // Note: The exact inspections available depend on the IDE configuration
         assertTrue(
+            text.contains("problems") || text.contains("No problems found"),
             "Should find problems or report none found. Output:\n$text",
-            text.contains("problems") || text.contains("No problems found")
         )
     }
 
-    fun testRunInspectionsDirectlyWithIncludeInfo(): Unit = timeoutRunBlocking(60.seconds) {
-        val manager = project.service<ExecutionManager>()
+    @Test
+    fun runInspectionsDirectlyWithIncludeInfo(): Unit = timeoutRunBlocking(60.seconds) {
+        val manager = projectFixture.get().service<ExecutionManager>()
 
         val code = $$"""
             val file = findFile("$$testFilePath") ?: error("File not found")
@@ -131,11 +141,12 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         println("Test output:\n$text")
 
         // Should execute without error
-        assertFalse("Should execute without error. Output:\n$text", result.isError)
+        assertFalse(result.isError, "Should execute without error. Output:\n$text")
     }
 
-    fun testRunInspectionsDirectlyOnNonExistentFile(): Unit = timeoutRunBlocking(60.seconds) {
-        val manager = project.service<ExecutionManager>()
+    @Test
+    fun runInspectionsDirectlyOnNonExistentFile(): Unit = timeoutRunBlocking(60.seconds) {
+        val manager = projectFixture.get().service<ExecutionManager>()
 
         val code = $$"""
             val file = findFile("/non/existent/file.kt")
@@ -156,12 +167,13 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         println("Test output:\n$text")
 
         // Should handle gracefully
-        assertFalse("Should execute without error. Output:\n$text", result.isError)
-        assertTrue("Should report file not found", text.contains("File not found"))
+        assertFalse(result.isError, "Should execute without error. Output:\n$text")
+        assertTrue(text.contains("File not found"), "Should report file not found")
     }
 
-    fun testRunInspectionsDirectlyReturnsMapStructure(): Unit = timeoutRunBlocking(60.seconds) {
-        val manager = project.service<ExecutionManager>()
+    @Test
+    fun runInspectionsDirectlyReturnsMapStructure(): Unit = timeoutRunBlocking(60.seconds) {
+        val manager = projectFixture.get().service<ExecutionManager>()
 
         val code = $$"""
             val file = findFile("$$testFilePath") ?: error("File not found")
@@ -184,7 +196,7 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         println("Test output:\n$text")
 
         // Should execute without error
-        assertFalse("Should execute without error. Output:\n$text", result.isError)
-        assertTrue("Should report map structure", text.contains("Result type: Map"))
+        assertFalse(result.isError, "Should execute without error. Output:\n$text")
+        assertTrue(text.contains("Result type: Map"), "Should report map structure")
     }
 }
