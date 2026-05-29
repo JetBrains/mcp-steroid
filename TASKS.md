@@ -1,4 +1,305 @@
 
+# Active focus — 0.96 release quality check: devrig + ij-plugin (2026-05-29)
+
+Scope: keep the 0.96 version; quality-check **devrig** (`:npx-kt`) and
+**ij-plugin** as the release scope; verify local deployment and the
+**agent download→start→`open_project`** flow on macOS *and* the
+`eugene-x220` Windows host. Discovered problems below (P = problem).
+Verified-good items are noted so the next iteration knows what already works.
+
+## Verified working (this session)
+
+- **Compile + unit tests green locally** (macOS, JDK 25 daemon):
+  `:npx-kt:compileKotlin/compileTestKotlin/compileIntegrationTestKotlin`,
+  `:npx-kt:test`, `:ij-plugin:compileKotlin/compileTestKotlin` all BUILD
+  SUCCESSFUL. **`:ij-plugin:test` full suite green: 247 tests, 0 failed,
+  1 skipped (3m51s).**
+- **Windows (eugene-x220) FULL agent flow OK once JDK 25 is present** — the
+  only Windows blocker is P3 (the missing JDK), there is no deeper Windows
+  incompatibility:
+  - `devrig backend download idea-community` → downloaded + 7z-unpacked
+    IDEA CE 2026.1.2 in ~230s (`.mcp-steroid-unpack-complete` written); the
+    known Windows 7z concerns (#78/#79) did not block this IDE.
+  - `devrig backend start idea-community` → launched detached; after ~50s
+    `devrig backend` discovered it as a managed backend with **MCP Steroid
+    0.96.19999-SNAPSHOT-930b6fc7 loaded and responding** — even over a
+    headless SSH session.
+  - **`steroid_open_project` verified end-to-end over `devrig mpc`**: the call
+    returned `isError:false` ("Project opening initiated") and `devrig backend`
+    then showed the project **open** in the managed IDE:
+    `devrig-openproj-test → C:/Users/jonnyzzz/devrig-openproj-test`. So the
+    full agent flow download→start→discover→open_project works on Windows once
+    JDK 25 is present. `devrig backend stop` also gracefully stops it.
+  - The P1 downgrade-nag reproduces on Windows too (stderr + MCP notice).
+  - Minor: `steroid_open_project` requires `task_id`/`reason` like
+    `execute_code` (agents always send them); a hand-crafted call without
+    them returns "Parameter task_id of type string is required".
+- **Local deploy works**: `./gradlew deployNpx` synced a fresh
+  `0.96.19999-SNAPSHOT-930b6fc7` (= HEAD) into `~/.mcp-steroid/devrig/`.
+  Plugin `0.96.19999-SNAPSHOT-0a003785` is already live in the running
+  IDEA 2026.1.2 (pid 42649) — R5 smoke now unblocked.
+- **macOS agent flow end-to-end OK**: `devrig backend start idea-community`
+  launched the managed IDEA CE 2026.1.2 (pid 63943) detached; it is
+  discovered with the MCP Steroid plugin loaded. `devrig mpc` over stdio:
+  `initialize` ok, `tools/list` = 8 tools incl. `steroid_open_project`,
+  `steroid_list_projects` routes through the bridge to real backends.
+  `open_project` routing (`openProjectTargetIde`) prefers the managed
+  backend — verified via code + the live bridge.
+
+## P1 — Update checker downgrade-nag (NOT a blocker — accepted, resolves at release)
+
+> User decision (2026-05-29): **not a problem; it resolves once the release is
+> out** — when the website `version.json` advertises 0.96, the prefix check
+> `"0.96…".startsWith("0.96…")` is true and the nag stops. Kept here only as a
+> note; no fix required for the release. (The prefix-vs-semver fragility could
+> still be hardened later with `compareBackendVersions`, but that is optional.)
+
+`DevrigUpdateChecker.checkForUpdates` compares versions with
+`currentVersion.startsWith(remoteVersion.versionBase)` — a **string-prefix
+test, not a semver comparison**. Remote `version.json` still serves
+`{"version-base":"0.95.0"}`, current build is `0.96.19999-SNAPSHOT-…`, so
+`"0.96…".startsWith("0.95.0")` is false and devrig nags:
+
+> A new version of devrig is available: **0.95.0** (current: 0.96.19999-SNAPSHOT-930b6fc7)
+
+i.e. it tells every user to *downgrade* 0.96 → 0.95.0. Worse, the latest
+commit (`930b6fc7`) now **broadcasts this notice to the agent over MCP** as a
+`notifications/message` (logger `devrig.updates`), so every agent session
+gets the bogus downgrade prompt — not just stderr.
+- **Fix**: use the existing `compareBackendVersions` (in `BackendId.kt`) and
+  only notify when remote is strictly newer; SNAPSHOT/dev builds (`.19999`)
+  should never be told to "upgrade" to a release base they already exceed.
+- **Release step (P1b)**: the website `version.json` must be bumped to the
+  real 0.96 release base before/at release, else even a correct comparator
+  stays quiet only because dev > 0.95.0 — published 0.96 users would still
+  need the file updated.
+
+## P2 — `:npx-kt:integrationTest` left RED by the S6 prompts/resources removal (RED on CI too)
+
+Commit `919e1e03` ("S6: drop MCP resources/prompts registration entirely")
+**intentionally** stopped devrig from exposing MCP `prompts`/`resources` —
+`steroid_fetch_resource` (a tool, still in the 8-tool surface) is now the
+canonical corpus surface because it needs `project_name` for IDE-conditional
+rendering. Verified live: devrig `initialize` capabilities = `['tools','logging']`,
+`prompts/list` → 0, `resources/list` → 0. **This part is by design — not a bug.**
+
+The bug is that S6 changed the contract but did **not** update the
+integration tests, so `:npx-kt:integrationTest` now has two stale,
+reproducibly-failing cases (env-independent → **also RED on TeamCity**):
+- `CliMcpStdioIntegrationTest > initialize returns server info and advertised
+  capabilities` — still asserts `capabilities.prompts`/`resources` are
+  advertised (fails: `capabilities.prompts must be advertised`).
+- `CliMcpStdioFakeIdeIntegrationTest` — still calls `prompts/list` /
+  `resources/list` and does `firstOrNull() ?: error(...)`, so it fails the
+  moment it reaches those (count=0 now). On Linux/CI it fails there; on macOS
+  it fails earlier (see P4).
+- **Fix**: update both tests to the post-S6 contract — `initialize` advertises
+  only `tools` (+ `logging`), and the corpus is reached via
+  `steroid_fetch_resource`, not `prompts/list`/`resources/list`. Do **not**
+  re-add the capabilities; that would contradict the S6 design decision.
+
+## P3 — Windows (eugene-x220): devrig 0.96 will not start — Java 25 vs JDK 21 (release blocker)
+
+Reproduced on the real host (`ssh eugene-x220`, Windows 10 19045):
+
+```
+java.lang.UnsupportedClassVersionError: com/jonnyzzz/mcpSteroid/devrig/MainKt
+has been compiled by a more recent version of the Java Runtime
+(class file version 69.0), this version of the Java Runtime only recognizes
+class file versions up to 65.0
+```
+
+- devrig is built `jvmToolchain(25)` → **Java 25 bytecode (class 69)**.
+- `bin/devrig.bat` is the stock Gradle start script: it uses `JAVA_HOME` /
+  `java.exe` on PATH and **bundles no JDK**.
+- The 0.96 release distZip (`devrig-…​.zip`) ships only `lib/*.jar` (52 jars,
+  Java 25), `bin/devrig{,.bat}`, `ij-plugin.zip`, `7z/` and licenses — **no
+  bundled JDK and no JDK-provisioning bootstrap**. The deployment-spec-v7
+  Corretto-25 manifest/bootstrap (`docs/devrig-deployment-spec.md`) is **not
+  implemented in the artifact**.
+- eugene-x220 has only **Amazon Corretto 21.0.11**; no Corretto 25 present.
+  Result: the agent download→start→`open_project` flow is dead on Windows
+  before it begins — devrig can't even print `--version`.
+- The host's `~/.mcp-steroid/backends` is **empty** and the last Windows
+  devrig log is **2026-05-15** — the current flow has never run there.
+- `devrig install <agent>` (`InstallCommand.selfMcpCommand`) does **not**
+  provision Java either — it pins the *install-time* `JAVA_HOME` into the
+  agent's `devrig mpc` launch command. On a host whose only JDK is 21, that
+  bakes in a JDK that can't run devrig.
+- Workaround proven: after manually installing Corretto **25** on the host
+  (`jdk25.0.3_9`) and pointing `JAVA_HOME` at it, `devrig --version`,
+  `devrig backend`, and `devrig backend download` (catalog) all work — so the
+  only Windows blocker at the launcher layer is the missing JDK 25.
+- **Fix options**: (a) implement the spec-v7 JDK provisioning (download +
+  unpack Corretto 25, set `JAVA_HOME`) in the install/launcher path; or
+  (b) bundle a JDK in the distribution; or (c) drop devrig's bytecode target
+  to 21. (a) matches the documented design.
+- **P3 BLAST RADIUS IS BIGGER THAN THE WINDOWS HOST (found 2026-05-29 via local
+  `:test-integration:test`).** The same `UnsupportedClassVersionError:
+  com.jonnyzzz.mcpSteroid.devrig.MainKt` fails **all three devrig stdio
+  integration tests** when the harness launches the devrig launcher under a
+  JDK < 25:
+    - `DevrigRealIdeBridgeIntegrationTest` (both methods),
+    - `DevrigAgentIntegrationTest` (`claude connects through devrig stdio`),
+    - `DevrigAgentRoutingIntegrationTest`.
+  The TC `test-integration` config runs its Gradle step under
+  `jdkHome=%env.JDK_21_0%`, so the devrig launcher there inherits JDK 21 →
+  **this is almost certainly why `mcp_steroid_IntegrationTests_TestIntegrationBuild`
+  was already RED on jb/main** (pre-0.96). Fixing P3 (provision/bundle a JDK, or
+  drop the bytecode target) resolves the Windows host, these tests, and the TC
+  test-integration red in one go. Until then the devrig launcher must be handed
+  a JDK 25 `JAVA_HOME` wherever it is spawned (host, test harness, CI).
+
+## P8 — local `:test-integration:test` results (macOS, 2026-05-29) — mostly env, one real
+
+Ran the suite locally after Docker came up (per the "run the integration tests
+locally" ask). It is **multi-hour** on a Mac (≈70 min for the first 8 classes),
+and I killed it after diagnosing a hang. Of the 8 classes that completed:
+- **PASS**: `CLionContainerIntegrationTest`, `CLionMcpExecutionIntegrationTest`.
+- **devrig ×3 FAIL** — the P3 `UnsupportedClassVersionError` above (real).
+- **`DialogKillerIntegrationTest` ×4 FAIL** — in-container MCP request
+  "Terminated by timeout" (each ~11 min); same family as the `DockerCheckTest`
+  hang below — the dockerised IDE's MCP request never returns. Looks like a
+  **local Mac/Docker-Desktop environment** issue (the authoritative
+  test-integration runs on TC Linux), not a 0.96 code regression — but the
+  no-firing-timeout means a stuck in-container request hangs the whole test
+  (`executeMcpRequestRaw` → `ProcessImpl.waitFor`, mcp-steroid.kt:1295) instead
+  of failing fast; worth a bounded timeout.
+- **`DockerCheckTest`** — hung ~8 min in
+  `IntelliJContainer.waitForProjectReady` → `mcpTriggerImportAndWait` (the
+  in-container IDE never reached project-ready); thread dump in `/tmp/ti-dump.txt`.
+  Killed it after capturing evidence.
+- **`ContentModuleClasspathTest` FAIL (real, separate)** — a newly-bundled IDE
+  JAR is uncovered by the test's allow-list:
+  `plugins/indexing-shared/lib/modules/intellij.python.sharedIndexes…`. Needs an
+  entry in `UNLOADED_CONTENT_MODULES` / `isStructuralException()` for IDEA
+  2026.1.2. Low-risk test maintenance.
+- **Takeaway**: local Mac is a poor place to run `:test-integration` (hours,
+  Docker-Desktop timeouts). The signal that matters is on TC; the devrig ×3
+  failures are the real, P3-linked ones and reproduce anywhere devrig launches
+  under JDK < 25.
+
+## P4 — `:npx-kt:integrationTest` is non-hermetic on macOS dev machines
+
+`CliMcpStdioFakeIdeIntegrationTest` / `CliMcpStdioIntegrationTest` discover
+IDEs via `~/.mcp-steroid/markers`. The fake-IDE test tries to isolate by
+setting `HOME`→tempdir, but `HomePaths.markersDir` derives the path from
+`System.getProperty("user.home")`, and on **macOS the JVM ignores `$HOME`
+for `user.home`** (verified: `HOME=/tmp/x java -XshowSettings` still prints
+`/Users/jonnyzzz`). So the subprocess reads the developer's **real** markers
+and discovers actually-running IDEs → `projects.single()` throws
+`IllegalArgumentException: List has more than one element`.
+- On Linux/CI (HOME→user.home) discovery is isolated, so this test instead
+  fails later on the stale prompts/resources assertions (P2). On macOS it
+  fails *earlier*, at `projects.single()`, because of the leak described here.
+- **Fix**: make the marker dir overridable for tests (env/property the test
+  can set), or have the fake-IDE harness point discovery at its own dir —
+  in addition to the P2 fix.
+- Note: this is a *test-isolation* defect, not a product defect; the product
+  discovery itself works (see "Verified working").
+
+## P5 — Docker-based integration tests (RESOLVED this session)
+
+Initially the Docker daemon was down, so the 4 Docker tests in
+`:npx-kt:integrationTest` failed with "Cannot connect to the Docker daemon".
+After the daemon was started, the rerun was **26 tests, only 2 failed** — the
+4 Docker tests pass, and the only remaining failures are the two stale S6
+tests from **P2** (`CliMcpStdioFakeIdeIntegrationTest`,
+`CliMcpStdioIntegrationTest > initialize…`). This confirms P2 is the real
+RED-on-CI item and the Docker tests are healthy.
+
+## P6 — devrig/npx-kt had ZERO TeamCity coverage (FIX STARTED this session)
+
+Audit of `mcp_steroid` configs vs the Gradle CI aggregators found that the
+devrig stdio entrypoint (the thing agents actually launch, *not* the IDE HTTP
+transport) was completely untested on TC:
+- `nonPluginTestSubprojects` in `build.gradle.kts` lists **`npx` and `npx-kt`**,
+  so `:npx-kt:test` is excluded from `ciBuildPluginTests` (the per-OS matrix).
+- `ciIntegrationTests` = `:test-helper:test` → `:ij-plugin:integrationTest` →
+  `:test-integration:test` — **`:npx-kt:integrationTest` is not in it.**
+- Net: neither devrig unit tests nor the devrig **stdio** integration tests
+  (`CliMcpStdio*`, `CliInstall*` — `devrig mpc` driven over stdin/stdout) ran
+  anywhere on TeamCity. The stale rationale ("distributed separately, no
+  influence on the IDE plugin") predates devrig shipping as a release artifact
+  + becoming the agent stdio entrypoint.
+
+**Changes made (NOT yet committed/pushed — review first):**
+- `mcp-steroid/build.gradle.kts`: new **`ciDevrigTests`** aggregator
+  (`:npx-kt:test` → `:npx-kt:integrationTest`, sequential via `mustRunAfter`);
+  updated the `nonPluginTestSubprojects` doc. Verified: `./gradlew ciDevrigTests
+  --dry-run` resolves the right graph, BUILD SUCCESSFUL.
+- `mcp-steroid-teamcity`: new `.teamcity/builds/_07_devrig_test.kt`
+  (`object DevrigTest`, `id("DevrigTest")`, Linux+Docker via `requireLinuxDocker()`,
+  Anthropic/OpenAI tokens, `ciDevrigTests`, JDK_21, 60-min cap); registered at
+  root in `settings.kts` next to `TestIntegrationBuild`. Regenerated the XML and
+  diffed against baseline — **only `RootProjectId_DevrigTest.xml` is added, no
+  existing config churns** (no build-history-loss risk).
+
+**Remaining for this item:**
+- Push the DSL (maintainer): the buildserver MCP only allows *personal* builds,
+  so I can't trigger the new config until the DSL is on the server.
+- **DevrigTest will be RED on first run until P2 is fixed** (the 2 stale S6
+  tests). Fixing P2 makes this new coverage green and meaningful.
+- Follow-up (optional): cross-OS devrig *unit* coverage (`:npx-kt:test` on
+  Win/Mac too — we proved devrig runs on Windows). The Docker integration leg
+  stays Linux-only.
+
+## Open / pending
+
+- **TeamCity (now accessible)** — project `mcp_steroid` ("Agentic Experience
+  & Tools / MCP Steroid"):
+  - **The 0.96 work on `jb/main` was never built on TC.** HEAD `930b6fc7` *is*
+    on `jb/main` (merge `999d561f`), but the newest builds on the default
+    branch are from **2026-05-11 (`0.95.0.530-jb-ec46834`)**. The green
+    `0.96.537-jb-8ee0e26` builds cited in R3 were **feature-branch** personal
+    runs, not jb/main. So before release, jb/main needs a real green build.
+  - **Pre-existing reds on jb/main** (0.94/0.95, unrelated to this session's
+    P1–P5): `mcp_steroid_PromptTest` and several `PromptTests_*` matrix legs
+    FAILED, and `mcp_steroid_IntegrationTests_TestIntegrationBuild`
+    (test-integration) FAILED on `0.94.0.528`. These predate the 0.96 merge
+    and want a look before release (prompts are outside the stated devrig +
+    ij-plugin scope, but the red test-integration overlaps it).
+  - **Builds triggered this session (personal, on default branch = jb/main,
+    user jonnyzzz)** to validate 0.96: `mcp_steroid_BuildPlugin` (961357570,
+    builds plugin + devrig zip), `IjPluginTest_Linux_amd64` (961357572),
+    `IjPluginTest_Mac_aarc64` (961357574), `IjPluginTest_Windows_amd64`
+    (961369476). NOTE: the buildserver MCP forces `personal:true`, so these
+    validate pass/fail but do **not** update the config's official status — a
+    maintainer still needs to run/observe a non-personal jb/main build (and the
+    P2 stale devrig integration tests will make whatever leg runs
+    `:npx-kt:integrationTest` RED until fixed).
+  - **0.96 validation results (personal builds on jb/main):**
+    - `BuildPlugin` (961357570) — **SUCCESS** (plugin + devrig zip artifacts).
+    - `IjPluginTest_Linux_amd64` (961357572) — **SUCCESS, 795 passed / 1 ignored**.
+    - `IjPluginTest_Windows_amd64` (961369476) — **SUCCESS, 791 passed / 1 ignored**.
+    - `IjPluginTest_Mac_aarc64` — **FAILED 4× (961357574, 961369478, 961369483,
+      961369489)**, every time the **same Maven Central 429** (`Too Many
+      Requests`) resolving the `:buildSrc` kotlin-dsl classpath
+      (`kotlin-gradle-plugin(s-bom):2.3.20`), with ~10-min waits between retries.
+      NOT a 0.96 regression — Linux/Windows on the same revision are green.
+      Concluded as the persistent **P7** Mac-agent-pool mirror gap; stopped
+      retrying (more 10-min retries won't help — it's not a transient spike, the
+      Mac pool consistently resolves `:buildSrc` from public Maven). **Mac
+      release-validation is BLOCKED on P7 infra, not on code.**
+  - **P7 (infra) — Mac TC agents 429 on public Maven for `:buildSrc`.** The Mac
+    aarch64 pool resolves the buildscript classpath from `repo.maven.apache.org`
+    / `plugins.gradle.org` directly (no internal mirror), so it intermittently
+    fails with 429 before any test runs, while Linux/Windows agents don't.
+    Worth pointing the `:buildSrc` / settings plugin repos at the internal
+    mirror (or adding retry) so Mac releases aren't blocked by rate limits.
+    Mitigation for now: retry after a wait.
+- **Windows deeper dive — DONE** (see "Verified working"): with Corretto 25
+  manually provisioned, download → unpack → start → discover all worked on
+  eugene-x220; `backend stop` also gracefully stopped the managed IDE
+  (pid 12256). No #78/#79 unpack failure for IDEA CE.
+- **Cleanup left on eugene-x220** (safe to delete): `~/devrig-test.zip`,
+  `~/devrig-test/`, `~/corretto25.zip`, `~/corretto25/`,
+  `~/frames*.ndjson`, `~/run-openproj*.ps1`, `~/devrig-openproj-test/`, and the
+  downloaded managed backend under
+  `~/.mcp-steroid/backends|caches/idea-community-2026.1.2`.
+- **Not a blocker (cosmetic)**: on the Windows console the banner em-dash
+  renders as `�` (codepage mismatch in the `devrig` banner string).
+
 # Active focus — 262 EAP release prep (2026-05-26)
 
 Plan + findings: [docs/262-EAP-PLAN.md](docs/262-EAP-PLAN.md).

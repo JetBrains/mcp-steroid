@@ -38,7 +38,14 @@ class DevrigSteroidDriver(
                     cat > "$$launcherPath" <<'EOF'
                     #!/usr/bin/env bash
                     set -eu
-                    export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-default}"
+                    # devrig is built with jvmToolchain(25) -> class-file v69, so it needs a
+                    # JDK/JRE 25 to launch. Do NOT inherit the container's JAVA_HOME: the IDE
+                    # image pins it to java-21 for project SDKs, which fails devrig with
+                    # UnsupportedClassVersionError. Resolve a Temurin 25 explicitly; the glob
+                    # matches temurin-25-jdk-<arch> (ide-base) and temurin-25-jre-<arch>
+                    # (agent-cli), on both amd64 (CI) and arm64 (local mac).
+                    java25="$(ls -d /usr/lib/jvm/temurin-25-* 2>/dev/null | head -1)"
+                    export JAVA_HOME="${DEVRIG_JAVA_HOME:-${java25:-${JAVA_HOME:-}}}"
                     export PATH="$JAVA_HOME/bin:/home/agent/devrig-cli/app/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
                     exec /home/agent/devrig-cli/app/bin/devrig "$@"
                     EOF

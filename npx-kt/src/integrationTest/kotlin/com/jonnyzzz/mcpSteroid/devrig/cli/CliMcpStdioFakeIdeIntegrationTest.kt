@@ -110,31 +110,26 @@ class CliMcpStdioFakeIdeIntegrationTest {
         assertEquals(true, projectName.startsWith("sample-"), "project name should include hash suffix: $projectName")
         assertNotEquals("sample", projectName)
 
+        // Since S6 (commit 919e1e03) devrig no longer exposes the MCP prompts/resources
+        // surfaces — the corpus is reached via the steroid_fetch_resource TOOL instead
+        // (covered by FetchResourceToolTest). Both list endpoints must still answer
+        // without error, but empty, and crucially must be served LOCALLY by devrig — never
+        // routed to the IDE bridge.
         val resources = process.request("resources/list", buildJsonObject {})
         assertEquals(null, resources["error"], "resources/list returned error: $resources")
-        val resource = resources["result"]?.jsonObject?.get("resources")?.jsonArray?.firstOrNull()?.jsonObject
-            ?: error("resources/list returned no resources: $resources")
-        val uri = resource["uri"]?.jsonPrimitive?.content ?: error("resource missing uri: $resource")
-
-        val resourceRead = process.request("resources/read", buildJsonObject { put("uri", uri) })
-        assertEquals(null, resourceRead["error"], "resources/read returned error: $resourceRead")
-        assertNotEquals(null, resourceRead["result"], "resources/read must return a result")
+        assertEquals(
+            0,
+            resources["result"]?.jsonObject?.get("resources")?.jsonArray?.size,
+            "devrig must expose no MCP resources post-S6: $resources",
+        )
 
         val prompts = process.request("prompts/list", buildJsonObject {})
         assertEquals(null, prompts["error"], "prompts/list returned error: $prompts")
-        val prompt = prompts["result"]?.jsonObject?.get("prompts")?.jsonArray?.firstOrNull()?.jsonObject
-            ?: error("prompts/list returned no prompts: $prompts")
-        val promptName = prompt["name"]?.jsonPrimitive?.content ?: error("prompt missing name: $prompt")
-
-        val promptGet = process.request("prompts/get", buildJsonObject { put("name", promptName) })
-        assertEquals(null, promptGet["error"], "prompts/get returned error: $promptGet")
-        assertNotEquals(null, promptGet["result"], "prompts/get must return a result")
-
-        val fetchResource = toolCall("steroid_fetch_resource", buildJsonObject {
-            put("project_name", projectName)
-            put("uri", uri)
-        })
-        assertEquals(false, fetchResource["isError"]?.jsonPrimitive?.content?.toBooleanStrictOrNull())
+        assertEquals(
+            0,
+            prompts["result"]?.jsonObject?.get("prompts")?.jsonArray?.size,
+            "devrig must expose no MCP prompts post-S6: $prompts",
+        )
 
         assertEquals(0L, bridgeToolCallCount.get(), "Local MCP methods should not route tool calls to the bridge")
 

@@ -191,8 +191,10 @@ val buildPluginOnCI by tasks.registering {
  * * `test-helper` — pure-test plumbing (Docker reaper, etc.); not exercised by the plugin.
  * * `test-integration` — Docker-based smoke matrix; runs on its own dedicated TC config.
  * * `test-experiments` — long-running experimental Docker tests; ditto.
- * * `npx`, `npx-kt` — Node/Kotlin packaging for standalone devrig. Distributed
- *   separately, no influence on the IDE plugin.
+ * * `npx`, `npx-kt` — standalone devrig (the stdio MCP entrypoint). NOT part of the
+ *   per-OS plugin matrix, but covered by its own [ciDevrigTests] aggregator
+ *   (`:npx-kt:test` + `:npx-kt:integrationTest`) on a dedicated TeamCity build config,
+ *   since devrig now ships as a release artifact and is the agent's stdio entrypoint.
  *
  * The website (`website/`) is not a Gradle module, so it is not in this list — it is
  * already invisible to the CI aggregators.
@@ -353,6 +355,37 @@ val ciIntegrationTests by tasks.registering {
 }
 
 /**
+ * Ordered task paths for the devrig (`:npx-kt`) CI aggregator — the standalone stdio MCP
+ * entrypoint that agents launch directly (`devrig mpc`), as opposed to the IDE's HTTP
+ * transport. Historically `npx-kt` was in [nonPluginTestSubprojects] with NO CI coverage;
+ * now that devrig ships as a release artifact and is the stdio entrypoint, it gets its own
+ * aggregator + TeamCity build config.
+ *
+ * 1. `:npx-kt:test`            — fast JVM unit tests (CLI parse, project routing, render).
+ * 2. `:npx-kt:integrationTest` — stdio MCP integration driven over stdin/stdout:
+ *                                Cli{Claude,Codex,Gemini} `devrig install` in Docker,
+ *                                fake-IDE bridge routing, stdout-cleanliness. Needs Docker
+ *                                + ANTHROPIC/OPENAI keys + `:npx-kt:installDist`.
+ *
+ * Cheapest first; the `mustRunAfter` chain below serialises the two even under `--parallel`.
+ */
+val ciDevrigTestTaskPaths = listOf(
+    ":npx-kt:test",
+    ":npx-kt:integrationTest",
+)
+
+/**
+ * Aggregator that runs the devrig (`:npx-kt`) suite — unit then stdio integration —
+ * strictly in order. The mirror of [ciIntegrationTests] for the devrig side; TeamCity's
+ * dedicated `devrig test` configuration invokes this single entry point.
+ */
+val ciDevrigTests by tasks.registering {
+    group = "ci"
+    description = "Run the devrig (:npx-kt) suite in order: ${ciDevrigTestTaskPaths.joinToString()}."
+    dependsOn(ciDevrigTestTaskPaths)
+}
+
+/**
  * Enforce strict ordering between the three steps. Configured inside
  * `gradle.projectsEvaluated` because the tasks live in subprojects that are not yet
  * evaluated when this script runs; `tasks.named(...)` on a not-yet-known task would
@@ -369,6 +402,10 @@ gradle.projectsEvaluated {
         return project(projectPath).tasks.named(taskName)
     }
     ciIntegrationTestTaskPaths.zipWithNext().forEach { (earlier, later) ->
+        val earlierTask = taskForPath(earlier)
+        taskForPath(later).configure { mustRunAfter(earlierTask) }
+    }
+    ciDevrigTestTaskPaths.zipWithNext().forEach { (earlier, later) ->
         val earlierTask = taskForPath(earlier)
         taskForPath(later).configure { mustRunAfter(earlierTask) }
     }

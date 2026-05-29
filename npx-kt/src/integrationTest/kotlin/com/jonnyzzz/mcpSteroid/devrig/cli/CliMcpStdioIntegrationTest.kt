@@ -80,8 +80,14 @@ class CliMcpStdioIntegrationTest {
         val capabilities = result["capabilities"]?.jsonObject
             ?: error("initialize result missing `capabilities`: $result")
         assertNotNull(capabilities["tools"], "capabilities.tools must be advertised")
-        assertNotNull(capabilities["prompts"], "capabilities.prompts must be advertised")
-        assertNotNull(capabilities["resources"], "capabilities.resources must be advertised")
+        // Since S6 (commit 919e1e03) devrig deliberately stopped advertising `prompts`
+        // and `resources` — the corpus is reached via the steroid_fetch_resource TOOL
+        // (which needs project_name for IDE-conditional rendering), not via the MCP
+        // prompts/resources surfaces. `logging` is advertised so the update-notice
+        // notifications/message is accepted. Assert that contract explicitly.
+        assertNull(capabilities["prompts"], "devrig must NOT advertise prompts (S6): corpus is via steroid_fetch_resource")
+        assertNull(capabilities["resources"], "devrig must NOT advertise resources (S6): corpus is via steroid_fetch_resource")
+        assertNotNull(capabilities["logging"], "capabilities.logging must be advertised for update notices")
     }
 
     @Test

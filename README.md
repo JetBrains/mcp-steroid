@@ -86,6 +86,8 @@ Download the latest ZIP from [GitHub Releases](https://github.com/jonnyzzz/mcp-s
 
 MCP Steroid ships a small stdio launcher (`devrig`) that bridges your agent to the in-IDE MCP server and discovers every running IntelliJ instance automatically. It's the recommended way to wire up Claude Code, Codex CLI, and Gemini CLI — one registration per agent, applies to every project on the machine.
 
+> **Requirement: JDK 25.** `devrig` is a Kotlin/JVM application compiled for **Java 25** (class-file v69) and is **not** bundled with a JRE. A **JDK/JRE 25 or newer** must be available on the machine that runs it — either on `PATH` or via `JAVA_HOME` (the `devrig` launcher honours `JAVA_HOME` first). An older Java (21, etc.) fails at startup with `UnsupportedClassVersionError ... class file version 69.0`. Install e.g. [Amazon Corretto 25](https://aws.amazon.com/corretto/) or [Eclipse Temurin 25](https://adoptium.net/), and point `JAVA_HOME` at it if your default `java` is older.
+
 ### One-time setup (from a checkout of this repo)
 
 ```bash
