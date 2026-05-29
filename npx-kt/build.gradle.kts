@@ -320,6 +320,14 @@ tasks.register<Test>("integrationTest") {
     useJUnitPlatform()
     testClassesDirs = integrationTest.output.classesDirs
     classpath = integrationTest.runtimeClasspath
+    // devrig is jvmToolchain(25); every host-launched devrig subprocess in these tests
+    // (CliOptions, CliMcpStdioStdoutCleanliness, fake-IDE bridge, …) must run under a JDK
+    // 25. TeamCity runs the Gradle step under JDK 21 and exports JAVA_HOME=21 into the
+    // build environment, which the devrig start-script would otherwise inherit and fail
+    // with UnsupportedClassVersionError (class-file v69). Override JAVA_HOME for the test
+    // JVM (and thus every subprocess it spawns) with the JDK the build itself runs on —
+    // the daemon is pinned to 25 via gradle/gradle-daemon-jvm.properties.
+    environment("JAVA_HOME", System.getProperty("java.home"))
     dependsOn(installDistTask)
     // Path to the launcher script produced by installDist. The application plugin
     // names the install dir after `application.applicationName`, not the project,
