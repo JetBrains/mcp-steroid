@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
+import com.intellij.openapi.components.service
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.builder
@@ -10,7 +11,7 @@ import com.jonnyzzz.mcpSteroid.vision.VisionService
 import kotlinx.serialization.json.*
 import java.util.*
 
-class VisionScreenshotToolHandlerIJ : ProjectScopedToolHandler(), VisionScreenshotToolHandler {
+class VisionScreenshotToolHandlerIJ : VisionScreenshotToolHandler {
     private val log = thisLogger()
     private val json = Json { encodeDefaults = true }
 
@@ -22,7 +23,7 @@ class VisionScreenshotToolHandlerIJ : ProjectScopedToolHandler(), VisionScreensh
         val taskId = screenshotParams.taskId
         val reason = screenshotParams.reason
 
-        val project = resolveProject(projectName)
+        val project = service<ProjectScopedToolHandler>().resolveProject(projectName)
 
         val executionId = project.executionStorage.writeToolCall(
             toolName = "steroid_take_screenshot",

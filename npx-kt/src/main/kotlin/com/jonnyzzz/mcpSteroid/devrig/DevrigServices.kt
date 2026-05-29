@@ -36,7 +36,9 @@ class DevrigServices(
         CoroutineScope(CoroutineName("devrig-background") + Dispatchers.IO + backgroundJob)
 
     val backendManager: BackendManager by lazy {
-        BackendManager(homePaths)
+        // Gate download/start on the bundled plugin's plugin.xml build range so we never install or
+        // launch an IDE the plugin can't load (it would never become reachable).
+        BackendManager(homePaths, pluginBuildRange = bundledPluginBuildRange)
     }
 
     val backendProvisioner: BackendProvisioner by lazy {
@@ -85,7 +87,12 @@ class DevrigServices(
     }
 
     val projectRouting: DevrigProjectRoutingService by lazy {
-        DevrigProjectRoutingService(ideMonitor)
+        DevrigProjectRoutingService(
+            stateProvider = { ideMonitor.states.value },
+            // open_project prefers a running devrig-managed backend (the agent's own IDE) over an
+            // unrelated user IDE. list() is a quick local dir scan; only invoked on open_project.
+            managedRunningPids = { backendManager.list().mapNotNull { it.runningPid }.toSet() },
+        )
     }
 
     val portDiscovery: IntelliJPortDiscovery by lazy {

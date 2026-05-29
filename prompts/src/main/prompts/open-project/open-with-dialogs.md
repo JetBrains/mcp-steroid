@@ -60,7 +60,7 @@ val inputJson = """
     "project_name": "existing-project-name",
     "task_id": "handle-trust-dialog",
     "reason": "Clicking Trust Project button",
-    "screenshot_execution_id": "execution_id_from_screenshot",
+    "window_id": "window_id_from_list_windows",
     "sequence": "click:Left@x,y"
   }
 }
@@ -109,7 +109,7 @@ The Trust Project dialog has these buttons:
     project_name="other-project",
     task_id="click-trust",
     reason="Click Trust Project button",
-    screenshot_execution_id="...",
+    window_id="...",
     sequence="click:Left@350,200"
   )
 ← Input delivered

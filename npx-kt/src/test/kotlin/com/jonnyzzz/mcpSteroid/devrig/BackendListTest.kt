@@ -53,6 +53,23 @@ class BackendListTest {
     }
 
     @Test
+    fun `marker IDE sharing a build but not the pid of a managed backend is NOT flagged managed`() {
+        val rows = mergeRows(
+            // The user's own IDEA Ultimate: same build baseline as the managed Community, different pid.
+            markerRows = listOf(BackendRow.FromMarker(markerIde(pid = 99, build = "IU-261.24374.151"), projects = emptyList())),
+            portIdes = emptySet(),
+            managedBackends = listOf(
+                managed("idea-community-2026.1.2", state = ManagedBackendState.RUNNING, runningPid = 22, buildNumber = "IC-261.24374.151"),
+            ),
+        )
+
+        val markerRow = rows.filterIsInstance<BackendRow.FromMarker>().single()
+        assertEquals(false, markerRow.managed, "an unrelated IDE must not be flagged managed by build coincidence")
+        // The managed backend still surfaces as its own row (not deduped onto the unrelated marker).
+        assertTrue(rows.any { it is BackendRow.FromManaged && it.info.id == "idea-community-2026.1.2" })
+    }
+
+    @Test
     fun `running managed backend surfaced by port is deduped and annotates port`() {
         val rows = mergeRows(
             markerRows = emptyList(),

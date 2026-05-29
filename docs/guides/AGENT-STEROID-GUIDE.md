@@ -71,7 +71,7 @@ Artifacts saved under the execution folder:
 - `screenshot-tree.md`
 - `screenshot-meta.json`
 
-Use the returned `execution_id` as `screenshot_execution_id` for `steroid_input`.
+The response includes `window_id` (also from `steroid_list_windows`); pass it to `steroid_input` to target the same window.
 
 ### `steroid_input`
 Send input events (keyboard + mouse) using a sequence string.
@@ -82,7 +82,7 @@ Parameters:
 - `project_name` (required): Target project from `steroid_list_projects`
 - `task_id` (required): Task identifier for logging
 - `reason` (required): Why the input is needed
-- `screenshot_execution_id` (required): Execution ID from `steroid_take_screenshot` or `takeIdeScreenshot()`
+- `window_id` (required): Window id from `steroid_list_windows` (also returned by `steroid_take_screenshot`)
 - `sequence` (required): Comma-separated or newline-separated input sequence (commas inside values are allowed unless they look like `, <step>:`; commas are optional when using newlines)
 
 Sequence examples:

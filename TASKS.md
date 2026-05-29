@@ -1151,7 +1151,7 @@ can be deleted. Until then keep the branch reachable.
 - [x] include `--scope user` to Claude default configuration suggestion
 - [ ] declutter VcsRefresh and related features which may cause problems with tests
 - [ ] carefully review apply patch code with respect to threading, locks, VFS, EDT (or just drop it)
-- [ ] Input should use direct window_id instead of screenshot_execution_id
+- [x] Input should use direct window_id instead of screenshot_execution_id
 - [ ] generate the necessary indexes around the Prompts to avoid linear scan
 
 # TASKS

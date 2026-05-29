@@ -39,19 +39,17 @@ class VisionInputToolSpec(val handler: () -> VisionInputToolHandler) : McpToolBa
 
         All keys are released at the end of the sequence.
 
-        The input is delivered to the window captured by steroid_take_screenshot (window_id from metadata) and the focus is forced to that window.
+        The input is delivered to the window identified by window_id (from steroid_list_windows) and the focus is forced to that window.
+        Click coordinates with the screenshot target (e.g. @120,200) are interpreted relative to the window as reported by steroid_list_windows / steroid_take_screenshot.
     """.trimIndent()
 
     val projectName = CommonToolParams.projectName().registerToSchema()
 
     val taskId = CommonToolParams.taskId().registerToSchema()
 
-    val reason = CommonToolParams.auditReason("sending input").registerToSchema()
+    val reason = CommonToolParams.reason().registerToSchema()
 
-    //TODO: just use window_id and make sure it's still around.
-    val screenshotExecutionId = InputSchemaElement.param("screenshot_execution_id")
-        .description("Execution ID from steroid_take_screenshot (or takeIdeScreenshot() inside a script)")
-        .string()
+    val windowId = CommonToolParams.windowId()
         .required()
         .registerToSchema()
 
@@ -65,7 +63,7 @@ class VisionInputToolSpec(val handler: () -> VisionInputToolHandler) : McpToolBa
         val projectName = context[projectName]
         val taskId = context[taskId]
         val reason = context[reason]
-        val screenshotExecutionId = context[screenshotExecutionId]
+        val windowId = context[windowId]
         val sequence = context[sequence]
 
         val parsed = InputSequenceParser().parse(sequence)
@@ -76,7 +74,7 @@ class VisionInputToolSpec(val handler: () -> VisionInputToolHandler) : McpToolBa
         return handler().handleInputSequence(projectName, InputParams(
             taskId = taskId,
             reason = reason,
-            screenshotExecutionId = screenshotExecutionId,
+            windowId = windowId,
             sequence = parsed,
             rawSequence = sequence,
         ))
@@ -87,7 +85,7 @@ class VisionInputToolSpec(val handler: () -> VisionInputToolHandler) : McpToolBa
 data class InputParams(
     val taskId: String,
     val reason: String,
-    val screenshotExecutionId: String,
+    val windowId: String,
     val sequence: List<InputStep>,
     val rawSequence: String? = null,
 )

@@ -80,27 +80,16 @@ class DevrigListProjectsToolHandler(
 class DevrigPromptsContextHandler(
     private val routing: DevrigProjectRoutingService,
 ) : PromptsContextHandler {
-    override fun buildPromptsContext(projectName: String?): PromptsContext {
-        val route = if (projectName.isNullOrBlank()) {
-            routing.singleRouteOrNull() ?: return PromptsContext.Generic
-        } else {
-            routing.requireProject(projectName)
-        }
+    override suspend fun buildPromptsContext(projectName: String): PromptsContext {
+        val route = routing.requireProject(projectName)
         return promptsContextFromBuild(route.ide.build)
     }
 
     companion object {
-        private val riderCppProductCode = charArrayOf('R', 'D', 'C', 'P', 'P', 'P').concatToString()
-        private val supportedProductCodes = setOf(
-            "IU", "IC", "PY", "PC", "GO", "WS", "CL", "RD", riderCppProductCode,
-            "DB", "PS", "RM", "DS", "RR", "MPS", "OC", "GW", "JBC", "QA", "AI",
-        )
-
         fun promptsContextFromBuild(build: String): PromptsContext {
             val dash = build.indexOf('-')
             if (dash <= 0 || dash == build.lastIndex) return PromptsContext.Generic
             val productCode = build.substring(0, dash)
-            if (productCode !in supportedProductCodes) return PromptsContext.Generic
             val baseline = build.substring(dash + 1).substringBefore('.').toIntOrNull()
                 ?: return PromptsContext.Generic
             return PromptsContext(productCode = productCode, baselineVersion = baseline)

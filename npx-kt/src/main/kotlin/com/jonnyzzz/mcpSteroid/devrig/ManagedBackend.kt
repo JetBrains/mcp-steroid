@@ -215,12 +215,13 @@ class DefaultManagedBackendDownloader(
     private val os: HostOs = resolveHostOs(),
 ) : ManagedBackendDownloader {
     override suspend fun resolve(id: BackendId): BackendDownloadResolution = withContext(Dispatchers.IO) {
-        val archive = resolveArchive(
-            product = id.product,
-            channel = IdeChannel.STABLE,
-            os = os,
-            version = id.version,
-        )
+        // Android Studio's compatible (261) build is on the canary channel; true Community editions
+        // live on GitHub (the products API stops at 253); everything else from data.services.jetbrains.com.
+        val archive = when {
+            id.product === IdeProduct.AndroidStudio -> resolveAndroidStudioCanaryArchive(os = os, version = id.version)
+            isGithubCommunityProduct(id.product) -> resolveGithubCommunityArchive(product = id.product, os = os, version = id.version)
+            else -> resolveArchive(product = id.product, channel = IdeChannel.STABLE, os = os, version = id.version)
+        }
         BackendDownloadResolution(
             product = archive.product,
             version = archive.version,
@@ -260,6 +261,12 @@ class BackendManager(
     private val launcherResolver: LauncherResolver = LauncherResolver(),
     private val bundledPluginResolver: BundledPluginResolver = ClasspathBundledPluginResolver(),
     private val processInspector: ManagedProcessInspector = DefaultManagedProcessInspector,
+    /**
+     * Build range the bundled plugin supports (from its plugin.xml). Backends outside it cannot load
+     * the plugin, so download/start refuse them. Null disables the check; production wiring
+     * (DevrigServices) passes [bundledPluginBuildRange].
+     */
+    private val pluginBuildRange: PluginBuildRange? = null,
     private val ideUserHome: Path = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize(),
     private val stopGracePeriodMillis: Long = 5_000L,
 ) : ManagedBackendService {
@@ -271,6 +278,7 @@ class BackendManager(
     override suspend fun download(id: BackendId): DownloadResult {
         homePaths.mkdirsAll()
         val resolution = downloader.resolve(id)
+        requirePluginCompatibleBuild(resolution.product, resolution.version, resolution.build)
         val resolved = ResolvedBackendId(resolution.product, resolution.version)
         val backendDir = homePaths.backendDir(resolved.id)
         val descriptorPath = descriptorPath(backendDir)
@@ -341,6 +349,22 @@ class BackendManager(
         return DownloadResult(resolved.id, descriptor, backendDir, vmOptionsPath)
     }
 
+    /**
+     * Refuses a backend whose build the bundled plugin cannot load. Such a backend would start but
+     * never write a marker (the plugin would not load), so it could never become reachable — failing
+     * fast with a clear message is far better than a silent never-discovered IDE.
+     */
+    private fun requirePluginCompatibleBuild(product: IdeProduct, version: String, build: String) {
+        val range = pluginBuildRange ?: return
+        if (range.accepts(build)) return
+        throw ManagedBackendValidationException(
+            "${product.id} $version (build $build) is not compatible with the bundled MCP Steroid plugin " +
+                "(plugin.xml requires ${range.describe()}). The plugin would not load, so the IDE would never " +
+                "become reachable. Pick a product/version that satisfies ${range.describe()} — run " +
+                "`devrig backend download` and choose one not marked incompatible.",
+        )
+    }
+
     private fun isReusableBackendInstall(backendDir: Path, descriptor: BackendDescriptor?): Boolean {
         if (!Files.isDirectory(backendDir)) return false
         if (descriptor != null) {
@@ -383,6 +407,7 @@ class BackendManager(
     private suspend fun startLocked(id: BackendId): StartResult {
         val resolved = resolveConcreteId(id)
         val descriptor = loadDescriptor(resolved)
+        descriptor.buildNumber?.let { build -> requirePluginCompatibleBuild(resolved.product, descriptor.version, build) }
         val running = scanRunningManagedProcesses()
         val other = running.firstOrNull { it.backendId != resolved.id }
         if (other != null) {
@@ -685,8 +710,8 @@ fun writeBackendVmOptions(homePaths: HomePaths, id: String, bundleDirName: Strin
         appendLine("-Didea.vendor.name=devrig (managed)")
         appendLine("-Xms256m")
         appendLine("-Xmx2048m")
-        appendLine("-Dmcp.steroid.updates.enabled=false")
-        appendLine("-Dmcp.steroid.analytics.enabled=false")
+        // Let the managed IDE report analytics and check for updates like a normal install — do not
+        // disable mcp.steroid updates/analytics here.
         appendLine("-Dmcp.steroid.idea.description.enabled=false")
         appendLine("-Dmcp.steroid.dialog.killer.enabled=true")
         appendLine("-Dmcp.steroid.storage.path=${cacheDir.resolve("execution-storage")}")

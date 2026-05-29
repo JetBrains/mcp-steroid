@@ -199,15 +199,9 @@ class DevrigToolBridgeClientTest {
     }
 
     @Test
-    fun `screenshot bridge handler remembers returned execution id`(
+    fun `screenshot bridge handler forwards request`(
         @TempDir tempDir: Path,
     ) = runBlocking {
-        val screenshotExecutionId = "eid_20260518T125900-npx-screenshot"
-        val resultBody = ToolCallResult(
-            content = listOf(ContentItem.Text("screenshot saved in $screenshotExecutionId")),
-            isError = false,
-        )
-        streamResponse = """{"type":"result","result": ${McpJson.encodeToJsonElement(ToolCallResult.serializer(), resultBody)}}""" + "\n"
         val projectHome = Files.createDirectories(tempDir.resolve("project"))
         val routing = routingService(
             IdeMonitorState(
@@ -238,11 +232,10 @@ class DevrigToolBridgeClientTest {
         assertEquals("screenshot-task", arguments["task_id"]?.jsonPrimitive?.content)
         assertEquals("capture state", arguments["reason"]?.jsonPrimitive?.content)
         assertEquals(null, arguments["window_id"])
-        assertEquals(42L, routing.routeScreenshotExecution(screenshotExecutionId))
     }
 
     @Test
-    fun `input bridge handler forwards when screenshot id belongs to the same ide`(
+    fun `input bridge handler resolves ide by project name and forwards window id unchanged`(
         @TempDir tempDir: Path,
     ) = runBlocking {
         val projectA = Files.createDirectories(tempDir.resolve("project-a"))
@@ -260,7 +253,6 @@ class DevrigToolBridgeClientTest {
             ),
         )
         val route = routing.routes().values.single { it.idePid == 43L }
-        routing.rememberScreenshotExecution("eid_same_ide", route)
         val handler = DevrigVisionInputToolHandler(DevrigToolBridgeClient(routing, httpClient))
 
         val result = handler.handleInputSequence(
@@ -268,7 +260,7 @@ class DevrigToolBridgeClientTest {
             inputParams = InputParams(
                 taskId = "input-task",
                 reason = "press key",
-                screenshotExecutionId = "eid_same_ide",
+                windowId = "frame-b",
                 sequence = emptyList(),
                 rawSequence = "press:ENTER",
             ),
@@ -281,49 +273,8 @@ class DevrigToolBridgeClientTest {
         assertEquals("project-b", arguments["project_name"]?.jsonPrimitive?.content)
         assertEquals("input-task", arguments["task_id"]?.jsonPrimitive?.content)
         assertEquals("press key", arguments["reason"]?.jsonPrimitive?.content)
-        assertEquals("eid_same_ide", arguments["screenshot_execution_id"]?.jsonPrimitive?.content)
+        assertEquals("frame-b", arguments["window_id"]?.jsonPrimitive?.content)
         assertEquals("press:ENTER", arguments["sequence"]?.jsonPrimitive?.content)
-    }
-
-    @Test
-    fun `input bridge handler rejects screenshot id from another ide`(
-        @TempDir tempDir: Path,
-    ) = runBlocking {
-        val projectA = Files.createDirectories(tempDir.resolve("project-a"))
-        val projectB = Files.createDirectories(tempDir.resolve("project-b"))
-        val routing = routingService(
-            IdeMonitorState(
-                ide = discoveredIde(pid = 42, projectHome = projectA),
-                status = IdeMonitorStatus.CONNECTED,
-                lastSnapshot = listOf(ProjectInfo("project-a", projectA.toString())),
-            ),
-            IdeMonitorState(
-                ide = discoveredIde(pid = 43, projectHome = projectB),
-                status = IdeMonitorStatus.CONNECTED,
-                lastSnapshot = listOf(ProjectInfo("project-b", projectB.toString())),
-            ),
-        )
-        val screenshotRoute = routing.routes().values.single { it.idePid == 42L }
-        val inputRoute = routing.routes().values.single { it.idePid == 43L }
-        routing.rememberScreenshotExecution("eid_other_ide", screenshotRoute)
-        val handler = DevrigVisionInputToolHandler(DevrigToolBridgeClient(routing, httpClient))
-
-        val result = handler.handleInputSequence(
-            projectName = inputRoute.exposedProjectName,
-            inputParams = InputParams(
-                taskId = "input-task",
-                reason = "press key",
-                screenshotExecutionId = "eid_other_ide",
-                sequence = emptyList(),
-                rawSequence = "press:ENTER",
-            ),
-        )
-
-        assertEquals(true, result.isError)
-        assertTrue(result.errorText().contains("belongs to another IDE"))
-        assertTrue(result.errorText().contains("call steroid_take_screenshot again"))
-        assertEquals(null, receivedAuth)
-        assertEquals(null, receivedBody)
     }
 
     @Test
@@ -341,24 +292,24 @@ class DevrigToolBridgeClientTest {
         )
 
         assertEquals(true, result.isError)
-        assertTrue(result.errorText().contains("requires exactly one discovered IDE"))
+        assertTrue(result.errorText().contains("requires at least one discovered IDE"))
         assertEquals(null, receivedAuth)
         assertEquals(null, receivedBody)
     }
 
     @Test
-    fun `open project bridge handler rejects multiple discovered ides`(
+    fun `open project bridge handler forwards to the newest ide when several are discovered`(
         @TempDir tempDir: Path,
     ) = runBlocking {
-        val firstHome = Files.createDirectories(tempDir.resolve("first"))
-        val secondHome = Files.createDirectories(tempDir.resolve("second"))
+        val olderHome = Files.createDirectories(tempDir.resolve("older"))
+        val newerHome = Files.createDirectories(tempDir.resolve("newer"))
         val routing = routingService(
             IdeMonitorState(
-                ide = discoveredIde(pid = 42, projectHome = firstHome),
+                ide = discoveredIde(pid = 42, projectHome = olderHome, build = "IU-253.999", token = "secret-older"),
                 status = IdeMonitorStatus.CONNECTED,
             ),
             IdeMonitorState(
-                ide = discoveredIde(pid = 43, projectHome = secondHome),
+                ide = discoveredIde(pid = 43, projectHome = newerHome, build = "IU-261.1", token = "secret-newer"),
                 status = IdeMonitorStatus.CONNECTED,
             ),
         )
@@ -371,10 +322,42 @@ class DevrigToolBridgeClientTest {
             )
         )
 
-        assertEquals(true, result.isError)
-        assertTrue(result.errorText().contains("requires exactly one discovered IDE"))
-        assertEquals(null, receivedAuth)
-        assertEquals(null, receivedBody)
+        assertEquals(false, result.isError)
+        // The newest build (IU-261.1) wins, so its bearer token is the one forwarded.
+        assertEquals("Bearer secret-newer", receivedAuth)
+        val json = McpJson.parseToJsonElement(receivedBody ?: error("missing request body")).jsonObject
+        assertEquals("steroid_open_project", json["name"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `open project bridge handler prefers the running managed backend over a newer ide`(
+        @TempDir tempDir: Path,
+    ) = runBlocking {
+        val userHome = Files.createDirectories(tempDir.resolve("user"))
+        val managedHome = Files.createDirectories(tempDir.resolve("managed"))
+        val routing = routingService(
+            managedPids = setOf(43L),
+            IdeMonitorState(
+                ide = discoveredIde(pid = 42, projectHome = userHome, build = "IU-261.9", token = "secret-user"),
+                status = IdeMonitorStatus.CONNECTED,
+            ),
+            IdeMonitorState(
+                ide = discoveredIde(pid = 43, projectHome = managedHome, build = "IU-253.1", token = "secret-managed"),
+                status = IdeMonitorStatus.CONNECTED,
+            ),
+        )
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(routing, httpClient))
+
+        val result = handler.handleOpenProject(
+            OpenProjectParams(
+                projectPath = tempDir.resolve("target").toString(),
+                trustProject = true,
+            )
+        )
+
+        assertEquals(false, result.isError)
+        // pid 42 is the newer build, but pid 43 is the devrig-managed backend — its token must be used.
+        assertEquals("Bearer secret-managed", receivedAuth)
     }
 
     @Test
@@ -632,7 +615,18 @@ class DevrigToolBridgeClientTest {
     private fun routingService(vararg states: IdeMonitorState): DevrigProjectRoutingService =
         DevrigProjectRoutingService { states.associateBy { it.ide.pid } }
 
-    private fun discoveredIde(pid: Long, projectHome: Path): DiscoveredIde =
+    private fun routingService(
+        managedPids: Set<Long>,
+        vararg states: IdeMonitorState,
+    ): DevrigProjectRoutingService =
+        DevrigProjectRoutingService({ states.associateBy { it.ide.pid } }, { managedPids })
+
+    private fun discoveredIde(
+        pid: Long,
+        projectHome: Path,
+        build: String = "IU-261.1",
+        token: String = "secret-token",
+    ): DiscoveredIde =
         DiscoveredIde(
             pid = pid,
             mcpUrl = "http://127.0.0.1:$port/mcp",
@@ -643,9 +637,9 @@ class DevrigToolBridgeClientTest {
                 mcpSteroidServer = McpSteroidServerInfo(
                     mcpUrl = "http://127.0.0.1:$port/mcp",
                     port = port,
-                    headers = mapOf("Authorization" to "Bearer secret-token"),
+                    headers = mapOf("Authorization" to "Bearer $token"),
                 ),
-                ide = IdeInfo("IntelliJ IDEA", "2026.1", "IU-261.1"),
+                ide = IdeInfo("IntelliJ IDEA", "2026.1", build),
                 plugin = PluginInfo("com.jonnyzzz.mcp-steroid", "MCP Steroid", "0.0.0-test"),
                 createdAt = "2026-05-17T00:00:00Z",
                 intellijWebServer = null,
@@ -662,7 +656,7 @@ class DevrigToolBridgeClientTest {
             exposedProjectName = "original-project-abcdefgh",
             projectPath = tempDir.toString(),
             realProjectHome = tempDir.toRealPath(),
-            hash8 = "abcdefgh",
+            projectHash = "abcdefgh",
             ide = IdeInfo("IntelliJ IDEA", "2026.1", "IU-261.1"),
             plugin = PluginInfo("com.jonnyzzz.mcp-steroid", "MCP Steroid", "0.0.0-test"),
         )

@@ -48,7 +48,7 @@ fun parseJdkManifest(json: String): List<LinkedHashMap<String, Any?>> {
     require(parsed is List<*>) { "jdk-manifest.json must be a JSON array" }
     return parsed.mapIndexed { index, item ->
         val row = item as? Map<*, *> ?: error("jdk-manifest.json row $index must be an object")
-        linkedMapOf<String, Any?>(
+        linkedMapOf(
             "name" to requireJsonString(row, index, "name"),
             "os" to requireJsonString(row, index, "os"),
             "cpu" to requireJsonString(row, index, "cpu"),

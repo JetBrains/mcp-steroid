@@ -12,13 +12,13 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 
-class ExecuteCodeToolHandlerIJ : ProjectScopedToolHandler(), ExecuteCodeToolHandler {
+class ExecuteCodeToolHandlerIJ : ExecuteCodeToolHandler {
     override suspend fun executeCode(
         projectName: String,
         execCodeParams: ExecCodeParams,
         callProgress: McpProgressReporter,
     ) : ToolCallResult {
-        val project = resolveProject(projectName)
+        val project = service<ProjectScopedToolHandler>().resolveProject(projectName)
 
         val result = project
             .service<ExecutionManager>()

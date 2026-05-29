@@ -33,8 +33,6 @@ class VmOptionsWriterTest {
             "-Didea.vendor.name=devrig (managed)",
             "-Xms256m",
             "-Xmx2048m",
-            "-Dmcp.steroid.updates.enabled=false",
-            "-Dmcp.steroid.analytics.enabled=false",
             "-Dmcp.steroid.idea.description.enabled=false",
             "-Dmcp.steroid.dialog.killer.enabled=true",
             "-Dmcp.steroid.storage.path=${cacheDir.resolve("execution-storage")}",
@@ -52,6 +50,9 @@ class VmOptionsWriterTest {
         val content = Files.readString(written)
         assertEquals(expected, content)
         assertFalse(content.contains("\r"), "vmoptions must use LF line endings only")
+        // The managed IDE should behave like a normal install: report analytics and check for updates.
+        assertFalse(content.contains("mcp.steroid.updates.enabled"), "must not disable updates in the managed IDE")
+        assertFalse(content.contains("mcp.steroid.analytics.enabled"), "must not disable analytics in the managed IDE")
 
         listOf("config", "system", "logs", "plugins", "execution-storage").forEach { child ->
             assertTrue(homePaths.cacheDir(id).resolve(child).exists(), "$child cache directory should exist")

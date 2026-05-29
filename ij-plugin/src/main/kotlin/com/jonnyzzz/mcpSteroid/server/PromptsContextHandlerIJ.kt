@@ -2,14 +2,20 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.components.service
 import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
 
 class PromptsContextHandlerIJ : PromptsContextHandler {
-    override fun buildPromptsContext(projectName: String?): PromptsContext {
-        val buildInfo = ApplicationInfo.getInstance().build
-        return PromptsContext(
-            productCode = buildInfo.productCode,
-            baselineVersion = buildInfo.baselineVersion,
-        )
+    override suspend fun buildPromptsContext(projectName: String): PromptsContext {
+        service<ProjectScopedToolHandler>().resolveProject(projectName)
+        return idePromptsContext()
     }
+}
+
+fun idePromptsContext(): PromptsContext {
+    val buildInfo = ApplicationInfo.getInstance().build
+    return PromptsContext(
+        productCode = buildInfo.productCode,
+        baselineVersion = buildInfo.baselineVersion,
+    )
 }

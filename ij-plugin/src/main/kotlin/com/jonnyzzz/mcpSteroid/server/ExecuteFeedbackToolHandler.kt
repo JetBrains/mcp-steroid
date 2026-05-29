@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
@@ -10,7 +11,7 @@ import com.jonnyzzz.mcpSteroid.updates.analyticsBeacon
 import kotlinx.serialization.json.*
 
 
-class ExecuteFeedbackToolHandlerIJ : ProjectScopedToolHandler(), ExecuteFeedbackToolHandler {
+class ExecuteFeedbackToolHandlerIJ : ExecuteFeedbackToolHandler {
     private val log = thisLogger()
     private val json = Json {
         prettyPrint = true
@@ -19,7 +20,7 @@ class ExecuteFeedbackToolHandlerIJ : ProjectScopedToolHandler(), ExecuteFeedback
     override suspend fun handleFeedback(projectName: String, params: FeedbackParams): ToolCallResult {
         log.info("Feedback is submitted: " + json.encodeToString(params))
 
-        val project = resolveProject(projectName)
+        val project = service<ProjectScopedToolHandler>().resolveProject(projectName)
 
         try {
             val executionStorage = project.executionStorage

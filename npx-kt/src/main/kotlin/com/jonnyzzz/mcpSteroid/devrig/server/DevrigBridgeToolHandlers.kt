@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig.server
 
-import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
@@ -32,9 +31,11 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -126,26 +127,12 @@ class DevrigVisionScreenshotToolHandler(
         mcpProgressReporter: McpProgressReporter,
     ): ToolCallResult {
         val route = bridge.routing.requireProject(projectName)
-        val result = bridge.callTool(route, "steroid_take_screenshot", mcpProgressReporter) {
+        return bridge.callTool(route, "steroid_take_screenshot", mcpProgressReporter) {
             put("project_name", route.originalProjectName)
             put("task_id", screenshotParams.taskId)
             put("reason", screenshotParams.reason)
-            screenshotParams.windowId?.let { exposedWindowId ->
-                val originalWindowId = bridge.routing.routeWindow(exposedWindowId)?.originalWindowId ?: exposedWindowId
-                put("window_id", originalWindowId)
-            }
-        }
-        rememberScreenshotExecutions(result, route)
-        return result
-    }
-
-    private fun rememberScreenshotExecutions(result: ToolCallResult, route: ProjectRoute) {
-        val regex = Regex("""eid_[A-Za-z0-9T_\-]+""")
-        for (content in result.content) {
-            val text = (content as? ContentItem.Text)?.text ?: continue
-            for (match in regex.findAll(text)) {
-                bridge.routing.rememberScreenshotExecution(match.value, route)
-            }
+            // window_id is unique within the IDE resolved by project_name; forward it as-is.
+            screenshotParams.windowId?.let { put("window_id", it) }
         }
     }
 }
@@ -154,20 +141,15 @@ class DevrigVisionInputToolHandler(
     private val bridge: DevrigToolBridgeClient,
 ) : VisionInputToolHandler {
     override suspend fun handleInputSequence(projectName: String, inputParams: InputParams): ToolCallResult {
-        val screenshotPid = bridge.routing.routeScreenshotExecution(inputParams.screenshotExecutionId)
         val route = bridge.routing.requireProject(projectName)
-        if (screenshotPid != null && screenshotPid != route.idePid) {
-            return ToolCallResult.errorResult(
-                "screenshot_execution_id '${inputParams.screenshotExecutionId}' belongs to another IDE; call steroid_take_screenshot again for project_name '$projectName'"
-            )
-        }
         val rawSequence = inputParams.rawSequence
             ?: return ToolCallResult.errorResult("Input sequence cannot be forwarded without the original sequence string")
         return bridge.callTool(route, "steroid_input") {
             put("project_name", route.originalProjectName)
             put("task_id", inputParams.taskId)
             put("reason", inputParams.reason)
-            put("screenshot_execution_id", inputParams.screenshotExecutionId)
+            // window_id is unique within the IDE resolved by project_name; forward it as-is.
+            put("window_id", inputParams.windowId)
             put("sequence", rawSequence)
         }
     }
@@ -177,9 +159,12 @@ class DevrigOpenProjectToolHandler(
     private val bridge: DevrigToolBridgeClient,
 ) : OpenProjectToolHandler {
     override suspend fun handleOpenProject(openProjectParams: OpenProjectParams): ToolCallResult {
-        val ide = bridge.routing.singleIdeOrNull()
+        // Prefer a devrig-managed backend if the agent has one running; otherwise route to the newest
+        // discovered IDE instead of failing. Every discovered IDE runs the MCP Steroid plugin.
+        // Off the call dispatcher: the managed-pid lookup scans the local backends dir + checks pid liveness.
+        val ide = withContext(Dispatchers.IO) { bridge.routing.openProjectTargetIde() }
             ?: return ToolCallResult.errorResult(
-                "steroid_open_project requires exactly one discovered IDE; call steroid_list_projects and close extra IDEs or start one IDE"
+                "steroid_open_project requires at least one discovered IDE with the MCP Steroid plugin; start an IDE or call steroid_list_projects"
             )
         val route = ProjectRoute(
             idePid = ide.pid,
@@ -189,7 +174,7 @@ class DevrigOpenProjectToolHandler(
             exposedProjectName = "",
             projectPath = "",
             realProjectHome = java.nio.file.Path.of(".").toAbsolutePath().normalize(),
-            hash8 = "",
+            projectHash = "",
             ide = ide.marker.ide,
             plugin = ide.marker.plugin,
         )

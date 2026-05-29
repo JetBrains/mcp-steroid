@@ -64,7 +64,7 @@ class BackendCommandStartListTest {
         assertTrue(text.contains("[1] idea-community"), text)
         assertTrue(text.contains("2025.3"), text)
         assertTrue(!text.contains("2025-12-08"), text)
-        assertTrue(text.contains("  *  Requires a JetBrains license."), text)
+        assertTrue(text.contains("  *  Includes the Community feature set; free in Community mode, a paid license unlocks the full edition."), text)
         assertTrue(!text.contains("Free for non-commercial use; JetBrains license required for commercial use."), text)
         assertTrue(text.contains("Run:  devrig backend download <id> [--version <v>]"), text)
         assertTrue(text.contains("Then: devrig backend start <id>"), text)
@@ -111,15 +111,15 @@ class BackendCommandStartListTest {
         assertEquals("no managed backends installed; run 'devrig backend download <id>' first", root["hint"]!!.jsonPrimitive.content)
         val available = root["available"]!!.jsonArray.map { it.jsonObject }
         val idea = available.single { it["id"]!!.jsonPrimitive.content == "idea-community" }
-        assertEquals(setOf("id", "code", "displayName", "licenseTier", "licenseSymbol", "licenseNote", "version", "releaseDate"), idea.keys)
+        assertEquals(setOf("id", "code", "displayName", "licenseTier", "licenseSymbol", "licenseNote", "version", "build", "releaseDate"), idea.keys)
         assertEquals("2025.3", idea["version"]!!.jsonPrimitive.content)
         assertEquals("2025-12-08", idea["releaseDate"]!!.jsonPrimitive.content)
         assertEquals("", idea["licenseSymbol"]!!.jsonPrimitive.content)
         assertEquals("", idea["licenseNote"]!!.jsonPrimitive.content)
         val ultimate = available.single { it["id"]!!.jsonPrimitive.content == "idea-ultimate" }
-        assertEquals(setOf("id", "code", "displayName", "licenseTier", "licenseSymbol", "licenseNote", "version", "releaseDate"), ultimate.keys)
+        assertEquals(setOf("id", "code", "displayName", "licenseTier", "licenseSymbol", "licenseNote", "version", "build", "releaseDate"), ultimate.keys)
         assertEquals("*", ultimate["licenseSymbol"]!!.jsonPrimitive.content)
-        assertEquals("Requires a JetBrains license.", ultimate["licenseNote"]!!.jsonPrimitive.content)
+        assertEquals("Includes the Community feature set; free in Community mode, a paid license unlocks the full edition.", ultimate["licenseNote"]!!.jsonPrimitive.content)
     }
 
     private fun renderStartText(rows: List<InstalledBackendListRow>): String {

@@ -24,16 +24,29 @@ object CommonToolParams {
         InputSchemaElement.param("task_id")
             .description(
                 "Your task identifier — reuse the same value across related tool calls " +
-                        "(e.g. between steroid_execute_code and steroid_execute_feedback) " +
                         "to group them in audit logs."
             )
             .string()
             .required()
 
+    /**
+     * `window_id` identifying a specific IDE window (from steroid_list_windows).
+     * Returned un-required: callers chain `.required()` when mandatory (steroid_input)
+     * or `.registerToSchema()` directly when optional (steroid_take_screenshot).
+     */
+    fun windowId() =
+        InputSchemaElement.param("window_id")
+            .description("Window id from steroid_list_windows identifying the target IDE window.")
+            .string()
+
     /** Required `reason` string with the audit-log convention: `Reason for $action. Required for audit logs.` */
-    fun auditReason(action: String) =
+    fun reason() =
         InputSchemaElement.param("reason")
-            .description("Reason for $action. Required for audit logs.")
+            .description("Provide the FULL TASK DESCRIPTION of your intent and expected outcomes. " +
+                "On subsequent calls, attach what this specific execution aims to achieve. " +
+                "This helps us learn and improve. " +
+                "Use steroid_execute_feedback to share improvements, suggestions, and feedback."
+            )
             .string()
             .required()
 }

@@ -46,7 +46,6 @@ class SteroidsMcpServer(
 
     val port: Int get() = portRef.get()
     val mcpUrl: String get() = "http://localhost:$port/mcp"
-    val skillUrl: String get() = "http://localhost:$port/skill.md"
 
     /**
      * Get the underlying MCP server core for testing or tool registration.
@@ -230,19 +229,19 @@ class SteroidsMcpServer(
                 get("/") {
                     call.respondText(
                         contentType = ContentType.Text.Plain.withCharset(Charsets.UTF_8),
-                        text = SkillPromptArticle().readPayload(service<PromptsContextHandler>().buildPromptsContext())
+                        text = SkillPromptArticle().readPayload(idePromptsContext())
                     )
                 }
                 get("/skill.md") {
                     call.respondText(
                         contentType = ContentType.Text.Plain.withCharset(Charsets.UTF_8),
-                        text = SkillPromptArticle().readPayload(service<PromptsContextHandler>().buildPromptsContext())
+                        text = SkillPromptArticle().readPayload(idePromptsContext())
                     )
                 }
                 get("/SKILL.md") {
                     call.respondText(
                         contentType = ContentType.Text.Plain.withCharset(Charsets.UTF_8),
-                        text = SkillPromptArticle().readPayload(service<PromptsContextHandler>().buildPromptsContext())
+                        text = SkillPromptArticle().readPayload(idePromptsContext())
                     )
                 }
         }

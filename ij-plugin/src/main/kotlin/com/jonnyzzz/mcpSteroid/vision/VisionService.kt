@@ -33,7 +33,6 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
-import kotlin.math.roundToInt
 
 @Serializable
 data class ScreenshotMeta(
@@ -308,32 +307,11 @@ object VisionService {
     }
 
     suspend fun executeInput(
-        meta: ScreenshotMeta,
+        windowId: String,
         steps: List<InputStep>,
     ) {
-        val executor = SwingInputExecutor(meta)
+        val executor = SwingInputExecutor(windowId)
         executor.execute(steps)
-    }
-
-    suspend fun loadScreenshotMeta(project: Project, executionId: ExecutionId): ScreenshotMeta {
-        val executionDir = project.executionStorage.resolveExecutionDir(executionId)
-        val metaPath = withContext(Dispatchers.IO) {
-            // First try the legacy flat location (executionDir/screenshot-meta.json)
-            val flatPath = executionDir.resolve(META_FILE)
-            if (Files.exists(flatPath)) return@withContext flatPath
-
-            // Find the most recent screenshot-* subdirectory containing the meta file
-            Files.list(executionDir).use { stream ->
-                stream.toList()
-                    .filter { Files.isDirectory(it) && it.fileName.toString().startsWith("screenshot-") }
-                    .sortedByDescending { it.fileName.toString() }
-                    .map { it.resolve(META_FILE) }
-                    .firstOrNull { Files.exists(it) }
-                    ?: throw IllegalStateException("No screenshot metadata found in execution: ${executionId.executionId}")
-            }
-        }
-        val content = withContext(Dispatchers.IO) { Files.readString(metaPath) }
-        return json.decodeFromString(ScreenshotMeta.serializer(), content)
     }
 
     private data class CaptureInfo(
@@ -426,7 +404,7 @@ object VisionService {
     }
 
     private class SwingInputExecutor(
-        private val meta: ScreenshotMeta,
+        private val windowId: String,
     ) {
         private val stuckKeys = LinkedHashSet<Int>()
 
@@ -456,9 +434,8 @@ object VisionService {
         }
 
         private fun resolveComponentForInput(): Component {
-            val windowId = meta.windowId ?: throw IllegalStateException("Screenshot metadata missing windowId")
             return findComponentByWindowId(windowId)
-                ?: throw IllegalStateException("No IDE window found for windowId: $windowId")
+                ?: throw IllegalStateException("No IDE window found for window_id: $windowId")
         }
 
         private fun stickKey(component: Component, step: InputStep.StickKey) {
@@ -527,18 +504,13 @@ object VisionService {
         }
 
         private fun mapScreenshotPoint(component: Component, x: Int, y: Int): Point {
-            val imageSize = meta.imageSize
-            require(imageSize.width > 0 && imageSize.height > 0) {
-                "Invalid screenshot metadata: image size is empty"
-            }
             require(component.width > 0 && component.height > 0) {
                 "Target component has empty size"
             }
-            val widthScale = component.width.toDouble() / imageSize.width.toDouble()
-            val heightScale = component.height.toDouble() / imageSize.height.toDouble()
-            val localX = (x.toDouble() * widthScale).roundToInt()
-            val localY = (y.toDouble() * heightScale).roundToInt()
-            return Point(localX.coerceIn(0, component.width - 1), localY.coerceIn(0, component.height - 1))
+            // Coordinates are reported relative to the window (steroid_list_windows /
+            // steroid_take_screenshot render at the component's logical size), so they map
+            // directly onto the live component; clamp to its current bounds.
+            return Point(x.coerceIn(0, component.width - 1), y.coerceIn(0, component.height - 1))
         }
 
         private fun focusOwner(component: Component): Component {

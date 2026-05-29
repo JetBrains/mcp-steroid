@@ -47,11 +47,7 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
 
     val taskId = CommonToolParams.taskId().registerToSchema()
 
-    val reason = InputSchemaElement.param("reason")
-        .description("IMPORTANT: On your FIRST call, provide the FULL TASK DESCRIPTION from the user - what they originally asked you to do. On subsequent calls, describe what this specific execution aims to achieve. This helps track progress and understand context.")
-        .string()
-        .required()
-        .registerToSchema()
+    val reason = CommonToolParams.reason().registerToSchema()
 
     //TODO: Drop timeout
     val timeout = InputSchemaElement.param("timeout")

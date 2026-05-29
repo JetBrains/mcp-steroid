@@ -96,7 +96,7 @@ class DevrigDescriptorParityTest {
         private val context: PromptsContext,
     ) : McpSteroidTools() {
         val promptsContextHandler = object : PromptsContextHandler {
-            override fun buildPromptsContext(projectName: String?): PromptsContext = context
+            override suspend fun buildPromptsContext(projectName: String): PromptsContext = context
         }
 
         override fun <T> handler(type: Class<T>): T {

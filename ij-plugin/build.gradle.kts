@@ -113,11 +113,11 @@ val buildIdeTarget: IdeTarget = run {
 // each verifyBundledKotlinxRuntime sub-task). A vanilla HashMap getOrPut
 // races at that point.
 data class LocalIdeKey(val target: IdeTarget, val product: IdeProduct)
-val localIdeCache = ConcurrentHashMap<LocalIdeKey, java.io.File>()
+val localIdeCache = ConcurrentHashMap<LocalIdeKey, File>()
 fun ideRootFor(
     target: IdeTarget,
     product: IdeProduct = IdeProduct.IntelliJIdea,
-): java.io.File = localIdeCache.computeIfAbsent(LocalIdeKey(target, product)) { key ->
+): File = localIdeCache.computeIfAbsent(LocalIdeKey(target, product)) { key ->
     resolveAndUnpackLocally(
         target = key.target,
         downloadDir = ideArchivesDir,
@@ -141,7 +141,7 @@ fun ideRootFor(
 fun ideRootProviderFor(
     target: IdeTarget,
     product: IdeProduct = IdeProduct.IntelliJIdea,
-): Provider<java.io.File> =
+): Provider<File> =
     providers.provider { ideRootFor(target, product) }
 
 // Consume kotlinc distribution from kotlin-cli subproject

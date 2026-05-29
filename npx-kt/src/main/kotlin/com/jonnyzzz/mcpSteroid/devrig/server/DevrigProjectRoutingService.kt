@@ -3,24 +3,27 @@ package com.jonnyzzz.mcpSteroid.devrig.server
 
 import com.jonnyzzz.mcpSteroid.IdeInfo
 import com.jonnyzzz.mcpSteroid.PluginInfo
+import com.jonnyzzz.mcpSteroid.devrig.compareBackendVersions
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
-import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorService
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorState
 import com.jonnyzzz.mcpSteroid.server.ProgressTaskInfo
 import com.jonnyzzz.mcpSteroid.server.ProjectInfo
 import com.jonnyzzz.mcpSteroid.server.WindowInfo
 import java.nio.file.Path
 import java.security.MessageDigest
-import java.util.Base64
-import java.util.concurrent.ConcurrentHashMap
+import java.time.Instant
 
 class DevrigProjectRoutingService(
     private val stateProvider: () -> Map<Long, IdeMonitorState>,
+    /**
+     * Pids of IDEs started and owned by devrig as managed backends (`devrig backend start`).
+     * Used by [openProjectTargetIde] to land open_project in the agent's own backend rather than
+     * an unrelated user-launched IDE. Defaults to none so plain discovery keeps its old behavior.
+     */
+    private val managedRunningPids: () -> Set<Long>,
 ) {
-    constructor(ideMonitor: IdeMonitorService) : this({ ideMonitor.states.value })
-
-    private val windowRoutes = ConcurrentHashMap<String, WindowRoute>()
-    private val screenshotExecutionRoutes = ConcurrentHashMap<String, Long>()
+    /** No managed-backend awareness — open_project falls back to the newest discovered IDE. */
+    constructor(stateProvider: () -> Map<Long, IdeMonitorState>) : this(stateProvider, { emptySet() })
 
     fun routes(): Map<String, ProjectRoute> {
         val routes = linkedMapOf<String, ProjectRoute>()
@@ -40,18 +43,15 @@ class DevrigProjectRoutingService(
         routeProject(exposedProjectName)
             ?: throw ProjectRouteNotFoundException(exposedProjectName)
 
+    /**
+     * Rewrites only the project name to its exposed form. The window id is left untouched:
+     * it is unique within a single IDE and always travels together with project_name, so the
+     * IDE is resolved via project_name and the original window_id is forwarded as-is.
+     */
     fun rewriteWindow(idePid: Long, window: WindowInfo): WindowInfo {
         val route = routeForWindow(idePid, window) ?: return window
-        val exposedWindowId = "${window.windowId}-${route.hash8}"
-        windowRoutes[exposedWindowId] = WindowRoute(
-            idePid = idePid,
-            exposedWindowId = exposedWindowId,
-            originalWindowId = window.windowId,
-            projectRoute = route,
-        )
         return window.copy(
             projectName = window.projectName?.let { route.exposedProjectName },
-            windowId = exposedWindowId,
         )
     }
 
@@ -63,38 +63,56 @@ class DevrigProjectRoutingService(
         return task.copy(projectName = route.exposedProjectName)
     }
 
-    fun routeWindow(exposedWindowId: String): WindowRoute? =
-        windowRoutes[exposedWindowId]
-
-    fun rememberScreenshotExecution(executionId: String, route: ProjectRoute) {
-        screenshotExecutionRoutes[executionId] = route.idePid
-    }
-
-    fun routeScreenshotExecution(executionId: String): Long? =
-        screenshotExecutionRoutes[executionId]
-
     fun singleRouteOrNull(): ProjectRoute? {
         val routes = routes().values.toList()
         return if (routes.size == 1) routes.single() else null
     }
 
-    fun singleIdeOrNull(): DiscoveredIde? {
-        val ides = stateProvider().values.map { it.ide }.distinctBy { it.pid }
-        return if (ides.size == 1) ides.single() else null
+    /**
+     * Picks the IDE that should receive `steroid_open_project`.
+     *
+     * Selection is two-tier:
+     *  1. If any devrig-managed backend (`devrig backend start`) is currently running and discovered,
+     *     prefer it — that is the agent's own sandbox, and open_project must land there even when the
+     *     user has a newer IDE open. This is what aligns open_project with `devrig backend` selection:
+     *     "download/start the IDE for this project, then open the project in it" works deterministically.
+     *  2. Otherwise fall back to the newest discovered IDE.
+     *
+     * Within each tier the newest IDE wins (see [newestIdeOrNull]). Returns null only when no IDE is
+     * discovered at all.
+     */
+    fun openProjectTargetIde(): DiscoveredIde? {
+        val ides = discoveredIdes()
+        if (ides.isEmpty()) return null
+        val managedPids = managedRunningPids()
+        val managed = ides.filter { it.pid in managedPids }
+        return newestOf(managed.ifEmpty { ides })
     }
+
+    /**
+     * Picks the newest discovered IDE: highest IDE build, ties broken by the most recently started IDE
+     * (marker `createdAt`), then by pid for full determinism. Every discovered IDE already runs the MCP
+     * Steroid plugin (found via the plugin's pid markers). Returns null when no IDE is discovered.
+     */
+    fun newestIdeOrNull(): DiscoveredIde? = newestOf(discoveredIdes())
+
+    private fun discoveredIdes(): List<DiscoveredIde> =
+        stateProvider().values.map { it.ide }.distinctBy { it.pid }
+
+    private fun newestOf(ides: List<DiscoveredIde>): DiscoveredIde? = ides.maxWithOrNull(NEWEST_IDE_FIRST)
 
     private fun projectRoute(idePid: Long, ide: DiscoveredIde, project: ProjectInfo): ProjectRoute {
         val realHome = canonicalProjectHome(project.path)
-        val hash8 = hash8(realHome, idePid)
+        val projectHash = projectHash(realHome, idePid)
         return ProjectRoute(
             idePid = idePid,
             bridgeBaseUrl = bridgeBaseUrl(ide.mcpUrl),
             headers = ide.marker.mcpSteroidServer.headers,
             originalProjectName = project.name,
-            exposedProjectName = "${project.name}-$hash8",
+            exposedProjectName = "${project.name}-$projectHash",
             projectPath = project.path,
             realProjectHome = realHome,
-            hash8 = hash8,
+            projectHash = projectHash,
             ide = ide.marker.ide,
             plugin = ide.marker.plugin,
         )
@@ -112,16 +130,56 @@ class DevrigProjectRoutingService(
     }
 
     companion object {
+        /**
+         * Orders discovered IDEs so the "newest" sorts last (greatest): highest IDE build first,
+         * ties broken by the most recently started IDE, then by pid. Use with [maxWithOrNull].
+         * IDE builds carry a product-code prefix (`IU-261.…`); it is stripped so the numeric build
+         * components drive the comparison rather than the product letters.
+         */
+        private val NEWEST_IDE_FIRST: Comparator<DiscoveredIde> = Comparator { left, right ->
+            val byBuild = compareBackendVersions(
+                stripProductCode(left.marker.ide.build),
+                stripProductCode(right.marker.ide.build),
+            )
+            if (byBuild != 0) return@Comparator byBuild
+            val byCreatedAt = compareValuesBy(left, right) { parseCreatedAtOrMin(it.marker.createdAt) }
+            if (byCreatedAt != 0) return@Comparator byCreatedAt
+            left.pid.compareTo(right.pid)
+        }
+
+        private val PRODUCT_CODE_PREFIX = Regex("^[A-Za-z]+-")
+
+        private fun stripProductCode(build: String): String = build.replaceFirst(PRODUCT_CODE_PREFIX, "")
+
+        private fun parseCreatedAtOrMin(value: String): Instant =
+            try {
+                Instant.parse(value)
+            } catch (e: Exception) {
+                Instant.MIN
+            }
+
         fun canonicalProjectHome(projectHome: String): Path =
             Path.of(projectHome).toRealPath()
 
-        fun hash8(realProjectHome: Path, idePid: Long): String {
+        private const val BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+        fun projectHash(realProjectHome: Path, idePid: Long): String {
             val digest = MessageDigest.getInstance("SHA-256")
             digest.update(realProjectHome.toString().encodeToByteArray())
             digest.update(0.toByte())
             digest.update(idePid.toString().encodeToByteArray())
-            val firstSix = digest.digest().copyOfRange(0, 6)
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(firstSix)
+            // base62 (alphanumeric) over the full digest, first 8 chars. Unlike URL-safe
+            // Base64 the alphabet has no '-'/'_', so the suffix can never contain or end
+            // with '-'; the whole 256-bit digest feeds the result, nothing is truncated first.
+            var value = java.math.BigInteger(1, digest.digest())
+            val base = java.math.BigInteger.valueOf(62L)
+            val sb = StringBuilder(8)
+            repeat(8) {
+                val (q, r) = value.divideAndRemainder(base)
+                sb.append(BASE62[r.toInt()])
+                value = q
+            }
+            return sb.toString()
         }
 
         fun bridgeBaseUrl(mcpUrl: String): String =
@@ -137,16 +195,9 @@ data class ProjectRoute(
     val exposedProjectName: String,
     val projectPath: String,
     val realProjectHome: Path,
-    val hash8: String,
+    val projectHash: String,
     val ide: IdeInfo,
     val plugin: PluginInfo,
-)
-
-data class WindowRoute(
-    val idePid: Long,
-    val exposedWindowId: String,
-    val originalWindowId: String,
-    val projectRoute: ProjectRoute,
 )
 
 class ProjectRouteNotFoundException(projectName: String) : IllegalArgumentException(

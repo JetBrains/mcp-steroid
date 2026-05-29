@@ -10,11 +10,11 @@ class VisionInputToolSpecSchemaTest {
         val schema = spec.inputSchema
         assertToolSpecHasValidJsonSchema(spec)
         assertToolIdentity(spec, "steroid_input")
-        assertRequiredExactly(schema, "project_name", "task_id", "reason", "screenshot_execution_id", "sequence")
+        assertRequiredExactly(schema, "project_name", "task_id", "reason", "window_id", "sequence")
         assertStringProperty(schema, "project_name")
         assertStringProperty(schema, "task_id")
         assertStringProperty(schema, "reason")
-        assertStringProperty(schema, "screenshot_execution_id")
+        assertStringProperty(schema, "window_id")
         assertStringProperty(schema, "sequence")
     }
 }

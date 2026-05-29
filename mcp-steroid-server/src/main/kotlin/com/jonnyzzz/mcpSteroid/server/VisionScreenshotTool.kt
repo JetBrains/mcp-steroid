@@ -1,13 +1,9 @@
 package com.jonnyzzz.mcpSteroid.server
 
-import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
 import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.get
-import com.jonnyzzz.mcpSteroid.mcp.param
-import com.jonnyzzz.mcpSteroid.mcp.string
 import kotlinx.serialization.Serializable
 
 /**
@@ -36,11 +32,9 @@ class VisionScreenshotToolSpec(val handler: () -> VisionScreenshotToolHandler) :
 
     val taskId = CommonToolParams.taskId().registerToSchema()
 
-    val reason = CommonToolParams.auditReason("taking the screenshot").registerToSchema()
+    val reason = CommonToolParams.reason().registerToSchema()
 
-    val windowId = InputSchemaElement.param("window_id")
-        .description("Optional window id from steroid_list_windows to target a specific IDE window.")
-        .string()
+    val windowId = CommonToolParams.windowId()
         .registerToSchema()
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {

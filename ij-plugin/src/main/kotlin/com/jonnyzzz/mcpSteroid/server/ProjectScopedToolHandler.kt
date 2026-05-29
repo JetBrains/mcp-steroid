@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
@@ -14,7 +15,8 @@ import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
  * (which lists all currently-open project names to help the caller
  * correct a typo) so each handler only writes the project-scoped body.
  */
-abstract class ProjectScopedToolHandler {
+@Service(Service.Level.APP)
+class ProjectScopedToolHandler {
     /**
      * Resolve [projectName] against the currently open IDE projects. Throws
      * [ToolCallErrorException] if no project matches — `McpToolRegistry.callTool`
@@ -22,7 +24,7 @@ abstract class ProjectScopedToolHandler {
      * plus the list of currently-open names.
      */
     @Throws(ToolCallErrorException::class)
-    protected suspend fun resolveProject(projectName: String): Project {
+    suspend fun resolveProject(projectName: String): Project {
         val (project, availableNames) = readAction {
             val openProjects = ProjectManager.getInstance().openProjects
             openProjects.find { it.name == projectName } to openProjects.map { it.name }

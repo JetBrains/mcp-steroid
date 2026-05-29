@@ -484,13 +484,12 @@ private fun matchingManagedIds(
     row: BackendRow.FromMarker,
     managedBackends: List<ManagedBackendInfo>,
 ): Set<String> {
-    val rowBuild = normaliseBuildForDedup(row.ide.marker.ide.build)
+    // A marker row carries the real IDE pid, so correlate by pid only. Matching on the (normalised)
+    // build would mis-flag any unrelated IDE that merely shares the build baseline — e.g. a user's
+    // IDEA Ultimate (IU-261.x) getting tagged "managed" because a managed IDEA Community (IC-261.x)
+    // is running. The managed process always writes its own marker, so pid == runningPid is exact.
     return managedBackends
-        .filter { it.state == ManagedBackendState.RUNNING }
-        .filter { managed ->
-            managed.runningPid == row.ide.pid ||
-                (rowBuild != null && rowBuild == normaliseBuildForDedup(managed.buildNumber))
-        }
+        .filter { it.state == ManagedBackendState.RUNNING && it.runningPid == row.ide.pid }
         .map { it.id }
         .toSet()
 }
