@@ -47,7 +47,12 @@ suspend fun fetchVersionInfo(): DevrigVersionInfo? {
     }
 }
 
-suspend fun checkForUpdates() {
+/**
+ * Checks for a newer devrig release. Always reports on stderr (the existing channel);
+ * additionally invokes [onNotice] with the human-readable message so callers can
+ * surface it over MCP (e.g. a `notifications/message` broadcast).
+ */
+suspend fun checkForUpdates(onNotice: (String) -> Unit = {}) {
     val remoteVersion = fetchVersionInfo() ?: return
     val currentVersion = DevrigVersionMetadata.getDevrigVersion()
     if (currentVersion.startsWith(remoteVersion.versionBase)) return
@@ -60,4 +65,5 @@ suspend fun checkForUpdates() {
         appendLine()
     }
     System.err.println(message)
+    onNotice(message)
 }

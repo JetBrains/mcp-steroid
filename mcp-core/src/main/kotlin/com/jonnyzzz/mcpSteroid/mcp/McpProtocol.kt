@@ -245,6 +245,25 @@ data class ProgressParams(
     val message: String? = null,
 )
 
+// ==================== MCP Logging ====================
+
+/**
+ * Build a `notifications/message` (server logging) notification per the
+ * MCP 2025-11-25 "Logging" utility. The server advertises the `logging`
+ * capability and emits these at the requested [level] (we always use
+ * "warning" for update notices). [data] is an arbitrary JSON value — we
+ * pass a plain JSON string carrying the human-readable message.
+ */
+fun loggingMessageNotification(level: String, logger: String, data: JsonElement): JsonRpcNotification =
+    JsonRpcNotification(
+        method = McpMethods.LOGGING_MESSAGE,
+        params = buildJsonObject {
+            put("level", level)
+            put("logger", logger)
+            put("data", data)
+        }
+    )
+
 // ==================== MCP Sampling ====================
 
 /**
@@ -464,6 +483,8 @@ object McpMethods {
     const val RESOURCES_LIST = "resources/list"
     const val RESOURCES_READ = "resources/read"
     const val PROGRESS = "notifications/progress"
+    const val LOGGING_MESSAGE = "notifications/message"
+    const val LOGGING_SET_LEVEL = "logging/setLevel"
     const val TOOLS_LIST_CHANGED = "notifications/tools/list_changed"
     @Suppress("unused")
     const val PROMPTS_LIST_CHANGED = "notifications/prompts/list_changed"

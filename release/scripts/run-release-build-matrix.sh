@@ -126,9 +126,44 @@ select_single_distribution_zip() {
   printf '%s\n' "${matches[0]}"
 }
 
+select_single_devrig_zip() {
+  local dist_dir="$ROOT_DIR/npx-kt/build/distributions"
+  if [[ ! -d "$dist_dir" ]]; then
+    echo "Distribution directory missing after build: $dist_dir" >&2
+    exit 1
+  fi
+
+  shopt -s nullglob
+  # Release builds drop the SNAPSHOT counter, so the devrig zip is named
+  # `devrig-<version>-<gitHash>.zip` (no SNAPSHOT). Exclude SNAPSHOT names so a
+  # stale local dev build sitting in the dir cannot be mistaken for the release zip.
+  local matches=()
+  local f
+  for f in "$dist_dir"/devrig*.zip; do
+    [[ "$f" == *SNAPSHOT* ]] && continue
+    matches+=("$f")
+  done
+  shopt -u nullglob
+
+  if [[ "${#matches[@]}" -ne 1 ]]; then
+    echo "Expected exactly one release devrig ZIP matching devrig*.zip (non-SNAPSHOT) in $dist_dir, found ${#matches[@]}." >&2
+    if [[ "${#matches[@]}" -gt 0 ]]; then
+      echo "Matching ZIP files:" >&2
+      printf '  %s\n' "${matches[@]}" >&2
+    fi
+    echo "Current contents of $dist_dir:" >&2
+    ls -lah "$dist_dir" >&2 || true
+    exit 1
+  fi
+
+  printf '%s\n' "${matches[0]}"
+}
+
 echo "== Stage 1: stable build (product=$STABLE_PRODUCT version=$STABLE_VERSION) =="
+# `:npx-kt:distZip` produces the devrig CLI archive `devrig-<version>-<gitHash>.zip`.
+# Built together with the plugin so both release artifacts come from one commit.
 "${GRADLE_COMMON[@]}" \
-  clean build buildPlugin \
+  clean build buildPlugin :npx-kt:distZip \
   "${GRADLE_STAGE_EXCLUDES[@]}" \
   -Pmcp.release.build=true \
   -Pmcp.platform.product="$STABLE_PRODUCT" \
@@ -140,6 +175,14 @@ stable_zip="$(select_single_distribution_zip)"
 stable_copy="$OUT_DIR/plugin-${STABLE_PRODUCT}-${STABLE_VERSION}.zip"
 cp "$stable_zip" "$stable_copy"
 echo "Stable plugin ZIP saved: $stable_copy"
+
+# Preserve the devrig CLI zip under a deterministic path, mirroring the plugin zip.
+# The basename (e.g. `devrig-0.96-<gitHash>.zip`) is kept so the GitHub release asset
+# carries the version+hash, matching the plugin zip's naming intent.
+devrig_zip="$(select_single_devrig_zip)"
+devrig_copy="$OUT_DIR/$(basename "$devrig_zip")"
+cp "$devrig_zip" "$devrig_copy"
+echo "devrig CLI ZIP saved: $devrig_copy"
 
 echo "== Stage 2: EAP build (product=$EAP_PRODUCT request=$EAP_VERSION resolved=$EAP_VERSION_RESOLVED) =="
 "${GRADLE_COMMON[@]}" \
@@ -167,6 +210,7 @@ cat > "$OUT_DIR/build-summary.txt" <<EOF
 stable_product=$STABLE_PRODUCT
 stable_version=$STABLE_VERSION
 stable_plugin_zip=$stable_copy
+devrig_cli_zip=$devrig_copy
 release_notes_version=$RELEASE_NOTES_VERSION
 release_build_version_format=version+gitHash_no_snapshot
 eap_product=$EAP_PRODUCT

@@ -38,6 +38,13 @@ class McpSession(
     var clientCapabilities: ClientCapabilities? = null
         private set
 
+    /**
+     * Guards the once-per-session `mcp_session_initialized` beacon so a duplicate
+     * `initialize` request does not double-fire the analytics event.
+     */
+    @Volatile
+    var initBeaconFired: Boolean = false
+
     private val notificationChannel = Channel<JsonRpcNotification>(Channel.BUFFERED)
 
     // For server-to-client requests (like sampling)

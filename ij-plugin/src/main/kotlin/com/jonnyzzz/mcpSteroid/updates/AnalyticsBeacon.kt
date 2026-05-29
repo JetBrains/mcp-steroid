@@ -22,7 +22,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
-import org.jetbrains.annotations.TestOnly
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -40,6 +39,7 @@ inline val analyticsBeacon: AnalyticsBeacon get() = service()
  * - exec_code call events (success / error)
  * - execute_feedback events (success rating, explanation summary)
  * - status_score events (0-100 score as dedicated metric)
+ * - mcp_session_initialized events (MCP client + server name/version on handshake)
  *
  * Registry key: mcp.steroid.analytics.enabled (default: true)
  */
@@ -131,8 +131,7 @@ class AnalyticsBeacon(
         capture("status_score", project, enrichedProps)
     }
 
-    @TestOnly
-    fun sendEventInternal(event: String, properties: Map<String, Any>) {
+    internal fun sendEventInternal(event: String, properties: Map<String, Any>) {
         val ph = posthog ?: return
         val appInfo = ApplicationInfo.getInstance()
         val pluginVersion = PluginDescriptorProvider.getInstance().version

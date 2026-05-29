@@ -12,6 +12,7 @@ import java.time.ZoneOffset
 import java.util.UUID
 import kotlin.io.path.readText
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,8 +96,14 @@ class DevrigBeacon(
             opts.timestamp(LocalDateTime.now().toInstant(ZoneOffset.UTC))
 
             scope.launch {
-                ph.capture(distinctId, event, opts.build())
-                ph.flush()
+                try {
+                    ph.capture(distinctId, event, opts.build())
+                    ph.flush()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    log.debug("Beacon send failed. ${e.message}", e)
+                }
             }
         } catch (e: Throwable) {
             log.debug("Beacon capture failed. ${e.message}", e)
@@ -121,7 +128,10 @@ class DevrigBeacon(
 
         val existing = try {
             userIdFile.readText().trim()
-        } catch (_: Throwable) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            log.debug("Failed to read .devrig-user-id: ${e.message}", e)
             ""
         }
 

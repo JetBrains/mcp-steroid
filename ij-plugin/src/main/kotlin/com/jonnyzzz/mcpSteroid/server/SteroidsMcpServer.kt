@@ -11,6 +11,7 @@ import com.jonnyzzz.mcpSteroid.aiAgents.claudeMcpAddCommand
 import com.jonnyzzz.mcpSteroid.mcp.*
 import com.jonnyzzz.mcpSteroid.prompts.generated.McpSteroidInfoPrompt
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
+import com.jonnyzzz.mcpSteroid.updates.analyticsBeacon
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.cio.*
@@ -67,7 +68,21 @@ class SteroidsMcpServer(
             // routes prompts/list + resources/list to empty registries if a client
             // calls them anyway, so misbehaving clients get a clean empty result
             // rather than a method-not-found error.
-        )
+        ),
+        // Fire a once-per-session analytics beacon recording client (agent) + server versions.
+        onSessionInitialized = { session, serverInfo, clientProtocolVersion ->
+            analyticsBeacon.capture(
+                event = "mcp_session_initialized",
+                properties = mapOf(
+                    "client_name" to (session.clientInfo?.name ?: "unknown"),
+                    "client_version" to (session.clientInfo?.version ?: "unknown"),
+                    "client_protocol_version" to clientProtocolVersion,
+                    "server_name" to serverInfo.name,
+                    "server_version" to serverInfo.version,
+                    "mcp_protocol_version" to MCP_PROTOCOL_VERSION,
+                )
+            )
+        }
     )
 
     fun startServerIfNeeded() {

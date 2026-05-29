@@ -19,6 +19,10 @@ RELEASE_EAP_PRODUCT="${RELEASE_EAP_PRODUCT:-idea}"
 RELEASE_EAP_VERSION="${RELEASE_EAP_VERSION:-2026.1}"
 RELEASE_NOTES_FILE="${RELEASE_NOTES_FILE:-}"
 RELEASE_ZIP_FILE="${RELEASE_ZIP_FILE:-$ROOT_DIR/release/out/plugin-${RELEASE_STABLE_PRODUCT}-${RELEASE_STABLE_VERSION}.zip}"
+# devrig CLI zip is named `devrig-<version>-<gitHash>.zip` (Gradle distZip default,
+# matching the plugin zip convention). The git hash is not known until build time, so
+# resolve it by glob from release/out/ at publish time rather than hard-coding the name.
+RELEASE_DEVRIG_ZIP_FILE="${RELEASE_DEVRIG_ZIP_FILE:-}"
 RELEASE_TAG="${RELEASE_TAG:-}"
 RELEASE_TARGET=""
 RELEASE_NOTES_PREVIOUS_TAG=""
@@ -240,6 +244,27 @@ commit_release_notes_if_needed() {
   git commit -m "release: add notes for $VERSION"
 }
 
+resolve_release_devrig_zip() {
+  if [[ -n "$RELEASE_DEVRIG_ZIP_FILE" ]]; then
+    return 0
+  fi
+  shopt -s nullglob
+  local matches=()
+  local f
+  for f in "$ROOT_DIR"/release/out/devrig*.zip; do
+    [[ "$f" == *SNAPSHOT* ]] && continue
+    matches+=("$f")
+  done
+  shopt -u nullglob
+  if [[ "${#matches[@]}" -eq 1 ]]; then
+    RELEASE_DEVRIG_ZIP_FILE="${matches[0]}"
+  elif [[ "${#matches[@]}" -gt 1 ]]; then
+    echo "Multiple devrig ZIPs in release/out/; set RELEASE_DEVRIG_ZIP_FILE explicitly:" >&2
+    printf '  %s\n' "${matches[@]}" >&2
+    exit 1
+  fi
+}
+
 validate_publish_inputs() {
   if [[ "$RUN_PUBLISH" != "1" ]]; then
     return 0
@@ -250,6 +275,12 @@ validate_publish_inputs() {
   fi
   if [[ ! -f "$RELEASE_ZIP_FILE" ]]; then
     echo "Missing plugin ZIP for publish stage: $RELEASE_ZIP_FILE" >&2
+    exit 1
+  fi
+  resolve_release_devrig_zip
+  if [[ -z "$RELEASE_DEVRIG_ZIP_FILE" || ! -f "$RELEASE_DEVRIG_ZIP_FILE" ]]; then
+    echo "Missing devrig CLI ZIP for publish stage: ${RELEASE_DEVRIG_ZIP_FILE:-<none in release/out/>}" >&2
+    echo "Build it first (run-release-build-matrix.sh builds :npx-kt:distZip into release/out/)." >&2
     exit 1
   fi
 }
@@ -344,6 +375,7 @@ echo "  release_notes_file=$RELEASE_NOTES_FILE"
 echo "  release_notes_previous_tag=${RELEASE_NOTES_PREVIOUS_TAG:-none}"
 echo "  release_notes_commit_range=$RELEASE_NOTES_COMMIT_RANGE"
 echo "  release_zip_file=$RELEASE_ZIP_FILE"
+echo "  release_devrig_zip_file=${RELEASE_DEVRIG_ZIP_FILE:-<resolved at publish time>}"
 
 if [[ "$RUN_NOTES" == "1" ]]; then
   run_release_notes_agents
@@ -364,8 +396,10 @@ if [[ "$RUN_PUBLISH" == "1" ]]; then
   # Resolve publish target from the website (public) repo
   PUBLISH_TARGET="$(git -C "$ROOT_DIR/website" rev-parse HEAD)"
 
-  # gh uses the source filename as the asset name — EULA is uploaded as "EULA"
-  gh release create "$RELEASE_TAG" "$RELEASE_ZIP_FILE" "$ROOT_DIR/EULA" \
+  # gh uses the source filename as the asset name — EULA is uploaded as "EULA",
+  # the plugin zip as mcp-steroid-<version>-<hash>.zip, and the devrig CLI zip as
+  # devrig-<version>-<hash>.zip.
+  gh release create "$RELEASE_TAG" "$RELEASE_ZIP_FILE" "$RELEASE_DEVRIG_ZIP_FILE" "$ROOT_DIR/EULA" \
     --repo jonnyzzz/mcp-steroid \
     --target "$PUBLISH_TARGET" \
     --notes-file "$RELEASE_NOTES_FILE"

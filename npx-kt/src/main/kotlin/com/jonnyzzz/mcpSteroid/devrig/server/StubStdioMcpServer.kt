@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig.server
 
+import com.jonnyzzz.mcpSteroid.mcp.MCP_PROTOCOL_VERSION
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.mcp.McpStdioServer
 import com.jonnyzzz.mcpSteroid.mcp.ServerCapabilities
@@ -8,6 +9,7 @@ import com.jonnyzzz.mcpSteroid.mcp.ServerInfo
 import com.jonnyzzz.mcpSteroid.mcp.ToolsCapability
 import com.jonnyzzz.mcpSteroid.devrig.DevrigServices
 import com.jonnyzzz.mcpSteroid.devrig.DevrigVersionMetadata
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Boot a real MCP stdio server inside the devrig CLI process.
@@ -26,7 +28,11 @@ import com.jonnyzzz.mcpSteroid.devrig.DevrigVersionMetadata
  * not the JVM globals after main has already routed `System.out` to stderr.
  * Suspends until [DevrigServices.mcpStdin] reaches EOF.
  */
-suspend fun runStubStdioMcpServer(services: DevrigServices) {
+suspend fun runStubStdioMcpServer(
+    services: DevrigServices,
+    /** Invoked with the live [McpServerCore] once built, before the transport loop starts. */
+    onServerReady: (McpServerCore) -> Unit = {},
+) {
     val server = McpServerCore(
         serverInfo = ServerInfo(
             name = "devrig",
@@ -34,8 +40,27 @@ suspend fun runStubStdioMcpServer(services: DevrigServices) {
         ),
         capabilities = ServerCapabilities(
             tools = ToolsCapability(listChanged = true),
+            // Advertise `logging` so clients accept our `notifications/message`
+            // "update available" notices delivered over the stdio transport.
+            logging = JsonObject(emptyMap()),
         ),
+        // Fire a once-per-session analytics beacon recording client (agent) + server versions.
+        onSessionInitialized = { session, serverInfo, clientProtocolVersion ->
+            services.beacon.capture(
+                event = "mcp_session_initialized",
+                properties = mapOf(
+                    "client_name" to (session.clientInfo?.name ?: "unknown"),
+                    "client_version" to (session.clientInfo?.version ?: "unknown"),
+                    "client_protocol_version" to clientProtocolVersion,
+                    "server_name" to serverInfo.name,
+                    "server_version" to serverInfo.version,
+                    "mcp_protocol_version" to MCP_PROTOCOL_VERSION,
+                )
+            )
+        },
     )
+
+    onServerReady(server)
 
     val tools = StubMcpSteroidTools(services)
     tools.registerAll(server)

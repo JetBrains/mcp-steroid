@@ -161,6 +161,10 @@ tasks.jar {
     archiveBaseName.set("devrig")
 }
 
+// Release artifact name is `devrig-<version>.zip` — e.g. `devrig-0.96-<gitHash>.zip`,
+// matching the plugin zip's `mcp-steroid-<version>-<hash>.zip` convention. This is
+// exactly Gradle's default `<archiveBaseName>-<version>` form, so only the base name
+// is overridden.
 tasks.distZip {
     archiveBaseName.set("devrig")
 }

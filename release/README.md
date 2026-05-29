@@ -24,18 +24,23 @@ For a quick release without the full Docker build matrix, use Claude Code agents
 
 1. **Bump version**: Edit `VERSION` in both main repo root and `website/VERSION`, commit both.
 2. **Collect release notes**: Write `release/notes/<version>.md`.
-3. **Build**: `./gradlew clean :ij-plugin:buildPlugin -Pmcp.release.build=true -Pmcp.release.notes.version=<version> -x :test-integration:test`
+3. **Build**: `./gradlew clean :ij-plugin:buildPlugin :npx-kt:distZip -Pmcp.release.build=true -Pmcp.release.notes.version=<version> -x :test-integration:test`
+   (builds the plugin zip **and** the devrig CLI zip `npx-kt/build/distributions/devrig-<version>-<gitHash>.zip` from the same commit)
 4. **Publish to GitHub** (on the public repo `jonnyzzz/mcp-steroid`):
    ```bash
    # Create release targeting the public repo commit
    gh release create "v<version>" \
      ij-plugin/build/distributions/mcp-steroid-*.zip \
+     npx-kt/build/distributions/devrig*-*.zip \
      EULA \
      --repo jonnyzzz/mcp-steroid \
      --target "$(git -C website rev-parse HEAD)" \
      --title "<version>" \
      --notes-file release/notes/<version>.md
    ```
+   Glob caveat: `devrig*-*.zip` also matches stale local dev builds
+   (`devrig-<version>.19999-SNAPSHOT-<hash>.zip`). Ensure a clean `build/distributions`
+   (the `clean` in step 3 handles this) or name the release zip explicitly.
    **EULA handling**: The `gh` CLI uses the source filename as the asset name. The root `EULA` file is uploaded directly.
 5. **Upload to JetBrains Marketplace**:
    ```bash
@@ -71,6 +76,7 @@ Release notes workflow:
 - Build injects this file into plugin `change-notes` metadata (plugin.xml patch)
 
 Stable plugin artifact path: `release/out/plugin-idea-2025.3.1.zip`
+devrig CLI artifact path: `release/out/devrig-<version>-<gitHash>.zip` (basename preserved from `:npx-kt:distZip`)
 
 EAP build selection:
 

@@ -12,6 +12,13 @@ class McpServerCore(
     val serverInfo: ServerInfo,
     private val capabilities: ServerCapabilities,
     private val instructions: String? = null,
+    /**
+     * Invoked exactly once per session right after a successful `initialize`,
+     * carrying the just-initialized [McpSession], this server's [ServerInfo],
+     * and the client's requested protocol version. Used for a one-time
+     * analytics beacon. Platform-agnostic — no IntelliJ types.
+     */
+    private val onSessionInitialized: (session: McpSession, serverInfo: ServerInfo, clientProtocolVersion: String) -> Unit = { _, _, _ -> },
 ) {
     private val log = thisLogger()
     val sessionManager = McpSessionManager()
@@ -168,6 +175,7 @@ class McpServerCore(
             McpMethods.PROMPTS_GET -> handlePromptsGet(id, params)
             McpMethods.RESOURCES_LIST -> handleResourcesList(id)
             McpMethods.RESOURCES_READ -> handleResourcesRead(id, params)
+            McpMethods.LOGGING_SET_LEVEL -> handleLoggingSetLevel(id)
             else -> encodeError(id, JsonRpcErrorCodes.METHOD_NOT_FOUND, "Method not found: $method")
         }
     }
@@ -195,6 +203,18 @@ class McpServerCore(
 
         session.markInitialized(initParams.clientInfo, initParams.capabilities)
 
+        // Fire the once-per-session initialization beacon. Guard against a duplicate
+        // `initialize` double-firing it, and never let a beacon error break the
+        // initialize handshake.
+        if (!session.initBeaconFired) {
+            session.initBeaconFired = true
+            try {
+                onSessionInitialized(session, serverInfo, initParams.protocolVersion)
+            } catch (e: Exception) {
+                log.warn("onSessionInitialized beacon failed", e)
+            }
+        }
+
         val result = InitializeResult(
             protocolVersion = MCP_PROTOCOL_VERSION,
             capabilities = capabilities,
@@ -206,6 +226,15 @@ class McpServerCore(
     }
 
     private fun handlePing(id: JsonElement): String {
+        return encodeResult(id, buildJsonObject {  })
+    }
+
+    /**
+     * `logging/setLevel` — we accept the request and return an empty result so
+     * compliant clients don't error. We always emit logging notifications at
+     * "warning" regardless of the requested level.
+     */
+    private fun handleLoggingSetLevel(id: JsonElement): String {
         return encodeResult(id, buildJsonObject {  })
     }
 
@@ -304,5 +333,19 @@ class McpServerCore(
     fun notifyToolsListChanged() {
         val notification = JsonRpcNotification(method = McpMethods.TOOLS_LIST_CHANGED)
         sessionManager.getAllSessions().forEach { it.sendNotification(notification) }
+    }
+
+    /**
+     * Broadcast a `notifications/message` (server logging) notification to all
+     * initialized sessions. Used to deliver "update available" notices over a
+     * transport that drains notifications continuously (devrig stdio). The
+     * HTTP/plugin transport has no out-of-band server→client channel and does
+     * not use this — the plugin surfaces updates via its own IDE notification.
+     */
+    fun broadcastLogMessage(level: String, logger: String, data: JsonElement) {
+        val notification = loggingMessageNotification(level, logger, data)
+        sessionManager.getAllSessions()
+            .filter { it.initialized }
+            .forEach { it.sendNotification(notification) }
     }
 }
