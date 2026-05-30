@@ -244,6 +244,33 @@ transport) was completely untested on TC:
   Win/Mac too — we proved devrig runs on Windows). The Docker integration leg
   stays Linux-only.
 
+## Official CI on jb/main (0.96) — 2026-05-30
+
+Pushed jb/main `0373b901` (devrig JDK-25 test fixes + P2 + ciDevrigTests + JDK-25
+docs) and triggered the full OFFICIAL matrix via the `~/.teamcity` token. Results:
+- **BuildPlugin** ✅, **ij-plugin test Linux** ✅ (795), **Windows** ✅ (791).
+- **test-integration** — the devrig stdio tests (`DevrigAgent*`, `DevrigRealIdeBridge`)
+  now **PASS** (the JDK-25 container-wrapper fix landed; they were the pre-existing
+  red). Only `CliGeminiIntegrationTest` ×6 fail — the documented **no-GEMINI_API_KEY**
+  case (`AssumptionViolatedException`); surfaces as FAILURE rather than skipped under
+  JUnit5, but it's the known Gemini exception, not a release blocker.
+- **DevrigTest** (new devrig coverage) — went 14 fails → **1254 pass / 1 fail** after
+  the task-level `JAVA_HOME=25` fix (all `CliOptions*` + stdout-cleanliness + fake-IDE
+  now green). Remaining: **P9** below.
+- **Mac ij-plugin** — still the **P7** Maven 429; retried with 30-min waits.
+
+### P9 — `BackendManagerStartStopTest."stop force kills…"` fragile on Linux/CI (follow-up, not a blocker)
+
+First time `:npx-kt:test` runs on CI (via the new DevrigTest). One unit test fails
+`expected <killed> but was <stale>`. Root cause: `sleepyLauncher()` is `sh` + a bare
+`sleep 60` (no `exec`); Debian's **dash** exec-optimizes the last simple command into
+`sleep`, so SIGTERM with `stopGracePeriodMillis=0` terminates it before the force-kill
+path → `stale` instead of `killed`. Passes on macOS `sh` locally. **Not a product bug
+(the BackendManager stop logic is fine) and not caused by the 0.96 changes** — a stub-
+process/shell-behavior assumption that isn't robust on Linux dash. Fix later: make the
+stub hold the pid deterministically (`exec sleep` / a TERM-ignoring loop) or assert the
+manager's force-kill path without depending on dash's exec timing.
+
 ## Open / pending
 
 - **TeamCity (now accessible)** — project `mcp_steroid` ("Agentic Experience

@@ -165,7 +165,10 @@ class CliMcpStdioFakeIdeIntegrationTest {
     }
 
     private fun waitForProjectName(): String {
-        repeat(40) {
+        // ~30s budget (120 * 250ms). devrig's marker discovery scans every 2s and the
+        // devrig JVM-25 subprocess startup + first bridge snapshot can intermittently
+        // exceed a tight 10s window on a loaded CI agent (flaky timeout, passes on rerun).
+        repeat(120) {
             val result = toolCall("steroid_list_projects", buildJsonObject {})
             val text = result["content"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content
                 ?: error("list_projects result missing text content: $result")

@@ -310,9 +310,17 @@ class BackendManagerStartStopTest {
         """.trimIndent() + "\n"
 
     private fun sleepyLauncher(): String =
+        // A process that deliberately does NOT exit on SIGTERM, so `stop` with a 0ms grace
+        // period is forced down the SIGKILL path and reports "killed". A bare `sleep 60`
+        // is wrong here: `sleep` terminates on SIGTERM, and Debian's dash exec-optimizes a
+        // single trailing command into the `sleep` process, so on Linux the SIGTERM kills
+        // it before the force-kill path runs -> outcome "stale" instead of "killed" (flaky
+        // across macOS sh vs Linux dash). Ignore TERM/INT and loop so liveness is
+        // deterministic on every platform.
         """
         #!/usr/bin/env sh
-        sleep 60
+        trap '' TERM INT
+        while true; do sleep 1; done
         """.trimIndent() + "\n"
 
     private fun noisyLauncher(): String =
