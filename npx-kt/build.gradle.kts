@@ -177,6 +177,76 @@ tasks.startScripts {
     doFirst {
         outputDir?.deleteRecursively()
     }
+    doLast {
+        // Backport generic devrig knobs into devrig's OWN launchers (unix + windows), not the test harness:
+        //  - DEVRIG_JAVA_HOME overrides JAVA_HOME — devrig is class-file v69 (jvmToolchain 25) and must
+        //    launch on Java 25; this lets a caller point devrig at a Java 25 without touching the caller's
+        //    JAVA_HOME (e.g. an environment whose default `java` is older).
+        //  - DEVRIG_JVM_OPTS appends JVM options for the devrig launch (folded into the Gradle app opts
+        //    var DEVRIG_OPTS, which both launchers already pass to the JVM).
+        // Both are generic + non-breaking — applied only when set; the standard resolution is otherwise
+        // untouched. Fail-fast if a Gradle template marker moves, so we never ship the default unpatched.
+
+        // Unix launcher (bin/devrig): inject before the standard Java-command resolution.
+        run {
+            val marker = "# Determine the Java command to use to start the JVM."
+            val text = unixScript.readText()
+            require(text.contains(marker)) {
+                "devrig unix start-script template changed: injection marker not found in ${unixScript.absolutePath}."
+            }
+            val inject = buildString {
+                appendLine("# devrig: Java 25 (class-file v69). DEVRIG_JAVA_HOME overrides JAVA_HOME; DEVRIG_JVM_OPTS")
+                appendLine("# appends JVM options. Both only when set; the caller's environment is left untouched.")
+                appendLine("if [ -n \"\${DEVRIG_JAVA_HOME:-}\" ] ; then JAVA_HOME=\"\$DEVRIG_JAVA_HOME\" ; fi")
+                appendLine("if [ -n \"\${DEVRIG_JVM_OPTS:-}\" ] ; then DEVRIG_OPTS=\"\${DEVRIG_OPTS:-} \$DEVRIG_JVM_OPTS\" ; fi")
+                appendLine("# DEVRIG_DEBUG: attach a JDWP agent on a FREE port from the 100-port range 23900-23999,")
+                appendLine("# seeded by this process's PID so multiple concurrent devrig processes don't clash on a port")
+                appendLine("# (a clash would crash the JVM with \"Address already in use\"). quiet=y keeps the agent's")
+                appendLine("# listening line OFF stdout (the MCP JSON-RPC channel); suspend=n so devrig never waits for a")
+                appendLine("# debugger. The free-port probe needs bash (/dev/tcp); without bash we fall back to the")
+                appendLine("# PID-seeded base port. The chosen port is announced on stderr only.")
+                appendLine("if [ -n \"\${DEVRIG_DEBUG:-}\" ] ; then")
+                appendLine("    DEVRIG_DEBUG_PORT=\"\"")
+                appendLine("    if command -v bash >/dev/null 2>&1 ; then")
+                appendLine("        DEVRIG_DEBUG_PORT=\$(DR_PID=\$\$ bash -c 'b=23900;r=100;o=\$((DR_PID%r));i=0;while [ \$i -lt \$r ];do p=\$((b+(o+i)%r));if ! (exec 3<>\"/dev/tcp/127.0.0.1/\$p\") 2>/dev/null;then echo \$p;exit 0;fi;exec 3>&- 2>/dev/null||true;i=\$((i+1));done;echo \$((b+o))')")
+                appendLine("    fi")
+                appendLine("    [ -n \"\$DEVRIG_DEBUG_PORT\" ] || DEVRIG_DEBUG_PORT=\$((23900 + \$\$ % 100))")
+                appendLine("    DEVRIG_OPTS=\"\${DEVRIG_OPTS:-} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,quiet=y,address=*:\$DEVRIG_DEBUG_PORT\"")
+                appendLine("    echo \"devrig: JDWP debug listening on port \$DEVRIG_DEBUG_PORT (DEVRIG_DEBUG set)\" >&2")
+                appendLine("fi")
+                appendLine()
+                append(marker)
+            }
+            unixScript.writeText(text.replaceFirst(marker, inject))
+        }
+
+        // Windows launcher (devrig.bat): inject before the standard JAVA_HOME check.
+        run {
+            val marker = "if defined JAVA_HOME goto findJavaFromJavaHome"
+            val text = windowsScript.readText()
+            require(text.contains(marker)) {
+                "devrig windows start-script template changed: injection marker not found in ${windowsScript.absolutePath}."
+            }
+            val inject = buildString {
+                appendLine("@rem devrig: DEVRIG_JAVA_HOME overrides JAVA_HOME; DEVRIG_JVM_OPTS appends JVM options. Only when set.")
+                appendLine("if not \"%DEVRIG_JAVA_HOME%\"==\"\" set \"JAVA_HOME=%DEVRIG_JAVA_HOME%\"")
+                appendLine("if not \"%DEVRIG_JVM_OPTS%\"==\"\" set \"DEVRIG_OPTS=%DEVRIG_OPTS% %DEVRIG_JVM_OPTS%\"")
+                appendLine("@rem DEVRIG_DEBUG: attach a JDWP agent on a FREE port from the 100-port range 23900-23999,")
+                appendLine("@rem PID-seeded (via PowerShell) so concurrent devrig processes don't clash on a port. quiet=y")
+                appendLine("@rem keeps the agent's listening line off stdout (the MCP JSON-RPC channel); suspend=n so devrig")
+                appendLine("@rem never waits for a debugger.")
+                // Set DEVRIG_OPTS INSIDE the for/f loop using the loop var %%P. Doing it via an
+                // intermediate %DEVRIG_DEBUG_PORT% + a nested `if` inside the parenthesised block fails:
+                // batch expands %DEVRIG_DEBUG_PORT% at block-PARSE time (before the for/f sets it), so the
+                // opt was never applied (validated on Windows). %%P is the loop value, expanded per-iteration.
+                appendLine("if not \"%DEVRIG_DEBUG%\"==\"\" (")
+                appendLine("    for /f \"usebackq tokens=*\" %%P in (`powershell -NoProfile -Command \"\$b=23900;\$r=100;\$o=[System.Diagnostics.Process]::GetCurrentProcess().Id %% \$r;for(\$i=0;\$i -lt \$r;\$i++){\$p=\$b+((\$o+\$i) %% \$r);try{\$l=New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any,\$p);\$l.Start();\$l.Stop();Write-Output \$p;break}catch{}}\"`) do set \"DEVRIG_OPTS=%DEVRIG_OPTS% -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,quiet=y,address=*:%%P\"")
+                appendLine(")")
+                append(marker)
+            }
+            windowsScript.writeText(text.replaceFirst(marker, inject))
+        }
+    }
 }
 
 // Provider<File> for the resolved plugin zip — derived from `Configuration.elements`
@@ -240,6 +310,8 @@ tasks.test {
     // Hand the build's project.version through to DevrigVersionMetadataTest so it can
     // end-to-end-assert the generated runtime value.
     systemProperty("devrig.expected.version", version.toString())
+    // Unit tests must never reach PostHog over the network (DevrigBeacon).
+    systemProperty("devrig.beacon.disabled", "true")
 }
 
 kotlin {

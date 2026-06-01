@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeDistribution
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeProduct
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -16,12 +17,11 @@ class PyCharmMcpExecutionIntegrationTest {
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
     fun `kotlin execute_code works in PyCharm lane`() = runWithCloseableStack { lifetime ->
-        val session = IntelliJContainer.create(
-            lifetime,
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             "pycharm-agent",
             consoleTitle = "pycharm-mcp-execution",
             distribution = IdeDistribution.Latest(IdeProduct.PyCharm),
-        )
+        ))
 
         session.mcpSteroid.mcpExecuteCode(
             code = """

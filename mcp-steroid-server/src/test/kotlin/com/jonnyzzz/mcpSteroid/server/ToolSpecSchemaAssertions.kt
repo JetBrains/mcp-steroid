@@ -103,6 +103,16 @@ fun assertIntegerProperty(schema: JsonObject, propertyName: String): JsonObject 
 fun assertBooleanProperty(schema: JsonObject, propertyName: String): JsonObject =
     assertTypedProperty(schema, propertyName, "boolean")
 
+/** Asserts a string property exposes exactly [values] (in order) as its JSON-schema `enum`. */
+fun assertEnumProperty(schema: JsonObject, propertyName: String, vararg values: String): JsonObject {
+    val prop = assertStringProperty(schema, propertyName)
+    val enumArray = prop["enum"] as? JsonArray
+        ?: error("inputSchema.properties.\"$propertyName\".enum is missing or not an array")
+    val actual = enumArray.map { (it as JsonPrimitive).contentOrNull }
+    assertEquals(values.toList(), actual, "properties.$propertyName.enum")
+    return prop
+}
+
 /**
  * Asserts a property has `type:"number"` with optional `minimum`/`maximum` bounds.
  * Pass `null` for an unbounded edge.

@@ -27,7 +27,7 @@ fun markerBackendIdentityJson(ide: DiscoveredIde): JsonObject = buildJsonObject 
     put("build", ide.marker.ide.build)
     put("buildNumber", ide.marker.ide.build)
     put("pid", ide.pid)
-    put("mcpUrl", ide.mcpUrl)
+    put("rpcBaseUrl", ide.rpcBaseUrl)
 }
 
 private fun ideNameWithVersion(name: String, version: String): String {

@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.execution.ExecutionResultBuilder
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
+import com.jonnyzzz.mcpSteroid.server.ModalMode
 import com.jonnyzzz.mcpSteroid.server.SteroidsMcpServer
 
 /**
@@ -103,13 +104,15 @@ fun testExecParams(
     taskId: String = "test-task",
     reason: String = "test",
     timeout: Int = 60,
-    cancelOnModal: Boolean = false
+    // Tests default to `unleashed` (no pre-flight modality work) — closest to the old test default
+    // and minimal; tests that exercise the modal handling pass `modal` explicitly.
+    modal: ModalMode = ModalMode.UNLEASHED,
 ) = ExecCodeParams(
     taskId = taskId,
     code = code,
     reason = reason,
     timeout = timeout,
-    cancelOnModal = cancelOnModal,
+    modal = modal,
 )
 
 

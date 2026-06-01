@@ -226,8 +226,10 @@ println(String(appProps.contentsToByteArray(), appProps.charset))
 
 ```kotlin
 // IDE utilities:
-waitForSmartMode()                        // Wait for indexing (called automatically before script)
-doNotCancelOnModalityStateChange()        // Disable auto-cancel on modal dialogs
+waitForSmartMode()                        // Wait for indexing; asserts non-modal (auto under modal=smart_non_modal)
+closeModalDialogs()                       // Close leftover modal dialogs now (returns count; auto under smart_non_modal)
+allowModalDialog()                        // About to open a dialog on purpose — don't let the monitor close/fail it
+syncDocuments()                           // Commit + save documents + refresh VFS (auto under smart_non_modal)
 
 // Check if editor highlighting has completed for a file:
 val buildFile = findProjectFile("build.gradle.kts")

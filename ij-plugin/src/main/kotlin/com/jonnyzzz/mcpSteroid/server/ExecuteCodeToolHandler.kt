@@ -42,7 +42,10 @@ class ExecuteCodeToolHandlerIJ : ExecuteCodeToolHandler {
 }
 
 internal object ExecuteCodeBuildAbortGuidance {
-    private const val CLAUDE_FETCH_RESOURCE_TOOL = "mcp__mcp-steroid__steroid_fetch_resource"
+    // Refer to the tool by its DECLARED name. The `mcp__<server>__<tool>` form is an agent-specific
+    // encoding of the MCP server id + tool (Claude Code), not something we should bake into guidance the
+    // server emits to every agent — each agent maps the declared name to its own internal handle.
+    private const val FETCH_RESOURCE_TOOL = "steroid_fetch_resource"
 
     private val abortedWithoutErrorsPattern = Regex(
         pattern = """(?im)\b(?:Build|Compile)\s+errors:\s*false,\s*aborted:\s*true\b"""
@@ -61,7 +64,7 @@ internal object ExecuteCodeBuildAbortGuidance {
 
         val resourceTarget = resourceTargetText(projectBasePath)
         return "REQUIRED ACTION: IDE build was aborted without compiler errors. " +
-            "NEXT TOOL CALL must be $CLAUDE_FETCH_RESOURCE_TOOL with URI $resourceTarget before using Bash. " +
+            "NEXT TOOL CALL must be $FETCH_RESOURCE_TOOL with URI $resourceTarget before using Bash. " +
             "Then run the fetched sync/configuration pattern and retry the IDE build/test. " +
             "Use Bash only if sync fails or times out."
     }

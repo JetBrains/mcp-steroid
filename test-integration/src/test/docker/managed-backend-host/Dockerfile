@@ -9,3 +9,8 @@ FROM ${BASE_IMAGE}
 
 USER agent
 WORKDIR /home/agent
+
+# Pre-create devrig's home (`~/.mcp-steroid`, agent-owned). The test bind-mounts ONLY its `logs`
+# subdir out to the host run-dir; pre-creating the parent here means that nested mount doesn't leave a
+# root-owned `~/.mcp-steroid`, so devrig (run as `agent`) can still create downloads/markers/backends.
+RUN mkdir -p /home/agent/.mcp-steroid

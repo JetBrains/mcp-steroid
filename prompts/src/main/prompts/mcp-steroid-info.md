@@ -1,5 +1,14 @@
 MCP Steroid — a drop-in replacement for LSP that gives you full IntelliJ IDE control.
 
+**To see, inspect, or control the IntelliJ IDEA IDE, you MUST use the `steroid_*` MCP tools** —
+`steroid_list_projects`, `steroid_execute_code`, `steroid_list_windows`, `steroid_take_screenshot`,
+`steroid_fetch_resource`, and friends. These tools *are* your access to the IDE: the IntelliJ IDE is
+running and connected for you right now. If the `steroid_*` tools are **not visible** in your tool list,
+your client has **deferred their schemas** (Claude Code does this) — load them with `ToolSearch` (or your
+client's equivalent) **before you answer**. **Never report that you have "no IDE access", and never fall
+back to the shell or to `Read`/`Grep`/`Edit`, until you have loaded the `steroid_*` tools and actually
+tried them** — the IDE is there; the tools just need loading first.
+
 This is a **STATEFUL** API — every call changes the IDE state. The IntelliJ IDE is running exclusively for you. Use it aggressively instead of manual file operations or shell commands.
 
 **File edits: always through MCP Steroid, even when Edit looks cheaper on tokens.** The native `Edit` tool writes to disk bypassing IntelliJ. VFS + PSI + search indices go stale, and the next semantic operation (find-references, rename, hierarchy search, inspections) returns inconsistent results until something forces a refresh. The 5-line `VfsUtil.saveText` recipe in `steroid_execute_code`'s tool description reads+writes in one call with auto-refresh; its 1.5–2.5× token overhead is cheaper than the debugging turns you spend when PSI disagrees with disk. This applies to every edit size, including 1–3 line changes.
@@ -8,6 +17,15 @@ This is a **STATEFUL** API — every call changes the IDE state. The IntelliJ ID
 1. Call `steroid_list_projects` to see what's open
 2. Use `steroid_fetch_resource` to read the `mcp-steroid://` skill guide for your task
 3. Use `steroid_execute_code` for any IDE automation task (including every file edit)
+
+**Modality — the `modal` option on `steroid_execute_code`.** By default (`modal=smart_non_modal`) the call
+closes stray modal dialogs, requires a non-modal IDE, commits/saves documents + refreshes the VFS, and waits
+for indexing — all before your script — then closes any modal dialog that appears during the run and fails
+the call with diagnostics. This is the safe choice for any PSI / editing / build / test work. `non_modal`
+only asserts a non-modal start; `unleashed` does no sweep/checks at all (intentional modal-dialog workflows
+or trivial non-PSI actions only). Finer control (`closeModalDialogs()`, `monitorAndCloseModalDialogs()`,
+`allowModalDialog()`, `syncDocuments()`, `waitForSmartMode()`) lives in the script-context methods. See
+`mcp-steroid://skill/execute-code-tool-description`.
 
 **Design philosophy in one breath.** The MCP tool surface is small **on purpose** — power lives in `mcp-steroid://` recipes that teach you to call IntelliJ's APIs directly inside `steroid_execute_code`. `McpScriptContext` stays narrow. Don't expect new `steroid_*` tools or new context methods; expect richer recipes. Fetch `mcp-steroid://skill/design-philosophy` once if you're new here.
 

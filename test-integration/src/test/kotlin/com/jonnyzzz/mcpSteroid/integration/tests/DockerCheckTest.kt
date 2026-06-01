@@ -2,7 +2,10 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -26,10 +29,12 @@ class DockerCheckTest {
         val session by lazy {
             IntelliJContainer.create(
                 lifetime,
-                "ide-agent",
-                consoleTitle = "Docker Check",
-                mountDockerSocket = true,
-            ).waitForProjectReady()
+                IntelliJContainerOpts(
+                    consoleTitle = "Docker Check",
+                    mountDockerSocket = true,
+                    // Docker-socket check doesn't need project content — EmptyProject = fast startup.
+                    project = IntelliJProject.EmptyProject,
+                )).waitForProjectReady()
         }
 
         @AfterAll
@@ -44,7 +49,7 @@ class DockerCheckTest {
     fun `docker socket availability check via exec_code`() {
         val console = session.console
 
-        console.writeStep(1, "Checking Docker socket availability via exec_code")
+        console.writeStep("Checking Docker socket availability via exec_code")
         val result = session.mcpSteroid.mcpExecuteCode(
             code = """
                 val dockerOk = java.io.File("/var/run/docker.sock").exists()

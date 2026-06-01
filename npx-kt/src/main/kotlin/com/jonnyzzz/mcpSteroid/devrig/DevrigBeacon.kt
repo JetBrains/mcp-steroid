@@ -32,6 +32,8 @@ class DevrigBeacon(
     private val scope = CoroutineScope(CoroutineName("DevrigBeacon") + Dispatchers.IO + job)
 
     private val posthog by lazy {
+        // Opt-out for unit tests (set in :npx-kt:test) so they never reach PostHog over the network.
+        if (System.getProperty("devrig.beacon.disabled") == "true") return@lazy null
         try {
             val config = PostHogConfig
                 .builder("phc_IPtbjwwy9YIGg0YNHNxYBePijvTvHEcKAjohah6obYW")
@@ -75,7 +77,20 @@ class DevrigBeacon(
             null -> null
         } ?: return
 
-        capture("devrig_started", mapOf("mode" to mode))
+        capture("started", mapOf("mode" to mode))
+    }
+
+    /**
+     * Capture a status score event (0-100) — the devrig mirror of the ij-plugin's `ide_status_score`.
+     * [context] records where the score came from (e.g. "feedback").
+     */
+    fun captureScore(score: Int, context: String, properties: Map<String, Any> = emptyMap()) {
+        require(score in 0..100) { "Score must be between 0 and 100, got: $score" }
+        val enriched = LinkedHashMap<String, Any>()
+        enriched.putAll(properties)
+        enriched["score"] = score
+        enriched["context"] = context
+        capture("status_score", enriched)
     }
 
     fun capture(event: String, properties: Map<String, Any> = emptyMap()) {
@@ -97,7 +112,8 @@ class DevrigBeacon(
 
             scope.launch {
                 try {
-                    ph.capture(distinctId, event, opts.build())
+                    // Mirror the ij-plugin's "ide_" namespace: every devrig analytics event is "devrig_<event>".
+                    ph.capture(distinctId, "devrig_$event", opts.build())
                     ph.flush()
                 } catch (e: CancellationException) {
                     throw e
@@ -115,7 +131,7 @@ class DevrigBeacon(
             while (isActive) {
                 yield()
                 delay(30.minutes)
-                capture("cmd_heartbeat")
+                capture("heartbeat")
             }
         }
     }
@@ -127,7 +143,9 @@ class DevrigBeacon(
         }
 
         val existing = try {
-            userIdFile.readText().trim()
+            // A missing file is the normal first-run / managed case — handled silently by generating a
+            // fresh id below. Only a genuine read error (permissions, corruption) is worth logging.
+            if (Files.exists(userIdFile)) userIdFile.readText().trim() else ""
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {

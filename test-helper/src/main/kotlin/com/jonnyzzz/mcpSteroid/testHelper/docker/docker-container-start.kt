@@ -90,7 +90,7 @@ fun startDockerContainerAndForget(
 
         request.ports.forEach { p ->
             add("-p")
-            add("0:${p.containerPort}")
+            add(p.dockerPublishSpec())
         }
 
         add(imageId)

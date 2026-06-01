@@ -23,6 +23,11 @@ class OcrMetadataProvider : ScreenshotMetadataProvider {
 
     override val type: String = TYPE
 
+    // OCR shells out to the bundled Tesseract (external process) — heavy and irrelevant to
+    // unblocking a modal. Run it AFTER capture returns so it never blocks the screenshot
+    // (and therefore never blocks the DialogKiller's capture→close→restore-modality path).
+    override val deferred: Boolean = true
+
     override suspend fun provide(context: ScreenCaptureContext): ProviderResult {
         val ocrClient = OcrProcessClient.getInstance()
 

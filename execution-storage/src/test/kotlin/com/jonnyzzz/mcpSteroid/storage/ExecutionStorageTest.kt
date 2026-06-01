@@ -57,7 +57,6 @@ class ExecutionStorageTest {
         code = code,
         reason = reason,
         timeout = timeout,
-        cancelOnModal = false,
     )
 
     private fun runStorageTest(block: suspend () -> Unit) = runBlocking {

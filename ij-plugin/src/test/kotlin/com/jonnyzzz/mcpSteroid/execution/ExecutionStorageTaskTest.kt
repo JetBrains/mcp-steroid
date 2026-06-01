@@ -18,6 +18,12 @@ import kotlin.time.Duration.Companion.seconds
 class ExecutionStorageTaskTest : BasePlatformTestCase() {
     private val manager: ExecutionManager get() = project.service()
 
+    // Run tests off the EDT so `timeoutRunBlocking` doesn't park the dispatch
+    // thread while ScriptExecutor's pre-flight (isModalEdt / commit) dispatches
+    // back to the EDT — otherwise the withContext(EDT) inside the execution
+    // deadlocks against the EDT blocked in runBlocking.
+    override fun runInDispatchThread(): Boolean = false
+
     override fun setUp() {
         setServerPortProperties()
         super.setUp()

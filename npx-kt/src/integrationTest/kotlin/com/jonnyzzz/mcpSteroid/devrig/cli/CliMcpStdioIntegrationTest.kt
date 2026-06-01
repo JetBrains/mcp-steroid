@@ -2,9 +2,9 @@
 package com.jonnyzzz.mcpSteroid.devrig.cli
 
 import com.jonnyzzz.mcpSteroid.mcp.MCP_PROTOCOL_VERSION
+import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackDriver
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.StdioMcpProcess
-import com.jonnyzzz.mcpSteroid.testHelper.startStdioMcpProcess
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -12,52 +12,41 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.io.File
 
 /**
- * Integration tests that drive the devrig CLI launcher (`bin/devrig`)
- * as a subprocess and exchange MCP 2025-11-25 JSON-RPC frames over stdio.
+ * Integration tests that drive the devrig CLI launcher (`bin/devrig mpc`) and exchange MCP 2025-11-25
+ * JSON-RPC frames over stdio.
  *
- * Scope: confirm the stdio MCP server boots, completes the initialize handshake,
- * and answers list/ping requests with shapes that match the spec. Tool *calls*
- * are deliberately out of scope — every handler is currently stubbed via
- * [com.jonnyzzz.mcpSteroid.devrig.server.StubMcpSteroidTools] and would throw
- * `UnsupportedOperationException("not yet ready: ...")`. Cover-tool-invocations
- * tests will be added once real handlers land in devrig.
+ * The launcher runs INSIDE the shared `mcp-cli` container ([DevrigCliContainer]), never on the host — a
+ * host run would create the developer's real `~/.mcp-steroid` (devrig's home is hardcoded and no longer
+ * overridable). The container is built once for the class; each test gets a fresh `devrig mpc` process.
  *
- * The launcher path is provided by Gradle via the `devrig.launcher` system
- * property (set in `build.gradle.kts` for the `integrationTest` task). Running
- * the test directly from an IDE: pass `-Ddevrig.launcher=<path>` after
- * `./gradlew :npx-kt:installDist`.
+ * Scope: confirm the stdio MCP server boots, completes the initialize handshake, and answers list/ping
+ * requests with shapes that match the spec.
  */
 class CliMcpStdioIntegrationTest {
 
-    private val lifetime = CloseableStackHost()
+    private lateinit var methodStack: CloseableStackDriver
     private lateinit var process: StdioMcpProcess
 
     @BeforeEach
     fun setUp() {
-        val launcherPath = System.getProperty("devrig.launcher")
-            ?: error(
-                "System property 'devrig.launcher' is not set. Run via " +
-                        "`./gradlew :npx-kt:integrationTest`, or set the property " +
-                        "to the path of the installDist launcher script."
-            )
-        val launcher = File(launcherPath)
-        check(launcher.canExecute()) { "Launcher is not executable: $launcherPath" }
-        process = startStdioMcpProcess(launcher, lifetime)
+        methodStack = lifetime.nestedStack("devrig-mpc-per-method")
+        process = cli.startMpc(methodStack)
     }
 
     @AfterEach
     fun tearDown() {
-        lifetime.closeAllStacks()
+        methodStack.closeAllStacks()
     }
 
     @Test
@@ -103,8 +92,9 @@ class CliMcpStdioIntegrationTest {
             requireNotNull(tool["name"]?.jsonPrimitive?.contentOrNull) { "tool entry missing name: $tool" }
         }.toSet()
 
-        // The expected set is shared with the agent E2E tests so a regression
-        // in McpSteroidTools.registerAll surfaces from both directions.
+        // This protocol-level check (devrig mpc directly, no agent) is the
+        // canonical guard against a McpSteroidTools.registerAll regression; the
+        // live-agent path lives in :test-integration's DevrigStdioAgentMatrixTest.
         val missing = EXPECTED_STEROID_TOOL_NAMES - names
         assertTrue(
             missing.isEmpty(),
@@ -192,5 +182,22 @@ class CliMcpStdioIntegrationTest {
         // alive (i.e. the server didn't crash on the notification handling).
         val pingResponse = process.request("ping", buildJsonObject {})
         assertNull(pingResponse["error"], "ping after notification must succeed: $pingResponse")
+    }
+
+    companion object {
+        private val lifetime by lazy { CloseableStackHost(CliMcpStdioIntegrationTest::class.java.simpleName) }
+        private val cli by lazy { lifetime.startDevrigCliContainer() }
+
+        @BeforeAll
+        @JvmStatic
+        fun beforeAll() {
+            cli.toString()
+        }
+
+        @AfterAll
+        @JvmStatic
+        fun cleanup() {
+            lifetime.closeAllStacks()
+        }
     }
 }

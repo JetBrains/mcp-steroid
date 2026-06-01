@@ -1,3 +1,7 @@
+# jb mirror: TeamCity routes Docker Hub pulls through the internal registry
+# (loginToRegistry on the JetBrains registry), so the base resolves from there
+# instead of docker.io — avoiding both rate limits and the bookworm-slim
+# tag→digest metadata stall that origin/main pins a public digest to dodge.
 FROM registry.jetbrains.team/p/ij/docker-hub/debian:bookworm-slim
 
 # Install system dependencies: Xvfb, window manager, fonts, utils
@@ -65,17 +69,9 @@ RUN mkdir -p /etc/apt/keyrings && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-ARG CACHE_BUST=1
-
-# Set Java 21 as the default JAVA_HOME (arch-agnostic symlink).
-# Java 25 (the newest installed JDK) is not compatible with Groovy 2.x DSL
-# used by some arena projects (e.g. microshop-18). Java 21 is LTS and widely supported.
-# Note: apt package creates temurin-21-jdk-<arch>, not temurin-21-<arch>.
-# The Maven wrapper validates JAVA_HOME/bin/java exists and does NOT follow symlinks,
-# so the symlink target must be the exact directory name from the apt package.
 RUN ARCH=$(dpkg --print-architecture) && \
-    ln -sfn /usr/lib/jvm/temurin-21-jdk-${ARCH} /usr/lib/jvm/java-21-default
-ENV JAVA_HOME=/usr/lib/jvm/java-21-default
+    ln -sfn /usr/lib/jvm/temurin-25-jdk-${ARCH} /usr/lib/jvm/java-25-default
+ENV JAVA_HOME=/usr/lib/jvm/java-25-default
 
 # Install Docker CLI for Testcontainers (Docker-in-Docker) support.
 # Installs docker-ce-cli from Docker's official apt repo and adds the `agent`
@@ -99,6 +95,20 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# --- Daily refresh boundary -------------------------------------------------
+# CACHE_BUST is wired to the current date by buildDockerImage(), so every layer
+# BELOW this line rebuilds once per day to pick up the latest AI agent releases.
+# Everything ABOVE (system apt packages, JDKs, Node, Docker CLI, Chromium) stays
+# cached across days — those are slow, network-heavy, and effectively never
+# change. Keep the cheap, volatile steps below this line; keep the expensive,
+# stable steps above it.
+#
+# The explicit `echo "$CACHE_BUST"` forces the invalidation under BOTH BuildKit
+# and the legacy builder: a declared-but-unreferenced ARG does not bust the
+# cache on the legacy builder, so referencing it makes the behavior portable.
+ARG CACHE_BUST=1
+RUN echo "agent CLI cache-bust token: $CACHE_BUST"
 
 # Install AI agent CLIs for integration tests
 RUN npm install -g @anthropic-ai/claude-code

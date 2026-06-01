@@ -134,9 +134,9 @@ class BackendManagerStartStopTest {
                         pid = process.pid(),
                         mcpSteroidServer = McpSteroidServerInfo(
                             mcpUrl = "http://localhost:63342/mcp",
-                            port = 63342,
                             headers = emptyMap(),
                         ),
+                        devrigEndpoint = testDevrigEndpoint("http://localhost:63342/mcp"),
                         ide = IdeInfo(name = "IntelliJ IDEA Community", version = "2025.3.3", build = "IC-253.1"),
                         plugin = PluginInfo(id = "com.jonnyzzz.mcpSteroid", name = "MCP Steroid", version = "1.0.0"),
                         createdAt = "2026-05-14T21:00:00Z",

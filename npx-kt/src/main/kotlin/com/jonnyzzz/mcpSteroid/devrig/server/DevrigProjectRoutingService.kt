@@ -106,8 +106,8 @@ class DevrigProjectRoutingService(
         val projectHash = projectHash(realHome, idePid)
         return ProjectRoute(
             idePid = idePid,
-            bridgeBaseUrl = bridgeBaseUrl(ide.mcpUrl),
-            headers = ide.marker.mcpSteroidServer.headers,
+            bridgeBaseUrl = ide.rpcBaseUrl,
+            headers = ide.bridgeHeaders,
             originalProjectName = project.name,
             exposedProjectName = "${project.name}-$projectHash",
             projectPath = project.path,
@@ -181,9 +181,6 @@ class DevrigProjectRoutingService(
             }
             return sb.toString()
         }
-
-        fun bridgeBaseUrl(mcpUrl: String): String =
-            mcpUrl.trimEnd('/').removeSuffix("/mcp")
     }
 }
 

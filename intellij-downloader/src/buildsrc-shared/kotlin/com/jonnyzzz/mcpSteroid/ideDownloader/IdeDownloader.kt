@@ -21,7 +21,6 @@ private val archiveDownloadLocks = ConcurrentHashMap<String, Any>()
 
 internal var checksumTextReader: (String, String) -> String = ::readUrlText
 
-@Suppress("GrazieInspection", "GrazieInspectionRunner", "SpellCheckingInspection")
 private data class ResolvedArchiveDownload(
     val url: String,
     val fileName: String,
@@ -44,22 +43,25 @@ fun IdeDistribution.resolveAndDownload(
     downloadDir.mkdirs()
 
     val resolved = resolveArchiveDownload(os)
-    val destFile = File(downloadDir, resolved.fileName)
+    // Resolve the expected checksum BEFORE naming the file: the cache filename mixes the URL and the
+    // checksum so two distinct binaries that share a URL/filename never collide on disk.
+    val expectedChecksum = resolveExpectedChecksum(resolved)
+    val destFile = File(downloadDir, hashedArchiveFileName(resolved.url, expectedChecksum, resolved.fileName))
     ideDownloaderLog.info(
         "[IDE-DOWNLOAD] Resolved archive: {} -> {}",
         resolved.url,
         destFile,
     )
     return synchronized(archiveDownloadLock(destFile)) {
-        resolveAndDownloadLocked(resolved, destFile)
+        resolveAndDownloadLocked(resolved, expectedChecksum, destFile)
     }
 }
 
 private fun resolveAndDownloadLocked(
     resolved: ResolvedArchiveDownload,
+    expectedChecksum: String?,
     destFile: File,
 ): File {
-    val expectedChecksum = resolveExpectedChecksum(resolved)
     if (expectedChecksum == null) {
         ideDownloaderLog.warn(
             "[IDE-DOWNLOAD] No SHA-256 checksum available for {}; archive will not be verified",
@@ -111,7 +113,6 @@ private fun archiveDownloadLock(destFile: File): Any {
     return archiveDownloadLocks.computeIfAbsent(key) { Any() }
 }
 
-@Suppress("GrazieInspection", "GrazieInspectionRunner", "SpellCheckingInspection")
 private fun IdeDistribution.resolveArchiveDownload(
     os: HostOs,
 ): ResolvedArchiveDownload {
@@ -194,6 +195,37 @@ private fun normalizeSha256(value: String, source: String): String {
     return normalized
 }
 
+private const val ARCHIVE_HASH_BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+/**
+ * Cache file name for an archive: `<16-char hash>-<fileName>`. The hash disambiguates editions that share
+ * a download filename — notably IntelliJ **Community** (GitHub `idea-<version>.tar.gz`) vs **Ultimate**
+ * (data.services `idea-<version>.tar.gz`), which are byte-different but identically named. Without the
+ * prefix, the first one cached wins and the other unpacks the wrong product (IC vs IU).
+ *
+ * The hash mixes the download URL AND the expected SHA-256 of the binary (when known), so two distinct
+ * binaries never collide even if both URL and filename matched. It's base62 (alphanumeric) of
+ * SHA-256(url + checksum), first 16 chars — same convention as the project-name hash in the devrig tools.
+ */
+internal fun hashedArchiveFileName(url: String, expectedChecksum: String?, fileName: String): String =
+    "${archiveHash16(url, expectedChecksum)}-$fileName"
+
+internal fun archiveHash16(url: String, expectedChecksum: String?): String {
+    val md = MessageDigest.getInstance("SHA-256")
+    md.update(url.toByteArray(Charsets.UTF_8))
+    md.update(0)
+    md.update((expectedChecksum ?: "").toByteArray(Charsets.UTF_8))
+    var value = java.math.BigInteger(1, md.digest())
+    val base = java.math.BigInteger.valueOf(62L)
+    val sb = StringBuilder(16)
+    repeat(16) {
+        val (q, r) = value.divideAndRemainder(base)
+        sb.append(ARCHIVE_HASH_BASE62[r.toInt()])
+        value = q
+    }
+    return sb.toString()
+}
+
 private fun sha256(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
@@ -263,6 +295,7 @@ internal fun downloadFile(url: String, dest: File) {
                 append = append,
                 existingBytes = if (append) resumeOffset else 0L,
                 totalBytes = totalBytes,
+                displayName = dest.name,
             )
             val expectedBytesThisResponse = connection.contentLengthLong
             if (expectedBytesThisResponse >= 0L && bytesReadThisResponse != expectedBytesThisResponse) {
@@ -299,6 +332,7 @@ private fun writeDownloadResponse(
     append: Boolean,
     existingBytes: Long,
     totalBytes: Long,
+    displayName: String,
 ): Long {
     var bytesReadThisResponse = 0L
     var bytesSinceForce = 0L
@@ -323,7 +357,16 @@ private fun writeDownloadResponse(
                 if (now - lastPrinted >= 5_000) {
                     val downloaded = existingBytes + bytesReadThisResponse
                     val progress = if (totalBytes > 0) " (${downloaded * 100 / totalBytes}%)" else ""
-                    ideDownloaderLog.debug("[IDE-DOWNLOAD] Progress: {} MB{}", downloaded / 1024 / 1024, progress)
+                    val progressLine = "Downloading $displayName: ${downloaded / 1024 / 1024} MB$progress"
+                    // User-facing download progress: a clean line — no logback severity/category and no
+                    // "[IDE-DOWNLOAD]" prefix. MUST go to stderr, never stdout: this can run inside
+                    // `devrig mpc`, where stdout is the JSON-RPC channel and a stray byte corrupts the MCP
+                    // protocol.
+                    System.err.println(progressLine)
+                    // Also record it in the log file every ~5s, so a log monitor (e.g. a test tailing the
+                    // devrig log) shows live download progress even when stderr is buffered by the caller
+                    // (the agent's Bash tool only surfaces a command's output once it finishes).
+                    ideDownloaderLog.info(progressLine)
                     lastPrinted = now
                 }
             }

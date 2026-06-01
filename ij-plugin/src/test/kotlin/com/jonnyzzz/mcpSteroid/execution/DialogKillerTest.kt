@@ -3,14 +3,15 @@ package com.jonnyzzz.mcpSteroid.execution
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.service
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.server.ModalMode
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
-import com.jonnyzzz.mcpSteroid.setSystemPropertyForTest
 import com.jonnyzzz.mcpSteroid.testExecParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -79,17 +80,14 @@ class DialogKillerTest : BasePlatformTestCase() {
         // Force the coroutine into the "slow" branch by pre-elevating modality
         // context. If `canPumpEdtNonModal` still short-circuits to false under
         // this modality, the slow branch will run and must NOT see a dialog.
-        withContext(
-            Dispatchers.EDT +
-                    com.intellij.openapi.application.ModalityState.any().asContextElement()
-        ) {
+        withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
             // No dialog is actually opened. Any `isModal=true` here would be a false
             // positive driven by modality state, not by the dialog enumeration.
         }
         lookup.withModalityCheck { isModal ->
             assertFalse(
                 "withModalityCheck must return false when no DialogWrapperDialog is showing, " +
-                        "regardless of ModalityState.current()",
+                    "regardless of ModalityState.current()",
                 isModal
             )
         }
@@ -131,25 +129,24 @@ class DialogKillerTest : BasePlatformTestCase() {
         val manager = project.service<ExecutionManager>()
 
         val code = """
-            val modalEntity = Any()
-            withContext(kotlinx.coroutines.Dispatchers.EDT) {
-                com.intellij.openapi.application.impl.LaterInvocator.enterModal(modalEntity)
+            // Open a REAL modal dialog from a detached EDT scope so it stays up while the body runs.
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.EDT).launch {
+                val dialog = object : com.intellij.openapi.ui.DialogWrapper(project) {
+                    init { title = "$testDialogTitle"; setModal(true); init() }
+                    override fun createCenterPanel(): javax.swing.JComponent =
+                        javax.swing.JPanel().also { it.add(javax.swing.JLabel("modal")) }
+                }
+                dialog.show()
             }
 
-            try {
-                // Wait for the synthetic modal state to be detected by the monitor
-                kotlinx.coroutines.delay(5000)
-                println("Should not reach here — modal dialog should have canceled execution")
-            } finally {
-                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater({
-                    com.intellij.openapi.application.impl.LaterInvocator.leaveModal(modalEntity)
-                }, com.intellij.openapi.application.ModalityState.any())
-            }
+            // The smart_non_modal monitor must close this dialog and FAIL the execution.
+            kotlinx.coroutines.delay(8000)
+            println("Should not reach here — the modal monitor should have failed the execution")
         """.trimIndent()
 
         val params = testExecParams(
             code = code,
-            cancelOnModal = true,
+            modal = ModalMode.SMART_NON_MODAL,
             timeout = 30,
         )
 
@@ -157,8 +154,8 @@ class DialogKillerTest : BasePlatformTestCase() {
 
         val text = getTextContent(result)
         assertTrue(
-            "Should detect modal dialog, got: $text",
-            text.contains("MODAL DIALOG DETECTED")
+            "Should fail because a modal dialog appeared during the run, got: $text",
+            result.isError && text.contains("modal dialog appeared while the script was running")
         )
 
         assertTrue(
@@ -176,12 +173,14 @@ class DialogKillerTest : BasePlatformTestCase() {
      * 4. Execution should complete successfully
      */
     fun testDialogKillerClosesDialogBeforeExecution(): Unit = timeoutRunBlocking(60.seconds) {
+        if (ApplicationManager.getApplication().isHeadlessEnvironment) {
+            // Skip in headless — opening a real modal DialogWrapper requires a GUI.
+            return@timeoutRunBlocking
+        }
         val manager = project.service<ExecutionManager>()
 
-        // First: open a dialog asynchronously
+        // First: open a dialog asynchronously. modal=unleashed → no monitor, so the dialog stays open.
         val openDialogCode = """
-            doNotCancelOnModalityStateChange()
-
             withContext(kotlinx.coroutines.Dispatchers.EDT) {
                 com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater({
                     val dialog = object : com.intellij.openapi.ui.DialogWrapper(project) {
@@ -205,25 +204,26 @@ class DialogKillerTest : BasePlatformTestCase() {
             println("Modal dialog opened")
         """.trimIndent()
 
+        // modal=unleashed → no sweep/monitor, so the dialog this opens stays up for the next call.
         val openParams = testExecParams(
             code = openDialogCode,
-            cancelOnModal = false,
+            modal = ModalMode.UNLEASHED,
             timeout = 30,
         )
 
         // Open the dialog
         manager.executeWithProgress(openParams, NoOpProgressReporter)
 
-        // Now run with dialog_killer=true — it should close the dialog before execution
+        // Now run with modal=smart_non_modal — its pre-flight sweep closes the dialog before the body.
         val afterCode = """
-            println("Execution completed — dialog killer should have closed Settings before this")
+            println("Execution completed — dialog killer should have closed the dialog before this")
         """.trimIndent()
 
         val afterParams = testExecParams(
             code = afterCode,
-            cancelOnModal = false,
+            modal = ModalMode.SMART_NON_MODAL,
             timeout = 30,
-        ).copy(dialogKiller = true)
+        )
 
         val result = manager.executeWithProgress(afterParams, NoOpProgressReporter)
 

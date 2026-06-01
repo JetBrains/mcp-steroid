@@ -27,11 +27,15 @@ fun applyDebugLogging(debug: Boolean) {
 private class DevrigLog
 
 fun configureLoggingAndLogStarted(homePaths: HomePaths, rawArgs: List<String>, debug: Boolean) {
-    //configure loggers ASAP
+    //configure loggers ASAP — these properties are read at logback init (the first SLF4J call below).
+    val pid = ProcessHandle.current().pid()
     System.setProperty("devrig.log.dir", homePaths.logsDir.toString())
-    System.setProperty("devrig.log.session", LocalDateTime.now().format(ofPattern("yyyy-MM-dd-HHmmss")))
+    // The PID is in BOTH the session (so every devrig process writes its OWN file — a log monitor detects
+    // each as a new file) and the log-line pattern (so interleaved output is attributable to a process).
+    System.setProperty("devrig.log.session", "${LocalDateTime.now().format(ofPattern("yyyy-MM-dd-HHmmss"))}-pid$pid")
+    System.setProperty("devrig.pid", pid.toString())
     applyDebugLogging(debug)
 
     val log = logger<DevrigLog>()
-    log.info("Starting Devrig ${DevrigVersionMetadata.getDevrigVersion()} with home paths: $homePaths and args: ${rawArgs.joinToString(" ")}")
+    log.info("Starting Devrig ${DevrigVersionMetadata.getDevrigVersion()} (pid=$pid) with home paths: $homePaths and args: ${rawArgs.joinToString(" ")}")
 }

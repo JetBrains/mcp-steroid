@@ -335,7 +335,7 @@ Use the IntelliJ Maven/Gradle runner (below) only when you need test results ins
 
 ## Maven IDE Runner — Structured Pass/Fail, No Token Overflow
 
-Use this for Maven test execution inside steroid_execute_code. Always pass `dialog_killer: true` on the `steroid_execute_code` call to auto-dismiss modals:
+Use this for Maven test execution inside steroid_execute_code. Always pass `modal=smart_non_modal` (the default) on the `steroid_execute_code` call to auto-dismiss modals:
 
 ```kotlin[IU]
 import org.jetbrains.idea.maven.execution.MavenRunConfigurationType
@@ -382,7 +382,7 @@ println("Maven IDE runner: passed=$mvnPassed")
 
 **If pom.xml was NOT modified: use the Maven IDE runner above — do NOT use ProcessBuilder.**
 
-After pom.xml changes, IntelliJ triggers a Maven re-import dialog that blocks the IDE runner latch for up to 600s. First try: `MavenRunConfigurationType.runConfiguration()` with `dialog_killer: true`. If the latch times out after 2 minutes, only then use ProcessBuilder:
+After pom.xml changes, IntelliJ triggers a Maven re-import dialog that blocks the IDE runner latch for up to 600s. First try: `MavenRunConfigurationType.runConfiguration()` with `modal=smart_non_modal` (the default). If the latch times out after 2 minutes, only then use ProcessBuilder:
 ```kotlin
 // Always use ./mvnw (Maven wrapper) not 'mvn' — system mvn is not installed
 // CRITICAL: Spring Boot test output routinely exceeds 200k chars. NEVER print untruncated output.

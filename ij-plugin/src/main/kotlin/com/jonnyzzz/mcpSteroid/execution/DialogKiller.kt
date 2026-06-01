@@ -15,6 +15,9 @@ import com.intellij.openapi.ui.ExitActionType
 import com.intellij.openapi.util.registry.Registry
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import com.jonnyzzz.mcpSteroid.vision.VisionService
+import java.awt.Dialog
+import java.awt.Frame
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -40,6 +43,31 @@ class DialogKiller {
 
     // Allow only 1 process at a time
     private val mutex = Semaphore(1)
+
+
+    fun CoroutineScope.startDialogKiller(
+        executionId: ExecutionId,
+        project: Project,
+        logMessage: (String) -> Unit,
+        dialogKiller: Boolean
+    ): Job = launch(CoroutineName("execution-dialog-killer-$executionId")) {
+        while (isActive) {
+            try {
+                killProjectDialogs(
+                    project = project,
+                    executionId = executionId,
+                    logMessage = logMessage,
+                    forceEnabled = dialogKiller,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                log.warn("Periodic dialog killer failed for $executionId: ${t.message}", t)
+            }
+
+            delay(1_000L.milliseconds)
+        }
+    }
 
     /**
      * Kill all modal dialogs owned by the project frame.
@@ -109,20 +137,27 @@ class DialogKiller {
         // Yield to allow other coroutines to run
         yield()
 
+        // Capture the dialog we are about to close — screenshot IMAGE only. VisionService
+        // now does every EDT step under ModalityState.any() (so it pumps while the modal is
+        // up) and DEFERS heavy work (OCR/Tesseract external process) to its own scope, to
+        // run after this returns. No timeout: the image capture is bounded EDT work and the
+        // whole point is to record the dialog before it disappears.
+        log.info("DialogKiller: capturing dialog before closing (execution: $executionId, iteration: $iteration)")
         try {
-            withTimeout(5_000) {
-                VisionService.capture(project, executionId).logMessages().forEach { logMessage(it) }
-            }
-        } catch (e: TimeoutCancellationException) {
-            log.warn("Screenshot capture timed out, proceeding to close dialog: ${e.message}")
+            VisionService.getInstance(project).capture(executionId).logMessages().forEach { logMessage(it) }
+            log.info("DialogKiller: dialog captured (execution: $executionId)")
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ProcessCanceledException) {
+            throw e
         } catch (e: Exception) {
-            log.warn("Failed to capture screenshot before closing dialog: ${e.message}", e)
+            log.warn("Failed to capture dialog before closing (non-fatal): ${e.message}", e)
         }
 
-        // Close the dialog on EDT with ModalityState.any()
+        // Close the dialog (restores ModalityState.nonModal()) on EDT with ModalityState.any().
+        log.info("DialogKiller: about to close dialog (execution: $executionId, iteration: $iteration)")
         closeDialog(dialogToClose, 1, 1, executionId)
+        log.info("DialogKiller: closeDialog returned (execution: $executionId, iteration: $iteration)")
 
         yield()
         doLookupDialogs(executionId, project, logMessage, iteration + 1)
@@ -141,8 +176,8 @@ class DialogKiller {
         withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
             try {
                 val window = dialog.window
-                val title = (window as? java.awt.Frame)?.title
-                    ?: (window as? java.awt.Dialog)?.title
+                val title = (window as? Frame)?.title
+                    ?: (window as? Dialog)?.title
                     ?: "Unknown"
 
                 log.warn("Closing dialog $index/$total: '$title' (execution: $executionId)")
@@ -158,7 +193,7 @@ class DialogKiller {
                 dialog.close(DialogWrapper.CANCEL_EXIT_CODE, ExitActionType.CANCEL)
 
                 // Let it pump events!
-                delay(10)
+                delay(10.milliseconds)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ProcessCanceledException) {

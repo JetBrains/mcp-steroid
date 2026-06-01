@@ -1,10 +1,13 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
+import com.jonnyzzz.mcpSteroid.integration.infra.ModalMode
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -28,12 +31,10 @@ class MavenTestExecutionTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(MavenTestExecutionTest::class.java.simpleName) }
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "Maven Test Execution",
                 project = IntelliJProject.MavenTestProject,
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 buildSystem = BuildSystem.MAVEN,
                 compileProject = true,
             )
@@ -51,7 +52,7 @@ class MavenTestExecutionTest {
     fun `maven test execution via MavenRunConfigurationType with SMTRunner`() {
         val console = session.console
 
-        console.writeStep(1, "Executing Maven tests via MavenRunConfigurationType + SMTRunner")
+        console.writeStep(text = "Executing Maven tests via MavenRunConfigurationType + SMTRunner")
         val result = session.mcpSteroid.mcpExecuteCode(
             code = """
                 import org.jetbrains.idea.maven.execution.MavenRunConfigurationType
@@ -161,7 +162,7 @@ class MavenTestExecutionTest {
             taskId = "maven-test-execution",
             reason = "Execute Maven tests via MavenRunConfigurationType with SMTRunner",
             timeout = 600,
-            dialogKiller = true,
+            modal = ModalMode.SMART_NON_MODAL,
         )
 
         result.assertExitCode(0, "Maven test execution via MCP should succeed")

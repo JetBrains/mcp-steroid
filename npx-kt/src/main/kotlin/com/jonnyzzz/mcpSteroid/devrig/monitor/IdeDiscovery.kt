@@ -28,7 +28,15 @@ import kotlin.time.Duration.Companion.seconds
  */
 data class DiscoveredIde(
     val pid: Long,
-    val mcpUrl: String,
+    /**
+     * Full base URL of the IDE's devrig bridge, read verbatim from the marker's
+     * [PidMarker.devrigEndpoint] (`rpcBaseUrl`). devrig appends only operation suffixes
+     * (`/tools/call/stream`, `/projects/stream`, `/windows`) — it never derives this from the MCP URL
+     * and never touches the `/mcp` MCP-client endpoint.
+     */
+    val rpcBaseUrl: String,
+    /** Headers the bridge requires on every request, from [PidMarker.devrigEndpoint] (auth-scheme-agnostic). */
+    val bridgeHeaders: Map<String, String>,
     /** Filename of the marker, useful when logging which file we picked up. */
     val markerPath: String,
     /** The full decoded marker — kept around for the IDE's [PidMarker.ide] / [PidMarker.plugin] metadata. */
@@ -109,13 +117,22 @@ class IdeDiscoveryService(
                 log.warn("Skipping malformed marker file {}: {}", file, e.message)
                 continue
             }
-            if (!isAllowedHost(marker.mcpSteroidServer.mcpUrl)) {
+            // devrig speaks ONLY the bridge endpoint advertised by the marker — never the /mcp MCP
+            // endpoint. A marker without devrigEndpoint is from an IDE that doesn't expose the bridge
+            // (e.g. an older plugin); skip it rather than fall back to the MCP server.
+            val devrigEndpoint = marker.devrigEndpoint
+            if (devrigEndpoint == null) {
+                log.debug("Skipping marker {} — no devrigEndpoint (IDE not devrig-capable)", file)
+                continue
+            }
+            if (!isAllowedHost(devrigEndpoint.rpcBaseUrl)) {
                 log.debug("Skipping marker {} — host not in allowlist", file)
                 continue
             }
             out += DiscoveredIde(
                 pid = pid,
-                mcpUrl = marker.mcpSteroidServer.mcpUrl,
+                rpcBaseUrl = devrigEndpoint.rpcBaseUrl,
+                bridgeHeaders = devrigEndpoint.headers,
                 markerPath = file.toString(),
                 marker = marker,
             )

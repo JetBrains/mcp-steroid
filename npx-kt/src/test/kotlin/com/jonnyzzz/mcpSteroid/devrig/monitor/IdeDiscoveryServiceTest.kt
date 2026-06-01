@@ -6,6 +6,7 @@ import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
 import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PidMarkerJson
 import com.jonnyzzz.mcpSteroid.PluginInfo
+import com.jonnyzzz.mcpSteroid.devrig.testDevrigEndpoint
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -28,9 +29,9 @@ class IdeDiscoveryServiceTest {
             pid = pid,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = url,
-                port = 0,
                 headers = emptyMap(),
             ),
+            devrigEndpoint = testDevrigEndpoint(url),
             ide = IdeInfo(name = ideName, version = "x", build = "y"),
             plugin = PluginInfo(id = "x", name = "y", version = "z"),
             createdAt = "2026-05-10T12:34:56Z",
@@ -72,7 +73,7 @@ class IdeDiscoveryServiceTest {
         assertEquals(1, ides.size)
         val ide = ides.single()
         assertEquals(ourPid, ide.pid)
-        assertEquals("http://localhost:64531/mcp", ide.mcpUrl)
+        assertEquals(testDevrigEndpoint("http://localhost:64531/mcp").rpcBaseUrl, ide.rpcBaseUrl)
         assertEquals("IntelliJ IDEA pid=$ourPid", ide.label)
     }
 

@@ -102,7 +102,7 @@ fun runStructuralSearchYoutrackdbAudit(
     label: String,
 ) {
     val console = session.console
-    console.writeStep(1, "[$label] ${agent.displayName}: running prompt")
+    console.writeStep(text = "[$label] ${agent.displayName}: running prompt")
 
     val result = agent.runPrompt(SSR_AUDIT_PROMPT, timeoutSeconds = 1500).awaitForProcessFinish()
     val output = result.stdout

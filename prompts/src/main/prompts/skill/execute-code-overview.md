@@ -92,7 +92,7 @@ place, and the editing guard inlined into `steroid_execute_code` refreshes VFS a
 **ProcessBuilder("./mvnw") is permitted ONLY when:**
 1. pom.xml was just modified in this session, AND
 2. Maven sync was already triggered (`scheduleUpdateAllMavenProjects` + `awaitConfiguration`), AND
-3. `MavenRunConfigurationType.runConfiguration()` with `dialog_killer: true` has already timed out (>2 min)
+3. `MavenRunConfigurationType.runConfiguration()` with `modal=smart_non_modal` (the default) has already timed out (>2 min)
 
 ---
 

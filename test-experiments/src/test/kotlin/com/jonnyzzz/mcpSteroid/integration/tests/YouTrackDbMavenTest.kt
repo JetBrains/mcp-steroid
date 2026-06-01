@@ -3,8 +3,10 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -59,12 +61,10 @@ class YouTrackDbMavenTest {
         }
 
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "youtrackdb",
                 project = IntelliJProject.YouTrackDbProject,
-            ).waitForProjectReady(buildSystem = BuildSystem.MAVEN)
+            )).waitForProjectReady(buildSystem = BuildSystem.MAVEN)
         }
 
         @JvmStatic

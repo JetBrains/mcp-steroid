@@ -44,6 +44,17 @@ the 1-minute rule and stuck-test debugging.
 invocation still works. Depends on `:test-integration` for the shared infrastructure (`IdeContainer`,
 `ConsoleDriver`, `XcvbDriver`, `AiAgentDriver`, `ConsolePumpingContainerDriver`).
 
+## Remote-debugging (shared with :test-integration)
+
+Because the infra is shared, every `:test-experiments` Docker IDE also starts with a JDWP agent on
+`IDE_DEBUG_PORT` (5005), and devrig stdio-bridge runs add one on `DEVRIG_DEBUG_PORT` (5006) — both
+Docker-mapped to host ports printed on the host (`Listening for transport dt_socket at address:
+<host-port>` + `session-info.txt`). Attach IntelliJ's "Remote JVM Debug" to step through a debugger
+demo or arena run live. **Both agents are `suspend=n` and MUST stay that way** — `suspend=y` would
+block the JVM until a debugger attaches, hanging the whole test on CI. Full workflow + the attach
+recipe (`mcp-steroid://debugger/debug-attach-remote-jvm`): `test-integration/AGENTS.md` →
+"Remote-debugging the Dockerized IDE".
+
 ## Arena experiments (DPAIA)
 
 Run AI agents in Docker against curated tasks; measure tool calls, tokens, runtime, success.

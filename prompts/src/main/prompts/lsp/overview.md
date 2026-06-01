@@ -77,7 +77,7 @@ Structure View (`LanguageStructureViewBuilder`), or inspection output.
 
 ## Important Notes
 
-- `waitForSmartMode()` runs automatically before your script starts; call it again only after triggering indexing
+- Under the default `modal=smart_non_modal`, `waitForSmartMode()` runs automatically before your script starts (skipped under `non_modal` / `unleashed`); call it again only after triggering indexing
 - Use `readAction { }` for all PSI read operations
 - Use `writeAction { }` for modifications
 - The `project` variable is available in all scripts

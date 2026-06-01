@@ -3,8 +3,10 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.runWithCloseableStack
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -47,12 +49,11 @@ class SerenaSelfEvalTest {
     fun `gemini with mcp`() = runSelfEval(agentName = "gemini")
 
     private fun runSelfEval(agentName: String) = runWithCloseableStack { lifetime ->
-        val session = IntelliJContainer.create(
-            lifetime = lifetime,
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "serena-$agentName",
             project = IntelliJProject.TestProject,
             aiMode = AiMode.AI_MCP,
-        ).waitForProjectReady()
+        )).waitForProjectReady()
 
         val agent: AiAgentSession = when (agentName) {
             "claude" -> session.aiAgents.claude

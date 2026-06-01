@@ -20,7 +20,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
@@ -30,15 +29,27 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.diagnostic.ThreadDumper
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.psi.PsiDocumentManager
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
+import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import com.jonnyzzz.mcpSteroid.vision.VisionService
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonElement
+import kotlin.time.Duration.Companion.seconds
 import java.io.File
 import java.nio.file.FileSystems
 import java.nio.file.Path
@@ -49,6 +60,7 @@ import kotlin.time.Duration
 import com.intellij.openapi.application.readAction as intellijReadAction
 import com.intellij.openapi.application.writeAction as intellijWriteAction
 import com.intellij.openapi.application.smartReadAction as intellijSmartReadAction
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Implementation of McpScriptContext.
@@ -65,14 +77,21 @@ class McpScriptContextImpl(
     override val disposable: Disposable,
     private val resultBuilder: ExecutionResultBuilder,
     /**
-     * Hook the script can pull to disable the periodic [DialogKiller] for the
-     * remainder of this execution. ScriptExecutor wires it to cancel the
-     * killer's poll job; tests pass a no-op. Replaces the old
-     * `ModalityStateMonitor.doNotCancelOnModalityStateChange()` plumbing — one
-     * cancellation source (the killer's coroutine job), one Disposable lifecycle.
+     * The execution's coroutine scope. [monitorAndCloseModalDialogs] launches its watcher here so it is
+     * cancelled when the execution ends, and so throwing from it (on a detected modal) fails the execution.
      */
-    private val onDoNotCancelOnModalityStateChange: () -> Unit = {},
+    private val executionScope: CoroutineScope,
 ) : McpScriptContext {
+
+    /** The modal-dialog monitor job, if [monitorAndCloseModalDialogs] is active. */
+    @Volatile
+    private var modalMonitorJob: Job? = null
+
+    /** Deadlock guard for [syncDocuments] (EDT write-intent can be withheld by a modal). */
+    private val SYNC_DOCUMENTS_TIMEOUT = 60.seconds
+
+    /** Deadlock guard for [waitForSmartMode] when indexing never reaches smart mode. */
+    private val WAIT_FOR_SMART_MODE_TIMEOUT = 60.seconds
     private val log = Logger.getInstance(McpScriptContextImpl::class.java)
 
     private val objectMapper = ObjectMapper().apply {
@@ -156,7 +175,7 @@ class McpScriptContextImpl(
             resultBuilder.logMessage("NOTE: takeIdeScreenshot ignores custom fileName and uses screenshot.png.")
         }
         return try {
-            val artifacts = VisionService.capture(project, executionId)
+            val artifacts = VisionService.getInstance(project).capture(executionId)
             resultBuilder.logImage("image/png", Base64.getEncoder().encodeToString(artifacts.imageBytes), artifacts.meta.imageFile)
             resultBuilder.logMessage("window_id: ${artifacts.meta.windowId}")
             resultBuilder.logMessage("Screenshot saved to ${artifacts.imagePath}")
@@ -168,7 +187,6 @@ class McpScriptContextImpl(
             // ProcessCanceledException (below): never log, never wrap.
             throw e
         } catch (e: Exception) {
-            if (e is ProcessCanceledException) throw e
             resultBuilder.logException("Failed to capture IDE screenshot", e)
             null
         }
@@ -176,35 +194,152 @@ class McpScriptContextImpl(
 
     override suspend fun waitForSmartMode() {
         checkDisposed()
+        requireNonModal("waitForSmartMode")
         if (!DumbService.isDumb(project)) return
 
         log.info("[$executionId] Waiting for indexing to complete...")
         resultBuilder.logProgress("Waiting for indexing to complete...")
 
-        suspendCancellableCoroutine { cont ->
-            fun waitForSmart() {
-                if (disposed.get()) {
-                    cont.cancel()
-                    return
-                }
-                DumbService.getInstance(project).smartInvokeLater {
-                    if (disposed.get()) {
-                        cont.cancel()
-                    } else if (DumbService.isDumb(project)) {
-                        waitForSmart()
-                    } else {
-                        cont.resume(Unit)
+        try {
+            // Bounded as a deadlock safety net (indexing that never reaches smart mode) — the tool docs
+            // promise the wait is bounded. Timeout => fail the execution with a clear message.
+            withTimeout(WAIT_FOR_SMART_MODE_TIMEOUT) {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    fun waitForSmart() {
+                        if (disposed.get()) {
+                            cont.cancel()
+                            return
+                        }
+                        DumbService.getInstance(project).smartInvokeLater {
+                            if (disposed.get()) {
+                                cont.cancel()
+                            } else if (DumbService.isDumb(project)) {
+                                waitForSmart()
+                            } else {
+                                cont.resume(Unit)
+                            }
+                        }
                     }
+                    waitForSmart()
                 }
             }
-            waitForSmart()
+        } catch (_: TimeoutCancellationException) {
+            captureThreadDump("waitForSmartMode-timeout")
+            log.error("[$executionId] waitForSmartMode did not reach smart mode within $WAIT_FOR_SMART_MODE_TIMEOUT")
+            throw ToolCallErrorException(
+                "waitForSmartMode did not reach smart mode within $WAIT_FOR_SMART_MODE_TIMEOUT — indexing may " +
+                    "be stuck. See the thread dump under execution '${executionId.executionId}'."
+            )
+        } finally {
+            log.info("[$executionId] Waiting for indexing completed")
+            resultBuilder.logProgress("Waiting for indexing completed")
         }
     }
 
-    override fun doNotCancelOnModalityStateChange() {
+    // ============================================================
+    // Modal Dialog Control
+    // ============================================================
+
+    override suspend fun closeModalDialogs(): Int {
         checkDisposed()
-        log.info("[$executionId] Periodic dialog killer disabled by script")
-        onDoNotCancelOnModalityStateChange()
+        val found = dialogWindowsLookup().withDialogWindows(project) { it.size }
+        // Nothing to close (the common case under smart_non_modal) — don't attach a diagnostic dump.
+        if (found == 0) return 0
+        captureThreadDump("closeModalDialogs")
+        // killProjectDialogs captures a screenshot before closing each dialog (VisionService).
+        dialogKiller().killProjectDialogs(
+            project = project,
+            executionId = executionId,
+            logMessage = { resultBuilder.logMessage(it) },
+            forceEnabled = true,
+        )
+        return found
+    }
+
+    override fun monitorAndCloseModalDialogs() {
+        checkDisposed()
+        if (modalMonitorJob?.isActive == true) return
+        log.info("[$executionId] modal-dialog monitor started")
+        val job = executionScope.launch(CoroutineName("modal-monitor-$executionId")) {
+            while (isActive) {
+                delay(1000L.milliseconds)
+                if (disposed.get()) return@launch
+                // Only a real modal DialogWrapper counts — not mere indexing/progress modality.
+                val hasModalDialog = dialogWindowsLookup().withModalityCheck { it }
+                if (!hasModalDialog) continue
+                log.warn("[$executionId] modal dialog appeared while running — closing and failing the execution")
+                captureThreadDump("modal-monitor")
+                val closed = closeModalDialogs()
+                throw ToolCallErrorException(
+                    "A modal dialog appeared while the script was running — closed $closed dialog(s) and " +
+                        "failed the run. If your script opens a dialog on purpose, call allowModalDialog() " +
+                        "first. See the screenshot + thread dump under execution '${executionId.executionId}'."
+                )
+            }
+        }
+        modalMonitorJob = job
+        Disposer.register(disposable) { job.cancel() }
+    }
+
+    override fun allowModalDialog() {
+        checkDisposed()
+        log.info("[$executionId] modal-dialog monitor suspended by script (allowModalDialog)")
+        modalMonitorJob?.cancel()
+        modalMonitorJob = null
+    }
+
+    override suspend fun syncDocuments() {
+        checkDisposed()
+        requireNonModal("syncDocuments")
+        try {
+            withTimeout(SYNC_DOCUMENTS_TIMEOUT) {
+                withContext(Dispatchers.EDT) {
+                    PsiDocumentManager.getInstance(project).commitAllDocuments()
+                    FileDocumentManager.getInstance().saveAllDocuments()
+                    project.vfsRefreshService.awaitRefresh()
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            captureThreadDump("syncDocuments-timeout")
+            log.error("[$executionId] syncDocuments did not complete within $SYNC_DOCUMENTS_TIMEOUT (EDT likely blocked by a modal)")
+            throw ToolCallErrorException(
+                "syncDocuments did not complete within $SYNC_DOCUMENTS_TIMEOUT — a modal dialog likely " +
+                    "blocks the EDT. See the thread dump under execution '${executionId.executionId}'."
+            )
+        }
+        // A modal may have surfaced as a side effect of commit/save/refresh — fail rather than continue stale.
+        if (dialogWindowsLookup().isModalEdt()) {
+            captureThreadDump("syncDocuments-modal-side-effect")
+            throw ToolCallErrorException(
+                "syncDocuments surfaced a modal dialog (commit/save/refresh side effect) — failing the run. " +
+                    "See the thread dump under execution '${executionId.executionId}'."
+            )
+        }
+    }
+
+    /** Fail the execution if the IDE is currently in a modal state (Yury's check). */
+    private suspend fun requireNonModal(operation: String) {
+        if (dialogWindowsLookup().isModalEdt()) {
+            captureThreadDump("$operation-requires-non-modal")
+            throw ToolCallErrorException(
+                "$operation requires a non-modal IDE, but a modal dialog is present. " +
+                    "Use modal=smart_non_modal (closes dialogs first) or call closeModalDialogs() before this. " +
+                    "See the thread dump under execution '${executionId.executionId}'."
+            )
+        }
+    }
+
+    /** Record a thread dump with the execution (diagnostics for a stuck/modal EDT). */
+    private suspend fun captureThreadDump(reason: String) {
+        try {
+            val dump = ThreadDumper.dumpThreadsToString()
+            log.info("[$executionId] thread dump ($reason):\n$dump")
+            project.executionStorage.writeCodeExecutionData(executionId, "thread-dump-$reason.txt", dump)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("[$executionId] failed to capture thread dump ($reason): ${e.message}")
+        }
     }
 
     // ============================================================
@@ -250,7 +385,7 @@ class McpScriptContextImpl(
                     DaemonCodeAnalyzerEx.isHighlightingCompleted(editor, project)
                 }
                 if (isComplete) break
-                delay(50)
+                delay(50.milliseconds)
             }
             true
         } ?: false
@@ -278,7 +413,7 @@ class McpScriptContextImpl(
 
         // Get document for the file
         val document = readAction {
-            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)
+            FileDocumentManager.getInstance().getDocument(file)
         } ?: return emptyList()
 
         // Get all highlights

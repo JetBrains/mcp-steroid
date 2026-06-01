@@ -134,6 +134,15 @@ interface ScreenshotMetadataProvider {
     val type: String
 
     /**
+     * When true, this provider is NOT run during [VisionService.capture]; instead it is
+     * queued on the project service scope and runs AFTER capture returns. Use for heavy /
+     * external work (e.g. OCR via an external Tesseract process) that must never block the
+     * screenshot — and therefore must never block the DialogKiller's capture→close path.
+     * Deferred providers may still depend on inline ones (the image is already written).
+     */
+    val deferred: Boolean get() = false
+
+    /**
      * Provide metadata for the captured screenshot.
      *
      * @param context The capture context containing project, component, image, and collected metadata

@@ -7,7 +7,16 @@ import com.jonnyzzz.mcpSteroid.testHelper.process.startProcess
 
 data class ContainerPort(
     val containerPort: Int,
-)
+    /**
+     * When set, this entry publishes the inclusive container-port range [containerPort]..[endPort] in a
+     * single `docker run -p` flag (each container port gets a random host port), instead of one flag per
+     * port. Used for devrig's JDWP debug range (23900-23999).
+     */
+    val endPort: Int? = null,
+) {
+    /** The `docker run -p <spec>` value: a random host port per container port. */
+    fun dockerPublishSpec(): String = if (endPort == null) "0:$containerPort" else "$containerPort-$endPort"
+}
 
 /**
  * Query the host port mapped to a container port.

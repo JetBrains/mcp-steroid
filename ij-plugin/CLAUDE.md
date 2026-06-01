@@ -31,6 +31,22 @@ src/main/kotlin/com/jonnyzzz/mcpSteroid/
 
 ## IntelliJ Platform coding principles
 
+### ⚠️ Public, stable API only — NEVER `@ApiStatus.Internal` (or `@ApiStatus.Experimental`)
+
+**Every IntelliJ API this plugin calls — in production code AND in `mcp-steroid://` prompt recipes —
+must be public and stable.** Before using a class/method/field/topic/extension point, confirm it is **not**
+annotated `@ApiStatus.Internal` (and prefer not `@ApiStatus.Experimental`). Internal APIs break without
+notice across IDE releases and are off-limits even when they look convenient.
+
+- **Verify it.** Check the declaration in `~/Work/intellij` (`grep -n "@ApiStatus" <File>`), or via
+  `steroid_execute_code` + PSI on the open `intellij` project. If it's `@ApiStatus.Internal`, find the
+  public replacement; if none exists, that's a design constraint to surface, not to bypass.
+- **Known traps:** `LaterInvocator.isInModalContext()` is `@ApiStatus.Internal` — use the public
+  `ModalityState.current() != ModalityState.nonModal()` (Yuriy's `isModalEdt()`) instead. Prefer public
+  message-bus topics like `ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED` over internal hooks.
+- Reflection into private fields / `setAccessible(true)` to reach internals is **not** an escape hatch —
+  it silently breaks on the next IDE release (see the reflection rule in `prompts/CLAUDE.md`).
+
 ### Services
 
 Use IntelliJ services instead of `object`/singletons:
@@ -271,6 +287,54 @@ jcmd <PID> Thread.print -l > /tmp/dump-with-locks.txt
 Look for: `BLOCKED` threads (deadlock), `DefaultDispatcher-worker-*` waiting (stuck coroutines),
 `AWT-EventQueue-0` deep-blocked (EDT violation), the currently executing test method.
 
+**When a dump isn't enough, attach a live debugger.** Docker integration tests always start the
+IDE JVM with a JDWP agent open (`server=y,suspend=n`, `IDE_DEBUG_PORT`=5005), and the in-container
+devrig JVM too (`DEVRIG_DEBUG_PORT`=5006) — both Docker-mapped to host ports printed on the host as
+`Listening for transport dt_socket at address: <host-port>` (+ `session-info.txt`). Attach
+IntelliJ's "Remote JVM Debug" (module `ij-plugin`) to step through plugin code (`DialogKiller`,
+`DialogWindowsLookup`, `ScriptExecutor`) live. Recipe to attach programmatically:
+`mcp-steroid://debugger/debug-attach-remote-jvm`; full workflow in `test-integration/AGENTS.md`
+→ "Remote-debugging the Dockerized IDE". The modal-dialog/EDT hang (resolved 2026-05-31) is written
+up in `docs/dialog-killer-modality-hang.md`.
+
+### exec_code modality model — the `modal` enum (ScriptExecutor.executeWithProgress)
+
+**The MCP surface is one `ModalMode` enum** (`ExecuteCodeTool.kt`), not booleans. The old
+`dialog_killer` / `cancel_on_modal` / `allow_modal` params and the runtime
+`doNotCancelOnModalityStateChange()` are GONE. Full design + behavior table + the 10-iteration review:
+`docs/exec-code-options-redesign.md` (LOCKED). Modality-hang investigation that led here:
+`docs/dialog-killer-modality-hang.md`.
+
+**Why a stance is needed:** `commitAllDocuments` / `saveAllDocuments` / `VfsRefreshService.awaitRefresh`
+run on the **write-intent** `Dispatchers.EDT` and **hang under a modal** (the dispatch is withheld), and
+`waitForSmartMode()` / indexing **cannot complete while a modal is up**. So a script that touches PSI must
+first guarantee a non-modal IDE. The single reliable modal check is **Yuriy's** `isModalEdt()`
+(`DialogWindowsLookup`: `Dispatchers.EDT + ModalityState.any()`, `current() != nonModal()`; stable —
+`LaterInvocator` is `@Internal`), shared by the gate and the dialog killer.
+
+**`modal` values** (default `smart_non_modal`), each a `when` branch in `executeWithProgressImpl` that is
+sugar over the `McpScriptContext` methods:
+
+| `modal` | Pre-flight | During body | Post-flight |
+|---|---|---|---|
+| `smart_non_modal` *(default)* | `closeModalDialogs()` (sweep, deepest-first) → require non-modal (`requireNonModalOrFail` → fail + screenshot + thread dump) → `syncDocuments()` (commit+save+VFS, bounded 60s) → `waitForSmartMode()` (bounded 60s) → `monitorAndCloseModalDialogs()` | monitor polls ~1s; a modal dialog gets closed + the run FAILS (screenshot + thread dump) | re-`syncDocuments()` iff `!isModalEdt()` |
+| `non_modal` | `requireNonModalOrFail` only (assert-only) | nothing | nothing |
+| `unleashed` | nothing | nothing | nothing |
+
+**Context methods** (`McpScriptContextImpl`, callable from any mode): `closeModalDialogs(): Int` (sweep;
+thread-dump+screenshot side effects, **skipped on an empty sweep**; does not fail), `monitorAndCloseModalDialogs()`
+(1s-poll watcher; close + FAIL; launched in the execution scope so throwing fails the run; `allowModalDialog()`
+cancels it for the rest of the run), `syncDocuments()` (commit+save+VFS; asserts non-modal), `waitForSmartMode()`
+(asserts non-modal; **bounded** by `WAIT_FOR_SMART_MODE_TIMEOUT`). All bounded EDT ops use
+`withTimeout → ToolCallErrorException` so a stuck modal fails fast with a thread dump instead of hanging.
+Stage markers (`[PRE]`/`[RUN]`/`[POST]`) localize a stall.
+
+**Tests:** unit `ModalModeTest` (wire/default/parse) + `ExecutionManagerTest` profile-pipeline cases;
+integration `DialogKillerIntegrationTest` (Docker) — Step-1 opens a modal with `modal=unleashed` (no
+monitor, so it survives), explicit/screenshot/nested close it with `unleashed` + `closeModalDialogs()`,
+the automatic test uses `smart_non_modal` (pre-flight sweep). The test helper's `mcpExecuteCode(modal=…)`
+and `testExecParams(modal=…)` carry the wire string.
+
 ### Cleaning build artifacts
 
 ```bash
@@ -319,3 +383,30 @@ When the IDE bundles newer Kotlin than the plugin's compiler: set `mcp.steroid.k
 
 `CodeButcher.wrapWithImports()`: extracts user imports, adds defaults, merges, wraps body into a suspend
 method.
+
+## devrig ↔ plugin wire contract (frozen, additive-only)
+
+From the 0.96 release onward, the **devrig binary must stay compatible with every plugin version it talks
+to** (and vice-versa). The wire surface is: the **JSON-RPC tool-call params** devrig sends
+(`DevrigBridgeToolHandlers` `put(...)` blocks → `steroid_execute_code`, `_execute_feedback`,
+`_take_screenshot`, `_input`, `_open_project`), the `/windows` + `/projects/stream` responses, and the
+`@Serializable` DTOs they (de)serialize with (`mcp-steroid-server`: `NpxBridge*`, `NpxStream*`, `PidMarker`,
+`McpProtocol` types; `mcp-core`: `ToolCallResult`).
+
+**Rules — never break these:**
+- **Additive only.** Never remove, rename, or retype an existing param/field. New params/fields **must be
+  optional with a safe default** (`= null` / `= ""` / `= false` / a defaulted enum), so an older peer that
+  omits them still decodes and a newer peer that ignores them still works. Graceful degradation is fine; the
+  protocol must still function end-to-end.
+- **Tolerant decode is the baseline, not a license to break.** `ignoreUnknownKeys = true` tolerates *unknown*
+  keys (additive on the sender) but a **required field without a default still throws on a *missing* key** —
+  so the additive-only rule is what actually guarantees forward/back compat. The current required fields
+  (e.g. `NpxBridgeWindowsResponse`'s 8) are the v1 baseline: present in all versions, never to be removed.
+- **Enums must not be parsed strictly** against the wire — an unknown future value must degrade, not throw.
+- **Changing the contract requires a conscious, reviewed, additive-only edit + a contract-test update.**
+  `DevrigToolBridgeClientTest` pins each tool's exact param names/types (golden-ish assertions); a diff
+  fails the build. Add a pinned case for any new tool/param.
+
+Deferred (revisit with a baseline release): (a) a cross-version test (devrig HEAD ↔ an older plugin build);
+(b) giving devrig its **own** copy of the marker/bridge DTOs so the two version independently and only the
+JSON wire shape is shared (today devrig reuses `mcp-steroid-server`'s classes, decoding tolerantly).

@@ -24,7 +24,18 @@ class ServerUrlWriterTest : BasePlatformTestCase() {
             assertTrue("marker should be written to $markerFile", Files.isRegularFile(markerFile))
             val marker = PidMarkerJson.decode(Files.readString(markerFile))
             assertEquals(pid, marker.pid)
-            assertEquals("http://localhost:6315/mcp", marker.mcpSteroidServer.mcpUrl)
+            assertEquals("http://localhost:6315/mcp", marker.mcpSteroidServer!!.mcpUrl)
+            // The devrig bridge endpoint is advertised separately from the MCP endpoint: same Ktor base,
+            // the /api/jonnyzzz/mcp-steroid/v1 prefix, and the bearer headers devrig must send.
+            assertNotNull("devrigEndpoint should be present", marker.devrigEndpoint)
+            assertEquals(
+                "http://localhost:6315/api/jonnyzzz/mcp-steroid/v1",
+                marker.devrigEndpoint!!.rpcBaseUrl,
+            )
+            assertTrue(
+                "devrigEndpoint headers should carry the bearer token",
+                marker.devrigEndpoint!!.headers["Authorization"]?.startsWith("Bearer ") == true,
+            )
             assertNotNull("IntelliJ built-in web server info should be present", marker.intellijWebServer)
             assertTrue("web server port should be known", marker.intellijWebServer!!.port > 0)
             assertTrue(

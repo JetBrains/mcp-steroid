@@ -105,7 +105,8 @@ Parameters:
 - `code` (required): Kotlin suspend function body
 - `reason` (required): Human-readable explanation of what you're doing - **be detailed so sub-agents can understand the intent**
 - `task_id` (required): Group related executions together
-- `timeout` (optional): Execution timeout in seconds (default: 60)
+- `timeout` (optional): Timeout in seconds for your script body (default 600; smart_non_modal's pre-flight has its own bounds)
+- `modal` (optional): IDE-preparation + modal-dialog policy. `smart_non_modal` (default) closes stray dialogs, requires non-modal, commits/saves docs + refreshes VFS, waits for indexing, then closes+fails on any modal during the run — the safe choice for PSI/editing. `non_modal` only asserts a non-modal start. `unleashed` does no checks (intentional modal-dialog workflows or trivial actions only, never PSI). Finer control via the `McpScriptContext` methods `closeModalDialogs()` / `monitorAndCloseModalDialogs()` / `allowModalDialog()` / `syncDocuments()` / `waitForSmartMode()`.
 
 **Best Practice: Delegate to Sub-Agent**
 
@@ -179,7 +180,7 @@ Both are suspend functions that work naturally in the script body.
 
 ```kotlin
 // Script body is a suspend function; execute wrapper not required.
-// waitForSmartMode() is called automatically before your script starts.
+// waitForSmartMode() is automatic under modal=smart_non_modal (the default)
 
 val result = readAction {
     // PSI/VFS reads here
@@ -206,7 +207,7 @@ printJson(mapOf("hello" to "world"))
 // Report progress
 progress("Processing...")
 
-// waitForSmartMode() is called automatically before your script starts
+// waitForSmartMode() is automatic under modal=smart_non_modal (the default)
 ```
 
 ## Modal Dialog Handling
@@ -223,13 +224,17 @@ By default, if a modal dialog appears during script execution, the code is autom
 - The result includes "MODAL DIALOG DETECTED" message
 - Use `steroid_input` to interact with the dialog, or `steroid_take_screenshot` for a fresh view
 
-**Disabling modal cancellation:**
+**Opening a dialog on purpose:**
 
-If your script intentionally shows dialogs (like refactoring confirmations), call `doNotCancelOnModalityStateChange()` before the action:
+By default (`modal=smart_non_modal`) a modal dialog that appears while your script runs is closed and the
+call fails. If your script intentionally shows a dialog (a refactoring confirmation, etc.), call
+`allowModalDialog()` before the action to disable that monitor for the rest of the run (re-arm with
+`monitorAndCloseModalDialogs()`). For a script whose whole job is to drive a dialog, run with
+`modal=unleashed` instead (no checks at all).
 
 ```kotlin
-// Disable modal cancellation - we expect a dialog
-doNotCancelOnModalityStateChange()
+// We're about to show a dialog on purpose — don't let the monitor close it / fail the run
+allowModalDialog()
 
 // Now invoke action that shows a dialog
 val actionManager = ActionManager.getInstance()
@@ -609,7 +614,7 @@ try {
 
 ## Best Practices
 
-1. **waitForSmartMode() is automatic** - call it again only after you trigger indexing mid-script
+1. **waitForSmartMode() is automatic under the default `modal=smart_non_modal`** (skipped under `non_modal` / `unleashed`) - call it again only after you trigger indexing mid-script
 
 2. **Use `readAction { }` for any PSI/VFS read** - even simple property access
 

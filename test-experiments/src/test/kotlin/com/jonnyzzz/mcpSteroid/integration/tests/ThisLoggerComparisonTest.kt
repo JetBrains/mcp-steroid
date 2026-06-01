@@ -2,9 +2,11 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
@@ -106,11 +108,10 @@ class ThisLoggerComparisonTest {
     fun `mcp agent finds thisLogger usages`() {
         val lifetime = CloseableStackHost()
         try {
-            val session = IntelliJContainer.create(
-                lifetime,
+            val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "thislogger-mcp",
                 project = IntelliJProject.ThisLoggerProject,
-            ).waitForProjectReady()
+            )).waitForProjectReady()
 
             val result = runAgent(session, withMcp = true)
             results.add(result)
@@ -133,12 +134,11 @@ class ThisLoggerComparisonTest {
     fun `none agent finds thisLogger usages`() {
         val lifetime = CloseableStackHost()
         try {
-            val session = IntelliJContainer.create(
-                lifetime,
+            val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "thislogger-none",
                 project = IntelliJProject.ThisLoggerProject,
                 mcpConnectionMode = McpConnectionMode.None,
-            ).waitForProjectReady()
+            )).waitForProjectReady()
 
             val result = runAgent(session, withMcp = false)
             results.add(result)
@@ -163,7 +163,7 @@ class ThisLoggerComparisonTest {
         val agent = session.aiAgents.claude
         val label = if (withMcp) "MCP" else "NONE"
 
-        console.writeStep(1, "[$label] Building thisLogger search prompt")
+        console.writeStep(text = "[$label] Building thisLogger search prompt")
 
         val prompt = buildString {
             appendLine("# Task: Count all usages of `thisLogger()` in the project")
@@ -198,12 +198,12 @@ class ThisLoggerComparisonTest {
             appendLine("COUNT_ACCURATE: yes")
         }
 
-        console.writeStep(2, "[$label] Running agent prompt")
+        console.writeStep(text = "[$label] Running agent prompt")
         val startMs = System.currentTimeMillis()
         val result = agent.runPrompt(prompt, timeoutSeconds = 900).awaitForProcessFinish()
         val durationMs = System.currentTimeMillis() - startMs
 
-        console.writeStep(3, "[$label] Evaluating agent output (${durationMs / 1000}s)")
+        console.writeStep(text = "[$label] Evaluating agent output (${durationMs / 1000}s)")
 
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr

@@ -113,7 +113,11 @@ private abstract class DevrigCliktCommand(
     name = name,
     invokeWithoutSubcommand = invokeWithoutSubcommand,
 ) {
-    private val debugFlag by option("--debug", help = "enable verbose stderr logging").flag()
+    // DEVRIG_DEBUG (the env var that also makes the launcher attach a JDWP agent) additionally turns on
+    // full debug mode for every command — identical to passing --debug — so the verbose DEBUG logs that
+    // explain a debugging session are emitted without also having to pass the flag.
+    private val devrigDebugEnv = !System.getenv("DEVRIG_DEBUG").isNullOrBlank()
+    private val debugFlag by option("--debug", help = "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)").flag()
     private val jsonFlag by option("--json", help = "emit JSON output where supported").flag()
     private val helpFlag by option("--help", "-h", help = "print help and exit").flag()
 
@@ -126,7 +130,7 @@ private abstract class DevrigCliktCommand(
     protected fun options(): GenericOptions {
         val parentOptions = parent?.options()
         return GenericOptions(
-            debug = debugFlag || parentOptions?.debug == true,
+            debug = debugFlag || parentOptions?.debug == true || devrigDebugEnv,
             json = jsonFlag || parentOptions?.json == true,
             help = helpFlag || parentOptions?.help == true,
         )

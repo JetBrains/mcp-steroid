@@ -2,8 +2,10 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
@@ -58,11 +60,10 @@ class DpaiaPromptCorpusRegressionTest {
     fun `agent compiles project via supported IntelliJ build API not invented helper (issue 47)`() {
         val lifetime = CloseableStackHost()
         try {
-            val session = IntelliJContainer.create(
-                lifetime = lifetime,
+            val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "dpaia-regression-buildProject",
                 project = IntelliJProject.ThisLoggerProject,
-            ).waitForProjectReady()
+            )).waitForProjectReady()
 
             val agent = session.aiAgents.claude
             // Deliberately *neutral* phrasing — never name the supported API or the forbidden
@@ -82,7 +83,7 @@ class DpaiaPromptCorpusRegressionTest {
                 appendLine("BUILD_RESULT: success | errors | aborted")
             }
 
-            session.console.writeStep(1, "Running buildProject regression prompt")
+            session.console.writeStep("Running buildProject regression prompt")
             val result = agent.runPrompt(prompt, timeoutSeconds = 900).awaitForProcessFinish()
             val combined = result.stdout + "\n" + result.stderr
 
@@ -126,11 +127,10 @@ class DpaiaPromptCorpusRegressionTest {
     fun `agent wraps VFS write in the correct threading wrapper (issue 48)`() {
         val lifetime = CloseableStackHost()
         try {
-            val session = IntelliJContainer.create(
-                lifetime = lifetime,
+            val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "dpaia-regression-writeAction",
                 project = IntelliJProject.ThisLoggerProject,
-            ).waitForProjectReady()
+            )).waitForProjectReady()
 
             val agent = session.aiAgents.claude
             val markerLine = "// auto-generated marker for DpaiaPromptCorpusRegressionTest"
@@ -154,7 +154,7 @@ class DpaiaPromptCorpusRegressionTest {
                 appendLine("FILE_PATH: <absolute path of the file you modified>")
             }
 
-            session.console.writeStep(1, "Running writeAction regression prompt")
+            session.console.writeStep("Running writeAction regression prompt")
             val result = agent.runPrompt(prompt, timeoutSeconds = 900).awaitForProcessFinish()
             val combined = result.stdout + "\n" + result.stderr
 
@@ -192,11 +192,10 @@ class DpaiaPromptCorpusRegressionTest {
     fun `agent uses supported inspection helper not daemon highlighting internals (issue 51)`() {
         val lifetime = CloseableStackHost()
         try {
-            val session = IntelliJContainer.create(
-                lifetime = lifetime,
+            val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "dpaia-regression-inspection",
                 project = IntelliJProject.ThisLoggerProject,
-            ).waitForProjectReady()
+            )).waitForProjectReady()
 
             val agent = session.aiAgents.claude
             val prompt = buildString {
@@ -210,7 +209,7 @@ class DpaiaPromptCorpusRegressionTest {
                 appendLine("PROBLEM_COUNT: <non-negative integer>")
             }
 
-            session.console.writeStep(1, "Running inspection regression prompt")
+            session.console.writeStep("Running inspection regression prompt")
             val result = agent.runPrompt(prompt, timeoutSeconds = 900).awaitForProcessFinish()
             val combined = result.stdout + "\n" + result.stderr
 

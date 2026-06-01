@@ -6,6 +6,7 @@ import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
 import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PidMarkerJson
 import com.jonnyzzz.mcpSteroid.PluginInfo
+import com.jonnyzzz.mcpSteroid.devrig.testDevrigEndpoint
 import com.jonnyzzz.mcpSteroid.server.NPX_NDJSON_MIME_TYPE
 import com.jonnyzzz.mcpSteroid.server.NPX_PROJECTS_STREAM_PATH
 import com.jonnyzzz.mcpSteroid.server.NpxStreamClientInfo
@@ -210,9 +211,9 @@ class IdeMonitorServiceTest {
             pid = ourPid,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = "http://127.0.0.1:$port/mcp",
-                port = port,
                 headers = mapOf("Authorization" to "Bearer $token"),
             ),
+            devrigEndpoint = testDevrigEndpoint("http://127.0.0.1:$port/mcp", mapOf("Authorization" to "Bearer $token")),
             ide = IdeInfo(name = "FakeIDE", version = "x", build = "y"),
             plugin = PluginInfo(id = "x", name = "y", version = "z"),
             createdAt = "2026-05-10T12:34:56Z",

@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Application-level service that publishes the IDE's currently-open project
- * list as a [StateFlow]. Powers `/npx/v1/projects/stream`.
+ * list as a [StateFlow]. Powers the devrig bridge's `…/projects/stream`.
  *
  * Wiring:
  *  - Open: [SteroidsMcpServerStartupActivity] (a `postStartupActivity`)

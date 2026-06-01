@@ -180,13 +180,14 @@ These are the essential rules you must follow. For detailed examples and pattern
 ### 1. Script Body is a SUSPEND Function
 ```kotlin
 // This is a coroutine - use suspend APIs!
-// waitForSmartMode() is called automatically before your script starts.
+// Under the default modal=smart_non_modal, waitForSmartMode() runs automatically before your script.
 delay(1000)         // coroutine delay - works directly
 ```
 **NEVER use `runBlocking`** - it causes deadlocks.
 
-**NEVER re-probe `waitForSmartMode()` before every operation.** The automatic wait before script
-start is only a point-in-time check; IntelliJ may enter dumb mode again before the next statement.
+**NEVER re-probe `waitForSmartMode()` before every operation.** The automatic wait (under the default
+`modal=smart_non_modal`; skipped under `non_modal` / `unleashed`) before script start is only a
+point-in-time check; IntelliJ may enter dumb mode again before the next statement.
 For index-dependent PSI queries, wrap the whole query in `smartReadAction { }`. After project
 open/import/sync/configuration, first await `Observation.awaitConfiguration(project)`, then use
 `smartReadAction { }`.

@@ -3,7 +3,6 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
-import com.jonnyzzz.mcpSteroid.mcp.ResourceReadResult
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -17,44 +16,15 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 
 fun Route.installNpxBridgeRoutes(
     serverCoreProvider: () -> McpServerCore,
     mcpUrlProvider: () -> String
 ) {
-    route("/npx/v1") {
-        get("/metadata") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.buildMetadata(mcpUrlProvider())
-            call.respondJson(payload, NpxBridgeMetadataResponse.serializer())
-        }
-
-        get("/server-metadata") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.buildServerMetadata(mcpUrlProvider())
-            call.respondJson(payload, ServerMetadataResponse.serializer())
-        }
-
-        get("/products") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.buildProducts()
-            call.respondJson(payload, ListProductsResponse.serializer())
-        }
-
-        get("/projects") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.buildProjects(mcpUrlProvider())
-            call.respondJson(payload, NpxBridgeProjectsResponse.serializer())
-        }
-
+    // Only the three endpoints devrig actually uses are exposed. The former GET /metadata,
+    // /server-metadata, /products, /projects, /summary, /resources, /resources/read and the
+    // non-streaming POST /tools/call were unused (no devrig caller) and were removed.
+    route(DEVRIG_RPC_PATH_PREFIX) {
         post("/projects/stream") {
             if (!call.requireNpxBridgeAuthorization()) return@post
             val service = ProjectsStreamService.getInstance()
@@ -73,63 +43,6 @@ fun Route.installNpxBridgeRoutes(
             val bridge = NpxBridgeService.getInstance()
             val payload = bridge.buildWindows(mcpUrlProvider())
             call.respondJson(payload, NpxBridgeWindowsResponse.serializer())
-        }
-
-        get("/summary") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.buildSummary(mcpUrlProvider())
-            call.respondJson(payload, NpxBridgeSummaryResponse.serializer())
-        }
-
-        get("/resources") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.buildResources(serverCoreProvider())
-            call.respondJson(payload, NpxBridgeResourcesResponse.serializer())
-        }
-
-        get("/resources/read") {
-            if (!call.requireNpxBridgeAuthorization()) return@get
-            val uri = call.request.queryParameters["uri"]
-            if (uri.isNullOrBlank()) {
-                call.respond(HttpStatusCode.BadRequest, "Missing uri query parameter")
-                return@get
-            }
-            val bridge = NpxBridgeService.getInstance()
-            val payload = bridge.readResource(serverCoreProvider(), uri)
-            if (payload == null) {
-                call.respond(HttpStatusCode.NotFound, "Resource not found: $uri")
-                return@get
-            }
-            call.respondJson(payload, ResourceReadResult.serializer())
-        }
-
-        post("/tools/call") {
-            if (!call.requireNpxBridgeAuthorization()) return@post
-            val request = call.parseToolCallRequestOrRespondBadRequest() ?: return@post
-            val bridge = NpxBridgeService.getInstance()
-
-            var result: JsonElement? = null
-            var errorMessage: String? = null
-            bridge.streamToolCall(serverCoreProvider(), request) { event ->
-                when (event.eventType()) {
-                    "result" -> result = event["result"]
-                    "error" -> errorMessage = event["message"]?.jsonPrimitive?.contentOrNull
-                }
-            }
-
-            if (result != null) {
-                call.respondText(
-                    text = result.toString(),
-                    contentType = ContentType.Application.Json
-                )
-            } else {
-                call.respond(
-                    HttpStatusCode.BadGateway,
-                    errorMessage ?: "Tool call failed"
-                )
-            }
         }
 
         post("/tools/call/stream") {
@@ -173,5 +86,3 @@ private suspend fun ApplicationCall.parseToolCallRequestOrRespondBadRequest(): N
         null
     }
 }
-
-private fun JsonObject.eventType(): String? = this["type"]?.jsonPrimitive?.contentOrNull

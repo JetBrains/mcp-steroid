@@ -157,7 +157,7 @@ suspend fun DevrigServices.mainImplMcp(
     // McpSteroidTools. Alongside the stdio server, the IDE monitor runs discovery from
     // <pid>.mcp-steroid JSON markers in the devrig home markers directory
     // plus legacy .<pid>.mcp-steroid markers from $HOME during the transition.
-    // The monitor opens one POST /npx/v1/projects/stream per IDE and receives
+    // The monitor opens one POST <rpcBaseUrl>/projects/stream per IDE and receives
     // push notifications on project open/close.
 
     val discoveryJob = ideDiscovery.start(this)

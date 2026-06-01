@@ -3,8 +3,10 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertNoErrorsInOutput
@@ -28,12 +30,10 @@ class MavenRunnerAdoptionTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(MavenRunnerAdoptionTest::class.java.simpleName) }
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "Maven Runner Adoption",
                 project = IntelliJProject.MavenTestProject,
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 buildSystem = BuildSystem.MAVEN,
                 compileProject = true,
             )
@@ -52,7 +52,7 @@ class MavenRunnerAdoptionTest {
         val console = session.console
         val agent = session.aiAgents.claude
 
-        console.writeStep(1, "Running Claude agent with Maven test prompt")
+        console.writeStep(text = "Running Claude agent with Maven test prompt")
         val result = agent.runPrompt(
             "Run all Maven tests in this project. Report the test results (pass count, fail count).",
             timeoutSeconds = 300
@@ -60,7 +60,7 @@ class MavenRunnerAdoptionTest {
             .assertExitCode(0) { "Agent prompt failed" }
             .assertNoErrorsInOutput("Agent should not produce errors")
 
-        console.writeStep(2, "Analyzing agent tool usage")
+        console.writeStep(text = "Analyzing agent tool usage")
 
         val output = result.stdout
         val lines = output.lines()
@@ -84,7 +84,7 @@ class MavenRunnerAdoptionTest {
         println("agent output length: ${output.length} chars, ${lines.size} lines")
         println("=====================================")
 
-        console.writeStep(3, "Verifying exec_code adoption")
+        console.writeStep(text = "Verifying exec_code adoption")
 
         // The agent should use exec_code for Maven test execution, not Bash ./mvnw test
         assertTrue(execCodeTestCalls > 0,

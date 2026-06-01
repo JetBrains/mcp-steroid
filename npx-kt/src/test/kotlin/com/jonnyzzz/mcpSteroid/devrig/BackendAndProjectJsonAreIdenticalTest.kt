@@ -52,16 +52,22 @@ class BackendAndProjectJsonAreIdenticalTest {
             pid = pid,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = mcpUrl,
-                port = 0,
                 headers = emptyMap(),
             ),
+            devrigEndpoint = testDevrigEndpoint(mcpUrl),
             ide = ideInfo,
             plugin = pluginInfo,
             createdAt = "1970-01-01T00:00:00Z",
             intellijWebServer = null,
             intellijMcpServer = null,
         )
-        return DiscoveredIde(pid = pid, mcpUrl = mcpUrl, markerPath = "/tmp/$pid.mcp-steroid", marker = marker)
+        return DiscoveredIde(
+            pid = pid,
+            rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
+            bridgeHeaders = emptyMap(),
+            markerPath = "/tmp/$pid.mcp-steroid",
+            marker = marker,
+        )
     }
 
     private fun portIde(

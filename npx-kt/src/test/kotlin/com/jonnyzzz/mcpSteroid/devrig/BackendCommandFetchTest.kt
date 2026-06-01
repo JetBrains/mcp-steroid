@@ -129,16 +129,22 @@ class BackendCommandFetchTest {
             pid = 1234L,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = mcpUrl,
-                port = port,
                 headers = mapOf("Authorization" to "Bearer $token"),
             ),
+            devrigEndpoint = testDevrigEndpoint(mcpUrl, mapOf("Authorization" to "Bearer $token")),
             ide = IdeInfo("FakeIDE", "x", "y"),
             plugin = PluginInfo("x", "y", "z"),
             createdAt = "1970-01-01T00:00:00Z",
             intellijWebServer = null,
             intellijMcpServer = null,
         )
-        return DiscoveredIde(pid = 1234L, mcpUrl = mcpUrl, markerPath = "/tmp/1234.mcp-steroid", marker = marker)
+        return DiscoveredIde(
+            pid = 1234L,
+            rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
+            bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
+            markerPath = "/tmp/1234.mcp-steroid",
+            marker = marker,
+        )
     }
 
     // ----------------------- single-IDE happy path -------------------------

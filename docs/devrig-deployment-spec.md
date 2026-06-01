@@ -25,7 +25,7 @@ calls** unless `devrig upgrade` is run or a cache directory is missing.
 ## Filesystem layout
 
 ```
-~/.mcp-steroid/                     ← DEVRIG_HOME is hardcoded
+~/.mcp-steroid/                     ← fixed location, not configurable
 ├── version.properties              ← single manifest (Properties format)
 ├── version.properties.signatures   ← two ed25519 sigs, separate file
 ├── allowed_signers                 ← OpenSSH allowed_signers (pins both pubkeys)
@@ -149,7 +149,7 @@ prop() {
         exit
       }
     }
-  ' "$DEVRIG_HOME/version.properties"
+  ' "$HOME/.mcp-steroid/version.properties"
 }
 
 DEVRIG_URL=$(prop "binaries.${OS}-${CPU}.devrig.url")
@@ -258,7 +258,7 @@ See git history of this file for the full snippets.)
 | `DEVRIG_DEBUG_NO_EXEC=1` | Stop after cache resolution, print resolved exec path to stderr, exit 45 |
 | `MCP_STEROID_FROM_WRAPPER=1` | Set by the wrapper before exec; inner devrig suppresses the headliner |
 
-`DEVRIG_HOME` is **not overridable** — always `~/.mcp-steroid`.
+The home is **not configurable** — always `~/.mcp-steroid`. There is no `DEVRIG_HOME` (or any other) override env var.
 
 ## `install` bootstrap mode
 

@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig.monitor
 
-import com.jonnyzzz.mcpSteroid.server.NPX_PROJECTS_STREAM_PATH
 import com.jonnyzzz.mcpSteroid.server.NpxStreamClientInfo
 import com.jonnyzzz.mcpSteroid.server.NpxStreamEnvelope
 import com.jonnyzzz.mcpSteroid.server.NpxStreamJson
@@ -65,7 +64,9 @@ class IdeMonitorService(
     private val httpClient: HttpClient,
     private val discovery: IdeDiscoveryService,
     private val clientInfo: NpxStreamClientInfo,
-    private val streamPath: String = NPX_PROJECTS_STREAM_PATH,
+    // Operation suffix appended to the IDE's advertised bridge base URL — declared here, devrig-side,
+    // not imported from the plugin (the bridge base URL itself comes from the marker's devrigEndpoint).
+    private val streamPath: String = "/projects/stream",
     private val reconnectBackoff: Duration = 2.seconds,
 ) {
     private val log = LoggerFactory.getLogger(IdeMonitorService::class.java)
@@ -130,13 +131,13 @@ class IdeMonitorService(
 
     /** Single-attempt connect + drain. Returns when the stream ends or throws on error. */
     private suspend fun connectAndStream(ide: DiscoveredIde) {
-        val url = streamUrlFor(ide.mcpUrl, streamPath)
+        val url = ide.rpcBaseUrl + streamPath
         val body = NpxStreamJson.encodeClientInfo(clientInfo)
 
         httpClient.preparePost(url) {
             headers {
                 append(HttpHeaders.ContentType, "application/json")
-                for ((name, value) in ide.marker.mcpSteroidServer.headers) {
+                for ((name, value) in ide.bridgeHeaders) {
                     append(name, value)
                 }
             }
@@ -200,11 +201,5 @@ private inline fun <T> MutableStateFlow<T>.update(transform: (T) -> T) {
     }
 }
 
-private fun streamUrlFor(mcpUrl: String, streamPath: String): String {
-    // mcpUrl is the IDE's "http://host:port/mcp". The /npx/v1/* routes are siblings
-    // — strip the trailing /mcp (and any trailing slash) before appending streamPath.
-    val base = mcpUrl.trimEnd('/').removeSuffix("/mcp")
-    return base + streamPath
-}
 
 private fun nowIso(): String = DateTimeFormatter.ISO_INSTANT.format(Instant.now())

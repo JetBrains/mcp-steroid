@@ -423,16 +423,22 @@ class BackendProvisionTest {
             pid = pid,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = mcpUrl,
-                port = 0,
                 headers = emptyMap(),
             ),
+            devrigEndpoint = testDevrigEndpoint(mcpUrl),
             ide = IdeInfo(name = name, version = version, build = build),
             plugin = PluginInfo(id = "com.jonnyzzz.mcp-steroid", name = "MCP Steroid", version = "0.0.0-test"),
             createdAt = "1970-01-01T00:00:00Z",
             intellijWebServer = null,
             intellijMcpServer = null,
         )
-        return DiscoveredIde(pid = pid, mcpUrl = mcpUrl, markerPath = "/tmp/$pid.mcp-steroid", marker = marker)
+        return DiscoveredIde(
+            pid = pid,
+            rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
+            bridgeHeaders = emptyMap(),
+            markerPath = "/tmp/$pid.mcp-steroid",
+            marker = marker,
+        )
     }
 
     private fun portIde(

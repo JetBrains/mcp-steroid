@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.integration.infra
 import com.jonnyzzz.mcpSteroid.aiAgents.StdioMcpCommand
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.copyToContainer
+import com.jonnyzzz.mcpSteroid.testHelper.docker.mapGuestPortToHostPort
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 
@@ -38,15 +39,32 @@ class DevrigSteroidDriver(
                     cat > "$$launcherPath" <<'EOF'
                     #!/usr/bin/env bash
                     set -eu
-                    # devrig is built with jvmToolchain(25) -> class-file v69, so it needs a
-                    # JDK/JRE 25 to launch. Do NOT inherit the container's JAVA_HOME: the IDE
-                    # image pins it to java-21 for project SDKs, which fails devrig with
-                    # UnsupportedClassVersionError. Resolve a Temurin 25 explicitly; the glob
-                    # matches temurin-25-jdk-<arch> (ide-base) and temurin-25-jre-<arch>
-                    # (agent-cli), on both amd64 (CI) and arm64 (local mac).
-                    java25="$(ls -d /usr/lib/jvm/temurin-25-* 2>/dev/null | head -1)"
-                    export JAVA_HOME="${DEVRIG_JAVA_HOME:-${java25:-${JAVA_HOME:-}}}"
-                    export PATH="$JAVA_HOME/bin:/home/agent/devrig-cli/app/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+                    # devrig needs Java 25 (class-file v69); the IDE image pins JAVA_HOME to java-21 for
+                    # project SDKs. Resolve the container's Java 25 here (container-specific) and hand it to
+                    # devrig via DEVRIG_JAVA_HOME — the devrig launcher itself applies it to JAVA_HOME (that
+                    # generic knob now lives in the product start script, not this harness). Pick the first
+                    # temurin-25 (jdk preferred, then jre) that actually has bin/java — covers amd64 (CI) +
+                    # arm64 (local); FAIL LOUDLY if none, rather than silently launching on java-21.
+                    if [ -z "${DEVRIG_JAVA_HOME:-}" ]; then
+                      for cand in /usr/lib/jvm/temurin-25-jdk-* /usr/lib/jvm/temurin-25-jre-* /usr/lib/jvm/temurin-25-*; do
+                        if [ -x "$cand/bin/java" ]; then DEVRIG_JAVA_HOME="$cand"; break; fi
+                      done
+                    fi
+                    if [ -z "${DEVRIG_JAVA_HOME:-}" ] || [ ! -x "${DEVRIG_JAVA_HOME}/bin/java" ]; then
+                      echo "devrig launcher: no Java 25 found (set DEVRIG_JAVA_HOME). devrig is class-file v69 and needs Java 25." >&2
+                      exit 1
+                    fi
+                    export DEVRIG_JAVA_HOME
+                    export PATH="$DEVRIG_JAVA_HOME/bin:/home/agent/devrig-cli/app/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+                    # Enable devrig's JDWP debug agent for the long-lived `mpc` server. The devrig start
+                    # script (bin/devrig) reads DEVRIG_DEBUG and picks a FREE port from 23900-23999, seeded
+                    # by PID — so multiple concurrent devrig processes never clash (the old fixed-port
+                    # approach crashed with "Address already in use"). quiet=y keeps the JDWP "Listening ..."
+                    # line OFF stdout (`devrig mpc` speaks JSON-RPC there); suspend=n so devrig never waits.
+                    # The range is published by the container; the chosen port is on devrig's stderr/log.
+                    if [ "${1:-}" = "mpc" ]; then
+                      export DEVRIG_DEBUG=1
+                    fi
                     exec /home/agent/devrig-cli/app/bin/devrig "$@"
                     EOF
                     chmod +x "$$launcherPath"
@@ -57,6 +75,12 @@ class DevrigSteroidDriver(
                     .description("install devrig MCP stdio launcher")
             }.awaitForProcessFinish()
                 .assertExitCode(0) { "install devrig MCP stdio launcher" }
+
+            // devrig's `mpc` JVM picks a FREE JDWP port from 23900-23999 (DEVRIG_DEBUG, set in the
+            // launcher above) and announces it on its own stderr/log (quiet=y keeps it off stdout). The
+            // whole range is Docker-published, so attach a "Remote JVM Debug" (module npx-kt) to the
+            // host-mapped port for the in-container port devrig reports.
+            println("[DEVRIG-DEBUG] devrig mpc JDWP: a free port in 23900-23999 (announced on devrig stderr); range is host-mapped (suspend=n)")
 
             println("[DevrigSteroidDriver] devrig MCP stdio ready")
             return DevrigSteroidDriver(StdioMcpCommand(command = launcherPath, args = listOf("mpc")))

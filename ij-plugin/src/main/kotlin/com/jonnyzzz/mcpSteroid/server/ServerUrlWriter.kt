@@ -8,6 +8,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.Urls
+import com.jonnyzzz.mcpSteroid.DevrigEndpointInfo
 import com.jonnyzzz.mcpSteroid.IdeInfo
 import com.jonnyzzz.mcpSteroid.IntelliJWebServerInfo
 import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
@@ -52,13 +53,22 @@ class ServerUrlWriter : Disposable {
         val markerDir = PidMarker.markerDirectory(userHome)
         val file = markerDir.resolve(PidMarker.markerFileNameFor(pid))
 
+        val bridgeHeaders = bearerHeaders(NpxBridgeService.getInstance().token)
+        // The devrig bridge lives on the same Ktor server as `/mcp`, at DEVRIG_RPC_PATH_PREFIX. Advertise
+        // the FULL base URL so devrig connects by reading it from the marker — never by stripping `/mcp`
+        // or knowing the path prefix. This is split from mcpSteroidServer (the MCP-client endpoint) on
+        // purpose: devrig uses devrigEndpoint only.
+        val ktorBaseUrl = serverUrl.trimEnd('/').removeSuffix("/mcp")
         val marker = PidMarker(
             schema = PidMarker.SCHEMA_VERSION,
             pid = pid,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = serverUrl,
-                port = SteroidsMcpServer.getInstance().port,
-                headers = bearerHeaders(NpxBridgeService.getInstance().token),
+                headers = bridgeHeaders,
+            ),
+            devrigEndpoint = DevrigEndpointInfo(
+                rpcBaseUrl = "$ktorBaseUrl$DEVRIG_RPC_PATH_PREFIX",
+                headers = bridgeHeaders,
             ),
             ide = IdeInfo.ofApplication(),
             plugin = PluginInfo.ofCurrentPlugin(),

@@ -5,9 +5,11 @@ import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeTestFolders
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import kotlinx.serialization.json.buildJsonObject
@@ -93,8 +95,7 @@ abstract class DpaiaScenarioBaseTest {
                 else -> BuildSystem.NONE
             }
 
-            val session = IntelliJContainer.create(
-                lifetime,
+            val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "$consoleTitle-$modeLabel",
                 project = IntelliJProject.ProjectFromGitCommitAndPatch(
                     cloneUrl = testCase.cloneUrl,
@@ -107,7 +108,7 @@ abstract class DpaiaScenarioBaseTest {
                 aiMode = aiMode,
                 mcpConnectionMode = mcpMode,
                 mountDockerSocket = true,
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
                 projectJdkVersion = caseConfig.projectJdkVersion,
                 buildSystem = buildSystem,

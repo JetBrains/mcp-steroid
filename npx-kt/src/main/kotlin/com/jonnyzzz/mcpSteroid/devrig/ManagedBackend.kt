@@ -246,11 +246,31 @@ class DefaultManagedBackendDownloader(
         Files.createDirectories(archiveDownloadDir)
         val archive = distribution.resolveAndDownload(archiveDownloadDir.toFile(), os = os)
         unpackIdeArchive(archive, targetDir.toFile(), sevenZipBinary = DevrigRoot.sevenZipBinary())
+        // Prefix the unpacked IDE bundle dir with the download's hash, mirroring the cached archive name
+        // (`<hash>-<filename>` from IdeDownloader). The hash is the 16-char prefix of the archive file name;
+        // this keeps the unpacked tree traceable to its exact binary and consistently named with its download.
+        prefixBundleDirWithArchiveHash(targetDir, archive.name.substringBefore('-', missingDelimiterValue = ""))
         BackendDownloadArtifact(
             sourceArchiveSha256 = sha256(archive.toPath()),
             archivePath = archive.toPath().toAbsolutePath().normalize(),
         )
     }
+}
+
+/**
+ * Renames the single unpacked IDE bundle dir under [targetDir] to `<hash>-<name>`, mirroring the download
+ * archive's `<hash>-<filename>` naming so the bundle on disk is traceable to its exact binary. No-op when
+ * [hash] is blank or the layout isn't a single top-level dir (resolveBundleDir then validates it).
+ */
+private fun prefixBundleDirWithArchiveHash(targetDir: Path, hash: String) {
+    if (hash.isEmpty()) return
+    val dirs = Files.list(targetDir).use { stream ->
+        stream.asSequence().filter { Files.isDirectory(it) }.toList()
+    }
+    val bundle = dirs.singleOrNull() ?: return
+    val current = bundle.fileName.toString()
+    if (current.startsWith("$hash-")) return
+    Files.move(bundle, bundle.resolveSibling("$hash-$current"))
 }
 
 class BackendManager(

@@ -70,8 +70,8 @@ class ApplyPatchTest : BasePlatformTestCase() {
             executionId = executionId,
             disposable = disposable,
             resultBuilder = TestResultBuilder(),
-            // No-op killer hook for tests — ScriptExecutor wires this in production.
-            onDoNotCancelOnModalityStateChange = {},
+            // The modal monitor (unused by this test) launches here; a throwaway scope is fine.
+            executionScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default),
         )
     }
 

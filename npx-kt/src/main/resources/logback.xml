@@ -24,14 +24,14 @@
             <level>${devrig.log.level:-WARN}</level>
         </filter>
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [pid:${devrig.pid:-?}] [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${DEVRIG_LOG_DIR}/devrig-${DEVRIG_LOG_SESSION}.log</file>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{64} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [pid:${devrig.pid:-?}] [%thread] %-5level %logger{64} - %msg%n</pattern>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>${DEVRIG_LOG_DIR}/devrig-%d{yyyy-MM-dd}-%i.log.gz</fileNamePattern>

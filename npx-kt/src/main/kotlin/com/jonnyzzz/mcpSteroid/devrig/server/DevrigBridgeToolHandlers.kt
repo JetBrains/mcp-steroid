@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.devrig.server
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
+import com.jonnyzzz.mcpSteroid.devrig.DevrigBeacon
 import com.jonnyzzz.mcpSteroid.devrig.DevrigServices
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
@@ -37,8 +38,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -53,16 +52,15 @@ class DevrigListWindowsToolHandler(
         val states = services.ideMonitor.states.value.values.toList()
         val responses = states.map { state ->
             async {
-                val bridgeBaseUrl = DevrigProjectRoutingService.bridgeBaseUrl(state.ide.mcpUrl)
-                val response = services.commandHttpClient.get("$bridgeBaseUrl/npx/v1/windows") {
+                val response = services.commandHttpClient.get("${state.ide.rpcBaseUrl}/windows") {
                     headers {
-                        for ((name, value) in state.ide.marker.mcpSteroidServer.headers) {
+                        for ((name, value) in state.ide.bridgeHeaders) {
                             append(name, value)
                         }
                     }
                 }
                 if (response.status.value !in 200..299) {
-                    error("HTTP ${response.status.value} from ${state.ide.label} /npx/v1/windows: ${response.bodyAsText()}")
+                    error("HTTP ${response.status.value} from ${state.ide.label} bridge /windows: ${response.bodyAsText()}")
                 }
                 state.ide.pid to McpJson.decodeFromString(NpxBridgeWindowsResponse.serializer(), response.bodyAsText())
             }
@@ -85,6 +83,7 @@ class DevrigListWindowsToolHandler(
 
 class DevrigExecuteCodeToolHandler(
     private val bridge: DevrigToolBridgeClient,
+    private val beacon: DevrigBeacon,
 ) : ExecuteCodeToolHandler {
     override suspend fun executeCode(
         projectName: String,
@@ -92,29 +91,35 @@ class DevrigExecuteCodeToolHandler(
         callProgress: McpProgressReporter,
     ): ToolCallResult {
         val route = bridge.routing.requireProject(projectName)
-        return bridge.callTool(route, "steroid_execute_code", callProgress) {
+        val result = bridge.callTool(route, "steroid_execute_code", callProgress) {
             put("project_name", route.originalProjectName)
             put("code", execCodeParams.code)
             put("task_id", execCodeParams.taskId)
             put("reason", execCodeParams.reason)
-            execCodeParams.timeout?.let { put("timeout", it) }
-            execCodeParams.dialogKiller?.let { put("dialog_killer", it) }
+            put("timeout", execCodeParams.timeout)
+            put("modal", execCodeParams.modal.wire)
         }
+        beacon.capture("exec_code", mapOf("result" to if (result.isError == true) "error" else "success"))
+        return result
     }
 }
 
 class DevrigExecuteFeedbackToolHandler(
     private val bridge: DevrigToolBridgeClient,
+    private val beacon: DevrigBeacon,
 ) : ExecuteFeedbackToolHandler {
     override suspend fun handleFeedback(projectName: String, params: FeedbackParams): ToolCallResult {
         val route = bridge.routing.requireProject(projectName)
-        return bridge.callTool(route, "steroid_execute_feedback") {
+        val result = bridge.callTool(route, "steroid_execute_feedback") {
             put("project_name", route.originalProjectName)
             put("task_id", params.taskId)
             put("success_rating", params.successRating)
             params.explanation?.let { put("explanation", it) }
             params.code?.let { put("code", it) }
         }
+        // Mirror the ij-plugin's status_score event: 0.0-1.0 rating -> 0-100 score.
+        beacon.captureScore((params.successRating * 100).toInt(), context = "feedback")
+        return result
     }
 }
 
@@ -168,8 +173,8 @@ class DevrigOpenProjectToolHandler(
             )
         val route = ProjectRoute(
             idePid = ide.pid,
-            bridgeBaseUrl = DevrigProjectRoutingService.bridgeBaseUrl(ide.mcpUrl),
-            headers = ide.marker.mcpSteroidServer.headers,
+            bridgeBaseUrl = ide.rpcBaseUrl,
+            headers = ide.bridgeHeaders,
             originalProjectName = "",
             exposedProjectName = "",
             projectPath = "",
@@ -202,7 +207,7 @@ class DevrigToolBridgeClient(
             NpxBridgeToolCallRequest.serializer(),
             NpxBridgeToolCallRequest(name = toolName, arguments = args),
         )
-        val url = "${route.bridgeBaseUrl}/npx/v1/tools/call/stream"
+        val url = "${route.bridgeBaseUrl}/tools/call/stream"
         var result: ToolCallResult? = null
         var errorMessage: String? = null
 

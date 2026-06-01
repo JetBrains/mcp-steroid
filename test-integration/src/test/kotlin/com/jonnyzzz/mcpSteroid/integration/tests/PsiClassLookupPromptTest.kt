@@ -1,7 +1,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import org.junit.jupiter.api.AfterEach
@@ -30,15 +32,14 @@ class PsiClassLookupPromptTest {
     @Test
     @Timeout(value = 20, unit = TimeUnit.MINUTES)
     fun `claude uses JavaPsiFacade or KotlinClassShortNameIndex to find class and list methods`() {
-        val session = IntelliJContainer.create(
-            lifetime,
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "PSI class lookup prompt test — Claude",
-        ).waitForProjectReady()
+        )).waitForProjectReady()
 
         val console = session.console
         val agent = session.aiAgents.claude
 
-        console.writeStep(1, "Building prompt for PSI class lookup")
+        console.writeStep(text = "Building prompt for PSI class lookup")
 
         val prompt = buildString {
             appendLine("# Task: Find a Kotlin data class and list its methods using PSI")
@@ -59,13 +60,13 @@ class PsiClassLookupPromptTest {
             appendLine("METHODS: <comma-separated list of method names found>")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep(text = "Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep(text = "Validating agent output")
 
         // If agent failed, check if required markers were still emitted
         val hasClassFoundMarker = hasAnyMarkerLine(output, "CLASS_FOUND", "Class found")

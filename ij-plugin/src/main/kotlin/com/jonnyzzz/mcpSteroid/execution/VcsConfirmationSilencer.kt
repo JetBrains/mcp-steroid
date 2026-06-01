@@ -7,6 +7,7 @@ import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.vcs.AbstractVcs
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.VcsConfiguration
+import com.intellij.openapi.vcs.VcsMappingListener
 import com.intellij.openapi.vcs.VcsShowConfirmationOption
 
 /**
@@ -59,12 +60,23 @@ class VcsConfirmationSilencer : ProjectActivity {
 
     override suspend fun execute(project: Project) {
         val pm = ProjectLevelVcsManager.getInstance(project)
-        // VCS root detection is asynchronous; if we read `allActiveVcss` too
-        // early we get an empty array and silently no-op. Defer to after the
-        // platform has finished mapping detection.
+        // First pass once core VCS services are up — covers the common case (project already mapped).
         pm.runAfterInitialization {
             silenceFor(project, pm)
         }
+        // `runAfterInitialization` is single-shot, and VCS root detection can finish AFTER it (a freshly
+        // created `.git`, or async mapping detection at startup): that early pass then sees no active VCS,
+        // no-ops, and the confirmation is left at the platform default — which can be SHOW_CONFIRMATION, so
+        // the "Add to VCS?" modal can still pop. This matters here because MCP Steroid agents create files
+        // programmatically right after opening a project, inside that first-detection window. Re-apply on
+        // every directory-mapping change so the silence lands whenever a VCS becomes active. `silenceFor`
+        // is idempotent (only flips SHOW_CONFIRMATION; honours any user-set value).
+        // Uses the public, stable `ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED` topic — NOT an
+        // `@ApiStatus.Internal` API.
+        project.messageBus.connect().subscribe(
+            ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED,
+            VcsMappingListener { silenceFor(project, pm) },
+        )
     }
 
     private fun silenceFor(project: Project, pm: ProjectLevelVcsManager) {

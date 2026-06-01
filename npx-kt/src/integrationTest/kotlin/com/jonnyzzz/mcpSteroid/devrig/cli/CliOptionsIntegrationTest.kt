@@ -2,73 +2,30 @@
 package com.jonnyzzz.mcpSteroid.devrig.cli
 
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
-import com.jonnyzzz.mcpSteroid.testHelper.DevrigMcpInstaller
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
-import com.jonnyzzz.mcpSteroid.testHelper.process.RunProcessRequest
-import com.jonnyzzz.mcpSteroid.testHelper.process.startProcess
-import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import java.io.File
-import java.util.Locale
 
 /**
- * End-to-end coverage of the **non-MCP** CLI surface — `--help`, `--version`,
- * no-args, and unknown-arg paths — driven through the real `installDist`
- * launcher (`bin/devrig` / `.bat`).
+ * End-to-end coverage of the **non-MCP** CLI surface — `--help`, `--version`, no-args, and unknown-arg
+ * paths — driven through the real `installDist` launcher (`bin/devrig`).
  *
- * The unit tests in `DevrigCommandTest` / `DevrigCommandOutputTest` already pin command selection
- * and routing behavior inside the JVM; this class extends that to the shell
- * launcher script and JNI boundaries. The same launcher is exercised in MCP
- * mode by `CliMcpStdioIntegrationTest` and for stdout-cleanliness by
- * `CliMcpStdioStdoutCleanlinessTest` — together those three classes form the
- * full launcher contract.
+ * The launcher runs INSIDE the shared `mcp-cli` container ([DevrigCliContainer]), never on the host — a
+ * host run would create the developer's real `~/.mcp-steroid` even for `--help`/`--version` (devrig
+ * resolves its hardcoded home at startup). The container is built once for the class.
  *
- * Why this isn't covered by the unit tests alone: a `System.setOut` shim,
- * a logback config that fires before `main()`, or a startup banner in the
- * application-plugin-generated start script could each violate the routing
- * contract without any in-JVM test ever seeing it. Spawning the actual binary
- * is the only way to verify the user-visible behavior.
+ * The unit tests in `DevrigCommandTest` / `DevrigCommandOutputTest` already pin command selection inside
+ * the JVM; this class extends that to the shell launcher script. The same launcher is exercised in MCP
+ * mode by `CliMcpStdioIntegrationTest` and for stdout-cleanliness by `CliMcpStdioStdoutCleanlinessTest`.
  */
 @Suppress("FunctionName")
 class CliOptionsIntegrationTest {
 
-    private val installDir: File by lazy { DevrigMcpInstaller.resolveInstallDir() }
-    private val lifetime = CloseableStackHost()
-
-    @AfterEach
-    fun tearDown() {
-        lifetime.closeAllStacks()
-    }
-
-    private fun launcher(): File {
-        val isWindows = "windows" in System.getProperty("os.name").lowercase(Locale.ROOT)
-        val name = if (isWindows) "devrig.bat" else "devrig"
-        val file = File(installDir, "bin/$name")
-        check(file.isFile) { "launcher missing at ${file.absolutePath}" }
-        if (!isWindows) {
-            check(file.canExecute()) { "launcher is not executable: ${file.absolutePath}" }
-        }
-        return file
-    }
-
-    private fun runLauncher(vararg args: String): ProcessResult {
-        val isWindows = "windows" in System.getProperty("os.name").lowercase(Locale.ROOT)
-        val command = if (isWindows) {
-            listOf("cmd.exe", "/c", launcher().absolutePath) + args
-        } else {
-            listOf(launcher().absolutePath) + args
-        }
-        return RunProcessRequest()
-            .command(command)
-            .logPrefix("devrig-cli")
-            .description("devrig CLI surface: ${args.joinToString(" ")}")
-            .timeoutSeconds(30)
-            .quietly()
-            .startProcess()
-            .awaitForProcessFinish()
-    }
+    private fun runLauncher(vararg args: String): ProcessResult =
+        cli.runDevrig(*args, timeoutSeconds = 30)
 
     // -------------------------------- --help --------------------------------
 
@@ -227,4 +184,21 @@ class CliOptionsIntegrationTest {
 
     private fun String.removeOptionalHeadliner(): String =
         if (startsWith("devrig v")) substringAfter("\n\n", this).trimStart('\n') else this
+
+    companion object {
+        private val lifetime by lazy { CloseableStackHost(CliOptionsIntegrationTest::class.java.simpleName) }
+        private val cli by lazy { lifetime.startDevrigCliContainer() }
+
+        @BeforeAll
+        @JvmStatic
+        fun beforeAll() {
+            cli.toString()
+        }
+
+        @AfterAll
+        @JvmStatic
+        fun cleanup() {
+            lifetime.closeAllStacks()
+        }
+    }
 }

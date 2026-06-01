@@ -2,7 +2,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
@@ -50,13 +52,13 @@ class TypeHierarchyPromptTest {
 
     private fun typeHierarchy(agent: AiAgentSession) {
         val console = session.console
-        console.writeStep(1, "Asking ${agent.displayName} to enumerate the Greeting type hierarchy (no recipe hints)")
+        console.writeStep(text = "Asking ${agent.displayName} to enumerate the Greeting type hierarchy (no recipe hints)")
 
         val result = agent.runPrompt(TYPE_HIERARCHY_PROMPT, timeoutSeconds = 900).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(2, "Validating what ${agent.displayName} actually did")
+        console.writeStep(text =  "Validating what ${agent.displayName} actually did")
 
         val hasFoundMarker = hasAnyMarkerLine(output, "SUBTYPES_FOUND", "Subtypes found")
         if (result.exitCode != 0 && !hasFoundMarker) {
@@ -257,10 +259,9 @@ class TypeHierarchyPromptTest {
         }
 
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "type-hierarchy prompt test",
-            ).waitForProjectReady()
+            )).waitForProjectReady()
         }
 
         @JvmStatic

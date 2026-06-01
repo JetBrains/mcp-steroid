@@ -4,7 +4,9 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 import com.jonnyzzz.mcpSteroid.integration.infra.AiAgentDriver
 import com.jonnyzzz.mcpSteroid.integration.infra.ConsoleDriver
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -83,13 +85,14 @@ class DebuggerDemoTest {
 
     private fun runDebuggerDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
         val session = IntelliJContainer.create(
-            lifetime, "ide-agent",
-            consoleTitle = "Debugger with ${agentName.name.titleCase()}",
+            lifetime, IntelliJContainerOpts(
+                consoleTitle = "Debugger with ${agentName.name.titleCase()}",
+            )
         ).waitForProjectReady()
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep("Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug DemoByJonnyzzz.kt to find the bug")
@@ -125,7 +128,7 @@ class DebuggerDemoTest {
             appendLine("- Read MCP debugger resources for API patterns -- do not invent API calls")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
@@ -133,7 +136,7 @@ class DebuggerDemoTest {
         // execution IDs in NDJSON tool_result events, not in the final extracted text.
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep( "Validating agent output")
 
         // If CLI timed out but the agent already emitted required markers, keep validating the output.
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
@@ -307,13 +310,14 @@ class DebuggerDemoTest {
      */
     private fun runUnitTestDebugDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
         val session = IntelliJContainer.create(
-            lifetime, "ide-agent",
-            consoleTitle = "Unit Test Debug with ${agentName.name.titleCase()}",
+            lifetime, IntelliJContainerOpts(
+                consoleTitle = "Unit Test Debug with ${agentName.name.titleCase()}",
+            )
         ).waitForProjectReady()
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep("Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug a failing JUnit test to find the bug")
@@ -354,13 +358,13 @@ class DebuggerDemoTest {
             appendLine("- Read MCP debugger resources for API patterns -- do not invent API calls")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep("Validating agent output")
 
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
                 hasAnyMarkerLine(output, "ROOT_CAUSE", "Root cause")
@@ -430,14 +434,13 @@ class DebuggerDemoTest {
      * this via debugger evidence rather than by just reading the source code.
      */
     private fun runJonnyzzzDebugDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
-        val session = IntelliJContainer.create(
-            lifetime, "ide-agent",
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "JonnyzzzDebugTest with ${agentName.name.titleCase()}",
-        ).waitForProjectReady()
+        )).waitForProjectReady()
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep("Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug a failing JUnit test to find the bug")
@@ -459,13 +462,13 @@ class DebuggerDemoTest {
             appendLine("DEBUGGER_EVIDENCE: <items values and filter results observed during test execution>")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep("Validating agent output")
 
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
                 hasAnyMarkerLine(output, "ROOT_CAUSE", "Root cause")
@@ -521,14 +524,13 @@ class DebuggerDemoTest {
     }
 
     private fun runStringFormatDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
-        val session = IntelliJContainer.create(
-            lifetime, "ide-agent",
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "Debugger with ${agentName.name.titleCase()}",
-        ).waitForProjectReady()
+        )).waitForProjectReady()
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep("Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug DemoStringFormat.kt to find the bug")
@@ -564,13 +566,13 @@ class DebuggerDemoTest {
             appendLine("- Read MCP debugger resources for API patterns -- do not invent API calls")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep("Validating agent output")
 
         // If CLI timed out but the agent already emitted required markers, keep validating the output.
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
@@ -645,14 +647,13 @@ class DebuggerDemoTest {
     }
 
     private fun runNullDefaultDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
-        val session = IntelliJContainer.create(
-            lifetime, "ide-agent",
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "Null-Default Bug with ${agentName.name.titleCase()}",
-        ).waitForProjectReady()
+        )).waitForProjectReady()
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep("Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug DemoNullDefault.kt to find the bug")
@@ -688,13 +689,13 @@ class DebuggerDemoTest {
             appendLine("- Read MCP debugger resources for API patterns -- do not invent API calls")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep("Validating agent output")
 
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
                 hasAnyMarkerLine(output, "ROOT_CAUSE", "Root cause")
@@ -741,14 +742,13 @@ class DebuggerDemoTest {
     }
 
     private fun runOffByOneDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
-        val session = IntelliJContainer.create(
-            lifetime, "ide-agent",
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "Off-by-One Bug with ${agentName.name.titleCase()}",
-        ).waitForProjectReady()
+        )).waitForProjectReady()
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep("Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug DemoOffByOne.kt to find the bug")
@@ -784,13 +784,13 @@ class DebuggerDemoTest {
             appendLine("- Read MCP debugger resources for API patterns -- do not invent API calls")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep("Validating agent output")
 
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
                 hasAnyMarkerLine(output, "ROOT_CAUSE", "Root cause")

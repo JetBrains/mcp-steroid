@@ -2,9 +2,12 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpWindowInfo
+import com.jonnyzzz.mcpSteroid.integration.infra.ModalMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
-import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
 import com.jonnyzzz.mcpSteroid.testHelper.runWithCloseableStack
@@ -31,83 +34,79 @@ import java.util.concurrent.TimeUnit
  * 1. the silencer ran (`ADD_CONFIRMATION=2`);
  * 2. creating an unversioned file via the same agent-style script does NOT
  *    surface a modal dialog within 30 s.
+ *
+ * The container's own project ([IntelliJProject.EmptyProject]) is turned into a committed Git
+ * repository by a [BeforeIdeStartContext.initGitRepoInGuestProject] hook BEFORE the IDE launches, so
+ * the single opened project is Git-tracked at project-open. Driving the test through the container's
+ * own project (rather than opening a second one) keeps `resolveProjectName()` unambiguous.
  */
 class GitVcsAddFileDialogTest {
 
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
     fun `creating new file via execute_code in git-tracked project does not show VCS add modal dialog`() = runWithCloseableStack { lifetime ->
+
         val session = IntelliJContainer.create(
             lifetime,
-            "ide-agent",
-            consoleTitle = "Git VCS Add Dialog",
-        )
+            IntelliJContainerOpts(
+                consoleTitle = "Git VCS Add Dialog",
+                project = IntelliJProject.EmptyProject,
+                beforeIdeStart = listOf({ initGitRepoInGuestProject() }),
+            ),
+        ).waitForProjectReady()
+
         val console = session.console
-        val gitProjectPath = "/home/agent/git-vcs-add-dialog-repro"
+        val projectName = session.mcpSteroid.resolveProjectName()
+        val projectPath = session.intellijDriver.getGuestProjectDir()
 
-        console.writeStep(1, "Initialize a Git-tracked secondary project on disk")
-        session.scope.startProcessInContainer {
-            this
-                .args(
-                    "bash", "-lc",
-                    """
-                        set -euo pipefail
-                        rm -rf "$gitProjectPath"
-                        mkdir -p "$gitProjectPath/src/main/java/com/example"
-                        printf '# Git VCS Add-File Dialog Repro\n' > "$gitProjectPath/README.md"
-                        printf 'rootProject.name = "vcs-add-repro"\n' > "$gitProjectPath/settings.gradle.kts"
-                        printf 'plugins { java }\n' > "$gitProjectPath/build.gradle.kts"
-                        printf 'package com.example;\npublic class Hello {}\n' > "$gitProjectPath/src/main/java/com/example/Hello.java"
-                        git -C "$gitProjectPath" init -q -b main
-                        git -C "$gitProjectPath" config user.email repro@local
-                        git -C "$gitProjectPath" config user.name repro
-                        git -C "$gitProjectPath" -c commit.gpgsign=false add -A
-                        git -C "$gitProjectPath" -c commit.gpgsign=false commit -qm "init"
-                        chown -R agent:agent "$gitProjectPath"
-                    """.trimIndent(),
-                )
-                .user("0:0")
-                .timeoutSeconds(60)
-                .description("Initialize Git-tracked secondary project")
-        }.awaitForProcessFinish().assertExitCode(0, "Failed to initialize Git-tracked project")
+        console.writeStep("Wait for Git detection + a non-modal ADD confirmation (silencer flip or platform default)")
+        // The real invariant is that the "Add to VCS?" modal will NOT fire — i.e. the ADD confirmation is
+        // anything other than SHOW_CONFIRMATION (0). Both DO_ACTION_SILENTLY (1, the Git default in IDEA
+        // 2026.1) and DO_NOTHING_SILENTLY (2, what VcsConfirmationSilencer flips a SHOW_CONFIRMATION to) are
+        // non-modal. Git root detection is async, so poll until HAS_GIT=true and ADD_CONFIRMATION ∈ {1,2}.
+        // Step 3 below is the authoritative check: actually create a file and confirm no modal appears.
+        val probeCode = """
+            import com.intellij.openapi.vcs.ProjectLevelVcsManager
+            import com.intellij.openapi.vcs.VcsConfiguration
 
-        console.writeStep(2, "Open the Git-tracked project via MCP")
-        session.mcpSteroid.mcpOpenProject(gitProjectPath, trustProject = true)
+            val pm = ProjectLevelVcsManager.getInstance(project)
+            val vcss = pm.getAllActiveVcss()
+            vcss.forEach { println("ACTIVE_VCS=${'$'}{it.name}") }
+            println("HAS_GIT=${'$'}{vcss.any { it.name.equals("Git", ignoreCase = true) }}")
+            val addConfirm = pm.getStandardConfirmation(
+                VcsConfiguration.StandardConfirmation.ADD,
+                vcss.firstOrNull(),
+            )
+            // VcsShowConfirmationOption.Value: 0 = SHOW_CONFIRMATION (default → modal),
+            // 1 = DO_ACTION_SILENTLY, 2 = DO_NOTHING_SILENTLY (silencer flipped to this).
+            println("ADD_CONFIRMATION=${'$'}{addConfirm?.value}")
+        """.trimIndent()
 
-        console.writeStep(3, "Wait for the project to finish indexing")
-        waitForProjectIndexed(session, gitProjectPath)
+        var lastProbeOut = "not probed"
+        val deadline = System.currentTimeMillis() + 60_000L
+        var silenced = false
+        while (System.currentTimeMillis() < deadline) {
+            val probe = session.mcpSteroid.mcpExecuteCode(
+                code = probeCode,
+                taskId = "vcs-add-dialog",
+                reason = "Confirm Git VCS detected and silencer set ADD confirmation to DO_NOTHING_SILENTLY",
+                projectName = projectName,
+                modal = ModalMode.UNLEASHED,
+            )
+            lastProbeOut = probe.stdout
+            val nonModalAdd = lastProbeOut.contains("ADD_CONFIRMATION=1") || lastProbeOut.contains("ADD_CONFIRMATION=2")
+            if (probe.exitCode == 0 && lastProbeOut.contains("HAS_GIT=true") && nonModalAdd) {
+                silenced = true
+                break
+            }
+            Thread.sleep(2_000L)
+        }
+        Assertions.assertTrue(silenced) {
+            "Git VCS did not converge to HAS_GIT=true with a non-modal ADD confirmation (1 or 2) within 60s — " +
+                    "ADD_CONFIRMATION=0 (SHOW_CONFIRMATION) would pop the Add-to-VCS modal. Last probe output:\n$lastProbeOut"
+        }
 
-        val gitProjectName = session.mcpSteroid.mcpListProjects()
-            .single { it.path == gitProjectPath }
-            .name
-
-        console.writeStep(4, "Confirm Git VCS detected and silencer flipped ADD confirmation to DO_NOTHING_SILENTLY")
-        val vcsCheck = session.mcpSteroid.mcpExecuteCode(
-            code = """
-                import com.intellij.openapi.vcs.ProjectLevelVcsManager
-                import com.intellij.openapi.vcs.VcsConfiguration
-
-                val pm = ProjectLevelVcsManager.getInstance(project)
-                val vcss = pm.getAllActiveVcss()
-                vcss.forEach { println("ACTIVE_VCS=${'$'}{it.name}") }
-                println("HAS_GIT=${'$'}{vcss.any { it.name.equals("Git", ignoreCase = true) }}")
-                val addConfirm = pm.getStandardConfirmation(
-                    VcsConfiguration.StandardConfirmation.ADD,
-                    vcss.firstOrNull(),
-                )
-                // VcsShowConfirmationOption.Value: 0 = SHOW_CONFIRMATION (default → modal),
-                // 1 = DO_ACTION_SILENTLY, 2 = DO_NOTHING_SILENTLY (silencer flipped to this).
-                println("ADD_CONFIRMATION=${'$'}{addConfirm?.value}")
-            """.trimIndent(),
-            taskId = "vcs-add-dialog",
-            reason = "Confirm Git VCS detected and silencer set ADD confirmation to DO_NOTHING_SILENTLY",
-            projectName = gitProjectName,
-            dialogKiller = false,
-        )
-        vcsCheck.assertExitCode(0, "VCS state probe should succeed")
-            .assertOutputContains("HAS_GIT=true", "ADD_CONFIRMATION=2")
-
-        console.writeStep(5, "Create a new unversioned file via findOrCreateChildData + VfsUtil.saveText")
+        console.writeStep("Create a new unversioned file via findOrCreateChildData + VfsUtil.saveText")
         val createFile = session.mcpSteroid.mcpExecuteCode(
             code = """
                 import com.intellij.openapi.application.ApplicationManager
@@ -115,28 +114,28 @@ class GitVcsAddFileDialogTest {
                 import com.intellij.openapi.vfs.LocalFileSystem
                 import com.intellij.openapi.vfs.VfsUtil
 
-                val dir = "$gitProjectPath/src/main/java/com/example"
+                val dir = "$projectPath"
                 val name = "NewlyCreated.java"
                 val vf = LocalFileSystem.getInstance().refreshAndFindFileByPath(dir)
                     ?: error("dir not found: " + dir)
                 ApplicationManager.getApplication().invokeAndWait {
                     WriteCommandAction.runWriteCommandAction(project) {
                         val f = vf.findOrCreateChildData(null, name)
-                        VfsUtil.saveText(f, "package com.example; public class NewlyCreated {}\n")
+                        VfsUtil.saveText(f, "public class NewlyCreated {}\n")
                         println("CREATED=" + f.path)
                     }
                 }
             """.trimIndent(),
             taskId = "vcs-add-dialog",
             reason = "Mirror agent script in ~/Work/mcp-steroid-data/eid_20260507T090*/script.kts that creates a new file in a Git-tracked project",
-            projectName = gitProjectName,
-            dialogKiller = false,
+            projectName = projectName,
+            modal = ModalMode.UNLEASHED,
         )
         createFile.assertExitCode(0, "execute_code that creates a new file should succeed")
             .assertOutputContains("CREATED=")
 
-        console.writeStep(6, "Poll mcpListWindows to confirm no VCS add-file modal dialog appears")
-        val modalSeen = waitForModalDialog(session, gitProjectPath, timeoutMillis = 30_000L)
+        console.writeStep("Poll mcpListWindows to confirm no VCS add-file modal dialog appears")
+        val modalSeen = waitForModalDialog(session, projectPath, timeoutMillis = 30_000L)
         Assertions.assertFalse(
             modalSeen,
             "Unexpected Add-to-Git? modal dialog after creating an unversioned file in a Git-tracked project. " +
@@ -146,41 +145,12 @@ class GitVcsAddFileDialogTest {
     }
 
     /**
-     * Wait until the project at [projectPath] is open, indexed, and not blocked
-     * by a startup modal. Different from [waitForModalDialog]: here a modal is
-     * a transient blocker we want to time out on.
-     */
-    private fun waitForProjectIndexed(
-        session: IntelliJContainer,
-        projectPath: String,
-        timeoutMillis: Long = 180_000L,
-    ) {
-        val startedAt = System.currentTimeMillis()
-        var lastStatus = "not polled"
-
-        while (System.currentTimeMillis() - startedAt < timeoutMillis) {
-            val windows = session.mcpSteroid.mcpListWindows(timeoutSeconds = 120)
-            val projectWindows = windows.filter { it.projectPath == projectPath }
-            if (projectWindows.any { it.projectInitialized == true && it.indexingInProgress == false && !it.modalDialogShowing }) {
-                return
-            }
-            lastStatus = describe(projectWindows.ifEmpty { windows })
-            Thread.sleep(1_000L)
-        }
-
-        Assertions.fail<Unit>(
-            "Timed out waiting for $projectPath to finish indexing. Last status: $lastStatus",
-        )
-    }
-
-    /**
-     * Poll [McpSteroidDriver.mcpListWindows] for [timeoutMillis] and return
-     * `true` if any window for the project at [projectPath] reports
-     * `modalDialogShowing=true` at any point. The Git plugin's confirmation
-     * handler runs on the EDT but is fired from VFS notifications scheduled by
-     * RefreshQueue, so the dialog can take a few seconds to appear after the
-     * script returns — we poll for the full window before concluding nothing
-     * surfaced.
+     * Poll [com.jonnyzzz.mcpSteroid.integration.infra.McpSteroidDriver.mcpListWindows] for
+     * [timeoutMillis] and return `true` if any window for the project at [projectPath] reports
+     * `modalDialogShowing=true` at any point. The Git plugin's confirmation handler runs on the EDT
+     * but is fired from VFS notifications scheduled by RefreshQueue, so the dialog can take a few
+     * seconds to appear after the script returns — we poll for the full window before concluding
+     * nothing surfaced.
      */
     private fun waitForModalDialog(
         session: IntelliJContainer,

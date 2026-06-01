@@ -60,6 +60,11 @@ fun printHelp(out: PrintStream) : Int {
         Options applicable to every mode:
           --debug                        enable verbose stderr logging (DEBUG)
 
+        Environment variables:
+          DEVRIG_JAVA_HOME               JDK/JRE home used to launch devrig — devrig needs Java 25.
+                                         Overrides JAVA_HOME for the devrig process only (not the caller's).
+          DEVRIG_JVM_OPTS                extra JVM options for the devrig launch (for example "-Xmx512m").
+
 
         """.trimIndent() + "\n"
     )

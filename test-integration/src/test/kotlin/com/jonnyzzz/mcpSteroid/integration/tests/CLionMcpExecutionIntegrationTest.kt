@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeDistribution
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeProduct
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -16,12 +17,11 @@ class CLionMcpExecutionIntegrationTest {
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
     fun `kotlin execute_code works in CLion lane`() = runWithCloseableStack { lifetime ->
-        val session = IntelliJContainer.create(
-            lifetime,
-            "clion-agent",
-            consoleTitle = "clion-mcp-execution",
-            distribution = IdeDistribution.Latest(IdeProduct.CLion),
-        )
+        val session = IntelliJContainer.create(lifetime,IntelliJContainerOpts(
+                "clion-agent",
+                consoleTitle = "clion-mcp-execution",
+                distribution = IdeDistribution.Latest(IdeProduct.CLion),
+        ))
 
         session.mcpSteroid.mcpExecuteCode(
             code = """

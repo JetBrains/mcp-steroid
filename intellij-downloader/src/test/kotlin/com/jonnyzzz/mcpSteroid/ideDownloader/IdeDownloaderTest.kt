@@ -88,7 +88,11 @@ class IdeDownloaderTest {
             val error = expectError { distribution.resolveAndDownload(tmp.root, os = HostOs.LINUX) }
 
             assertTrue("expected checksum mismatch, got: ${error.message}", error.message!!.contains("SHA-256 mismatch"))
-            assertFalse("corrupt cached/downloaded archive must be deleted", archive.exists())
+            // The bad-checksum download targets a distinct cache name (hash mixes URL + the expected
+            // checksum), so it's the one deleted on mismatch; the verified good archive stays intact.
+            val corruptDest = File(tmp.root, hashedArchiveFileName("$baseUrl/archive.tar.gz", "0".repeat(64), "archive.tar.gz"))
+            assertFalse("corrupt downloaded archive must be deleted", corruptDest.exists())
+            assertTrue("the verified good archive must remain", archive.exists())
         }
     }
 
@@ -200,6 +204,7 @@ class IdeDownloaderTest {
         val goodSha256 = sha256(payload)
         val archiveRequests = AtomicInteger()
         val executor = Executors.newFixedThreadPool(4)
+        lateinit var dest: File
 
         withServer({ server ->
             server.createContext("/archive.tar.gz") { exchange ->
@@ -225,17 +230,18 @@ class IdeDownloaderTest {
             }
 
             try {
-                futures.forEach { future ->
-                    assertEquals(File(tmp.root, "archive.tar.gz"), future.get(10, TimeUnit.SECONDS))
-                }
+                val results = futures.map { it.get(10, TimeUnit.SECONDS) }
+                dest = results.first()
+                // The archive name is hashed (URL + checksum); all callers must agree on the same file.
+                results.forEach { assertEquals(dest, it) }
             } finally {
                 executor.shutdownNow()
             }
         }
 
         assertEquals("only one caller should download the shared archive", 1, archiveRequests.get())
-        assertFalse(File(tmp.root, "archive.tar.gz.tmp").exists())
-        assertArrayEquals(payload, File(tmp.root, "archive.tar.gz").readBytes())
+        assertFalse(File(dest.parentFile, "${dest.name}.tmp").exists())
+        assertArrayEquals(payload, dest.readBytes())
     }
 
     @Test
@@ -268,9 +274,6 @@ class IdeDownloaderTest {
     fun `resolveAndDownload logs resolved archive before verified cache hit`() {
         val payload = "cached archive".toByteArray()
         val goodSha256 = sha256(payload)
-        val dest = File(tmp.root, "archive.tar.gz")
-        dest.writeBytes(payload)
-        File(tmp.root, "archive.tar.gz.sha256").writeText("$goodSha256  archive.tar.gz\n")
         val archiveRequests = AtomicInteger()
         val logger = LoggerFactory.getLogger("com.jonnyzzz.mcpSteroid.ideDownloader.IdeDownloader") as Logger
 
@@ -286,6 +289,9 @@ class IdeDownloaderTest {
                 }
             }) { baseUrl ->
                 val url = "$baseUrl/archive.tar.gz"
+                // Pre-seed the cache under the HASHED name (URL + checksum) so this resolves to a cache hit.
+                val dest = File(tmp.root, hashedArchiveFileName(url, goodSha256, "archive.tar.gz"))
+                dest.writeBytes(payload)
                 val archive = IdeDistribution.FromUrl(
                     product = IdeProduct.IntelliJIdeaCommunity,
                     url = url,
@@ -324,7 +330,7 @@ class IdeDownloaderTest {
                 }
             }) { baseUrl ->
                 val url = "$baseUrl/archive.tar.gz"
-                val dest = File(tmp.root, "archive.tar.gz")
+                val dest = File(tmp.root, hashedArchiveFileName(url, goodSha256, "archive.tar.gz"))
                 val archive = IdeDistribution.FromUrl(
                     product = IdeProduct.IntelliJIdeaCommunity,
                     url = url,

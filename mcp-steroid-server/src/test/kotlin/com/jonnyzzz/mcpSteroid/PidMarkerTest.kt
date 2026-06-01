@@ -23,7 +23,11 @@ class PidMarkerTest {
         assertTrue(text.contains("\"pid\": 12345"), "pid field missing: $text")
         assertTrue(text.contains("\"mcpSteroidServer\""), "mcpSteroidServer field missing: $text")
         assertTrue(text.contains("\"mcpUrl\": \"http://localhost:64531/mcp\""), "mcpUrl field missing: $text")
-        assertTrue(text.contains("\"port\": 64531"), "port field missing: $text")
+        assertTrue(text.contains("\"devrigEndpoint\""), "devrigEndpoint field missing: $text")
+        assertTrue(
+            text.contains("\"rpcBaseUrl\": \"http://localhost:64531/api/jonnyzzz/mcp-steroid/v1\""),
+            "devrigEndpoint.rpcBaseUrl missing: $text",
+        )
         assertTrue(text.contains("\"Authorization\": \"Bearer deadbeefcafebabe\""), "headers missing: $text")
     }
 
@@ -122,7 +126,10 @@ class PidMarkerTest {
         pid = 12345,
         mcpSteroidServer = McpSteroidServerInfo(
             mcpUrl = "http://localhost:64531/mcp",
-            port = 64531,
+            headers = mapOf("Authorization" to "Bearer deadbeefcafebabe"),
+        ),
+        devrigEndpoint = DevrigEndpointInfo(
+            rpcBaseUrl = "http://localhost:64531/api/jonnyzzz/mcp-steroid/v1",
             headers = mapOf("Authorization" to "Bearer deadbeefcafebabe"),
         ),
         ide = IdeInfo(name = "IntelliJ IDEA", version = "2025.3.3", build = "IU-253.1.1"),

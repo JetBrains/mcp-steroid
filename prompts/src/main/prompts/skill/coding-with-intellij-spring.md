@@ -1320,8 +1320,8 @@ println("VERIFICATION_DECISION=${if (complete) "COMPLETE" else "INCOMPLETE"}")
 > To prevent the latch from blocking: first call `MavenProjectsManager.scheduleUpdateAllMavenProjects()` +
 > `Observation.awaitConfiguration()` to complete the sync, THEN use `MavenRunConfigurationType.runConfiguration()`.
 >
-> **Always pass `dialog_killer: true`** on the `steroid_execute_code` call to auto-dismiss any dialogs.
-> If the latch still times out after 2 minutes despite `dialog_killer: true`, fall back to
+> **Always pass `modal=smart_non_modal` (the default)** on the `steroid_execute_code` call to auto-dismiss any dialogs.
+> If the latch still times out after 2 minutes despite `modal=smart_non_modal` (the default), fall back to
 > `ProcessBuilder("./mvnw", ...)` **as a last resort** — do not wait the full 10 minutes.
 >
 > **❌ BANNED**: Do NOT use `ProcessBuilder("./mvnw", "test", ...)` as PRIMARY.
@@ -1385,7 +1385,7 @@ val passed = withTimeout(5.minutes) { result.await() }
 println("Result: passed=$passed")
 ```
 
-> **⚠️ Docker / CI environments — use `dialog_killer: true`**: When running `MavenRunConfigurationType.runConfiguration()` in a Docker or CI container, Maven project-reimport dialogs can block the run silently for the full latch timeout (5 minutes wasted). Pass `dialog_killer: true` as the `steroid_execute_code` parameter to auto-dismiss these modals. If the latch still times out after 2-3 minutes despite `dialog_killer: true`, **stop waiting and use `ProcessBuilder("./mvnw", ...)` as a LAST-RESORT fallback** (see "Run Unit Tests via Maven Wrapper" section) — do not wait the full 5 minutes.
+> **⚠️ Docker / CI environments — use `modal=smart_non_modal` (the default)**: When running `MavenRunConfigurationType.runConfiguration()` in a Docker or CI container, Maven project-reimport dialogs can block the run silently for the full latch timeout (5 minutes wasted). Pass `modal=smart_non_modal` (the default) as the `steroid_execute_code` parameter to auto-dismiss these modals. If the latch still times out after 2-3 minutes despite `modal=smart_non_modal` (the default), **stop waiting and use `ProcessBuilder("./mvnw", ...)` as a LAST-RESORT fallback** (see "Run Unit Tests via Maven Wrapper" section) — do not wait the full 5 minutes.
 
 #### Gradle Sync after build.gradle.kts Change
 
@@ -1502,7 +1502,7 @@ println("Test started — check IDE Test Results window")
 > **When ProcessBuilder("./mvnw") is permitted as LAST RESORT** — ALL conditions must be true:
 > 1. You just modified `pom.xml` in this session, AND
 > 2. You already called `MavenProjectsManager.scheduleUpdateAllMavenProjects()` + `Observation.awaitConfiguration()`, AND
-> 3. `MavenRunConfigurationType.runConfiguration()` with `dialog_killer: true` has already timed out (>2 min)
+> 3. `MavenRunConfigurationType.runConfiguration()` with `modal=smart_non_modal` (the default) has already timed out (>2 min)
 
 > **⚠️ CRITICAL — Output Truncation Required**: Spring Boot integration test output routinely exceeds
 > **200k characters** (Spring context startup ~100 lines, Flyway migration logs, Testcontainers Docker

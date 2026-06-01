@@ -55,7 +55,7 @@ class NpxProjectsStreamRouteTest {
         port = freePort()
         server = embeddedServer(ServerCIO, port = port, host = "127.0.0.1") {
             routing {
-                post("/npx/v1/projects/stream") {
+                post("/api/jonnyzzz/mcp-steroid/v1/projects/stream") {
                     call.streamProjectsNdjson(
                         projectsFlow = flow,
                         instanceId = "test-instance",
@@ -181,7 +181,7 @@ class NpxProjectsStreamRouteTest {
         postBody: String = "{}",
         onEnvelope: suspend (NpxStreamEnvelope) -> Boolean,
     ) {
-        client.preparePost("http://127.0.0.1:$port/npx/v1/projects/stream") {
+        client.preparePost("http://127.0.0.1:$port/api/jonnyzzz/mcp-steroid/v1/projects/stream") {
             headers { append(HttpHeaders.ContentType, "application/json") }
             setBody(postBody)
         }.execute { response ->

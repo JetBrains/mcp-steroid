@@ -4,6 +4,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IdeChannel
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeDistribution
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeProduct
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -78,12 +79,11 @@ class PluginRuntimeCompatibilityTest {
         distribution: IdeDistribution,
         dockerFileBase: String,
     ) = runWithCloseableStack { lifetime ->
-        val session = IntelliJContainer.create(
-            lifetime,
+        val session = IntelliJContainer.create(lifetime,IntelliJContainerOpts(
             dockerFileBase,
             consoleTitle = "runtime-compat",
             distribution = distribution,
-        )
+        ))
 
         // 1. list_projects — plugin loaded, MCP server started
         val projects = session.mcpSteroid.mcpListProjects()

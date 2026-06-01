@@ -47,7 +47,7 @@ suspend fun runStubStdioMcpServer(
         // Fire a once-per-session analytics beacon recording client (agent) + server versions.
         onSessionInitialized = { session, serverInfo, clientProtocolVersion ->
             services.beacon.capture(
-                event = "mcp_session_initialized",
+                event = "session_initialized",
                 properties = mapOf(
                     "client_name" to (session.clientInfo?.name ?: "unknown"),
                     "client_version" to (session.clientInfo?.version ?: "unknown"),

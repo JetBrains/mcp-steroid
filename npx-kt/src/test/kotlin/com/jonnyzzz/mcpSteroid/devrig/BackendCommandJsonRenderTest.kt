@@ -88,16 +88,22 @@ class BackendCommandJsonRenderTest {
             pid = pid,
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = mcpUrl,
-                port = 0,
                 headers = mapOf("Authorization" to "Bearer $token"),
             ),
+            devrigEndpoint = testDevrigEndpoint(mcpUrl, mapOf("Authorization" to "Bearer $token")),
             ide = ideInfo,
             plugin = pluginInfo,
             createdAt = "1970-01-01T00:00:00Z",
             intellijWebServer = null,
             intellijMcpServer = null,
         )
-        return DiscoveredIde(pid = pid, mcpUrl = mcpUrl, markerPath = "/tmp/$pid.mcp-steroid", marker = marker)
+        return DiscoveredIde(
+            pid = pid,
+            rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
+            bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
+            markerPath = "/tmp/$pid.mcp-steroid",
+            marker = marker,
+        )
     }
 
     private fun portIde(
@@ -190,7 +196,10 @@ class BackendCommandJsonRenderTest {
         assertEquals("IU-253.21581.142", backend["build"]?.jsonPrimitive?.contentOrNull)
         assertEquals("IU-253.21581.142", backend["buildNumber"]?.jsonPrimitive?.contentOrNull)
         assertEquals(1234L, backend["pid"]?.jsonPrimitive?.long)
-        assertEquals("http://localhost:6315/mcp", backend["mcpUrl"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            testDevrigEndpoint("http://localhost:6315/mcp").rpcBaseUrl,
+            backend["rpcBaseUrl"]?.jsonPrimitive?.contentOrNull,
+        )
         val plugin = backend["plugin"]!!.jsonObject
         assertEquals(true, plugin["installed"]?.jsonPrimitive?.boolean)
         assertEquals("com.jonnyzzz.mcp-steroid", plugin["id"]?.jsonPrimitive?.contentOrNull)
@@ -270,7 +279,7 @@ class BackendCommandJsonRenderTest {
         assertEquals("devrig backend provision port-63342", action["command"]?.jsonPrimitive?.contentOrNull)
         assertNull(backend["pid"], "port row must not carry a pid: $backend")
         assertNull(backend["projects"], "port row must not carry projects: $backend")
-        assertNull(backend["mcpUrl"], "port row must not carry mcpUrl: $backend")
+        assertNull(backend["rpcBaseUrl"], "port row must not carry rpcBaseUrl: $backend")
         assertNull(backend["name"], "port row must not carry marker-only name: $backend")
         assertNull(backend["version"], "port row must not carry marker-only version: $backend")
         assertNull(backend["build"], "port row must not carry marker-only build: $backend")

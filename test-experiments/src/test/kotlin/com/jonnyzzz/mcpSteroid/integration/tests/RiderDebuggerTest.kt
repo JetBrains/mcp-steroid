@@ -6,7 +6,9 @@ import com.jonnyzzz.mcpSteroid.integration.infra.ConsoleDriver
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeDistribution
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeProduct
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -45,15 +47,14 @@ class RiderDebuggerTest {
     fun `claude debugs dotnet test in Rider via debugger`() = runRiderDebugDemo(AiAgentDriver::claude)
 
     private fun runRiderDebugDemo(agentName: KProperty1<AiAgentDriver, AiAgentSession>) {
-        val session = IntelliJContainer.create(
-            lifetime,
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "Rider Debug with ${agentName.name.titleCase()}",
             distribution = IdeDistribution.Latest(IdeProduct.Rider),
-        ).waitForProjectReady(projectJdkVersion = null)
+        )).waitForProjectReady(projectJdkVersion = null)
         val console = session.console
 
         val agent = session.aiAgents.run { agentName(this) }
-        console.writeStep(1, "Building prompt for $agentName")
+        console.writeStep(text = "Building prompt for $agentName")
 
         val prompt = buildString {
             appendLine("# Task: Debug a failing .NET test using Rider via MCP Steroid")
@@ -83,13 +84,13 @@ class RiderDebuggerTest {
             appendLine("DEBUGGER_EVIDENCE: <variable values observed AT the breakpoint proving the bug>")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep(text = "Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep(text = "Validating agent output")
 
         val hasFinalMarkers = hasAnyMarkerLine(output, "BUG_FOUND", "Bug found") &&
                 hasAnyMarkerLine(output, "ROOT_CAUSE", "Root cause")

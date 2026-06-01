@@ -45,8 +45,8 @@ class ManagedBackendTartIntegrationTest {
                 runDir = runDir,
                 script = """
                     set -euo pipefail
-                    rm -rf "${'$'}HOME/devrig-cli" "${'$'}HOME/java-home" /tmp/mcp-home
-                    mkdir -p "${'$'}HOME/devrig-cli" "${'$'}HOME/java-home" /tmp/mcp-home
+                    rm -rf "${'$'}HOME/devrig-cli" "${'$'}HOME/java-home" ${'$'}HOME/.mcp-steroid
+                    mkdir -p "${'$'}HOME/devrig-cli" "${'$'}HOME/java-home" ${'$'}HOME/.mcp-steroid
                     tar -xzf "${'$'}HOME/java-home.tar.gz" -C "${'$'}HOME/java-home"
                     ditto -x -k "${'$'}HOME/devrig.zip" "${'$'}HOME/devrig-cli"
                     app_dir="${'$'}(find "${'$'}HOME/devrig-cli" -maxdepth 1 -type d -name 'devrig-*' | head -1)"
@@ -71,18 +71,18 @@ class ManagedBackendTartIntegrationTest {
                 timeout = Duration.ofMinutes(25),
                 script = """
                     set -euo pipefail
-                    DEVRIG_HOME=/tmp/mcp-home "${'$'}HOME/devrig-cli/devrig" backend download idea-community
-                    backend_dir="${'$'}(find /tmp/mcp-home/backends -mindepth 1 -maxdepth 1 -type d -name 'idea-community-*' | head -1)"
+                    "${'$'}HOME/devrig-cli/devrig" backend download idea-community
+                    backend_dir="${'$'}(find ${'$'}HOME/.mcp-steroid/backends -mindepth 1 -maxdepth 1 -type d -name 'idea-community-*' | head -1)"
                     test -n "${'$'}backend_dir"
                     id="${'$'}(basename "${'$'}backend_dir")"
                     app_dir="${'$'}(find "${'$'}backend_dir" -mindepth 1 -maxdepth 1 -type d -name 'IntelliJ IDEA*.app' | head -1)"
                     test -n "${'$'}app_dir"
                     vmoptions="${'$'}backend_dir/${'$'}(basename "${'$'}app_dir").vmoptions"
                     test -f "${'$'}vmoptions"
-                    grep -F -- "-Didea.config.path=/tmp/mcp-home/caches/${'$'}id/config" "${'$'}vmoptions"
-                    grep -F -- "-Didea.system.path=/tmp/mcp-home/caches/${'$'}id/system" "${'$'}vmoptions"
-                    grep -F -- "-Didea.log.path=/tmp/mcp-home/caches/${'$'}id/logs" "${'$'}vmoptions"
-                    grep -F -- "-Didea.plugins.path=/tmp/mcp-home/caches/${'$'}id/plugins" "${'$'}vmoptions"
+                    grep -F -- "-Didea.config.path=${'$'}HOME/.mcp-steroid/caches/${'$'}id/config" "${'$'}vmoptions"
+                    grep -F -- "-Didea.system.path=${'$'}HOME/.mcp-steroid/caches/${'$'}id/system" "${'$'}vmoptions"
+                    grep -F -- "-Didea.log.path=${'$'}HOME/.mcp-steroid/caches/${'$'}id/logs" "${'$'}vmoptions"
+                    grep -F -- "-Didea.plugins.path=${'$'}HOME/.mcp-steroid/caches/${'$'}id/plugins" "${'$'}vmoptions"
                     printf '%s\n' "${'$'}id" > /tmp/managed-backend-id
                 """.trimIndent(),
             )
@@ -94,7 +94,7 @@ class ManagedBackendTartIntegrationTest {
                 timeout = Duration.ofMinutes(5),
                 script = """
                     set -euo pipefail
-                    DEVRIG_HOME=/tmp/mcp-home "${'$'}HOME/devrig-cli/devrig" backend start idea-community | tee /tmp/managed-backend-start.txt
+                    "${'$'}HOME/devrig-cli/devrig" backend start idea-community | tee /tmp/managed-backend-start.txt
                     grep -E '^pid: [0-9]+' /tmp/managed-backend-start.txt
                     for _ in ${'$'}(seq 1 60); do
                       if pgrep -f 'IntelliJ IDEA( CE)?[.]app|com.intellij.idea.Main|/Contents/MacOS/idea' >/dev/null; then
@@ -117,7 +117,7 @@ class ManagedBackendTartIntegrationTest {
                 timeout = Duration.ofMinutes(3),
                 script = """
                     set -euo pipefail
-                    DEVRIG_HOME=/tmp/mcp-home "${'$'}HOME/devrig-cli/devrig" backend stop idea-community
+                    "${'$'}HOME/devrig-cli/devrig" backend stop idea-community
                     for _ in ${'$'}(seq 1 30); do
                       if ! pgrep -f 'IntelliJ IDEA( CE)?[.]app|com.intellij.idea.Main|/Contents/MacOS/idea' >/dev/null; then
                         exit 0

@@ -4,10 +4,11 @@ package com.jonnyzzz.mcpSteroid.devrig.cli
 /**
  * The exact set of tool names that
  * [com.jonnyzzz.mcpSteroid.server.McpSteroidTools.registerAll] is expected to
- * register on the server. Both the protocol-level
- * [CliMcpStdioIntegrationTest] and the agent-level
- * [CliMcpAgentIntegrationTestBase] consult this list, so a regression that
- * drops or renames a tool is caught from both directions instead of one.
+ * register on the server. The protocol-level [CliMcpStdioIntegrationTest]
+ * asserts `tools/list` advertises exactly these — a regression that drops or
+ * renames a tool is caught here, against `devrig mpc` directly, with no live
+ * agent. The live-agent × devrig-stdio path (against a real IDE) is covered
+ * separately by `:test-integration`'s `DevrigStdioAgentMatrixTest`.
  */
 internal val EXPECTED_STEROID_TOOL_NAMES: Set<String> = setOf(
     "steroid_list_projects",

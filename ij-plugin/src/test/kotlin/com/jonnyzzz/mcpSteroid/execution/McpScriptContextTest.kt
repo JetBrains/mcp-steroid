@@ -32,8 +32,8 @@ class McpScriptContextTest : BasePlatformTestCase() {
             executionId = executionId,
             disposable = disposable,
             resultBuilder = resultBuilder,
-            // No-op killer hook for tests — ScriptExecutor wires this in production.
-            onDoNotCancelOnModalityStateChange = {},
+            // The modal monitor (unused by these tests) launches here; a throwaway scope is fine.
+            executionScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default),
         )
         return context to resultBuilder
     }

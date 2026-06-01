@@ -4,6 +4,9 @@ package com.jonnyzzz.mcpSteroid.vision
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.IdeFocusManager
@@ -12,8 +15,10 @@ import com.intellij.util.ui.ImageUtil
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
 import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -99,8 +104,12 @@ data class ScreenshotArtifacts(
     }
 }
 
-object VisionService {
-    private const val META_FILE = "screenshot-meta.json"
+@Service(Service.Level.PROJECT)
+class VisionService(
+    private val project: Project,
+    private val scope: CoroutineScope,
+) {
+    private val log = thisLogger()
     private val screenshotCounter = AtomicLong(0)
 
     private val json = Json {
@@ -108,13 +117,19 @@ object VisionService {
         ignoreUnknownKeys = true
     }
 
-    suspend fun capture(project: Project, executionId: ExecutionId, windowId: String? = null): ScreenshotArtifacts {
+    companion object {
+        private const val META_FILE = "screenshot-meta.json"
+
+        fun getInstance(project: Project): VisionService = project.service()
+    }
+
+    suspend fun capture(executionId: ExecutionId, windowId: String? = null): ScreenshotArtifacts {
         return withContext(Dispatchers.IO + CoroutineName("VisionService")) {
-            captureImpl(project, executionId, windowId)
+            captureImpl(executionId, windowId)
         }
     }
 
-    private suspend fun captureImpl(project: Project, executionId: ExecutionId, windowId: String? = null): ScreenshotArtifacts {
+    private suspend fun captureImpl(executionId: ExecutionId, windowId: String? = null): ScreenshotArtifacts {
         val storage = project.executionStorage
         val executionDir = storage.resolveExecutionDir(executionId)
 
@@ -130,15 +145,12 @@ object VisionService {
 
         // Capture component info on EDT (use ModalityState.any() so this works even when modal dialogs are showing)
         val capture = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            captureOnEdt(project, windowId)
+            captureOnEdt(windowId)
         }
 
         // Create context for metadata providers (image is provided by ScreenshotImageProvider)
         val component = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            resolveComponent(
-                project,
-                windowId
-            )
+            resolveComponent(windowId)
         }
 
         val initialContext = ScreenCaptureContext(
@@ -253,6 +265,47 @@ object VisionService {
             return emptyList()
         }
 
+        // Run only the fast, in-line providers synchronously (the screenshot image + the
+        // component tree). DEFERRED providers (e.g. OCR / Tesseract — a heavy external
+        // process) are postponed: they are queued on the service [scope] and run AFTER
+        // capture() returns, so capturing a screenshot — including the dialog the
+        // DialogKiller is about to close — never blocks on them. This keeps the killer's
+        // critical path (capture → close → restore non-modal) fast and unblocked.
+        val inlineProviders = providers.filter { !it.deferred }
+        val deferredProviders = providers.filter { it.deferred }
+
+        val inlineResults = runProviderLoop(inlineProviders, initialContext, screenshotDir)
+
+        if (deferredProviders.isNotEmpty()) {
+            // Context already carries the inline metadata (incl. the written image), so a
+            // deferred provider that DependsOnOthers (OCR needs the image) resolves it from
+            // disk. Fire-and-forget on the service scope; failures are logged, never fatal.
+            val deferredContext = initialContext.withMetadata(inlineResults)
+            scope.launch(CoroutineName("VisionService-deferred")) {
+                try {
+                    runProviderLoop(deferredProviders, deferredContext, screenshotDir)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    log.warn("Deferred screenshot metadata provider(s) failed: ${t.message}", t)
+                }
+            }
+        }
+
+        return inlineResults
+    }
+
+    /**
+     * Runs [providers] iteratively until all return Success/Skip, retrying any that return
+     * DependsOnOthers after others complete; writes each provider's files as it succeeds.
+     */
+    private suspend fun runProviderLoop(
+        providers: List<ScreenshotMetadataProvider>,
+        initialContext: ScreenCaptureContext,
+        screenshotDir: Path,
+    ): List<ScreenshotMetadata> {
+        if (providers.isEmpty()) return emptyList()
+
         val results = mutableListOf<ScreenshotMetadata>()
         val pending = providers.toMutableList()
         var previousPendingCount = pending.size + 1
@@ -327,8 +380,8 @@ object VisionService {
         val projectPath: String?,
     )
 
-    private fun captureOnEdt(project: Project, windowId: String?): CaptureInfo {
-        val component = resolveComponent(project, windowId)
+    private fun captureOnEdt(windowId: String?): CaptureInfo {
+        val component = resolveComponent(windowId)
 
         val size = component.size
         val preferred = component.preferredSize
@@ -363,7 +416,7 @@ object VisionService {
         )
     }
 
-    private fun resolveComponent(project: Project, windowId: String?): Component {
+    private fun resolveComponent(windowId: String?): Component {
         if (windowId != null) {
             return findComponentByWindowId(windowId)
                 ?: throw IllegalStateException("Window not found for window_id: $windowId")
@@ -403,7 +456,7 @@ object VisionService {
         return null
     }
 
-    private class SwingInputExecutor(
+    private inner class SwingInputExecutor(
         private val windowId: String,
     ) {
         private val stuckKeys = LinkedHashSet<Int>()

@@ -125,6 +125,72 @@ dump out of `/tmp` into the failing test's `run-*/intellij/` folder if you plan 
 on the fix — keeping the dump alongside the run-dir artifacts (video, screenshots, logs)
 makes later comparisons trivial.
 
+## Remote-debugging the Dockerized IDE (attach a JVM debugger live)
+
+Thread/coroutine dumps tell you *where* the IDE JVM is parked; for *why* (variable values,
+stepping, conditional breakpoints in the plugin) attach a real debugger to the in-container
+IDE. **The IDE JVM always starts with the JDWP agent open** — no flag needed:
+
+- `intelliJ.kt`'s `generateVmOptions()` always appends
+  `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:${IDE_DEBUG_PORT.containerPort}`.
+- **`suspend=n` is mandatory for `:test-integration` AND `:test-experiments`** (they share this
+  infra). It means the IDE never waits for a debugger, so normal/CI runs are unaffected. **NEVER
+  flip it to `suspend=y`** to debug a startup hang — on CI nobody attaches, so the JVM would block
+  and the whole test would hang until its timeout. Set breakpoints and attach live instead; the
+  agent stays open the whole run.
+- `IDE_DEBUG_PORT` (`ContainerPort(5005)`, defined in `intelliJ.kt`) is exposed on the
+  container (`StartContainerRequest.ports(...)` in `intelliJ-factory.kt`) and Docker maps it
+  to a random host port.
+- The mapped **host** port is printed to the test console — in the JVM's own JDWP wording so it is
+  instantly recognisable, but with the host-mapped port (the in-container port is invisible from
+  the host) — `Listening for transport dt_socket at address: <host-port>`, plus
+  `[IDE-DEBUG] attach … to localhost:<host-port>` and `IDE_DEBUG_PORT=<host-port>` in
+  `session-info.txt`.
+
+### Attach from IntelliJ
+
+1. Start any test-integration test (or a `*PlaygroundTest*` for an indefinitely-held IDE).
+2. Grab the port: `grep IDE_DEBUG_PORT $(ls -t test-integration/build/test-logs/test/run-*/session-info.txt | head -1)`
+   (or read the `[IDE-DEBUG]` console line).
+3. In *this* IntelliJ (the mcp-steroid project), **Run → Edit Configurations → + → Remote JVM
+   Debug**, host `localhost`, port `<host-port>`, classpath of module `ij-plugin`. Debug.
+4. Set breakpoints in plugin sources (e.g. `DialogKiller.kt`, `DialogWindowsLookup.kt`,
+   `ScriptExecutor.kt`) and drive the IDE via MCP / the test to hit them. Because the agent
+   is `suspend=n`, attach/detach any time while the container is alive.
+
+This is the live-debug counterpart to the dump-first recipe above; reach for the debugger when
+a one-shot dump isn't enough (intermittent hangs, modality/EDT timing, value inspection).
+
+To attach **programmatically** (from `steroid_execute_code`, instead of the Run-config UI) —
+e.g. to script an attach to the mapped port from a controlling IDEA — see the recipe
+`mcp-steroid://debugger/debug-attach-remote-jvm`
+(`prompts/src/main/prompts/debugger/debug-attach-remote-jvm.md`): `RemoteConfiguration` with
+`SERVER_MODE=false` at `localhost:<host-port>`, or the low-level
+`DebuggerManagerEx.attachVirtualMachine`.
+
+### Debugging the in-container devrig (npx-kt) JVM too
+
+When a test runs the agents through the **devrig stdio bridge** (`AiMode.AI_DEVRIG`), the devrig
+JVM gets its **own** JDWP agent on a **different** port — `DEVRIG_DEBUG_PORT` (`ContainerPort(5006)`,
+in `intelliJ.kt`) — so the IDE and devrig can be debugged at the same time:
+
+- `DevrigSteroidDriver.deploy` writes the launcher with
+  `export DEVRIG_OPTS="-agentlib:jdwp=…,server=y,suspend=n,quiet=y,address=*:5006 …"`.
+  `DEVRIG_OPTS` is the Gradle-application opts var (only the `devrig` launch reads it — it does
+  **not** leak into child JVMs and double-bind the port, which `JAVA_TOOL_OPTIONS` would).
+  `quiet=y` keeps the agent's own "Listening …" line **off stdout** — `devrig mpc` speaks JSON-RPC
+  on stdout, so a stray line would corrupt the protocol.
+- The port is published (`.ports(… DEVRIG_DEBUG_PORT)`) and Docker-mapped. The host-mapped port is
+  printed on the host in the JVM's own wording — `Listening for transport dt_socket at address:
+  <host-port>` + `[DEVRIG-DEBUG] attach … (module npx-kt) …` — and saved to `session-info.txt` as
+  `DEVRIG_DEBUG_PORT=<host-port>`.
+- Attach a **second** "Remote JVM Debug" with classpath of module **`npx-kt`** to that host port.
+
+Caveat: the agent (`address=*:5006`, `server=y`) binds a fixed port, so it assumes a single live
+`devrig` JVM per container (the long-lived `devrig mpc` MCP server). A concurrent second `devrig`
+invocation in the same container would fail with "Address already in use" — fine for the stdio-bridge
+tests, where only `devrig mpc` runs.
+
 ## RLM Analysis of Arena Runs (run-*/intellij/mcp-steroid/)
 
 Each arena run creates server-side exec_code logs at `run-*/intellij/mcp-steroid/eid_*`. Structure:
@@ -148,8 +214,8 @@ the agent measurement window — they are not bottlenecks. Only agent calls coun
 ### Known Bottleneck: "Resolving SDKs..." Modal Dialog
 
 Every `ProjectTaskManager.buildAllModules()` triggers a `Resolving SDKs...` modal that the
-dialog_killer dismisses. This causes `Build errors: true, aborted: false` even when compilation
-actually succeeded. The agent then wastes an exec_code call checking the empty problem list,
+`modal=smart_non_modal` sweep / `closeModalDialogs()` dismisses. This causes `Build errors: true,
+aborted: false` even when compilation actually succeeded. The agent then wastes an exec_code call checking the empty problem list,
 then falls back to `./mvnw test-compile` via Bash (25-60s).
 
 **Confirmed across ALL 6 scenarios**: modal fires, `Build errors: true`, problem list is empty.
@@ -162,22 +228,38 @@ In 2 of 6 scenarios, `Build errors: false` is correctly reported (modal may have
 3. **JDK list is printed in first call** but agents still try wrong JDKs via Bash
 4. **"Build errors: true" false positive** wastes 1 exec_code + 1 Bash call per scenario
 
-## Configuring the IDE — always via `mcpExecuteCode`, never via XML
+## Configuring the IDE — pre-write VALIDATED XML before start, else `mcpExecuteCode` after
 
-Every piece of IDE state that a test relies on (JDKs, trusted paths,
-project open, module SDKs, …) must be set up by calling the IntelliJ API
-through `session.mcpSteroid.mcpExecuteCode(code = …)` — **never** by
-hand-writing config XML into `$configGuestDir/options/*.xml`.
+There are two mechanisms; pick by *when* the state must exist:
 
-Rationale: we tried the XML route for JDK registration and it failed
-silently. A single unescaped `"` in an attribute made
-`FileBasedStorage` reject `jdk.table.xml` with `WARN Cannot read …`,
-which in turn left the JDK table empty, which made
-`UnknownSdkStartupChecker` fire a download-consent modal at project
-open — and that modal deadlocked the test run in headless Docker for
-10+ minutes before any assertion ever ran. XML writes are far too
-fragile for this: no typed feedback, no compile checks, no unit tests
-reach deep enough to catch a malformed attribute.
+- **Before the IDE starts → pre-write XML** (`jdk.table.xml`, `misc.xml`'s `project-jdk-name`,
+  `gradle.xml`'s `gradleJvm`). The JDK table MUST exist before project-open, because Gradle
+  auto-import resolves the project JDK at open; registering JDKs only *after* the IDE is up loses
+  the race and the import stalls ~8 min on `Observation.awaitConfiguration` (see
+  [[jdk-table-preload-and-gradle-jvm]] memory; commits `8f07d7a5`..`8a23ea3b`). This is now the
+  **primary** path and supersedes the post-open `mcpRegisterJdks` for the stall.
+- **After the IDE is up → `mcpExecuteCode`** for anything that doesn't need to exist at open time
+  (verification, module SDK tweaks). Still the right tool there.
+
+**The old "never hand-write XML" rule was about *ad-hoc* XML.** A single unescaped `"` once made
+`FileBasedStorage` reject `jdk.table.xml` (silent `WARN Cannot read …`), leaving the table empty and
+deadlocking on a download-consent modal. The fix was NOT "never XML" — it is **generate the XML with
+the XML APIs (jdom2) so it can't be malformed, and validate it against IntelliJ's own serialization**:
+- `jdk-table-xml.kt` (`generateJdkTableXml`) renders the table by reading the container's JDK
+  artifacts (`release`→`MODULES` for classPath sorted; `src.zip` top dirs for sourcePath; version
+  from `release`; JDK ≤ 8 named `1.8`), mirroring `JavaSdkImpl`/`ProjectJdkImpl`. A
+  `JdkTableIntegrationTest` asserts it equals what a live IntelliJ produces, AND that IntelliJ loads
+  every entry at startup.
+- `IntelliJDriver.configureProjectJdk` / `configureGradleJdk` patch `misc.xml` (`ProjectRootManager`'s
+  `project-jdk-name`) and `gradle.xml` (`gradleJvm`) via jdom2 (create file/elements when absent),
+  reading the file with `copyFromContainer` and writing with `copyToContainer`/`writeFileInContainer`.
+- Projects declare their JDK + build systems: `IntelliJProject.jdkVersion` +
+  `buildSystems: Set<ProjectBuildSystem>` (each with its own root file). `waitForProjectReady` imports
+  each declared build system via the external-system API instead of the stalling `awaitConfiguration`
+  NONE path. `EmptyProject` (README-only, no build system, no JDK) is for tests where the project is
+  irrelevant (dialog killer, infra) — fast startup, no import.
+
+The remaining `mcpExecuteCode` rationale (typed, fails loud) still holds for the post-open path.
 
 The `mcpExecuteCode` path is strictly better: Kotlin is type-checked at
 runtime, the canonical IntelliJ API (`JavaSdk.createJdk(name, path,
@@ -638,10 +720,13 @@ generate→edit→regenerate→commit workflow. Rules below describe what each D
   `docker exec … bash -c "<joined args>"` are subject to shell word-splitting; `*`, `?`, `[`, `]`, `$`,
   `;`, `&`, `|`, `<`, `>`, `(`, `)`, `!` — quote every one or tokens get rewritten silently
   (e.g. `safe.directory=*` → `safe.directory=<cwd-file-1>`).
-- **`SSH_AUTH_SOCK` is NOT set on TC agents.** Tests that default `mountSshAgent = true` must fall back
-  gracefully (log + skip the mount) when `SSH_AUTH_SOCK` is unset — not hard-fail. None of the DPAIA
-  arena / debugger / bright-scenario tests actually need SSH (public HTTPS clones, local Maven/Gradle
-  drivers).
+- **No host-credential forwarding into containers.** `setupHostMappings` (`infra/docker-flip.kt`) now
+  maps **only** the Docker socket (`mountDockerSocket`); the former SSH-agent / `~/.netrc` /
+  `~/.m2/settings.xml` / JetBrains-token / private-packages / JB_SPACE forwarding was removed as insecure
+  (it copied host secrets into the container wholesale). The `mountSshAgent` opt is gone. No DPAIA arena /
+  debugger / bright-scenario test needs it — they use public HTTPS clones and local Maven/Gradle drivers.
+  Reintroduce any forwarding later behind a proper, opt-in, least-privilege mechanism as its own
+  dedicated function (mirror `dockerSocketMapping`).
 
 ### Windows CI compatibility (per-OS Gradle test matrix)
 

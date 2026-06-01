@@ -5,9 +5,11 @@ import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IdeTestFolders
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import kotlinx.serialization.json.buildJsonObject
@@ -97,9 +99,7 @@ class DpaiaArenaTest {
         try {
             val aiMode = if (withMcp) AiMode.AI_MCP else AiMode.NONE
             val mcpMode = if (withMcp) null else McpConnectionMode.None
-
-            val session = IntelliJContainer.create(
-                lifetime,
+            val session = IntelliJContainer.create(lifetime,IntelliJContainerOpts(
                 consoleTitle = "arena-${testCase.instanceId}-$agentName-$modeLabel",
                 project = IntelliJProject.ProjectFromGitCommitAndPatch(
                     cloneUrl = testCase.cloneUrl,
@@ -112,7 +112,7 @@ class DpaiaArenaTest {
                 aiMode = aiMode,
                 mcpConnectionMode = mcpMode,
                 mountDockerSocket = true,
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
                 projectJdkVersion = caseConfig.projectJdkVersion,
                 buildSystem = when (testCase.buildSystem) {

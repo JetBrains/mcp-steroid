@@ -3,8 +3,10 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -26,12 +28,10 @@ class FileDiscoveryTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(FileDiscoveryTest::class.java.simpleName) }
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "File Discovery",
                 project = IntelliJProject.MavenTestProject,
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 buildSystem = BuildSystem.MAVEN,
             )
         }
@@ -48,7 +48,7 @@ class FileDiscoveryTest {
     fun `FilenameIndex discovers project files by extension`() {
         val console = session.console
 
-        console.writeStep(1, "Discovering project files via FilenameIndex")
+        console.writeStep("Discovering project files via FilenameIndex")
         val result = session.mcpSteroid.mcpExecuteCode(
             code = """
                 import com.intellij.psi.search.FilenameIndex

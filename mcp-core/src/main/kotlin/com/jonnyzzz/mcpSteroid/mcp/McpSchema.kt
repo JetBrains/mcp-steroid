@@ -66,6 +66,36 @@ fun InputSchemaElement<Nothing>.string() = InputSchemaElement(
     }
 )
 
+/**
+ * A string parameter constrained to a fixed set of [values] (rendered as JSON-schema `enum`).
+ * The parser returns the raw string; callers map it to their enum and validate.
+ */
+fun <R : Any> InputSchemaElement<Nothing>.enumString(values: Map<String, R>) = InputSchemaElement(
+    spec = spec.copy(
+        type = "string",
+        extra = {
+            putJsonArray("enum") {
+                values.keys.forEach {
+                    add(it)
+                }
+            }
+        },
+    ),
+    parser = object : InputSchemaParamParser<R?> {
+        override fun parseParameter(context: ToolCallContext): R? {
+            val text = context.params.arguments[spec.name]
+                ?.jsonPrimitive
+                ?.contentOrNull ?: return null
+
+            return values[text]
+                ?: throw ToolCallErrorException(
+                    "Unknown value '$text' for ${spec.name}. " +
+                        "Expected one of: ${values.keys.joinToString(", ")}"
+                )
+        }
+    }
+)
+
 fun InputSchemaElement<Nothing>.int() = InputSchemaElement(
     spec = spec.copy(type = "integer"),
     parser = object : InputSchemaParamParser<Int?> {
@@ -83,6 +113,18 @@ fun InputSchemaElement<Nothing>.number() = InputSchemaElement(
         }
     }
 )
+
+fun <T : Any> InputSchemaElement<T?>.withDefaultValue(defaultValue: T): InputSchemaElement<T> {
+    val that = this
+    return InputSchemaElement(
+        spec = spec.copy(),
+        parser = object : InputSchemaParamParser<T> {
+            override fun parseParameter(context: ToolCallContext): T {
+                return that.parser.parseParameter(context) ?: defaultValue
+            }
+        }
+    )
+}
 
 private fun <R> InputSchemaElement<R>.withExtra(block: JsonObjectBuilder.() -> Unit): InputSchemaElement<R> {
     val previous = spec.extra

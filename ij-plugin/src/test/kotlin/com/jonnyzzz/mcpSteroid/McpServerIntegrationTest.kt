@@ -7,11 +7,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import com.jonnyzzz.mcpSteroid.mcp.*
-import com.jonnyzzz.mcpSteroid.server.ListProductsResponse
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
 import com.jonnyzzz.mcpSteroid.server.NpxBridgeService
-import com.jonnyzzz.mcpSteroid.server.ServerMetadataResponse
 import com.jonnyzzz.mcpSteroid.server.SteroidsMcpServer
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
 import io.ktor.client.HttpClient
@@ -192,50 +190,20 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         }
     }
 
-    fun testNpxProductsEndpoint(): Unit = timeoutRunBlocking(30.seconds) {
+    // The /products and /server-metadata bridge endpoints were removed (unused by devrig). Auth-rejection
+    // coverage for the bridge is kept here against a live endpoint (/windows).
+    fun testNpxBridgeRejectsMissingOrWrongToken(): Unit = timeoutRunBlocking(30.seconds) {
         val server = SteroidsMcpServer.getInstance()
         server.startServerIfNeeded()
-        val response = client.get("http://localhost:${server.port}/npx/v1/products") {
-            npxBridgeAuthorization()
-        }
+        val windowsUrl = "http://localhost:${server.port}/api/jonnyzzz/mcp-steroid/v1/windows"
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        val products = McpJson.decodeFromString(ListProductsResponse.serializer(), response.bodyAsText())
-        assertTrue("Expected at least one product entry", products.products.isNotEmpty())
-        val first = products.products.first()
-        assertTrue("Product IDE name should be reported", first.ide.name.isNotBlank())
-        assertTrue("Product IDE version should be reported", first.ide.version.isNotBlank())
-        assertTrue("Product plugin version should be reported", first.plugin.version.isNotBlank())
-    }
-
-    fun testNpxProductsEndpointRejectsMissingOrWrongToken(): Unit = timeoutRunBlocking(30.seconds) {
-        val server = SteroidsMcpServer.getInstance()
-        server.startServerIfNeeded()
-
-        val missingTokenResponse = client.get("http://localhost:${server.port}/npx/v1/products")
+        val missingTokenResponse = client.get(windowsUrl)
         assertEquals(HttpStatusCode.Unauthorized, missingTokenResponse.status)
 
-        val wrongTokenResponse = client.get("http://localhost:${server.port}/npx/v1/products") {
+        val wrongTokenResponse = client.get(windowsUrl) {
             header(HttpHeaders.Authorization, "Bearer wrong-token")
         }
         assertEquals(HttpStatusCode.Unauthorized, wrongTokenResponse.status)
-    }
-
-    fun testNpxServerMetadataEndpoint(): Unit = timeoutRunBlocking(30.seconds) {
-        val server = SteroidsMcpServer.getInstance()
-        server.startServerIfNeeded()
-        val response = client.get("http://localhost:${server.port}/npx/v1/server-metadata") {
-            npxBridgeAuthorization()
-        }
-
-        assertEquals(HttpStatusCode.OK, response.status)
-        val metadata = McpJson.decodeFromString(ServerMetadataResponse.serializer(), response.bodyAsText())
-        assertTrue("IDE name should be reported", metadata.ide.name.isNotBlank())
-        assertTrue("Plugin version should be reported", metadata.plugin.version.isNotBlank())
-        assertTrue("IDE home path should be reported", metadata.paths.homePath.isNotBlank())
-        assertTrue("IDE bin path should be reported", metadata.paths.binPath.isNotBlank())
-        assertTrue("Executable candidates should be reported", metadata.executable.candidates.isNotEmpty())
-        assertTrue("MCP URL should be reported", metadata.mcpUrl.contains("/mcp"))
     }
 
     private fun buildInitializeRequest() = buildJsonObject {

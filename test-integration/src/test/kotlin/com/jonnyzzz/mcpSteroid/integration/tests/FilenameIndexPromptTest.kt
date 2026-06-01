@@ -1,7 +1,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import org.junit.jupiter.api.AfterEach
@@ -35,15 +37,14 @@ class FilenameIndexPromptTest {
     @Test
     @Timeout(value = 20, unit = TimeUnit.MINUTES)
     fun `claude uses FilenameIndex to find files instead of Glob or Bash find`() {
-        val session = IntelliJContainer.create(
-            lifetime,
+        val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
             consoleTitle = "FilenameIndex prompt test — Claude",
-        ).waitForProjectReady()
+        )).waitForProjectReady()
 
         val console = session.console
         val agent = session.aiAgents.claude
 
-        console.writeStep(1, "Building prompt for FilenameIndex file discovery")
+        console.writeStep("Building prompt for FilenameIndex file discovery")
 
         val prompt = buildString {
             appendLine("# Task: Find a Kotlin file in the project by name")
@@ -61,13 +62,13 @@ class FilenameIndexPromptTest {
             appendLine("DISCOVERY_METHOD: <brief description of how you found the file>")
         }
 
-        console.writeStep(2, "Running agent prompt")
+        console.writeStep("Running agent prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 600).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(3, "Validating agent output")
+        console.writeStep("Validating agent output")
 
         // If agent failed, check if required markers were still emitted
         val hasFileFoundMarker = hasAnyMarkerLine(output, "FILE_FOUND", "File found")

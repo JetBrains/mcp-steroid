@@ -2,7 +2,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -49,10 +51,18 @@ class WhatYouSeeTest {
     }
 
     private fun checkWhatYouSee(agent: AiAgentSession) {
+        // Drive the agent through the MCP tools explicitly: first list projects + the available steroid_*
+        // tools (which forces loading their schemas — Claude Code defers them, see
+        // docs/claude-defers-mcp-tools.md), THEN describe the IDE. Without this, a client that defers the
+        // tool schemas can answer NO_IDE_ACCESS in one turn without ever loading them.
         agent.runPrompt(
-            "Describe the current state of the IntelliJ IDEA IDE. " +
-                    "Mention the project name if visible. " +
-                    "If you cannot access IDE information, respond with the word NO_IDE_ACCESS.",
+            "First, access my IDE through the MCP Steroid tools: call steroid_list_projects and list the " +
+                    "open projects, and list the steroid_* tools you have available. If those tools are not " +
+                    "loaded yet, load them first (e.g. via ToolSearch). " +
+                    "Then describe the current state of my IntelliJ IDEA IDE — the open project name and what " +
+                    "you can see. " +
+                    "Respond with the word NO_IDE_ACCESS only if the steroid_* tools are genuinely unavailable " +
+                    "after you have attempted to load them.",
             timeoutSeconds = 180
         )
             .assertExitCode(0) { "Prompt failed" }
@@ -102,16 +112,23 @@ class WhatYouSeeTest {
             println("  $task -> ${preferredLines[i]}")
         }
 
-        // Steroid detection: tool name starts with "steroid_" or uses Codex's "functions.mcp__mcp-steroid__steroid_" prefix
-        val steroidCount = preferredLines.count { it.startsWith("steroid_") || it.contains("__steroid_") }
+        // Steroid detection: the preferred tool is a `steroid_*` MCP tool regardless of the agent's
+        // tool-name prefixing. The decoded name can be bare (`steroid_execute_code`), Claude/Codex
+        // double-underscore (`mcp__mcp-steroid__steroid_execute_code`), or the `mcp__mcp_steroid.steroid_*`
+        // / `functions.mcp__…__steroid_*` forms — all contain the `steroid_<verb>` tool token.
+        val steroidCount = preferredLines.count { it.contains("steroid_") }
         println("[${agent.displayName}] Steroid tool count: $steroidCount / ${preferredLines.size}")
 
-        // Hard assertions
-        check(preferredLines.size == TASK_COUNT) {
-            "Expected $TASK_COUNT PREFERRED: lines but got ${preferredLines.size}. Output:\n${result.stdout}"
+        // Hard assertions. Some agents' decoded transcripts repeat the answer block (streamed + final),
+        // so we get a MULTIPLE of TASK_COUNT PREFERRED lines (e.g. Claude emits 20 for 10 tasks). That
+        // duplication is an output-capture artifact, not an agent error — require at least one preference
+        // per task rather than exactly TASK_COUNT, and scale the steroid bar to the lines we actually saw.
+        check(preferredLines.size >= TASK_COUNT) {
+            "Expected at least $TASK_COUNT PREFERRED: lines but got ${preferredLines.size}. Output:\n${result.stdout}"
         }
-        check(steroidCount >= MIN_STEROID_COUNT) {
-            "Only $steroidCount/$TASK_COUNT tasks preferred steroid tools (minimum: $MIN_STEROID_COUNT). Output:\n${result.stdout}"
+        val minSteroid = (MIN_STEROID_COUNT * preferredLines.size + TASK_COUNT - 1) / TASK_COUNT  // ceil, scaled for duplication
+        check(steroidCount >= minSteroid) {
+            "Only $steroidCount/${preferredLines.size} preferences chose steroid tools (need ≥$minSteroid, i.e. $MIN_STEROID_COUNT/$TASK_COUNT). Output:\n${result.stdout}"
         }
         result.assertOutputContains("STEROID_COUNT:", message = "Agent must output summary count")
     }
@@ -153,11 +170,9 @@ class WhatYouSeeTest {
         }
 
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "what-you-see",
-            ).waitForProjectReady()
+            )).waitForProjectReady()
         }
 
         @JvmStatic

@@ -5,7 +5,6 @@ import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeDiscoveryService
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IntelliJPortDiscovery
-import com.jonnyzzz.mcpSteroid.server.NPX_PROJECTS_STREAM_PATH
 import com.jonnyzzz.mcpSteroid.server.NpxStreamClientInfo
 import com.jonnyzzz.mcpSteroid.server.NpxStreamJson
 import com.jonnyzzz.mcpSteroid.server.ProjectInfo
@@ -547,7 +546,7 @@ private suspend fun fetchSnapshotForIde(
 }
 
 /**
- * Open `/npx/v1/projects/stream`, drain envelopes until the first `snapshot`,
+ * Open the bridge's `…/projects/stream`, drain envelopes until the first `snapshot`,
  * return its `projects` list (empty list if the IDE has nothing open). The
  * caller's `withTimeoutOrNull` bounds total time including the connect.
  */
@@ -556,14 +555,13 @@ private suspend fun fetchFirstSnapshot(
     ide: DiscoveredIde,
     clientInfo: NpxStreamClientInfo,
 ): List<ProjectInfo> {
-    val base = ide.mcpUrl.trimEnd('/').removeSuffix("/mcp")
-    val url = base + NPX_PROJECTS_STREAM_PATH
+    val url = ide.rpcBaseUrl + "/projects/stream"
     val body = NpxStreamJson.encodeClientInfo(clientInfo)
 
     return httpClient.preparePost(url) {
         headers {
             append(HttpHeaders.ContentType, "application/json")
-            for ((name, value) in ide.marker.mcpSteroidServer.headers) {
+            for ((name, value) in ide.bridgeHeaders) {
                 append(name, value)
             }
         }

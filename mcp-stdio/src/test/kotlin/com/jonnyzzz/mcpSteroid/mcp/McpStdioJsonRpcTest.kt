@@ -150,7 +150,6 @@ class McpStdioJsonRpcTest {
             e
         }
         assertNotNull(caught)
-        assertTrue(caught is Exception)
         assertEquals(JsonRpcErrorCodes.METHOD_NOT_FOUND, caught.code)
     }
 }

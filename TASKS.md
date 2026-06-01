@@ -254,10 +254,28 @@ docs) and triggered the full OFFICIAL matrix via the `~/.teamcity` token. Result
   red). Only `CliGeminiIntegrationTest` ×6 fail — the documented **no-GEMINI_API_KEY**
   case (`AssumptionViolatedException`); surfaces as FAILURE rather than skipped under
   JUnit5, but it's the known Gemini exception, not a release blocker.
-- **DevrigTest** (new devrig coverage) — went 14 fails → **1254 pass / 1 fail** after
-  the task-level `JAVA_HOME=25` fix (all `CliOptions*` + stdout-cleanliness + fake-IDE
-  now green). Remaining: **P9** below.
-- **Mac ij-plugin** — still the **P7** Maven 429; retried with 30-min waits.
+- **DevrigTest** (new devrig coverage) — 14 fails → 1 fail after the task-level
+  `JAVA_HOME=25` fix (all `CliOptions*` + stdout-cleanliness green). Then **P9 FIXED**
+  (sleepyLauncher now traps TERM). Remaining: **P10** — `CliMcpStdioFakeIdeIntegrationTest`
+  intermittently fails discovery (passed 1 of 3 CI runs; the 10s→30s wait bump did NOT
+  fix it, so it's a real intermittent discover/bridge flake on the CI Docker agent, not
+  slowness). **Not the product** — the devrig stdio bridge is proven working
+  (`DevrigRealIdeBridgeIntegrationTest` passes against a real IDE; macOS+Windows
+  open_project verified live). Follow-up: pull the devrig log from the failing run's
+  run-dir to see whether discovery found the temp marker / reached the fake bridge / what
+  `user.home` resolved to under the `HOME` override (the P4 hermeticity question on Linux).
+- **Mac ij-plugin** — still the **P7** Maven 429 (6th identical `:buildSrc` 429); pure
+  infra, Linux+Windows green prove the code. Hand off to agent-pool mirror config.
+
+### Validation verdict (2026-05-30)
+
+The devrig + ij-plugin 0.96 release validation is **substantively complete and green on
+official CI**: BuildPlugin, ij-plugin Linux(795)+Windows(791), test-integration devrig
+stdio tests, and the new DevrigTest's `:npx-kt` unit + stdio-integration suite (1280+
+passing). The only remaining reds are **non-blocking and documented**: P7 (Mac agent
+Maven mirror — infra), P10 (one flaky fake-IDE discovery integration test), and the
+known Gemini-no-key skip. The 0.96 code is validated; these three are handed off as
+follow-ups, none gating the devrig/ij-plugin release scope.
 
 ### P9 — `BackendManagerStartStopTest."stop force kills…"` fragile on Linux/CI (follow-up, not a blocker)
 
@@ -3617,3 +3635,120 @@ Progress log appended below as each task moves.
   done.** Article + test + tool description have converged. All
   three agents complete the task in <60s with clean signal. Closing
   task #19.
+
+# TODO — test-integration JDK pre-configuration is too slow (likely sleeps) (2026-05-30)
+
+The per-test IDE JDK pre-configuration (`mcpRegisterJdks` / SDK setup during
+`waitForProjectReady`, `intelliJ-factory.kt` + `intelliJ-container.kt` +
+`mcp-steroid.kt`) takes far too long on startup — it *feels like there are
+sleeps in the code* rather than event-driven waits. Review and fix.
+- Suspects found (grep): fixed `delay(2_000L)` at `mcp-steroid.kt:664,731,800`,
+  `delay(500L)` at `:544`, `Thread.sleep(50)` polling in `IdeTestHelpers.kt:152,161`,
+  poll loops in `intelliJ-container.kt:307,315,354,384,415` (`Thread.sleep(pollIntervalMillis)`).
+- Goal: replace blocking fixed sleeps / coarse poll intervals on the JDK-setup +
+  project-ready path with event-driven / shorter-interval waits so the IDE reaches
+  "project ready" promptly. Quantify the time spent in JDK pre-config first (log
+  timestamps around `mcpRegisterJdks` + each wait), then cut the dominant sleeps.
+
+# Active — DialogKiller hang on macOS/Docker: VisionService.capture stalls under a modal (2026-05-30)
+
+The DialogKiller integration test hangs locally (macOS Docker+Xvfb; passes on CI
+Linux). Evidence from a pre-logging run's IDE log: `killProjectDialogs`
+(`eid_…093726`) started and never completed (~10-min gap); a later **direct**
+`VisionService.capture` step (`screenshot-tool-test`, `dialog_killer=false`) is the
+**last line in the log — it hung too**. So `VisionService.capture` stalls while a
+modal `DialogWrapper` is showing, and since both the killer's pre-close screenshot
+**and** `closeDialog` go through `Dispatchers.EDT + ModalityState.any()`, neither is
+pumped during this modal → the modality is never resolved → VFS refresh + all
+downstream tasks (and the MCP server) hang. The same elevated-modality-never-resolved
+hang reproduced in the live IDE when a probe elevated modality without closing it.
+- Goal (per user): the killer must reliably **close all dialogs and restore
+  `ModalityState.nonModal()`** — the screenshot is secondary and must NEVER block that.
+- Instrumentation added (commit `2e26ec6a`): `isModalDialogShown` logs `current()!=nonModal()`
+  vs `LaterInvocator.isInModalContext()`; `doLookupDialogs` logs screenshot + close
+  boundaries. A debug-port feature (commit `11bec066`) allows attaching a live debugger.
+- Next: read the new run's log (screenshot-vs-close), then fix — make the screenshot
+  best-effort/off the critical path (close first), and/or fix `VisionService.capture` to
+  not stall under a modal; verify EDT+any actually pumps during the modal in this env.
+
+## TODO — devrig binary end-to-end console test (managed-backend self-install scenario)
+
+A new console test that exercises the **whole devrig managed-backend flow** an external user/agent hits —
+no pre-provisioned IDE; devrig fetches it. Each step must be visible in the console log:
+
+1. **Clone Keycloak over HTTPS** — `https://github.com/keycloak/keycloak.git` into the agent workspace.
+   Show a real `git clone` (use the local bare-repo cache for speed — `BareRepoCache` /
+   `GitDriver.cloneFromCachedBare`, `ProjectFromRemoteGit`). Confirms the project is on disk before devrig.
+2. **`devrig install claude`** — run the devrig binary's `install` command to register devrig as the
+   `mcp-steroid` MCP stdio server for Claude (repeat per agent: codex, gemini).
+3. **Run the agent with a find-usages task** — start the agent and ask it (best-scenario prompt TBD) to
+   use devrig to **install + start an IDE** and **find usages of** a well-chosen Keycloak symbol (pick one
+   with clear, countable usages so the assertion is deterministic; prepare the exact target).
+4. The agent's devrig tool then **fetches the IDE (managed-backend download), starts it**, and the agent
+   **opens the Keycloak project** in that IDE to answer the ask.
+
+Acceptance: console shows git clone → `devrig install claude` → agent turn → managed-backend IDE
+download+start → project open → find-usages result; assert the expected usage(s) are reported.
+
+Prerequisites (from the stability sweep):
+- Managed-backend path must be healthy — `DevrigManagedBackendGui` / `DevrigRealIdeBridge` / `DevrigAgent`
+  currently FAIL (distinct root causes; see `test-integration/TODO-stability-report.md`). The devrig JVM
+  must launch on **Java 25** (class-file v69) — `DEVRIG_JAVA_HOME` support being moved into the product
+  launcher (`.sh`).
+- Console must stay clean: download/progress = plain `println` (no `[IDE-DOWNLOAD]` prefix, no logback
+  category/severity); full debug stays in the devrig log folder + under `--debug`.
+
+## TODO — release: clearly state MCP Steroid + Devrig are independent, NOT by JetBrains
+
+Per our agreement with JetBrains, **every** distributed artifact and public surface MUST clearly state that
+**MCP Steroid and Devrig are independent open-source projects, not made by / not official JetBrains
+products**. This disclosure has to appear everywhere, consistently:
+- Website (every page footer / about), README(s), docs.
+- The plugin: Marketplace listing + plugin description / `plugin.xml` vendor text + any in-IDE about/notice.
+- The devrig binary: `--version` / `--help` banner, the dist `licenses/README`, npm/package metadata.
+- Release notes / GitHub release descriptions, EULA, and any artifact bundled with the build.
+Wording: "MCP Steroid / Devrig are independent open-source projects and are not affiliated with, endorsed
+by, or made by JetBrains." (final wording TBD). Add a release-checklist item + a build-time guard/test
+where feasible so a release can't ship without the disclosure. **Backlog — revisit later.**
+
+## TODO — devrig ↔ MCP Steroid plugin protocol compatibility (forward-compat from next release)
+
+From the **next release onward**, the devrig binary must stay compatible with **all** versions of the MCP
+Steroid plugin it talks to. Constraints:
+- **Additive only:** new parameters may be added, but **existing parameters must keep working** — never
+  remove/rename/repurpose a field or change its type. Graceful **service degradation** is acceptable (an
+  older plugin ignores a new param / a newer devrig copes with a missing field), but the protocol must
+  still function end-to-end.
+- **Highest-risk surface:** the **tool-call parameters devrig sends to the plugin** and the
+  **serialization/deserialization** of those JSON-RPC messages (tool args + results). A silent shape
+  change there is the likely break.
+
+What to set up (revisit after the current devrig tasks):
+1. **Contract tests** pinning the wire shape of every tool call devrig issues to the plugin (exact param
+   names/types) + the result deserialization — golden JSON, decoded with the plugin's serializers. A diff
+   fails the build, forcing a conscious, additive-only change.
+2. **A cross-version test** (devrig HEAD ↔ an older plugin build, and vice-versa) once we have a baseline
+   release to pin against — only meaningful from the next release.
+3. **AGENTS.md/CLAUDE.md guidance** (devrig + plugin): "the devrig↔plugin JSON-RPC tool params + result
+   serialization are a frozen, additive-only contract; never remove/rename/retype a field; new fields must
+   be optional with safe defaults; changes require a contract-test update + a conscious review."
+4. Audit the current `@Serializable` request/result types on both sides for accidental non-additive
+   patterns (required fields without defaults, enums parsed strictly, etc.).
+5. **Deferred from the #21 protocol split (commit 0bcc91f0):** today devrig still *reuses the plugin's own*
+   classes from `mcp-steroid-server` — `PidMarker`, `DevrigEndpointInfo`, the bridge tool-call request/result
+   DTOs — decoding tolerantly (`ignoreUnknownKeys` + null-default optional fields). For true independent
+   versioning, give devrig its **own** marker + bridge request/result DTOs (a devrig-side copy), so the two
+   evolve independently and only the JSON wire shape is shared. The #21 marker change already made the
+   optional sub-objects null-defaulted so old/new markers decode — that is the tolerant-decode baseline to
+   build the dedicated DTOs on.
+
+**Status (2026-06-01):** items 1, 3, 4 DONE.
+- (4) Audit: the shared `@Serializable` DTOs (`NpxBridgeWindowsResponse`, `NpxStreamEnvelope`, …) use required
+  fields *without* defaults — these are the v1 baseline (never remove); decode tolerates unknown keys but not
+  missing required ones, so the additive-only rule (new fields optional+defaulted) is what guarantees compat.
+- (1) Contract test: `DevrigToolBridgeClientTest` pins every tool's exact param names/types, incl. a new
+  `execute_code … full devrig to plugin param contract` case (project_name/code/task_id/reason/timeout/modal).
+- (3) Docs: the frozen, additive-only contract rule is in `ij-plugin/CLAUDE.md` → "devrig ↔ plugin wire contract".
+
+**Still deferred** (need a baseline release / larger refactor): (2) cross-version test (devrig HEAD ↔ older
+plugin build); (5) give devrig its own copy of the marker/bridge DTOs for fully independent versioning.

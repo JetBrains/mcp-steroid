@@ -2,13 +2,9 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.PidMarker
-import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.system.exitProcess
-
-@Suppress("GrazieInspection", "GrazieInspectionRunner", "SpellCheckingInspection")
-const val DEVRIG_HOME_ENV: String = "DEVRIG_HOME"
 
 class HomePaths(val home: Path) {
     val logsDir: Path get() = home.resolve("logs")
@@ -19,11 +15,9 @@ class HomePaths(val home: Path) {
     val executionStorageDir: Path get() = home.resolve("execution-storage")
 
     /**
-     * Directory where the IDE plugin writes per-pid markers and devrig
-     * reads them from. Always lives under `~/.mcp-steroid/markers`,
-     * independent of [home] — `DEVRIG_HOME` only customizes the CLI's own
-     * state (`backends`, `caches`, `state`, `logs`), never the plugin
-     * contract for marker discovery.
+     * Directory where the IDE plugin writes per-pid markers and devrig reads them from — always
+     * `~/.mcp-steroid/markers`, the same fixed location [home] resolves to. This is the plugin↔devrig
+     * contract for marker discovery, so it must never be relocated.
      */
     val markersDir: Path get() = PidMarker.markerDirectory(Path.of(System.getProperty("user.home")))
 
@@ -36,48 +30,22 @@ class HomePaths(val home: Path) {
     }
 }
 
-fun resolveHomePaths(): HomePaths = resolveHomePathsFromEnvironment(
-    env = System.getenv(),
-    err = System.err,
-)
-
-fun resolveHomePathsFromEnvironment(
-    env: Map<String, String>,
-    err: PrintStream?,
-): HomePaths {
-    val override = env[DEVRIG_HOME_ENV]?.takeIf { it.isNotBlank() }
-    val path = if (override == null) {
-        Path.of(System.getProperty("user.home"), ".mcp-steroid")
-    } else {
-        err?.println("Using $DEVRIG_HOME_ENV as devrig home override.")
-        canonicalOverridePath(override)
-    }
-    return HomePaths(path.toAbsolutePath().normalize())
-}
+/**
+ * devrig's home is hardcoded to `~/.mcp-steroid` and is NOT configurable — there is no `DEVRIG_HOME`
+ * override (it was removed; the plugin↔devrig marker contract pins the location anyway). To sandbox the
+ * home in a test, launch the devrig process with a redirected `HOME` (which sets the JVM's `user.home`).
+ */
+fun resolveHomePaths(): HomePaths =
+    HomePaths(Path.of(System.getProperty("user.home"), ".mcp-steroid").toAbsolutePath().normalize())
 
 fun resolveHomePathsOrDie(): HomePaths {
     try {
         val homePaths = resolveHomePaths()
         homePaths.mkdirsAll()
         return homePaths
-    } catch (e: IllegalArgumentException) {
-        System.err.println("Startup failure: ${e.message}")
-        exitProcess(64)
     } catch (e: Throwable) {
         System.err.println("Startup failure: ${e.message}")
         e.printStackTrace(System.err)
         exitProcess(64)
-    }
-}
-
-private fun canonicalOverridePath(raw: String): Path {
-    val path = Path.of(raw)
-    if (!path.isAbsolute) {
-        throw IllegalArgumentException("$DEVRIG_HOME_ENV: override must be an existing absolute path.")
-    }
-    try {
-        return path.toRealPath()
-    } catch (e: Exception) {
-        throw IllegalArgumentException("$DEVRIG_HOME_ENV: cannot resolve canonical path for '$raw'.", e)
     }
 }

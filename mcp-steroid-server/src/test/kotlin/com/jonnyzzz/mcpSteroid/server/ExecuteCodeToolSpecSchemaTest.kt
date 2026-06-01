@@ -16,6 +16,6 @@ class ExecuteCodeToolSpecSchemaTest {
         assertStringProperty(schema, "task_id")
         assertStringProperty(schema, "reason")
         assertIntegerProperty(schema, "timeout")
-        assertBooleanProperty(schema, "dialog_killer")
+        assertEnumProperty(schema, "modal", "smart_non_modal", "non_modal", "unleashed")
     }
 }

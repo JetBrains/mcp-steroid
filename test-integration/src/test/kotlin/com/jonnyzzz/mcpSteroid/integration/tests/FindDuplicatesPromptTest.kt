@@ -2,7 +2,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
@@ -52,13 +54,13 @@ class FindDuplicatesPromptTest {
 
     private fun findDuplicates(agent: AiAgentSession) {
         val console = session.console
-        console.writeStep(1, "Asking ${agent.displayName} to find duplicates (no recipe hints)")
+        console.writeStep(text = "Asking ${agent.displayName} to find duplicates (no recipe hints)")
 
         val result = agent.runPrompt(FIND_DUPLICATES_PROMPT, timeoutSeconds = 900).awaitForProcessFinish()
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(2, "Validating what ${agent.displayName} actually did")
+        console.writeStep(text = "Validating what ${agent.displayName} actually did")
 
         val hasDupesMarker = hasAnyMarkerLine(output, "DUPLICATES_FOUND", "Duplicates found")
         if (result.exitCode != 0 && !hasDupesMarker) {
@@ -317,10 +319,9 @@ class FindDuplicatesPromptTest {
         }
 
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "find-duplicates prompt test",
-            ).waitForProjectReady()
+            )).waitForProjectReady()
         }
 
         @JvmStatic

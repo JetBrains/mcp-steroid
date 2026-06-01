@@ -1,10 +1,13 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
+import com.jonnyzzz.mcpSteroid.integration.infra.ModalMode
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -25,12 +28,10 @@ class MavenInstallTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(MavenInstallTest::class.java.simpleName) }
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "Maven Install",
                 project = IntelliJProject.MavenTestProject,
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 buildSystem = BuildSystem.MAVEN,
                 compileProject = true,
             )
@@ -48,7 +49,7 @@ class MavenInstallTest {
     fun `Maven install goal via MavenRunConfigurationType`() {
         val console = session.console
 
-        console.writeStep(1, "Running Maven install via MavenRunConfigurationType")
+        console.writeStep(text = "Running Maven install via MavenRunConfigurationType")
         val result = session.mcpSteroid.mcpExecuteCode(
             code = """
                 import org.jetbrains.idea.maven.execution.MavenRunConfigurationType
@@ -87,7 +88,7 @@ class MavenInstallTest {
             taskId = "maven-install",
             reason = "Run Maven install goal via MavenRunConfigurationType (replaces Bash mvnw install)",
             timeout = 600,
-            dialogKiller = true,
+            modal = ModalMode.SMART_NON_MODAL,
         )
 
         result.assertExitCode(0, "Maven install via exec_code should succeed")

@@ -83,8 +83,6 @@ fun buildDockerImage(
         val command = buildList {
             add("docker")
             add("build")
-
-            @Suppress("SpellCheckingInspection")
             add("--iidfile")
             add(iidFile.absolutePath)
 
@@ -108,7 +106,6 @@ fun buildDockerImage(
 
         val imageId = iidFile.readText().trim()
         require(imageId.startsWith("sha256:")) {
-            @Suppress("SpellCheckingInspection")
             "Unexpected image ID format from --iidfile: $imageId"
         }
 

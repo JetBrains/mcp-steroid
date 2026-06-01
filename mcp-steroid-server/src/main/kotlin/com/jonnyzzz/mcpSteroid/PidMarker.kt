@@ -14,20 +14,26 @@ import java.nio.file.Path
  * is configured to ignore unknown JSON keys so new optional fields stay
  * backwards-readable.
  *
- * All constructor parameters are explicit on purpose — there are no
- * defaults — so every writer is forced to think about every field. Tests
- * keep their own local helpers when they need a quick stub.
+ * The REQUIRED fields ([schema], [pid], [ide], [plugin], [createdAt]) have no defaults, so every writer
+ * must set them and decoding rejects their omission. The OPTIONAL sub-objects default to `null`: this is
+ * the backward/forward-compat hook — a marker written by an older or newer plugin that omits one of them
+ * still decodes (kotlinx.serialization treats a nullable field WITHOUT a default as required, which would
+ * throw on absence). Writers still set them explicitly (`encodeDefaults = true` keeps them in the output).
  */
 @Serializable
 data class PidMarker(
     val schema: Int,
     val pid: Long,
-    val mcpSteroidServer: McpSteroidServerInfo,
     val ide: IdeInfo,
     val plugin: PluginInfo,
     val createdAt: String,
-    val intellijWebServer: IntelliJWebServerInfo?,
-    val intellijMcpServer: IntelliJMcpServerInfo?,
+    // Both transports are optional and independent: the `/mcp` MCP-client endpoint and the devrig bridge
+    // endpoint are split at the protocol level. A marker may advertise only one of them — e.g. only
+    // [devrigEndpoint] with no [mcpSteroidServer]. devrig reads ONLY [devrigEndpoint] and never touches MCP.
+    val mcpSteroidServer: McpSteroidServerInfo? = null,
+    val devrigEndpoint: DevrigEndpointInfo? = null,
+    val intellijWebServer: IntelliJWebServerInfo? = null,
+    val intellijMcpServer: IntelliJMcpServerInfo? = null,
 ) {
     companion object {
         const val SCHEMA_VERSION: Int = 1

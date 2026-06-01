@@ -62,7 +62,7 @@ that go beyond LSP capabilities. Each example is a complete script for `steroid_
 
 - Many examples support `dryRun` to preview changes safely.
 - For write operations, use `dryRun=true` first, then set to `false` to apply.
-- `waitForSmartMode()` runs automatically before your script starts; call it again only after triggering indexing.
+- Under the default `modal=smart_non_modal`, `waitForSmartMode()` runs automatically before your script starts (skipped under `non_modal` / `unleashed`); call it again only after triggering indexing.
 
 ---
 

@@ -84,7 +84,8 @@ Calling `readAction { }` or ANY suspend function inside `writeAction { }` throws
 
 During indexing, the IDE is in "dumb mode" — many APIs are unavailable. Use `smartReadAction`
 when you need both smart mode and read access. `waitForSmartMode()` is called automatically before
-your script starts, but it is only a point-in-time wait: IntelliJ may enter dumb mode again before
+your script starts under the default `modal=smart_non_modal` (skipped under `non_modal` / `unleashed`),
+but it is only a point-in-time wait: IntelliJ may enter dumb mode again before
 the next statement. For initial project import/sync/configuration, await `Observation.awaitConfiguration(project)`,
 then keep the indexed query inside `smartReadAction`.
 

@@ -20,10 +20,8 @@ class XcvbConsoleTest {
     @Test
     fun testConsoleLayout() = runWithCloseableStack { lifetime ->
         val dockerFileBase = "ide-agent"
-        val uniqueSuffix = UUID.randomUUID().toString().take(8)
-        val imageName = "$dockerFileBase-test-$uniqueSuffix"
         val ideArchive = IdeDistribution.fromSystemProperties().resolveAndDownload()
-        val imageId = buildIdeImage(dockerFileBase, imageName, ideArchive)
+        val imageId = buildIdeImage(dockerFileBase, ideArchive)
 
         var container = startDockerContainerAndDispose(
             lifetime,

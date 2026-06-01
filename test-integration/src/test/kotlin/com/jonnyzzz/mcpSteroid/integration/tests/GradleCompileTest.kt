@@ -1,9 +1,12 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.tests
 
+import com.jonnyzzz.mcpSteroid.integration.infra.ModalMode
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertOutputContains
@@ -24,11 +27,9 @@ class GradleCompileTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(GradleCompileTest::class.java.simpleName) }
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
-                "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "Gradle Compile",
-            ).waitForProjectReady(
+            )).waitForProjectReady(
                 buildSystem = BuildSystem.GRADLE,
                 projectJdkVersion = "25",
             )
@@ -46,7 +47,7 @@ class GradleCompileTest {
     fun `ProjectTaskManager builds Gradle project`() {
         val console = session.console
 
-        console.writeStep(1, "Compiling Gradle project via ProjectTaskManager.build()")
+        console.writeStep("Compiling Gradle project via ProjectTaskManager.build()")
         val result = session.mcpSteroid.mcpExecuteCode(
             code = """
                 import com.intellij.task.ProjectTaskManager
@@ -74,7 +75,7 @@ class GradleCompileTest {
             taskId = "gradle-compile",
             reason = "Compile Gradle project via ProjectTaskManager (replaces Bash gradlew compile)",
             timeout = 300,
-            dialogKiller = true,
+            modal = ModalMode.SMART_NON_MODAL,
         )
 
         result.assertExitCode(0, "Gradle compile via ProjectTaskManager should succeed")

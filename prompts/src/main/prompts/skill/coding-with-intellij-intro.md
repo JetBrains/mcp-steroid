@@ -109,7 +109,8 @@ This applies to ALL suspend context APIs: `readAction { }`, `writeAction { }`, `
 
 ### Automatic Smart Mode
 
-`waitForSmartMode()` is called **automatically before your script starts**, but it is not a
+`waitForSmartMode()` is called **automatically before your script starts** under the default
+`modal=smart_non_modal` (skipped under `non_modal` / `unleashed`), but it is not a
 stable lease on smart mode. IntelliJ may enter dumb mode again before the next statement. Use
 `smartReadAction { }` for index-dependent PSI reads, and use `Observation.awaitConfiguration(project)`
 after project import/sync/configuration.

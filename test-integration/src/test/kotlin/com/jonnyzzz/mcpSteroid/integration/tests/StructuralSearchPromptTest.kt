@@ -2,7 +2,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
@@ -134,10 +136,10 @@ class StructuralSearchPromptTest {
         markerName = "SSR_PROFILES",
         expectedMatches = -1, // see customAssertions below — "≥ 5" not exact
         fixtureFile = null,
-        customAssertions = { combined, output, console ->
+        customAssertions = { combined, output ->
             val n = findMarkerValue(output, "SSR_PROFILES")?.takeWhile { it.isDigit() }?.toIntOrNull() ?: -1
             check(n >= 5) { "Expected SSR_PROFILES >= 5 (Java, Kotlin, XML, Properties, …); got $n.\nOutput:\n$combined" }
-            console.writeSuccess("SSR_PROFILES=$n (>= 5 expected)")
+            session.console.writeSuccess("SSR_PROFILES=$n (>= 5 expected)")
 
             val javaFound = findMarkerValue(output, "JAVA_PROFILE_FOUND") ?: ""
             check(javaFound.contains("yes", ignoreCase = true)) {
@@ -152,14 +154,6 @@ class StructuralSearchPromptTest {
 
     // -------- shared scenario harness --------
 
-    private interface ScenarioConsole {
-        fun writeStep(n: Int, msg: String)
-        fun writeInfo(msg: String)
-        fun writeSuccess(msg: String)
-        fun writeError(msg: String)
-        fun writeHeader(msg: String)
-    }
-
     private fun runScenario(
         agent: AiAgentSession,
         scenarioName: String,
@@ -168,18 +162,11 @@ class StructuralSearchPromptTest {
         markerName: String,
         expectedMatches: Int,
         fixtureFile: String?,
-        customAssertions: ((combined: String, output: String, console: ScenarioConsole) -> Unit)? = null,
+        customAssertions: ((combined: String, output: String) -> Unit)? = null,
     ) {
-        val sessionConsole = session.console
-        val consoleAdapter = object : ScenarioConsole {
-            override fun writeStep(n: Int, msg: String) = sessionConsole.writeStep(n, msg)
-            override fun writeInfo(msg: String) = sessionConsole.writeInfo(msg)
-            override fun writeSuccess(msg: String) = sessionConsole.writeSuccess(msg)
-            override fun writeError(msg: String) = sessionConsole.writeError(msg)
-            override fun writeHeader(msg: String) = sessionConsole.writeHeader(msg)
-        }
+        val consoleAdapter = session.console
 
-        consoleAdapter.writeStep(1, "[$scenarioName] ${agent.displayName}: running prompt")
+        consoleAdapter.writeStep(text = "[$scenarioName] ${agent.displayName}: running prompt")
 
         val result = agent.runPrompt(prompt, timeoutSeconds = 900).awaitForProcessFinish()
         val output = result.stdout
@@ -265,7 +252,7 @@ class StructuralSearchPromptTest {
         }
 
         // 5. Custom per-scenario assertions.
-        customAssertions?.invoke(combined, output, consoleAdapter)
+        customAssertions?.invoke(combined, output)
 
         // 6. IMPROVEMENTS reflection — mandatory. The whole point of this bucket is
         //    to surface prompt-only tweaks; without the reflection block the test
@@ -421,10 +408,9 @@ class StructuralSearchPromptTest {
         val lifetime by lazy { CloseableStackHost() }
 
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "structural-search prompt bucket",
-            ).waitForProjectReady()
+            )).waitForProjectReady()
         }
 
         @JvmStatic

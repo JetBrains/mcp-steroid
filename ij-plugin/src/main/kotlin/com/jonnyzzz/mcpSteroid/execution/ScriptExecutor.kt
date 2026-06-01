@@ -2,22 +2,31 @@
 package com.jonnyzzz.mcpSteroid.execution
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.concurrency.ThreadingAssertions
 import com.jonnyzzz.mcpSteroid.koltinc.LineMapping
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
+import com.intellij.diagnostic.ThreadDumper
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
+import com.jonnyzzz.mcpSteroid.server.ModalMode
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
+import com.jonnyzzz.mcpSteroid.storage.executionStorage
+import com.jonnyzzz.mcpSteroid.vision.VisionService
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.*
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 inline val Project.scriptExecutor: ScriptExecutor get() = service()
 
@@ -45,12 +54,13 @@ inline val Project.scriptExecutor: ScriptExecutor get() = service()
  *  - **Post-flight refresh** in `finally` so the next agent step (compile,
  *    grep, follow-up edit) sees disk changes the body made (e.g. via Bash).
  *
- * Periodic dialog killing:
- * - A periodic [DialogKiller] coroutine polls during execution and dismisses
- *   any modal dialog that appears, surfacing a screenshot to the agent log.
- * - If the script intentionally shows a dialog (e.g. refactoring confirmation),
- *   call `doNotCancelOnModalityStateChange()` on the script context BEFORE
- *   the action — that cancels the killer's poll job for the rest of the run.
+ * Modality handling is driven by the `modal` option (see [ExecCodeParams.modal] / [ModalMode]); each
+ * profile is sugar over the [McpScriptContext] methods:
+ * - `smart_non_modal` (default): closeModalDialogs + require-non-modal + syncDocuments + waitForSmartMode,
+ *   then start the modal monitor — a modal appearing mid-run is closed and the run fails.
+ * - `non_modal`: require-non-modal only. `unleashed`: nothing.
+ * - If the script intentionally shows a dialog (e.g. a refactoring confirmation), call
+ *   `allowModalDialog()` on the script context BEFORE the action so the monitor leaves it alone.
  *
  * Non-modal dialogs DO NOT block execution — they neither pin the EDT nor
  * count for the modality check; the script runs to completion against the
@@ -78,175 +88,183 @@ class ScriptExecutor(
         exec: ExecCodeParams,
         resultBuilder: ExecutionResultBuilder,
     ) {
+        // exec_code must never be driven from the EDT: the pre-flight dispatches
+        // back to the EDT (isModalEdt / commit / VFS refresh) via withContext(EDT),
+        // which deadlocks if the calling coroutine is itself parking the EDT (e.g.
+        // runBlocking on the EDT, as a misconfigured BasePlatformTestCase does).
+        // Fail fast with a clear message instead of hanging.
+        ThreadingAssertions.assertBackgroundThread()
+
+        log.info("Starting execution $executionId")
+
+        coroutineScope {
+            withContext(AppExecutorUtil.getAppExecutorService().asCoroutineDispatcher()) {
+                val executionDisposable = Disposer.newDisposable(this@ScriptExecutor, "mcp-execution-$executionId")
+                try {
+                    executeWithProgressImpl(executionId, exec, resultBuilder, executionDisposable)
+                }  finally {
+                    Disposer.dispose(executionDisposable)
+                }
+            }
+        }
+    }
+
+    private suspend fun CoroutineScope.executeWithProgressImpl(
+        executionId: ExecutionId,
+        exec: ExecCodeParams,
+        resultBuilder: ExecutionResultBuilder,
+        executionDisposable: Disposable,
+    ) {
         val evalResult = project
             .codeEvalManager
             .evalCode(executionId, exec.code, resultBuilder) ?: return
 
-        val lineMapping = evalResult.lineMapping
+        log.info("Running script block(s) for $executionId with timeout ${exec.timeout}s, modal=${exec.modal}")
 
-        log.info("Starting execution $executionId")
+        val context = McpScriptContextImpl(
+            project = project,
+            executionId = executionId,
+            disposable = executionDisposable,
+            resultBuilder = resultBuilder,
+            // The modal-dialog monitor (monitorAndCloseModalDialogs) launches into this scope.
+            executionScope = this,
+        )
 
-        // Single Disposable governs the entire execution lifecycle. Disposing
-        // it cancels every coroutine launched against [coroutineScope] below
-        // (the dialog killer poll, the IDE-exception collector). No manual
-        // job.cancel() calls anywhere — disposal IS cancellation.
-        val executionDisposable = Disposer.newDisposable(this, "mcp-execution-$executionId")
-
-        val timeout = exec.timeout ?: Registry.intValue("mcp.steroid.execution.timeout", 600)
-
-        try {
-            val capturedBlocks = evalResult.result
-            log.info("Running ${capturedBlocks.size} script block(s) for $executionId with timeout ${timeout}s")
-
-            // Pre-flight editing guard, step 1+2: kill stuck modals, then
-            // fail-fast if one is still showing. Skipped when the per-call
-            // dialog_killer override is explicitly false — the caller opted
-            // out of dialog killing and accepts modal dialogs may be present.
-            val checkModality = exec.dialogKiller != false
-            if (checkModality) {
-                dialogKiller().killProjectDialogs(
-                    project = project,
-                    executionId = executionId,
-                    logMessage = { resultBuilder.logMessage(it) },
-                    forceEnabled = exec.dialogKiller,
-                )
-                val isModalShowing = dialogWindowsLookup().withModalityCheck { it }
-                if (isModalShowing) {
-                    resultBuilder.reportFailed(
-                        "Modal dialog still showing after dialog killer ran — refusing to run the script. " +
-                                "See IDE log + execution screenshot under execution id '${executionId.executionId}' for details."
-                    )
-                    return
-                }
+        // Pre-flight per `modal` profile. Each profile is sugar over the context APIs
+        // (closeModalDialogs / syncDocuments / waitForSmartMode / monitorAndCloseModalDialogs),
+        // which a script in any mode can also call on demand.
+        when (exec.modal) {
+            ModalMode.SMART_NON_MODAL -> {
+                resultBuilder.logMessage("[PRE] close modal dialogs")
+                context.closeModalDialogs()
+                requireNonModalOrFail(executionId, exec.modal)
+                resultBuilder.logMessage("[PRE] sync documents")
+                context.syncDocuments()
+                resultBuilder.logMessage("[PRE] wait for smart mode")
+                context.waitForSmartMode()
+                resultBuilder.logMessage("[PRE] start modal-dialog monitor")
+                context.monitorAndCloseModalDialogs()
             }
 
-            // Pre-flight editing guard, step 3: commit PSI, save dirty docs, await VFS refresh.
-            commitAndSaveAllDocuments(project)
-            project.vfsRefreshService.awaitRefresh()
+            ModalMode.NON_MODAL -> {
+                resultBuilder.logMessage("[PRE] require non-modal")
+                requireNonModalOrFail(executionId, exec.modal)
+            }
 
+            ModalMode.UNLEASHED -> {
+                resultBuilder.logMessage("[PRE] unleashed — no modality checks")
+            }
+        }
+
+        monitorExceptions(context, executionDisposable)
+
+        resultBuilder.logMessage("[RUN] script")
+        executeCodeBlocks(exec, context, evalResult, executionId, resultBuilder)
+
+        // Post-flight: re-sync to disk only for `smart_non_modal`, whose profile owns the document-
+        // consistency contract. `non_modal` is intentionally start-gate-only and `unleashed` does nothing —
+        // neither re-syncs (a fresh isModalEdt() read, since the body may have changed modality).
+        if (exec.modal == ModalMode.SMART_NON_MODAL && !isModalEdt()) {
+            resultBuilder.logMessage("[POST] sync documents")
             try {
-                coroutineScope {
-                    withContext(Dispatchers.IO) {
-                        // Periodic dialog killer — dismisses any modal that
-                        // appears during execution, logs a screenshot to the
-                        // result builder, and lets the script continue against
-                        // the post-dismiss IDE state. If the script
-                        // intentionally shows a dialog (e.g. refactoring
-                        // confirmation), it calls
-                        // McpScriptContext.doNotCancelOnModalityStateChange() —
-                        // which cancels [killerJob] for the rest of the run.
-                        val killerJob: Job? = if (exec.cancelOnModal) {
-                            launch(CoroutineName("execution-dialog-killer-$executionId")) {
-                                while (isActive) {
-                                    delay(KILLER_POLL_INTERVAL_MS.milliseconds)
-                                    try {
-                                        dialogKiller().killProjectDialogs(
-                                            project = project,
-                                            executionId = executionId,
-                                            logMessage = { resultBuilder.logMessage(it) },
-                                            forceEnabled = null, // honour registry toggle
-                                        )
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (t: Throwable) {
-                                        log.warn("Periodic dialog killer failed for $executionId: ${t.message}", t)
-                                    }
-                                }
-                            }
-                        } else null
-
-                        val context = McpScriptContextImpl(
-                            project = project,
-                            executionId = executionId,
-                            disposable = executionDisposable,
-                            resultBuilder = resultBuilder,
-                            // Script can opt out of the periodic killer for this execution.
-                            onDoNotCancelOnModalityStateChange = { killerJob?.cancel() },
-                        )
-
-                        val exceptionJob = launch {
-                            service<ExceptionCaptureService>().exceptions.collect { ex ->
-                                context.println(buildString {
-                                    appendLine("=== IDE Exception Captured ===")
-                                    appendLine("Time: ${ex.timestamp}")
-                                    ex.pluginId?.let { appendLine("Plugin: $it") }
-                                    appendLine("Message: ${ex.message}")
-                                    appendLine("Stacktrace:")
-                                    append(ex.stacktrace)
-                                    appendLine("=== END ===")
-                                })
-                            }
-                        }
-
-                        try {
-                            withTimeout(timeout.seconds) {
-                                context.waitForSmartMode()
-                                for ((index, block) in capturedBlocks.withIndex()) {
-                                    yield()
-                                    if (capturedBlocks.size > 1) {
-                                        log.info("Executing block #${index + 1}/${capturedBlocks.size} for $executionId")
-                                        context.progress("Executing block ${index + 1} of ${capturedBlocks.size}...")
-                                    }
-                                    block(context)
-                                }
-                                log.info("Execution $executionId completed normally")
-                            }
-                        } finally {
-                            exceptionJob.cancel()
-                            killerJob?.cancel()
-                        }
-                    }
-                }
-            } finally {
-                // Post-flight editing guard, step 5: refresh so the next agent
-                // step sees disk changes the body made (e.g. files written via
-                // Bash from the script context).
-                project.vfsRefreshService.awaitRefresh()
+                context.syncDocuments()
+            } catch (e: ToolCallErrorException) {
+                resultBuilder.logMessage("[POST] sync skipped: ${e.message}")
             }
-        } catch (e: TimeoutCancellationException) {
-            // Timeout - report as error (must be caught before CancellationException since it's a subclass)
-            log.warn("Execution $executionId timed out: ${e.message}")
-            resultBuilder.logRemappedException("Execution timed out", e, lineMapping)
-            resultBuilder.reportFailed("Execution timed out after $timeout seconds")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (t: Throwable) {
-            log.warn("Unexpected error during execution $executionId: ${t.message}", t)
-            val remappedMessage = lineMapping.remapStackTrace(t.message ?: "")
-            resultBuilder.logRemappedException("Unexpected error during execution: $remappedMessage", t, lineMapping)
-            resultBuilder.reportFailed("Unexpected error during execution: $remappedMessage")
-        } finally {
-            Disposer.dispose(executionDisposable)
         }
     }
 
     /**
-     * Commit pending PSI edits and flush all dirty documents to disk before
-     * the script body runs. EDT-only platform calls — dispatch when needed.
-     *
-     * When the caller is already on the EDT (BasePlatformTestCase with
-     * `runInDispatchThread()=true`, or any tool-handler that landed on the
-     * EDT), call inline — wrapping in `withContext(Dispatchers.EDT + …)`
-     * would force a dispatch and deadlock against `runBlocking` waiting for
-     * the current coroutine.
+     * Fail the execution (with a screenshot) when the IDE is in an elevated-modality state and the
+     * profile requires non-modal. Uses the shared [DialogWindowsLookup.isModalEdt] check, so the gate
+     * agrees with the context APIs' non-modal asserts.
      */
-    private suspend fun commitAndSaveAllDocuments(project: Project) {
-        if (ApplicationManager.getApplication().isDispatchThread) {
-            PsiDocumentManager.getInstance(project).commitAllDocuments()
-            FileDocumentManager.getInstance().saveAllDocuments()
-        } else {
-            withContext(Dispatchers.EDT) {
-                PsiDocumentManager.getInstance(project).commitAllDocuments()
-                FileDocumentManager.getInstance().saveAllDocuments()
+    private suspend fun requireNonModalOrFail(executionId: ExecutionId, modal: ModalMode) {
+        if (!isModalEdt()) return
+        // Capture the same diagnostics the during-run monitor does (screenshot + thread dump) — a gate
+        // failure often means a modal is stuck on a background process, where the thread dump is key.
+        try {
+            VisionService.getInstance(project).capture(executionId)
+        } catch (e: Exception) {
+            log.warn("Failed to capture modal screenshot for $executionId: ${e.message}", e)
+        }
+        try {
+            project.executionStorage.writeCodeExecutionData(
+                executionId, "thread-dump-modality-gate.txt", ThreadDumper.dumpThreadsToString())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("Failed to capture modality-gate thread dump for $executionId: ${e.message}")
+        }
+        throw ToolCallErrorException(
+            "modal=${modal.name.lowercase()} requires a non-modal IDE, but a modal dialog/progress is present " +
+                "and could not be cleared. Use modal=unleashed to run anyway (no PSI guarantees). " +
+                "See the screenshot + thread dump under execution '${executionId.executionId}'."
+        )
+    }
+
+    private fun CoroutineScope.monitorExceptions(
+        context: McpScriptContextImpl,
+        executionDisposable: Disposable
+    ) {
+        launch {
+            service<ExceptionCaptureService>().exceptions.collect { ex ->
+                context.println(buildString {
+                    appendLine("=== IDE Exception Captured ===")
+                    appendLine("Time: ${ex.timestamp}")
+                    ex.pluginId?.let { appendLine("Plugin: $it") }
+                    appendLine("Message: ${ex.message}")
+                    appendLine("Stacktrace:")
+                    append(ex.stacktrace)
+                    appendLine("=== END ===")
+                })
+            }
+        }.also {
+            Disposer.register(executionDisposable) {
+                it.cancel()
             }
         }
     }
 
-    private companion object {
-        // Dialog killer poll cadence. 1 s is short enough to dismiss a dialog
-        // before agent timeouts kick in, long enough that we don't burn CPU.
-        const val KILLER_POLL_INTERVAL_MS = 1_000L
+    private suspend fun executeCodeBlocks(
+        exec: ExecCodeParams,
+        context: McpScriptContextImpl,
+        evalResult: EvalResult,
+        executionId: ExecutionId,
+        resultBuilder: ExecutionResultBuilder
+    ) {
+        try {
+            withTimeout(exec.timeout.seconds) {
+                val capturedBlocks = evalResult.result
+                for ((index, block) in capturedBlocks.withIndex()) {
+                    yield()
+                    if (capturedBlocks.size > 1) {
+                        log.info("Executing block #${index + 1}/${capturedBlocks.size} for $executionId")
+                        context.progress("Executing block ${index + 1} of ${capturedBlocks.size}...")
+                    }
+                    block(context)
+                }
+                log.info("Execution $executionId completed normally")
+            }
+        } catch (e: TimeoutCancellationException) {
+            // Timeout - report as error (must be caught before CancellationException since it's a subclass)
+            log.warn("Execution $executionId timed out: ${e.message}")
+            resultBuilder.logRemappedException("Execution timed out", e, evalResult.lineMapping)
+            resultBuilder.reportFailed("Execution timed out after ${exec.timeout} seconds")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            log.warn("Unexpected error during execution $executionId: ${t.message}", t)
+            val remappedMessage = evalResult.lineMapping.remapStackTrace(t.message ?: "")
+            resultBuilder.logRemappedException("Unexpected error during execution: $remappedMessage", t, evalResult.lineMapping)
+            resultBuilder.reportFailed("Unexpected error during execution: $remappedMessage")
+        }
     }
+
+    // Single source of truth, shared with the dialog killer (DialogWindowsLookup): the
+    // gate and the killer must agree on what "modal" means. Yuriy's check — EDT under
+    // ModalityState.any(), current() != nonModal().
+    private suspend fun isModalEdt(): Boolean = dialogWindowsLookup().isModalEdt()
 
     /**
      * Logs an exception with stack trace line numbers remapped from wrapped-file coordinates
@@ -261,5 +279,4 @@ class ScriptExecutor(
         val text = "ERROR: $message\n$cleanTrace"
         logMessage(text)
     }
-
 }

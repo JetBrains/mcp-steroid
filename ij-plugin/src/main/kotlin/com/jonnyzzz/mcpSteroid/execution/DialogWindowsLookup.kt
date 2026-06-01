@@ -7,6 +7,8 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.DialogWrapperDialog
@@ -32,44 +34,36 @@ fun dialogWindowsLookup(): DialogWindowsLookup = service()
 @Service(Service.Level.APP)
 class DialogWindowsLookup {
     /**
-     * Fast negative path: ask the platform whether the current modality
-     * differs from `ModalityState.nonModal()`. If it does not, no modal is
-     * elevating the current modality — we can short-circuit the enumeration.
+     * Yuriy's modality check — the same logic exec_code uses (see
+     * `ScriptExecutor.isModalEdt`): dispatch to the EDT under [ModalityState.any]
+     * (which IS pumped even while a modal event loop runs, so it never hangs) and
+     * ask whether the EDT is currently in an elevated modality state.
      *
-     * Replaces the previous "dispatch to EDT with a 100 ms timeout" probe,
-     * which produced false positives under IDE load (a busy EDT looked the
-     * same as a real modal) and added 100 ms to every list_windows call when
-     * the EDT was actually parked. The modality-state read is synchronous and
-     * cannot lie.
+     * This is the single, reliable modal detector shared by the gate
+     * ([withModalityCheck]) and the killer ([withDialogWindows]) — replacing the
+     * old `canPumpEdtNonModal` probe, whose 100ms `async(EDT){true}` round-trip
+     * was a false-negative under a modal whose modality let the non-modal probe
+     * slip through (it reported "EDT responsive, no modal" so the killer never
+     * enumerated anything to close).
      *
-     * Note: a non-modal `ModalityState.current()` only proves there is no
-     * modality elevating the EDT — progress modals, write-action queues, etc.
-     * also elevate modality and would return `true` here. The callers that
-     * need the stricter "is there a real DialogWrapperDialog showing"
-     * predicate fall through to enumeration, which filters by
-     * [DialogWrapperDialog] + `isModal`.
-     *
-     * See https://youtrack.jetbrains.com/issue/IJPL-243343
-     *
-     * /// Kudos Yuriy Artamonov for the suggestion
+     * TRUE for a modal [DialogWrapper] AND for modal progress/indexing; callers
+     * that must tell those apart enumerate the actual dialog windows afterwards.
      */
-    private suspend fun isModalDialogShown(): Boolean {
+    suspend fun isModalEdt(): Boolean {
         if (ApplicationManager.getApplication().isHeadlessEnvironment) return false
         return withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            val current = ModalityState.current()
-            val nonModal = ModalityState.nonModal()
-            current != nonModal
+            ModalityState.current() != ModalityState.nonModal()
         }
     }
 
     /**
      * Detect modal dialog windows for a project and process them.
      *
-     * 1. Tries [isModalDialogShown] — if no modality is elevated, calls
-     *    [action] with empty list.
-     * 2. Otherwise, dispatches to EDT with [ModalityState.any] to enumerate all
-     *    modal [DialogWrapper] instances owned by the project frame.
-     * 3. Calls [action] with the found dialogs sorted by depth (deepest first).
+     * 1. [isModalEdt] — if the EDT is not in a modal state, calls [action] with empty list.
+     * 2. Otherwise, dispatches to EDT with [ModalityState.any] to enumerate modal
+     *    [DialogWrapper] instances (project-frame-owned, falling back to all showing modals).
+     * 3. Calls [action] with the found dialogs sorted by depth, **deepest (top-most) first**,
+     *    so the killer closes the front-most dialog before its parents.
      */
     suspend fun <T> withDialogWindows(
         project: Project,
@@ -79,13 +73,25 @@ class DialogWindowsLookup {
             return action(emptyList())
         }
 
-        if (!isModalDialogShown()) {
+        // Same modal detector as the gate (Yuriy's check): only enumerate when the EDT is
+        // actually in a modal state. This replaces the old canPumpEdtNonModal probe whose
+        // false-negative made the killer skip enumeration and never close the dialog.
+        if (!isModalEdt()) {
             return action(emptyList())
         }
 
         val dialogs = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            val projectFrame = WindowManager.getInstance().getFrame(project) ?: return@withContext emptyList()
-            findDialogsOwnedBy(projectFrame)
+            // Prefer dialogs owned by the project frame, but fall back to ALL showing
+            // modal dialogs when none are project-owned. This keeps the killer's view
+            // consistent with the gate's [withModalityCheck] (which enumerates modal
+            // DialogWrapper windows globally): a detached/ownerless modal — e.g. a real
+            // user-opened dialog — would otherwise be detected by the gate but missed by
+            // the killer, so the run hard-failed with "modal still showing" and nothing
+            // ever closed it.
+            val projectFrame = WindowManager.getInstance().getFrame(project)
+            val owned = if (projectFrame != null) findDialogsOwnedBy(projectFrame) else emptyList()
+            val candidates = owned.ifEmpty { findAllShowingModalDialogs() }
+            candidates
                 .map { it to dialogDepth(it) }
                 .sortedByDescending { it.second }
                 .map { it.first }
@@ -109,12 +115,12 @@ class DialogWindowsLookup {
      * [`waitForIdeWindow`](../../integration/infra/intelliJ-container.kt)'s
      * fail-fast path abort every test as soon as indexing kicked in.
      *
-     * 1. Tries [isModalDialogShown] — if no modality is elevated, calls
-     *    [action] with `false`.
+     * 1. [isModalEdt] — if the EDT is not modal at all, calls [action] with `false`.
      * 2. Otherwise, dispatches to EDT with [ModalityState.any] and enumerates
      *    actual [DialogWrapperDialog] windows. If any is showing and modal → true.
      * 3. Calls [action] with the result.
      */
+    //TODO: just reeturn, there is no need for action-style callback
     suspend fun <T> withModalityCheck(
         action: suspend (isModalShowing: Boolean) -> T,
     ): T {
@@ -122,16 +128,15 @@ class DialogWindowsLookup {
             return action(false)
         }
 
-        if (!isModalDialogShown()) {
+        // Yuriy's check first (shared with the killer): if the EDT is not modal at all,
+        // there is certainly no modal dialog. Otherwise enumerate to tell a real modal
+        // DialogWrapper window apart from mere progress/indexing modality.
+        if (!isModalEdt()) {
             return action(false)
         }
 
         val hasModalDialogWindow = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            Window.getWindows().any { w ->
-                w.isShowing &&
-                        w is DialogWrapperDialog &&
-                        (w.dialogWrapper?.isModal == true)
-            }
+            findAllShowingModalDialogs().isNotEmpty()
         }
 
         return action(hasModalDialogWindow)
@@ -143,6 +148,19 @@ class DialogWindowsLookup {
      *
      * Must be called on EDT.
      */
+    /**
+     * All currently showing modal [DialogWrapper] windows in the IDE, regardless of
+     * owner. The single source of truth for "is a blocking modal up" — used by the
+     * gate ([withModalityCheck]) and as the killer's fallback ([withDialogWindows]),
+     * so the two never disagree about what counts as a modal.
+     *
+     * Must be called on EDT.
+     */
+    private fun findAllShowingModalDialogs(): List<DialogWrapper> =
+        Window.getWindows().mapNotNull { w ->
+            if (w.isShowing && w is DialogWrapperDialog) w.dialogWrapper?.takeIf { it.isModal } else null
+        }
+
     private fun findDialogsOwnedBy(ownerWindow: Window): List<DialogWrapper> {
         val result = mutableListOf<DialogWrapper>()
         for (window in Window.getWindows()) {

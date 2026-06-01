@@ -94,7 +94,11 @@ class DockerClaudeSession(
                 .timeoutSeconds(timeoutSeconds)
                 .description("Claude: " + claudeArgs.joinToString(" ").take(80))
                 .secretPatterns(apiKey)
-                .extraEnv(env)
+                // MERGE (addEnv), don't replace: the container driver may have pre-set env via withEnv
+                // (e.g. DISPLAY from the xcvb GUI container). `.extraEnv(map)` would overwrite it, leaving
+                // an agent that runs a GUI app (e.g. `devrig backend start` for the managed IDE) with no
+                // DISPLAY. Folding addEnv keeps the driver's env and adds the agent's.
+                .let { req -> env.entries.fold(req) { acc, (k, v) -> acc.addEnv(k, v) } }
         }
     }
 

@@ -17,6 +17,7 @@ import com.jonnyzzz.mcpSteroid.demo.executionEventBroadcaster
 import kotlinx.coroutines.*
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 
 interface ExecutionResultBuilder {
     val isFailed: Boolean
@@ -87,6 +88,9 @@ class ExecutionManager(
                     // The boundary catch-all in McpHttpTransport converts it to a
                     // structured tool result via `JsonRpcErrorCodes.INTERNAL_ERROR`.
                     throw e
+                } catch (e: ToolCallErrorException) {
+                    log.warn("ToolCallResultException during execution $executionId: ${e.message}", e)
+                    builder.reportFailed(e.message)
                 } catch (t: Throwable) {
                     log.warn("Unexpected error: ${t.message}", t)
                     builder.logException("Unexpected error", t)

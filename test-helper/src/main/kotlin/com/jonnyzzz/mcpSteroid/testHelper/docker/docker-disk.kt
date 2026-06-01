@@ -17,6 +17,12 @@ fun ContainerDriver.mkdirs(guestPath: String): ProcessResult {
 
 fun ContainerDriver.copyFromContainer(containerPath: String, localPath: File) {
     localPath.parentFile?.mkdirs()
+    // Direct host access when the guest path is under a bind mount — no `docker cp` process.
+    mapGuestPathToHostPathOrNull(containerPath)?.let { hostPath ->
+        require(hostPath.exists()) { "Mapped host path does not exist for $containerPath: $hostPath" }
+        hostPath.copyTo(localPath, overwrite = true)
+        return
+    }
     newRunOnHost()
         .command("docker", "cp", "$containerId:$containerPath", localPath.absolutePath)
         .description("Copy container:$containerPath to ${localPath.name}")
@@ -28,6 +34,12 @@ fun ContainerDriver.copyFromContainer(containerPath: String, localPath: File) {
 
 fun ContainerDriver.copyToContainer(localPath: File, containerPath: String) {
     require(localPath.exists()) { "Local path does not exist: $localPath" }
+    // Direct host access when the guest path is under a bind mount — no `docker cp` process.
+    mapGuestPathToHostPathOrNull(containerPath)?.let { hostPath ->
+        hostPath.parentFile?.mkdirs()
+        localPath.copyTo(hostPath, overwrite = true)
+        return
+    }
     newRunOnHost()
         .command("docker", "cp", localPath.absolutePath, "$containerId:$containerPath")
         .description("Copy ${localPath.name} to container:$containerPath")
@@ -37,34 +49,51 @@ fun ContainerDriver.copyToContainer(localPath: File, containerPath: String) {
         .assertExitCode(0) { "Failed to copy to container: $localPath: $stderr" }
 }
 
+/**
+ * Read the text content of [containerPath] into the test JVM. Implemented over [copyFromContainer] —
+ * the file is staged to a host temp file then read — so there is no content-size limit and it
+ * transparently uses direct host-filesystem access when the path is under a bind mount (no
+ * `docker exec`/`cat`). Prefer this over a shell `grep`/`cat` exec when a test needs to assert on a
+ * container file's content: the assertions run in Kotlin with clear failure messages instead of a
+ * cryptic non-zero exit code.
+ */
+fun ContainerDriver.readFromContainer(containerPath: String): String {
+    val tmp = File.createTempFile("read-from-container-", ".tmp")
+    try {
+        copyFromContainer(containerPath, tmp)
+        return tmp.readText()
+    } finally {
+        tmp.delete()
+    }
+}
+
+/**
+ * Write [content] to [containerPath]. Implemented over [copyToContainer] — a host temp file is
+ * staged then copied in — so there is no content-size limit and it transparently uses direct
+ * host-filesystem access when the path is under a bind mount (no `docker exec`/heredoc).
+ */
 fun ContainerDriver.writeFileInContainer(
     containerPath: String,
     content: String,
     executable: Boolean = false,
 ) {
-    val parentDir = containerPath.substringBeforeLast('/')
-    if (parentDir.isNotEmpty()) {
-        mkdirs(parentDir).assertExitCode(0) { "Failed to create directory in container $parentDir: $stderr" }
-    }
-
-    startProcessInContainer {
-        this
-            .args("bash", "-c", "cat > ${shellQuote(containerPath)} << 'FILE_EOF'\n$content\nFILE_EOF")
-            .description("Write content to $containerPath")
-            .timeoutSeconds(5)
-            .quietly()
-    }.assertExitCode(0) { "Failed to write content in container to $containerPath: $content: $stderr" }
-
-    if (executable) {
-        startProcessInContainer {
-            this
-                .args("chmod", "+x", containerPath)
-                .description("chmod +x $containerPath")
-                .timeoutSeconds(5)
-                .quietly()
-        }.assertExitCode(0) { "Failed to chmod the created file in container to $containerPath: $stderr" }
+    val tmp = File.createTempFile("write-in-container-", ".tmp")
+    try {
+        tmp.writeText(content)
+        // Set the exec bit on the source: `docker cp` preserves file mode, so the container-local
+        // target ends up executable without a separate (ownership-sensitive) chmod.
+        if (executable) tmp.setExecutable(true, false)
+        // `docker cp` (container-local target) needs the parent dir to exist; the host-mapped
+        // branch of copyToContainer creates the host parent itself.
+        val parentDir = containerPath.substringBeforeLast('/')
+        if (parentDir.isNotEmpty() && mapGuestPathToHostPathOrNull(containerPath) == null) {
+            mkdirs(parentDir).assertExitCode(0) { "Failed to create directory in container $parentDir: $stderr" }
+        }
+        copyToContainer(tmp, containerPath)
+        // Host-mapped copyTo does NOT carry the exec bit; set it on the host destination directly
+        // (the file is host-owned there, so a docker-exec chmod by the container user would fail).
+        if (executable) mapGuestPathToHostPathOrNull(containerPath)?.setExecutable(true, false)
+    } finally {
+        tmp.delete()
     }
 }
-
-private fun shellQuote(value: String): String =
-    "'" + value.replace("'", "'\"'\"'") + "'"

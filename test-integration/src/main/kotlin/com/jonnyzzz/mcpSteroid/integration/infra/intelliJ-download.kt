@@ -43,13 +43,9 @@ sealed class IdeDistribution {
 }
 
 fun IdeDistribution.resolveAndDownload(): File {
-    val downloadDir = File(
-        System.getProperty("test.integration.ide.download.dir", "build/ide-download")
-    )
-
     val downloaderDist = toDownloaderDistribution()
     // Always download the Linux archive — IDE containers are always Linux regardless of host OS.
-    return downloaderDist.resolveAndDownload(downloadDir, DownloaderHostOs.LINUX)
+    return downloaderDist.resolveAndDownload(IdeTestFolders.ideDownloadDir, DownloaderHostOs.LINUX)
 }
 
 private fun IdeDistribution.toDownloaderDistribution(): DownloaderDistribution {

@@ -2,7 +2,9 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import org.junit.jupiter.api.AfterAll
@@ -23,10 +25,9 @@ class ResourceReadingTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(ResourceReadingTest::class.java.simpleName) }
         val session by lazy {
-            IntelliJContainer.create(
-                lifetime,
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "Resource Reading — Claude",
-            ).waitForProjectReady()
+            )).waitForProjectReady()
         }
 
         @AfterAll
@@ -42,7 +43,7 @@ class ResourceReadingTest {
         val console = session.console
         val agent = session.aiAgents.claude
 
-        console.writeStep(1, "Running Claude with resource-reading prompt")
+        console.writeStep(text = "Running Claude with resource-reading prompt")
 
         val prompt = buildString {
             appendLine("# Task: Explore MCP Steroid resources")
@@ -65,7 +66,7 @@ class ResourceReadingTest {
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(2, "Validating resource tool usage")
+        console.writeStep(text = "Validating resource tool usage")
 
         // Check for ListMcpResourcesTool usage in decoded log
         val usedListResources = combined.contains("ListMcpResourcesTool", ignoreCase = false)
@@ -92,7 +93,7 @@ class ResourceReadingTest {
         val resourcesReadMarker = findMarkerValue(output, "RESOURCES_READ", "Resources read")
         console.writeInfo("RESOURCES_READ marker value: $resourcesReadMarker")
 
-        console.writeStep(3, "Asserting resource reading behavior")
+        console.writeStep(text = "Asserting resource reading behavior")
 
         // Allow non-zero exit codes if the agent still produced the expected output
         val hasResourcesListedMarker = hasAnyMarkerLine(output, "RESOURCES_LISTED", "Resources listed")
@@ -142,7 +143,7 @@ class ResourceReadingTest {
         val console = session.console
         val agent = session.aiAgents.claude
 
-        console.writeStep(1, "Running Claude with test-skill resource prompt")
+        console.writeStep(text = "Running Claude with test-skill resource prompt")
 
         val prompt = buildString {
             appendLine("# Task: Run the tests in this project")
@@ -164,7 +165,7 @@ class ResourceReadingTest {
         val output = result.stdout
         val combined = result.stdout + "\n" + result.stderr
 
-        console.writeStep(2, "Validating test-skill resource read")
+        console.writeStep(text = "Validating test-skill resource read")
 
         // Check the agent read a resource containing "test-skill" (via any resource tool)
         val readTestSkill = combined.contains("test-skill", ignoreCase = false)
@@ -178,7 +179,7 @@ class ResourceReadingTest {
         val resourceReadMarker = findMarkerValue(output, "RESOURCE_READ", "Resource read")
         console.writeInfo("RESOURCE_READ marker: $resourceReadMarker")
 
-        console.writeStep(3, "Asserting test-skill resource was read")
+        console.writeStep(text = "Asserting test-skill resource was read")
 
         // Allow non-zero exit codes if the agent still produced the expected output
         val hasResourceMarker = hasAnyMarkerLine(output, "RESOURCE_READ", "Resource read")

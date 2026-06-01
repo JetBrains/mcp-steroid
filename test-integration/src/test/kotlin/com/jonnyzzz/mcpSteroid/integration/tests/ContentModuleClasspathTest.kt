@@ -1,6 +1,7 @@
 package com.jonnyzzz.mcpSteroid.integration.tests
 
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -28,7 +29,13 @@ import java.util.concurrent.TimeUnit
 class ContentModuleClasspathTest {
     companion object {
         val lifetime by lazy { CloseableStackHost(this::class.java.simpleName) }
-        val session by lazy { IntelliJContainer.create(lifetime, "ide-agent", consoleTitle = "Content Module Classpath") }
+        val session by lazy {
+            IntelliJContainer.create(
+                lifetime, IntelliJContainerOpts(
+                    consoleTitle = "Content Module Classpath"
+                )
+            )
+        }
 
         @AfterAll
         @JvmStatic
@@ -106,6 +113,13 @@ class ContentModuleClasspathTest {
                 "plugins/sass-plugin/lib/modules/intellij.sass.watcher.jar",
             ))
 
+            // --- Shared-indexes modules ---
+            // Loaded on demand when the shared-indexes feature downloads/attaches prebuilt indexes
+            // for a given language (e.g. Python). Not on the base classpath in a fresh IDE.
+            addAll(listOf(
+                "plugins/indexing-shared/lib/modules/intellij.python.sharedIndexes.jar",
+            ))
+
             // --- AI / ML per-language completion modules ---
             // Loaded on demand per active language. The fullLine plugin provides
             // local code completion models for many languages; ML LLM modules provide
@@ -122,7 +136,6 @@ class ContentModuleClasspathTest {
                 "plugins/fullLine/lib/modules/intellij.fullLine.ruby.local.jar",
                 "plugins/fullLine/lib/modules/intellij.fullLine.rust.local.jar",
                 "plugins/fullLine/lib/modules/intellij.fullLine.terraform.local.jar",
-                "plugins/fullLine/lib/modules/intellij.fullLine.yaml.jar",
                 "plugins/fullLine/lib/modules/intellij.ml.llm.chat.completion.jar",
                 "plugins/fullLine/lib/modules/intellij.ml.llm.cpp.completion.jar",
                 "plugins/fullLine/lib/modules/intellij.ml.llm.css.completion.jar",

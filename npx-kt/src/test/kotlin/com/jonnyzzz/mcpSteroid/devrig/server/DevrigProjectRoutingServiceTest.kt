@@ -6,6 +6,7 @@ import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
 import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
+import com.jonnyzzz.mcpSteroid.devrig.testDevrigEndpoint
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorState
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorStatus
 import com.jonnyzzz.mcpSteroid.server.ProgressTaskInfo
@@ -86,7 +87,7 @@ class DevrigProjectRoutingServiceTest {
 
         assertEquals("mcp-steroid-${route.projectHash}", route.exposedProjectName)
         assertEquals("mcp-steroid", route.originalProjectName)
-        assertEquals("http://127.0.0.1:4343", route.bridgeBaseUrl)
+        assertEquals(testDevrigEndpoint("http://127.0.0.1:4343/mcp").rpcBaseUrl, route.bridgeBaseUrl)
         assertEquals(mapOf("Authorization" to "Bearer secret-42"), route.headers)
         assertEquals(route, service.requireProject(route.exposedProjectName))
     }
@@ -495,16 +496,17 @@ class DevrigProjectRoutingServiceTest {
     private fun discoveredIde(pid: Long, build: String, createdAt: String = "2026-05-17T00:00:00Z"): DiscoveredIde =
         DiscoveredIde(
             pid = pid,
-            mcpUrl = "http://127.0.0.1:4343/mcp",
+            rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:4343/mcp").rpcBaseUrl,
+            bridgeHeaders = mapOf("Authorization" to "Bearer secret-$pid"),
             markerPath = "/tmp/$pid.mcp-steroid",
             marker = PidMarker(
                 schema = PidMarker.SCHEMA_VERSION,
                 pid = pid,
                 mcpSteroidServer = McpSteroidServerInfo(
                     mcpUrl = "http://127.0.0.1:4343/mcp",
-                    port = 4343,
                     headers = mapOf("Authorization" to "Bearer secret-$pid"),
                 ),
+                devrigEndpoint = testDevrigEndpoint("http://127.0.0.1:4343/mcp", mapOf("Authorization" to "Bearer secret-$pid")),
                 ide = IdeInfo("IntelliJ IDEA", "2026.1", build),
                 plugin = PluginInfo("com.jonnyzzz.mcp-steroid", "MCP Steroid", "0.0.0-test"),
                 createdAt = createdAt,

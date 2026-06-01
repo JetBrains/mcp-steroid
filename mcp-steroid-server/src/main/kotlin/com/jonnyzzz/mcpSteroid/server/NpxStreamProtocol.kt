@@ -71,8 +71,17 @@ object NpxStreamJson {
         json.decodeFromString(NpxStreamClientInfo.serializer(), body)
 }
 
+/**
+ * Path prefix of the devrig bridge RPC, served by the plugin (currently on its own Ktor server, but the
+ * `/api/...` shape is safe whatever webserver ever hosts it). This is the devrig transport — split at the
+ * protocol level from the `/mcp` MCP-client endpoint. The plugin advertises the FULL base URL
+ * (`http://host:port$DEVRIG_RPC_PATH_PREFIX`) in the marker's `devrigEndpoint`, so devrig never has to
+ * know or hardcode this prefix; it lives here only for the plugin's own route + URL construction.
+ */
+const val DEVRIG_RPC_PATH_PREFIX: String = "/api/jonnyzzz/mcp-steroid/v1"
+
 /** HTTP path served by the IDE for NDJSON project-stream subscribers. */
-const val NPX_PROJECTS_STREAM_PATH: String = "/npx/v1/projects/stream"
+const val NPX_PROJECTS_STREAM_PATH: String = "$DEVRIG_RPC_PATH_PREFIX/projects/stream"
 
 /** MIME type the IDE responds with on the projects-stream endpoint. */
 const val NPX_NDJSON_MIME_TYPE: String = "application/x-ndjson"

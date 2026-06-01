@@ -35,7 +35,7 @@ class VisionInputToolHandlerIJ : VisionInputToolHandler {
             log("WARNING: Heavy endpoint. Prefer steroid_execute_code for regular automation.")
             log("Using window_id: $windowId")
 
-            VisionService.executeInput(windowId, inputParams.sequence)
+            VisionService.getInstance(project).executeInput(windowId, inputParams.sequence)
             log("Input sequence executed successfully.")
         } catch (e: Exception) {
             val message = "Input execution failed: ${e.message}"

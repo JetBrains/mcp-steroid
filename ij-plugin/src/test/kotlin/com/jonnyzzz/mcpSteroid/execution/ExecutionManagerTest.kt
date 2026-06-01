@@ -6,6 +6,7 @@ import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.server.ModalMode
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import com.jonnyzzz.mcpSteroid.setSystemPropertyForTest
 import com.jonnyzzz.mcpSteroid.testExecParams
@@ -17,12 +18,37 @@ import kotlin.time.Duration.Companion.seconds
  */
 class ExecutionManagerTest : BasePlatformTestCase() {
 
-    override fun setUp() {
-        super.setUp()
-    }
+    // Run tests off the EDT so `timeoutRunBlocking` doesn't park the dispatch
+    // thread while ScriptExecutor's pre-flight (isModalEdt / commit) dispatches
+    // back to the EDT — otherwise the EDT is blocked in runBlocking and the
+    // withContext(EDT) inside the execution deadlocks.
+    override fun runInDispatchThread(): Boolean = false
 
     private fun getTextContent(result: ToolCallResult): String {
         return result.content.filterIsInstance<ContentItem.Text>().joinToString("\n") { it.text }
+    }
+
+    // The `modal` pre-flight pipeline must run cleanly in a (non-modal) headless IDE:
+    // smart_non_modal exercises closeModalDialogs + require-non-modal + syncDocuments +
+    // waitForSmartMode + monitor; non_modal exercises the require-non-modal gate only.
+    fun testSmartNonModalRunsPreflightPipeline(): Unit = timeoutRunBlocking(60.seconds) {
+        val manager = project.service<ExecutionManager>()
+        val result = manager.executeWithProgress(
+            testExecParams("""println("hi smart")""", modal = ModalMode.SMART_NON_MODAL),
+            NoOpProgressReporter,
+        )
+        assertFalse("smart_non_modal should run cleanly in a non-modal headless IDE: ${getTextContent(result)}", result.isError)
+        assertTrue("Should have output", getTextContent(result).contains("hi smart"))
+    }
+
+    fun testNonModalRunsGateOnly(): Unit = timeoutRunBlocking(60.seconds) {
+        val manager = project.service<ExecutionManager>()
+        val result = manager.executeWithProgress(
+            testExecParams("""println("hi non_modal")""", modal = ModalMode.NON_MODAL),
+            NoOpProgressReporter,
+        )
+        assertFalse("non_modal should pass the non-modal gate headless: ${getTextContent(result)}", result.isError)
+        assertTrue("Should have output", getTextContent(result).contains("hi non_modal"))
     }
 
     fun testExecuteWithProgressSuccess(): Unit = timeoutRunBlocking(30.seconds) {

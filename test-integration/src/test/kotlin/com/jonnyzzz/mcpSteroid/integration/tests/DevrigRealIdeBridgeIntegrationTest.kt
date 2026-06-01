@@ -5,7 +5,11 @@ import com.jonnyzzz.mcpSteroid.aiAgents.StdioMcpCommand
 import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.DevrigSteroidDriver
+import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.create
+import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
+import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
+import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackDriver
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.StdioMcpProcess
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
@@ -22,15 +26,36 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 
 class DevrigRealIdeBridgeIntegrationTest {
+
+    /**
+     * A fresh nested stack per test method (JUnit 5 default per-method instance lifecycle), holding that
+     * method's `devrig mpc` process so it is torn down in [tearDownMethodStack] before the next method runs.
+     * Only ONE `mpc` may live per container at a time: its JDWP debug agent binds a FIXED port
+     * (server=y, address=*:DEVRIG_DEBUG_PORT) — a second concurrent `mpc` would die at startup with
+     * "Address already in use", and its MCP `initialize` would then time out. See [DevrigSteroidDriver].
+     */
+    private lateinit var methodStack: CloseableStackDriver
+
+    @BeforeEach
+    fun setUpMethodStack() {
+        methodStack = lifetime.nestedStack("devrig-mpc-per-method")
+    }
+
+    @AfterEach
+    fun tearDownMethodStack() {
+        methodStack.closeAllStacks()
+    }
 
     @Test
     @Timeout(value = 20, unit = TimeUnit.MINUTES)
@@ -40,7 +65,7 @@ class DevrigRealIdeBridgeIntegrationTest {
         assertEquals("/home/agent/devrig", devrigCommand.command)
         assertEquals(listOf("mpc"), devrigCommand.args)
 
-        val process = startContainerStdioMcp(devrigCommand)
+        val process = startContainerStdioMcp(methodStack, devrigCommand)
         process.initialize()
 
         val projectName = waitForProjectName(process, diagnostics)
@@ -70,7 +95,7 @@ class DevrigRealIdeBridgeIntegrationTest {
         val diagnostics = session.diagnosticsSummary()
         val devrigCommand = DevrigSteroidDriver.deploy(session.scope, session.mcpSteroid).devrigCommand
 
-        val process = startContainerStdioMcp(devrigCommand)
+        val process = startContainerStdioMcp(methodStack, devrigCommand)
         process.initialize()
 
         val projectName = waitForProjectName(process, diagnostics)
@@ -104,9 +129,12 @@ class DevrigRealIdeBridgeIntegrationTest {
         )
     }
 
-    private fun startContainerStdioMcp(devrigCommand: StdioMcpCommand): StdioMcpProcess =
+    private fun startContainerStdioMcp(
+        stack: CloseableStack,
+        devrigCommand: StdioMcpCommand,
+    ): StdioMcpProcess =
         startStdioMcpProcess(
-            lifetime = lifetime,
+            lifetime = stack,
             resourceName = "container-devrig",
         ) { stdin: Flow<ByteArray> ->
             session.scope.startProcessInContainer {
@@ -198,12 +226,10 @@ class DevrigRealIdeBridgeIntegrationTest {
         private val json = Json { ignoreUnknownKeys = true }
         private val lifetime by lazy { CloseableStackHost(DevrigRealIdeBridgeIntegrationTest::class.java.simpleName) }
         private val session by lazy {
-            IntelliJContainer.create(
-                lifetime = lifetime,
-                dockerFileBase = "ide-agent",
+            IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "devrig stdio MCP real IDE bridge",
                 aiMode = AiMode.NONE,
-            ).waitForProjectReady()
+            )).waitForProjectReady()
         }
 
         @BeforeAll
