@@ -59,7 +59,11 @@ disableKinds = ['taxonomy', 'term']
   githubIssuesUrl = "https://github.com/jonnyzzz/mcp-steroid/issues"
   youtubeChannel = "https://youtube.com/@jonnyzzz"
   # Version is read from ../VERSION file during build (see Makefile)
-  version = "0.95.0"
+  version = "0.100"
+
+[[params.whatsnew]]
+  date = "2026-06-02"
+  text = "v0.100 released — introducing the devrig CLI (connect to, download, and manage IDEs for your agent), IntelliJ 2025.3 dropped for 2026.1, typed modal mode for execute_code, narrower 8-tool surface"
 
 [[params.whatsnew]]
   date = "2026-05-11"
