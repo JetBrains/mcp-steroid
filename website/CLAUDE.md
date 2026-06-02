@@ -125,6 +125,44 @@ git push origin main
 
 10. **Plugin Repository Promotion**: The custom plugin repository URL (`https://mcp-steroid.jonnyzzz.com/updatePlugins.xml`) is promoted on the releases list page and in the Download section of release pages (starting from 0.88.0).
 
+## Homepage, branding & the devrig diagram (0.100+)
+
+The site is **devrig-first**: the homepage hero leads with the `devrig` CLI (primary CTA),
+the plugin is the stable secondary path. Conventions established for that:
+
+- **Top-left brand badge.** `layouts/partials/nav.html` shows the MCP Steroid logo + name +
+  a `devrig` gradient pill (`.nav-devrig` in `static/css/site.css`). Because the brand row is
+  now wider, the **hamburger breakpoint was raised from 768px → 960px** (the `@media` block in
+  `site.css` that flips `.nav-toggle`/`.nav-links`); below that the menu would overlap the badge.
+  Verify nav fit at small widths before changing the brand.
+
+- **The shared bridge diagram — `static/devrig-bridge.svg` is the single source.** It renders the
+  "one bridge → every IDE at once" story (AI Agent → `devrig` (CLI + MCP) → IntelliJ IDEA /
+  PyCharm / Managed backend). It is referenced as an `<img>` by **three** places — the homepage
+  devrig section (`layouts/index.html`), the devrig docs page (`content/docs/devrig.md`), and the
+  root **`README.md`** (relative `website/static/devrig-bridge.svg`, since GitHub strips inline
+  `<svg>`). Edit the one file and all three update. Design constraints (from a 3-agent review):
+  labels must stay legible at social-thumbnail size (titles 16–18px/700, subtitles ~12.5px,
+  bright `#c7c4d6`), the panel needs a visible border (`#2e2e50` on `#1b1b34`) so it doesn't melt
+  into the page gradient, and keep the `viewBox` tight (currently `0 0 780 280`).
+
+- **Social/OG preview image.** `og:image` / `twitter:image` (in `layouts/_default/baseof.html`)
+  point to **`static/og-devrig.png`** (1200×630) — a branded card built FROM the bridge diagram
+  (MCP Steroid logo + name + `devrig` badge + slogan + the diagram). The older `og-image.png` /
+  `og-image.svg` are **kept in place** but are no longer the active preview. To regenerate
+  `og-devrig.png`: render an HTML composition with Playwright (`page.setContent(...)`,
+  viewport 1200×630, `deviceScaleFactor: 2`, screenshot). **Gotcha:** `file://` images do NOT
+  load under `setContent` — **inline** the SVG markup (read `pluginIcon.svg` + `devrig-bridge.svg`
+  with `fs` and embed) rather than `<img src="file://…">`.
+
+- **Footer copyright.** `layouts/partials/footer.html` carries `© 2025–2026 Eugene Petrenko`
+  (name links to jonnyzzz.com) + the JetBrains-independence line (`.footer-copyright` in `site.css`).
+
+- **Responsive checks.** Verify the homepage has no horizontal overflow at 320 / 390 / 768 / 1280px
+  (Playwright: compare `document.documentElement.scrollWidth` to `innerWidth`). **Known pre-existing
+  issue:** docs *content* pages (e.g. `/docs/devrig/`) overflow at ≤~600px — the `.docs-content`
+  column is effectively fixed-width; this is independent of the marketing pages and not yet fixed.
+
 ## Workflow Summary
 
 ```
