@@ -16,8 +16,7 @@
 {{ define "main" }}
 <article class="page-content">
     <h1>{{ .Title }}</h1>
-    {{ $releases := site.GetPage "section" "releases" }}
-    {{ $all := $releases.Pages.ByTitle.Reverse }}
+    {{ $all := partial "releases-sorted.html" . }}
     {{ $latest := index $all 0 }}
     {{ if ne .File.Path $latest.File.Path }}
     <div class="warning">
@@ -26,4 +25,5 @@
     {{ end }}
     {{ .Content }}
 </article>
+{{ partial "support-section.html" . }}
 {{ end }}

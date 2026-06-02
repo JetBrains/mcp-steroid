@@ -19,12 +19,25 @@ It does three jobs:
 
 1. **Registers MCP Steroid with your coding agent.** `devrig install <agent>`
    adds devrig as an `mcp-steroid` stdio MCP server in Claude, Codex, or Gemini.
-2. **Bridges your agent to running IDEs.** When your agent launches it as a
-   stdio MCP server (`devrig mpc`), devrig discovers IntelliJ-based IDEs running
-   on your machine and routes the agent's MCP Steroid calls to them.
+2. **Bridges your agent to every running IDE at once.** When your agent launches
+   it as a stdio MCP server (`devrig mpc`), devrig discovers *all* the
+   IntelliJ-based IDEs running on your machine — across projects — and routes the
+   agent's MCP Steroid calls to any of them through a single connection. One
+   bridge, every IDE.
 3. **Provisions an IDE.** `devrig backend download|start|stop` downloads and runs
    a managed IntelliJ backend under devrig's home directory, so an agent can spin
    up an IDE with no manual setup.
+
+### One bridge, every IDE
+
+A single `devrig mpc` process connects your AI Agent to **all** the IntelliJ-family
+IDEs running on your machine at once — each open on a different project — and can
+download and start more on demand:
+
+<figure style="margin:1.5rem 0;text-align:center;">
+<img src="/devrig-bridge.svg" alt="One devrig bridge connects your AI Agent to all running IDEs at once — and can start more" style="width:100%;max-width:720px;height:auto;border-radius:12px;">
+<figcaption style="color:#909090;font-size:0.85rem;margin-top:0.4rem;">One <code>devrig</code> process bridges your agent to every IntelliJ-family IDE running on the machine — and can start more.</figcaption>
+</figure>
 
 Devrig is a Java application and requires **Java 25** to run. It does not bundle
 a JVM: `java` must be on the `PATH`, or `JAVA_HOME` / `DEVRIG_JAVA_HOME` must

@@ -46,6 +46,14 @@ notice across IDE releases and are off-limits even when they look convenient.
   message-bus topics like `ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED` over internal hooks.
 - Reflection into private fields / `setAccessible(true)` to reach internals is **not** an escape hatch —
   it silently breaks on the next IDE release (see the reflection rule in `prompts/CLAUDE.md`).
+- **Moving target — plugin enumeration / descriptor APIs.** Across `261 → 262`, IntelliJ is
+  internalizing `PluginManagerCore.getPlugin` / `getLoadedPlugins` / `getPlugins` **and**
+  `PluginManager.findEnabledPlugin` / `getPlugins`; the public successor `PluginDetailsService`
+  exists only in `262+`, not `261`. So there is currently **no** typed public API that is clean on
+  both targets — `PluginDescriptorProvider` and `ScriptClassLoader.orderedPluginDescriptors()`
+  therefore keep using the `261`-public `PluginManagerCore` calls and accept the `262`-EAP
+  internal-API verifier hits (261 — the shipping target — stays at 0). Full analysis, the per-build
+  `@Internal` table, and the migration path: [`docs/262-plugin-manager-api-internalization.md`](../docs/262-plugin-manager-api-internalization.md) (reported upstream as IJPL-246183).
 
 ### Services
 
@@ -373,6 +381,17 @@ rm -rf ij-plugin/build/idea-sandbox/                            # corrupted inde
 
 Registry keys: `mcp.steroid.server.port`, `.host`, `.execution.timeout`, `.dialog.killer.enabled`,
 `.demo.enabled`, `.storage.path`, `.kotlinc.parameters`, `.kotlinc.home`.
+
+### WSL-hosted project on a Windows IDE — `mcp.steroid.storage.path` workaround ([#78](https://github.com/jonnyzzz/mcp-steroid/issues/78))
+
+When a Windows-side IDE opens a project under `\\wsl$\…` / `\\wsl.localhost\…`, every
+`steroid_execute_code` fails: the kotlinc working dir is the per-execution `compiled/` folder under
+`{project}/.idea/mcp-steroid/` (on the WSL filesystem), so the eel/ijent layer derives the WSL
+environment and routes `cmd.exe /c kotlinc.bat …` into the distro, where `cmd.exe` doesn't exist
+(`os error 2`). **Workaround:** set `mcp.steroid.storage.path` (the storage override, empty =
+`.idea/mcp-steroid`) to a native Windows path so the working dir leaves the `\\wsl$` volume and the
+spawn targets Windows. Proper fix (pass an `EelDescriptor`/spawn request targeting the local Windows
+env regardless of the working dir's filesystem) is still open.
 
 ### Kotlinc version-mismatch workaround
 

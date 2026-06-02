@@ -31,7 +31,17 @@
 
 **MCP Steroid** is an open-source [Model Context Protocol](https://modelcontextprotocol.io/) server that runs inside JetBrains IDEs and exposes the full power of the IntelliJ Platform to AI agents.
 
-Unlike file-only assistants, MCP Steroid gives AI agents the same capabilities developers use: semantic code understanding, advanced refactorings, debugging, test running, visual awareness, and the entire IntelliJ API surface — all accessible via standard MCP over HTTP.
+Unlike file-only assistants, MCP Steroid gives AI agents the same capabilities developers use: semantic code understanding, advanced refactorings, debugging, test running, visual awareness, and the entire IntelliJ API surface.
+
+There are **two ways to run it**. Start with the new **[`devrig`](https://mcp-steroid.jonnyzzz.com/docs/devrig/) CLI** (preview): a standalone tool that bridges any MCP-capable agent into a real IntelliJ-family IDE over stdio — through one bridge it connects to **every IDE you already have open at once** (across projects), or **downloads, installs, and starts one for the agent** (great for headless, CI, and fresh machines). Or run the **JetBrains IDE plugin** in-IDE over HTTP. The project is gradually moving toward the **Devrig** name.
+
+### One bridge, every IDE
+
+A single `devrig` process connects your AI Agent to **all** the IntelliJ-family IDEs running on your machine at once — each open on a different project — and can download and start more on demand.
+
+<p align="center">
+  <img src="website/static/devrig-bridge.svg" alt="One devrig bridge connects your AI Agent to all running IDEs at once — and can start more" width="720">
+</p>
 
 ### What Makes It Unique
 
@@ -84,7 +94,7 @@ Download the latest ZIP from [GitHub Releases](https://github.com/jonnyzzz/mcp-s
 
 ## Connect Your AI Agent
 
-MCP Steroid ships a small stdio launcher (`devrig`) that bridges your agent to the in-IDE MCP server and discovers every running IntelliJ instance automatically. It's the recommended way to wire up Claude Code, Codex CLI, and Gemini CLI — one registration per agent, applies to every project on the machine.
+**[`devrig`](https://mcp-steroid.jonnyzzz.com/docs/devrig/)** is the standalone CLI for connecting agents to MCP Steroid. It runs a stdio MCP bridge and connects your agent to **every running IntelliJ instance at once** (across projects), discovered automatically — and when none is open it can **download, prepare, and start a managed IDE backend** for the agent (IDEA Community/Ultimate, PyCharm, Android Studio). It's the recommended way to wire up Claude Code, Codex CLI, and Gemini CLI — one registration per agent, applies to every project on the machine.
 
 > **Requirement: JDK 25.** `devrig` is a Kotlin/JVM application compiled for **Java 25** (class-file v69) and is **not** bundled with a JRE. A **JDK/JRE 25 or newer** must be available on the machine that runs it — either on `PATH` or via `JAVA_HOME` (the `devrig` launcher honours `JAVA_HOME` first). An older Java (21, etc.) fails at startup with `UnsupportedClassVersionError ... class file version 69.0`. Install e.g. [Amazon Corretto 25](https://aws.amazon.com/corretto/) or [Eclipse Temurin 25](https://adoptium.net/), and point `JAVA_HOME` at it if your default `java` is older.
 

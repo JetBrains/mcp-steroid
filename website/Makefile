@@ -23,9 +23,9 @@ VERSION := $(shell cat ../VERSION)
 # the `vX.Y.Z` tag form to the bare `X.Y.Z` form, mirroring the prior `gh` invocation.
 RELEASE_ZIP_URL := $(shell \
     curl -fsSL "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/v$(VERSION)" 2>/dev/null \
-    | jq -r 'first(.assets[]? | select(.name | endswith(".zip"))) | .browser_download_url // empty' \
+    | jq -r 'first(.assets[]? | select((.name | startswith("mcp-steroid")) and (.name | endswith(".zip")))) | .browser_download_url // empty' \
     || curl -fsSL "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/$(VERSION)" 2>/dev/null \
-    | jq -r 'first(.assets[]? | select(.name | endswith(".zip"))) | .browser_download_url // empty' \
+    | jq -r 'first(.assets[]? | select((.name | startswith("mcp-steroid")) and (.name | endswith(".zip")))) | .browser_download_url // empty' \
 )
 
 # First time setup - clone the public repository

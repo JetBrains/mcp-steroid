@@ -25,8 +25,7 @@
     </div>
 </div>
 
-{{ $releases := site.GetPage "section" "releases" }}
-{{ $all := $releases.Pages.ByTitle.Reverse }}
+{{ $all := partial "releases-sorted.html" . }}
 {{ $latest := index $all 0 }}
 {{ $older := after 1 $all }}
 

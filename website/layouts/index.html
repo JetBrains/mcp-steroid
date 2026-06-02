@@ -18,12 +18,18 @@
     <div class="hero-grid">
         <div class="hero-content">
             <img src="{{ "pluginIcon.svg" | relURL }}" alt="MCP Steroid Logo" class="logo">
-            <h1>Make your AI Agent change code with fewer cleanup loops. <a href="{{ "/releases/" | relURL }}" class="version-badge version-badge-sup">v{{ .Site.Params.version }}</a></h1>
+            <h1>Give your AI Agent a whole IDE, not just the files. <a href="{{ "/releases/" | relURL }}" class="version-badge version-badge-sup">v{{ .Site.Params.version }}</a></h1>
             <p class="tagline">
-                MCP Steroid gives your AI Agent the same semantic actions a JetBrains IDE gives humans &mdash; typed refactors, inspections, debugger, test runs &mdash; so the Agent finishes in fewer attempts and you spend less time verifying its output. Ships today as a JetBrains IDE plugin.
+                MCP Steroid hands your AI Agent the same semantic actions a JetBrains IDE gives humans &mdash; typed refactors, inspections, the debugger, real test runs &mdash; so it finishes in fewer attempts and you spend less time verifying its output. Two ways to run it: the new <strong><code>devrig</code> CLI</strong> <span class="agent-badge">Preview</span> &mdash; which connects your agent to an IDE, or downloads and starts one for it &mdash; and the stable <strong>JetBrains IDE plugin</strong> that ships today.
             </p>
             <div class="cta-buttons">
-                <a href="{{ "/releases/" | relURL }}" class="btn btn-primary">
+                <a href="{{ "/docs/devrig/" | relURL }}" class="btn btn-primary">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M4 4h16v2H4V4zm0 5h10v2H4V9zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/>
+                    </svg>
+                    Try devrig (CLI)
+                </a>
+                <a href="{{ "/releases/" | relURL }}" class="btn btn-secondary">
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                     </svg>
@@ -33,35 +39,43 @@
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M8 5v14l11-7z"/>
                     </svg>
-                    Watch Demos
+                    Watch demos
                 </a>
             </div>
         </div>
     </div>
 </div>
 
-<section class="about-section">
+<section class="about-section" id="devrig">
     <div class="about-content">
-        <h2 class="section-title">Built For Two Audiences</h2>
+        <h2 class="section-title">New: <code>devrig</code> &mdash; give your agent an IDE, even on a headless box <span class="agent-badge">Preview</span></h2>
+        <p class="section-lede">
+            <code>devrig</code> is a new standalone CLI that bridges any MCP-capable agent &mdash; Claude Code, Codex, Gemini &mdash; into a real IntelliJ-family IDE over stdio. It connects to <strong>every IDE you already have open at once</strong> &mdash; across projects, through a single bridge &mdash; or it <strong>downloads, installs, and starts one for the agent</strong> (IDEA Community/Ultimate, PyCharm, Android Studio), so your agent reaches real IDE semantics without you hand-wiring any MCP configuration.
+        </p>
+        <figure style="margin:1.25rem 0;">
+            <img src="{{ "/devrig-bridge.svg" | relURL }}" alt="One devrig bridge connects your AI Agent to all running IDEs at once — and can start more" loading="lazy" style="width:100%;max-width:720px;height:auto;display:block;margin:0 auto;border-radius:12px;">
+        </figure>
         <div class="hero-cards hero-cards-two">
             <div class="hero-card">
-                <h3>For developers</h3>
-                <p>Connect MCP Steroid to Claude, Codex, Gemini, Cursor, or any MCP-capable AI Agent and let it drive your JetBrains IDE on real code. Free, local, ships today.</p>
-                <p class="hero-card-cta"><a href="{{ "/releases/" | relURL }}" class="card-link"><strong>Install plugin &rarr;</strong></a></p>
+                <h3>Connect to all of them &mdash; or provision</h3>
+                <p>One <code>devrig</code> process bridges your agent to every IntelliJ-family IDE running on the machine at once (across projects), or it fetches and launches a fresh one. Either way the agent talks to real IDEs, not a guess.</p>
             </div>
             <div class="hero-card">
-                <h3>For engineering teams</h3>
-                <p>Running AI Agents across a large codebase? We run Proof-of-Concept engagements tuning skills, prompts, and benchmarks to your repos and workflows. You can also <a href="{{ "/docs/need-your-experiments-and-support/" | relURL }}" class="card-link">submit a scenario</a> from your own work.</p>
-                <p class="hero-card-cta"><a href="#support" class="card-link"><strong>Book a PoC &rarr;</strong></a></p>
+                <h3>Headless &amp; CI-ready <span class="agent-badge">Work in progress</span></h3>
+                <p>Built for terminal, remote, and CI-style workflows: devrig manages the IDE lifecycle so agents on remote servers and in CI get the same semantic tools. This path is actively being hardened.</p>
             </div>
         </div>
+        <p class="hero-card-cta"><a href="{{ "/docs/devrig/" | relURL }}" class="card-link"><strong>Read the devrig guide &rarr;</strong></a></p>
+        <p class="benchmark-footnote">
+            <code>devrig</code> is an early preview and the foundation for where this project is going &mdash; expect it to grow fast. Requires a JDK&nbsp;25+ on the host. MCP&nbsp;Steroid / Devrig is an independent open-source project, <strong>not affiliated with, sponsored by, or endorsed by JetBrains.</strong>
+        </p>
     </div>
 </section>
 
 <section class="about-section">
     <div class="about-content">
-        <h2 class="section-title">Why MCP Steroid</h2>
-        <p class="section-lede">Works with any MCP-capable AI Agent &mdash; Claude, Codex, Gemini, Cursor, OpenCode, or any other MCP client. Ships today as a JetBrains IDE plugin.</p>
+        <h2 class="section-title">Why MCP Steroid / Devrig</h2>
+        <p class="section-lede">Works with any MCP-capable AI Agent &mdash; Claude, Codex, Gemini, Cursor, OpenCode, or any other MCP client. Run it in your JetBrains IDE today, or headless via the new <code>devrig</code> CLI.</p>
         <div class="agents-list">
             <span class="agent-badge">Claude</span>
             <span class="agent-badge">GPT</span>
@@ -79,6 +93,29 @@
             <div class="hero-card">
                 <h3>Closed verify loop</h3>
                 <p>Your AI Agent runs inspections, the build, and the tests through the same IDE humans use to verify their own work &mdash; the Agent catches its mistakes before the human review queue does.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="about-section">
+    <div class="about-content">
+        <h2 class="section-title">Built for AI Agents</h2>
+        <p class="section-lede">MCP Steroid gives the AI Agents you already use real IDE power &mdash; not another UI to babysit. Whatever your role, your Agent does more of the work and leaves you less to clean up:</p>
+        <div class="hero-cards hero-cards-three">
+            <div class="hero-card">
+                <h3>When you ship features</h3>
+                <p>Your AI Agent drives a real JetBrains IDE on your code &mdash; safe renames, extract/move refactors, inspections, the debugger, and test runs &mdash; so it lands changes in fewer cleanup loops and you re-review less.</p>
+                <p class="hero-card-cta"><a href="{{ "/docs/devrig/" | relURL }}" class="card-link"><strong>Start With devrig &rarr;</strong></a><br><a href="{{ "/releases/" | relURL }}" class="card-link"><strong>Install the Plugin &rarr;</strong></a></p>
+            </div>
+            <div class="hero-card">
+                <h3>When you review &amp; verify</h3>
+                <p>Your AI Agent runs the same inspections, build, and tests you use to check your own work &mdash; so it catches its own mistakes before they ever reach your review queue.</p>
+            </div>
+            <div class="hero-card">
+                <h3>When you run a team or platform</h3>
+                <p>Point your AI Agents at a large codebase and they stay consistent: devrig provisions a managed IDE backend for headless and CI runs, so every Agent gets the same semantic tools. We also run Proof-of-Concept engagements tuned to your repos.</p>
+                <p class="hero-card-cta"><a href="#support" class="card-link"><strong>Book a PoC &rarr;</strong></a><br><a href="{{ "/docs/need-your-experiments-and-support/" | relURL }}" class="card-link"><strong>Submit a Scenario &rarr;</strong></a></p>
             </div>
         </div>
     </div>
@@ -162,7 +199,9 @@
             <li><strong>Run inspections</strong>: catch real errors before committing, not just syntax issues</li>
             <li><strong>Execute tests</strong>: run and analyze test results without leaving the AI Agent flow</li>
             <li><strong>See the IDE</strong>: screenshot capture, UI interaction, modal dialog handling</li>
+            <li><strong>Run without an open IDE</strong>: with <code>devrig</code>, the agent connects to a running IDE &mdash; or downloads and starts one itself &mdash; for headless, CI, and fresh-machine work</li>
             <li><strong>Integrate any third-party plugin</strong>: call APIs from any IntelliJ plugin loaded in the IDE &mdash; internal tooling, language plugins, custom inspections &mdash; without a custom MCP server</li>
+            <li><strong>Go beyond the built-in MCP server</strong>: run any IntelliJ API through <code>steroid_execute_code</code> &mdash; not just a fixed catalogue of file/search tools</li>
             <li><strong><a href="#create-skills" class="card-link">Create skills from the running IDE</a></strong>: pass an IntelliJ API snippet yourself, or let your AI Agent learn from the running IDE and write the Skill for you</li>
         </ul>
     </div>
@@ -230,7 +269,7 @@ todoItems.forEach { println(it) }</code></pre>
             The <a href="/docs/how-to-debug-ide/">Debugging IDE with MCP Steroid</a> guide was written entirely by AI Agents &mdash; a real skill created through experimentation with full IDE access.
         </p>
         <p class="consulting-note">
-            Ready to give your AI Agents full IDE access? <a href="{{ "/releases/" | relURL }}">Download the latest release</a> and get started in minutes. See the <a href="https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/" target="_blank" rel="noopener">Skill Factory blog post</a> for a deep dive on building custom skills.
+            Ready to give your AI Agent full IDE access? <a href="{{ "/docs/devrig/" | relURL }}">Try the devrig CLI</a> for terminal and managed-backend workflows, or <a href="{{ "/releases/" | relURL }}">install the plugin</a> for an IDE you already use. See the <a href="https://jonnyzzz.com/blog/2026/04/08/mcp-steroid-skill-factory/" target="_blank" rel="noopener">Skill Factory blog post</a> for a deep dive on building custom skills.
         </p>
         <p class="consulting-note">
             <strong>Proof-of-Concept program:</strong> We run Proof-of-Concept engagements for company-specific use cases &mdash; custom skills, internal tooling integrations, AI Agent workflows tailored to your codebase. <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Contact Eugene</a> to discuss.
@@ -252,30 +291,5 @@ todoItems.forEach { println(it) }</code></pre>
     </div>
 </section>
 
-<section class="about-section" id="support">
-    <div class="about-content support-section">
-        <h2 class="section-title">
-            <svg class="heart-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-            Proof-of-Concept &amp; Support
-        </h2>
-        <p>
-            MCP Steroid is built by <a href="https://linkedin.com/in/jonnyzzz" target="_blank" rel="noopener">Eugene Petrenko</a>, with 21 years of JetBrains ecosystem experience.
-        </p>
-        <p>We run Proof-of-Concept engagements for company-specific use cases &mdash; custom skills, internal tooling integrations, AI Agent workflows tailored to your codebase. <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener">Learn more about consulting and Proof-of-Concept options</a>.</p>
-        <p class="support-footnote">Beyond GitHub Sponsors, MCP Steroid also accepts in-kind support: compute tokens for evaluation runs, hardware for the multi-IDE test matrix, and licenses for benchmarking and observability tools. If you or your organisation would like to back the project or the research behind it on those terms, reach out &mdash; contact details are linked below.</p>
-        <div class="support-links">
-            <a href="https://jonnyzzz.com/support/" target="_blank" rel="noopener" class="btn btn-secondary">
-                <svg class="btn-icon heart-icon-btn" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                Consulting &amp; Proof-of-Concept
-            </a>
-            <a href="{{ .Site.Params.githubIssuesUrl }}" target="_blank" rel="noopener" class="btn btn-secondary">
-                <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                </svg>
-                GitHub Issues
-            </a>
-            <a href="https://discord.gg/e9qgQ7NeTC" target="_blank" rel="noopener" class="btn btn-secondary">Discord Community</a>
-        </div>
-    </div>
-</section>
+{{ partial "support-section.html" . }}
 {{ end }}

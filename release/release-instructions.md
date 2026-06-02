@@ -39,7 +39,11 @@ trigger in step 7 is what actually deploys the website.
    non-release commit *before* starting Stage 1 — don't let it ride along on the version-bump
    commit.
 2. `gh auth status` is valid.
-3. `VERSION` is in `X.Y.Z` format.
+3. `VERSION` holds the base version. Both `X.Y.Z` (e.g. `0.95.0`) and the newer
+   two-component `X.Y` (e.g. `0.100`) forms are valid; the tag is `v<VERSION>` and the
+   release-notes file is `release/notes/<VERSION>.md`. Note `release/scripts/bump-version.sh`
+   only understands `X.Y.Z` — for a two-component bump (e.g. `0.96` → `0.100`), edit `VERSION`
+   and commit by hand.
 4. `~/.marketplace` token file exists (one-line JetBrains permanent token).
 5. **Plugin verifier sanity check across all supported major IntelliJ versions.**
 

@@ -150,8 +150,10 @@ a:hover {
         display: none;
     }
 }
-/* Mobile nav — hamburger menu */
-@media (max-width: 768px) {
+/* Mobile nav — hamburger menu. Breakpoint raised to 960px so the horizontal
+   menu collapses before it can collide with the wider brand (logo + "MCP Steroid"
+   + devrig badge); below this the badge would butt against the first menu item. */
+@media (max-width: 960px) {
     .nav-toggle {
         display: block;
     }
@@ -1425,3 +1427,38 @@ h1 {
     color: var(--color-tertiary);
     font-size: 0.85rem;
 }
+
+/* ── devrig brand badge in the top-left nav (next to "MCP Steroid") ───────── */
+.nav-devrig {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    color: var(--color-primary);
+    background: var(--gradient-brand);
+    padding: 3px 7px;
+    border-radius: 6px;
+    white-space: nowrap;
+    align-self: center;
+}
+@media (max-width: 480px) {
+    .nav-container { padding-left: 0.9rem; padding-right: 0.9rem; }
+    .nav-devrig { font-size: 0.62rem; padding: 2px 5px; }
+    .nav-brand { gap: 0.4rem; }
+    .nav-title { font-size: 1rem; }
+}
+
+/* ── Footer copyright ─────────────────────────────────────────────────────── */
+.footer-copyright {
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--color-quaternary);
+    padding: 0 1rem;
+}
+.footer-copyright a {
+    color: var(--color-link);
+    text-decoration: none;
+}
+.footer-copyright a:hover { text-decoration: underline; }

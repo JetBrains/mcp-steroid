@@ -1,0 +1,24 @@
+{{/*
+  Returns the pages of the "releases" section sorted by SEMANTIC VERSION, newest first.
+
+  Why not .ByTitle.Reverse: titles like "v0.100" and "v0.95.0" sort lexicographically,
+  so "v0.95.0" > "v0.100" ("9" > "1") and 0.100 would be ranked below every 0.9x release —
+  wrongly promoting an old release as "Latest" and flagging the newest as obsolete.
+
+  We derive a numeric key major*1_000_000 + minor*1_000 + patch from the title and sort by it.
+*/}}
+{{ $withKey := slice }}
+{{ range (site.GetPage "section" "releases").Pages }}
+  {{ $v := .Title | strings.TrimPrefix "v" }}
+  {{ $parts := split $v "." }}
+  {{ $maj := int (index $parts 0) }}
+  {{ $min := cond (ge (len $parts) 2) (int (index $parts 1)) 0 }}
+  {{ $pat := cond (ge (len $parts) 3) (int (index $parts 2)) 0 }}
+  {{ $key := add (add (mul $maj 1000000) (mul $min 1000)) $pat }}
+  {{ $withKey = $withKey | append (dict "page" . "key" $key) }}
+{{ end }}
+{{ $pages := slice }}
+{{ range (sort $withKey "key" "desc") }}
+  {{ $pages = $pages | append .page }}
+{{ end }}
+{{ return $pages }}
