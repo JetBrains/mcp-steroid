@@ -20,7 +20,7 @@ It does three jobs:
 1. **Registers MCP Steroid with your coding agent.** `devrig install <agent>`
    adds devrig as an `mcp-steroid` stdio MCP server in Claude, Codex, or Gemini.
 2. **Bridges your agent to every running IDE at once.** When your agent launches
-   it as a stdio MCP server (`devrig mpc`), devrig discovers *all* the
+   it as a stdio MCP server (`devrig mcp`), devrig discovers *all* the
    IntelliJ-based IDEs running on your machine — across projects — and routes the
    agent's MCP Steroid calls to any of them through a single connection. One
    bridge, every IDE.
@@ -30,7 +30,7 @@ It does three jobs:
 
 ### One bridge, every IDE
 
-A single `devrig mpc` process connects your AI Agent to **all** the IntelliJ-family
+A single `devrig mcp` process connects your AI Agent to **all** the IntelliJ-family
 IDEs running on your machine at once — each open on a different project — and can
 download and start more on demand:
 
@@ -55,18 +55,21 @@ devrig install gemini
 
 The agent must be one of `claude`, `codex`, or `gemini`. After a successful
 install, devrig prints the agent it registered, the `JAVA_HOME` it recorded, and
-the exact stdio command (`devrig mpc`) the agent will run.
+the exact stdio command (`devrig mcp`) the agent will run.
 
 ## Commands
 
 Run `devrig --help` (or `devrig -h`) for the authoritative usage, and
 `devrig --version` (or `devrig -v`) for the version.
 
-### `devrig mpc`
+### `devrig mcp`
 
 Runs devrig as an MCP stdio server. This is the command your coding agent
 launches after `devrig install` — you normally don't run it by hand. While
 running, it discovers IDEs and bridges the agent's MCP Steroid calls to them.
+
+> The legacy spelling `devrig mpc` is still accepted as a hidden alias, so
+> older agent registrations keep working. Use `devrig mcp` for new setups.
 
 ### `devrig install claude|codex|gemini`
 
@@ -150,7 +153,7 @@ devrig backend
 ```
 
 Once the backend is running, your agent's MCP Steroid tools (for example
-`steroid_list_projects`) are routed to it through devrig's `mpc` stdio server.
+`steroid_list_projects`) are routed to it through devrig's `mcp` stdio server.
 Stop the backend when you're done:
 
 ```bash

@@ -22,6 +22,13 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
     override suspend fun handleOpenProject(openProjectParams: OpenProjectParams): ToolCallResult {
         val projectPath = Path.of(openProjectParams.projectPath).toAbsolutePath()
 
+        // backend_name is a devrig-only routing hint. A direct in-IDE connection serves exactly one
+        // backend, so there is nothing to route to — log it and ignore (defense-in-depth for forward
+        // compatibility; the direct surface never advertises the parameter).
+        openProjectParams.backendName?.let {
+            logger.info("steroid_open_project received backend_name='$it' on a direct IDE connection; ignoring (routing applies only via devrig).")
+        }
+
         // Check if project is already open
         val existingProject = readAction {
             ProjectManager.getInstance().openProjects.find { project ->

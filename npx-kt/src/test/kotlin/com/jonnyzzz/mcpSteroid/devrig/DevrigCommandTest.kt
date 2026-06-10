@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
@@ -15,6 +16,7 @@ class DevrigCommandTest {
         assertIs<DevrigCommand.DevrigCommandHelp>(command("help"))
         assertIs<DevrigCommand.DevrigCommandVersion>(command("version"))
         assertIs<DevrigCommand.DevrigCommandVersion>(command("--version"))
+        assertIs<DevrigCommand.MCP>(command("mcp"))
         assertIs<DevrigCommand.MCP>(command("mpc"))
         assertIs<DevrigCommand.DevrigCommandBackend>(command("backend"))
         assertIs<DevrigCommand.DevrigCommandProject>(command("project"))
@@ -44,6 +46,26 @@ class DevrigCommandTest {
         assertEquals(AiAgentCli.CLAUDE, install.agent)
         assertTrue(install.debug)
         assertTrue(install.json)
+    }
+
+    @Test
+    fun `mcp is the canonical spelling and mpc stays a working hidden alias`() {
+        // Both spellings select the same MCP command (issue #85). `mcp` is the advertised,
+        // visible primary; `mpc` is the legacy mis-spelling kept alive — registered hidden — so
+        // existing agent registrations launching `devrig mpc` keep working.
+        assertIs<DevrigCommand.MCP>(command("mcp"))
+        assertIs<DevrigCommand.MCP>(command("mpc"))
+
+        // generic switches resolve identically for both spellings
+        assertTrue(assertIs<DevrigCommand.MCP>(command("--json", "mcp")).json)
+        assertTrue(assertIs<DevrigCommand.MCP>(command("mcp", "--debug")).debug)
+        assertIs<DevrigCommand.DevrigCommandHelp>(command("mcp", "--help"))
+
+        // The hidden alias must never be advertised: clikt's error help for an unknown subcommand
+        // must not leak `mpc`. (The user-facing help banner's mcp-yes/mpc-no contract is enforced
+        // in DevrigCommandOutputTest.) The canonical `mcp` is the only spelling users should see.
+        val parseError = assertIs<DevrigCommand.DevrigCommandParseError>(command("totally-unknown-subcommand"))
+        assertFalse(parseError.text.contains("mpc"), "error help must not advertise the hidden mpc alias; got:\n${parseError.text}")
     }
 
     @Test

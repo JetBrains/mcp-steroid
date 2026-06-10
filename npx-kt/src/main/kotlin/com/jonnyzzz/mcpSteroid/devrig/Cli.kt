@@ -109,9 +109,11 @@ private abstract class DevrigCliktCommand(
     private val selected: SelectedDevrigCommand,
     private val parent: DevrigCliktCommand?,
     invokeWithoutSubcommand: Boolean = false,
+    hidden: Boolean = false,
 ) : CliktCommand(
     name = name,
     invokeWithoutSubcommand = invokeWithoutSubcommand,
+    hidden = hidden,
 ) {
     // DEVRIG_DEBUG (the env var that also makes the launcher attach a JDWP agent) additionally turns on
     // full debug mode for every command — identical to passing --debug — so the verbose DEBUG logs that
@@ -159,7 +161,11 @@ private class DevrigRootCommand(
     init {
         val backend = BackendCommand(selected, this)
         subcommands(
-            MpcCommand(selected, this),
+            // `mcp` is the canonical, advertised spelling. `mpc` is the original
+            // (mis-spelled) subcommand kept as a hidden alias so existing agent
+            // registrations that launch `devrig mpc` keep working — see issue #85.
+            McpCommand(selected, this, name = "mcp", hidden = false),
+            McpCommand(selected, this, name = "mpc", hidden = true),
             backend,
             ProjectCommand(selected, this),
             InstallCommand(selected, this),
@@ -178,10 +184,12 @@ private class DevrigRootCommand(
     }
 }
 
-private class MpcCommand(
+private class McpCommand(
     selected: SelectedDevrigCommand,
     parent: DevrigCliktCommand,
-) : DevrigCliktCommand("mpc", selected, parent) {
+    name: String,
+    hidden: Boolean,
+) : DevrigCliktCommand(name, selected, parent, hidden = hidden) {
     override fun run() {
         val options = options()
         select(DevrigCommand.MCP(debug = options.debug, json = options.json))

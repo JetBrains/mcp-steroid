@@ -83,15 +83,16 @@ fun renderProjectOutput(listing: ProjectListing, out: PrintStream) {
 /**
  * Pretty-printed JSON renderer for `devrig project --json`.
  *
- * Output shape:
+ * Output shape (shared R3.4 BackendInfo / ListedProject schema):
  * ```
  * {
  *   "tool": { "name": "devrig", "version": "..." },
  *   "backends": [
- *     { "id": "pid-1234", "type": "intellij", "source": "marker", "name": "...", "version": "..." }
+ *     { "backend_name": "iu-9fk2a0xQ", "type": "intellij", "source": "marker", "routable": true, ... }
  *   ],
  *   "projects": [
- *     { "backend": "pid-1234", "name": "myproject", "path": "/Users/me/myproject" }
+ *     { "project_name": "myproject-1z8KqM03", "name": "myproject",
+ *       "path": "/Users/me/myproject", "backend_name": "iu-9fk2a0xQ" }
  *   ]
  * }
  * ```

@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.ideDownloader.HostOs
 import com.jonnyzzz.mcpSteroid.ideDownloader.resolveHostOs
+import com.jonnyzzz.mcpSteroid.server.productCodeFromBuild
 import com.jonnyzzz.mcpSteroid.devrig.monitor.AboutResponse
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IntelliJPortDiscovery
@@ -243,9 +244,6 @@ private fun resolvePathProduct(about: AboutResponse, productCode: String?): Path
 
     error("Cannot map IDE product to a config selector: productCode=${productCode ?: "<none>"}, productName=${about.productName}, name=${about.name}")
 }
-
-fun productCodeFromBuild(buildNumber: String?): String? =
-    buildNumber?.let { Regex("""^([A-Z]+)-""").find(it)?.groupValues?.get(1) }
 
 private fun baselineFromBuild(buildNumber: String?): Int? =
     buildNumber?.let { Regex("""^(?:[A-Z]+-)?(\d{3})\.""").find(it)?.groupValues?.get(1)?.toIntOrNull() }

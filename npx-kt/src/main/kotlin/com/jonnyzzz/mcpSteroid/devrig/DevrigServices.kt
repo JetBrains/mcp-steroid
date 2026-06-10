@@ -95,6 +95,15 @@ class DevrigServices(
         )
     }
 
+    /**
+     * MCP-mode [BackendInventory] for the devrig tool handlers: marker rows from the monitor's cached
+     * state (no per-call snapshot re-fetch), managed rows from [backendManager], plus a bounded port
+     * scan. The CLI path builds its own CLI-mode inventory via [collectBackendRows].
+     */
+    val backendInventory: BackendInventory by lazy {
+        monitorBackendInventory(this)
+    }
+
     val portDiscovery: IntelliJPortDiscovery by lazy {
         val discovery = IntelliJPortDiscovery(httpClient = commandHttpClient)
         lifetime.registerCleanupAction { discovery.close() }

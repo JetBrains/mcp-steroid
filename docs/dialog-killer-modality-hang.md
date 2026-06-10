@@ -185,7 +185,7 @@ whole test on CI where nobody attaches — see `jdwp-suspend-n-test-modules` mem
   `-agentlib:jdwp=…,server=y,suspend=n,address=*:5005`, published + Docker-mapped.
 - **devrig debug port** (`DEVRIG_DEBUG_PORT` = `ContainerPort(5006)`, commit `b970e037`): the
   in-container devrig (`npx-kt`) JVM gets its own agent via `DEVRIG_OPTS` with `quiet=y` (so it
-  doesn't corrupt `devrig mpc`'s stdout JSON-RPC). Different port ⇒ debug IDE + devrig at once.
+  doesn't corrupt `devrig mcp`'s stdout JSON-RPC). Different port ⇒ debug IDE + devrig at once.
 - **Host-side print** matches the JVM's own wording with the **host-mapped** port:
   `Listening for transport dt_socket at address: <host-port>`, plus `IDE_DEBUG_PORT` /
   `DEVRIG_DEBUG_PORT` in `session-info.txt`. (The in-container port is invisible from the host.)

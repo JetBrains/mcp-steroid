@@ -442,7 +442,7 @@
   `awk '/^binaries.linux-x86_64.devrig.url=/ {…}'` works; PowerShell uses
   `Get-Content … | Where-Object`; Java uses `java.util.Properties`. Nesting
   is encoded via dot-separated keys.
-- **No prune subcommand** — automatic GC on every `mpc` startup, keeping
+- **No prune subcommand** — automatic GC on every `mcp` startup, keeping
   current + 1 previous per artifact, per-version `FileChannel` lock
   protects in-use dirs.
 - **All scripts use stderr only** (hard MCP-stdio constraint — stdout is

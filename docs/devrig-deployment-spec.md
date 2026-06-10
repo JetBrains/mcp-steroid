@@ -303,7 +303,7 @@ For each agent in [claude, codex, gemini]:
 POSIX (`~/.claude.json`, `~/.codex/config.toml`, `~/.gemini/settings.json`):
 
 ```json
-{ "command": "/Users/<u>/.mcp-steroid/bin/devrig", "args": ["mpc"], "env": {} }
+{ "command": "/Users/<u>/.mcp-steroid/bin/devrig", "args": ["mcp"], "env": {} }
 ```
 
 Windows:
@@ -313,7 +313,7 @@ Windows:
   "args": [
     "-NoProfile", "-ExecutionPolicy", "Bypass",
     "-File", "C:\\Users\\<u>\\.mcp-steroid\\bin\\devrig.ps1",
-    "mpc"
+    "mcp"
   ],
   "env": {} }
 ```
@@ -344,7 +344,7 @@ already in progress."
 
 ## Automatic cache cleanup (no `prune` subcommand)
 
-The inner Java binary, on every `devrig mpc` startup, sweeps
+The inner Java binary, on every `devrig mcp` startup, sweeps
 `binaries/` in a background coroutine:
 
 ```

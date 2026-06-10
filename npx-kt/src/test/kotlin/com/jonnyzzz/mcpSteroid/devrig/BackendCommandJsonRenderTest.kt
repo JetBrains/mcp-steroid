@@ -34,7 +34,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Path
 
-/** Pins the schema of `devrig backend --json`. */
+/** Pins the schema of `devrig backend --json` against the shared R3.4 BackendInfo / ListedProject model. */
 class BackendCommandJsonRenderTest {
 
     private val parser = Json {
@@ -49,8 +49,8 @@ class BackendCommandJsonRenderTest {
         return parser.parseToJsonElement(text).jsonObject
     }
 
-    private fun backendIds(root: JsonObject): List<String> =
-        root["backends"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+    private fun backendNames(root: JsonObject): List<String> =
+        root["backends"]!!.jsonArray.map { it.jsonObject["backend_name"]!!.jsonPrimitive.content }
 
     private fun jsonStrings(element: JsonElement): List<String> = when (element) {
         is JsonObject -> element.values.flatMap(::jsonStrings)
@@ -176,7 +176,7 @@ class BackendCommandJsonRenderTest {
     // -------------------------- marker variant -----------------------------
 
     @Test
-    fun `marker row serialises common fields plus pid mcpUrl and flat projects`() {
+    fun `marker row serialises shared fields plus ide identity, plugin and flat projects`() {
         val row = BackendRow.FromMarker(
             ide = markerIde(pid = 1234, mcpUrl = "http://localhost:6315/mcp"),
             projects = listOf(ProjectInfo("my-app", "/Users/x/my-app")),
@@ -184,37 +184,47 @@ class BackendCommandJsonRenderTest {
         val root = render(listOf(row))
         val backend = root["backends"]!!.jsonArray.single().jsonObject
 
-        assertEquals("pid-1234", backend["id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(backendNameForRow(row), backend["backend_name"]?.jsonPrimitive?.contentOrNull)
         assertEquals("intellij", backend["type"]?.jsonPrimitive?.contentOrNull)
         assertEquals("marker", backend["source"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(true, backend["pluginInstalled"]?.jsonPrimitive?.boolean)
+        assertEquals(true, backend["routable"]?.jsonPrimitive?.boolean)
         assertEquals(true, backend["reachable"]?.jsonPrimitive?.boolean)
         assertEquals(backendDisplayName(row), backend["displayName"]?.jsonPrimitive?.contentOrNull)
         assertEquals(backendLocatorLabel(row), backend["locator"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IntelliJ IDEA", backend["name"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("2025.3.3", backend["version"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IU-253.21581.142", backend["build"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IU-253.21581.142", backend["buildNumber"]?.jsonPrimitive?.contentOrNull)
         assertEquals(1234L, backend["pid"]?.jsonPrimitive?.long)
-        assertEquals(
-            testDevrigEndpoint("http://localhost:6315/mcp").rpcBaseUrl,
-            backend["rpcBaseUrl"]?.jsonPrimitive?.contentOrNull,
-        )
-        val plugin = backend["plugin"]!!.jsonObject
-        assertEquals(true, plugin["installed"]?.jsonPrimitive?.boolean)
+        assertEquals("IU", backend["ideProductCode"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("IU-253.21581.142", backend["build"]?.jsonPrimitive?.contentOrNull)
+
+        // Marker identity now lives under `ide` (name/version/build), not flattened on the backend.
+        val ide = backend["ide"]!!.jsonObject
+        assertEquals("IntelliJ IDEA", ide["name"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("2025.3.3", ide["version"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("IU-253.21581.142", ide["build"]?.jsonPrimitive?.contentOrNull)
+
+        // plugins[] carries one entry tagged kind=mcp-steroid (replaces the old `plugin` block + flag).
+        val plugin = backend["plugins"]!!.jsonArray.single().jsonObject
         assertEquals("com.jonnyzzz.mcp-steroid", plugin["id"]?.jsonPrimitive?.contentOrNull)
         assertEquals("MCP Steroid", plugin["name"]?.jsonPrimitive?.contentOrNull)
         assertEquals("0.0.0-test", plugin["version"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("mcp-steroid", plugin["kind"]?.jsonPrimitive?.contentOrNull)
+        assertNull(backend["mcpSteroidPluginInstalled"], "the boolean flag is replaced by plugins[]: $backend")
         assertEquals(0, backend["actions"]!!.jsonArray.size)
         assertNull(backend["error"], "reachable marker rows must not carry an error: $backend")
-        assertNull(backend["projects"], "projects are top-level now, not nested in backends: $backend")
+        assertNull(backend["portDetail"], "marker row carries no port detail: $backend")
+        assertNull(backend["managedDetail"], "marker row carries no managed detail: $backend")
 
+        // The marker's projects are embedded under the backend AND flattened at the top level.
+        assertEquals(1, backend["openProjects"]!!.jsonArray.size)
         val projects = root["projects"]!!.jsonArray
         assertEquals(1, projects.size)
         val p = projects.single().jsonObject
-        assertEquals("pid-1234", p["backend"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(backendNameForRow(row), p["backend_name"]?.jsonPrimitive?.contentOrNull)
         assertEquals("my-app", p["name"]?.jsonPrimitive?.contentOrNull)
         assertEquals("/Users/x/my-app", p["path"]?.jsonPrimitive?.contentOrNull)
+        // project_name is the devrig-exposed name (raw name + a hash suffix) — keeps `name` for jq consumers.
+        val projectName = p["project_name"]?.jsonPrimitive?.contentOrNull
+        assertNotNull(projectName)
+        assertTrue(projectName!!.startsWith("my-app"), projectName)
     }
 
     @Test
@@ -232,13 +242,14 @@ class BackendCommandJsonRenderTest {
         val row = BackendRow.FromMarker(markerIde(), projects = null, errorMessage = "connect refused")
         val root = render(listOf(row))
         val backend = root["backends"]!!.jsonArray.single().jsonObject
-        val backendId = backend["id"]!!.jsonPrimitive.content
+        val backendName = backend["backend_name"]!!.jsonPrimitive.content
         assertEquals("marker", backend["source"]?.jsonPrimitive?.contentOrNull)
         assertEquals(false, backend["reachable"]?.jsonPrimitive?.boolean)
+        assertEquals(false, backend["routable"]?.jsonPrimitive?.boolean,
+            "an unreachable marker has no live bridge, so it is not routable")
         assertEquals("connect refused", backend["error"]?.jsonPrimitive?.contentOrNull)
-        assertNull(backend["projects"], "unreachable state is reachable=false + error, not projects=null")
-        val projectRefs = root["projects"]!!.jsonArray.map { it.jsonObject["backend"]!!.jsonPrimitive.content }
-        assertTrue(backendId !in projectRefs,
+        val projectRefs = root["projects"]!!.jsonArray.map { it.jsonObject["backend_name"]!!.jsonPrimitive.content }
+        assertTrue(backendName !in projectRefs,
             "unreachable marker backend must not contribute projects; refs=$projectRefs backend=$backend")
     }
 
@@ -254,51 +265,76 @@ class BackendCommandJsonRenderTest {
     // --------------------------- port variant ------------------------------
 
     @Test
-    fun `port row serialises common fields plus port baseUrl about-fields and no marker payload`() {
+    fun `port row serialises shared fields plus a portDetail block and a provision action with argv`() {
         val row = BackendRow.FromPort(portIde(port = 63342))
         val backend = render(listOf(row))["backends"]!!.jsonArray.single().jsonObject
 
-        assertEquals("port-63342", backend["id"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(backendNameForRow(row), backend["backend_name"]?.jsonPrimitive?.contentOrNull)
         assertEquals("intellij", backend["type"]?.jsonPrimitive?.contentOrNull)
         assertEquals("port", backend["source"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(false, backend["pluginInstalled"]?.jsonPrimitive?.boolean)
+        assertEquals(false, backend["routable"]?.jsonPrimitive?.boolean, "port rows have no bridge: $backend")
         assertEquals(true, backend["reachable"]?.jsonPrimitive?.boolean)
         assertEquals(backendDisplayName(row), backend["displayName"]?.jsonPrimitive?.contentOrNull)
         assertEquals(backendLocatorLabel(row), backend["locator"]?.jsonPrimitive?.contentOrNull)
         assertEquals(63342, backend["port"]?.jsonPrimitive?.int)
-        assertEquals("http://127.0.0.1:63342", backend["baseUrl"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IDEA", backend["productName"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IntelliJ IDEA Ultimate", backend["productFullName"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IU", backend["edition"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(253, backend["baselineVersion"]?.jsonPrimitive?.int)
-        assertEquals("IU-253.21581.142", backend["buildNumber"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(false, backend["plugin"]!!.jsonObject["installed"]?.jsonPrimitive?.boolean)
+
+        val detail = backend["portDetail"]!!.jsonObject
+        assertEquals("http://127.0.0.1:63342", detail["baseUrl"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("IDEA", detail["productName"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("IntelliJ IDEA Ultimate", detail["productFullName"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("IU", detail["edition"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(253, detail["baselineVersion"]?.jsonPrimitive?.int)
+        assertEquals("IU-253.21581.142", detail["buildNumber"]?.jsonPrimitive?.contentOrNull)
+
+        assertEquals(0, backend["plugins"]!!.jsonArray.size, "port row has no plugins: $backend")
         val action = backend["actions"]!!.jsonArray.single().jsonObject
         assertEquals("provision", action["id"]?.jsonPrimitive?.contentOrNull)
         assertEquals("Install MCP Steroid plugin", action["label"]?.jsonPrimitive?.contentOrNull)
         assertEquals("devrig backend provision port-63342", action["command"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            listOf("devrig", "backend", "provision", "port-63342"),
+            action["argv"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
         assertNull(backend["pid"], "port row must not carry a pid: $backend")
-        assertNull(backend["projects"], "port row must not carry projects: $backend")
-        assertNull(backend["rpcBaseUrl"], "port row must not carry rpcBaseUrl: $backend")
-        assertNull(backend["name"], "port row must not carry marker-only name: $backend")
-        assertNull(backend["version"], "port row must not carry marker-only version: $backend")
-        assertNull(backend["build"], "port row must not carry marker-only build: $backend")
+        assertNull(backend["ide"], "port row carries no marker ide identity: $backend")
     }
 
     @Test
     fun `port row omits about-fields that came back as null from api-about`() {
         val row = BackendRow.FromPort(portIde(productFullName = null, edition = null, baselineVersion = null))
+        val detail = render(listOf(row))["backends"]!!.jsonArray.single().jsonObject["portDetail"]!!.jsonObject
+        assertNull(detail["productFullName"], "absent fields must NOT serialise as null: $detail")
+        assertNull(detail["edition"], "absent fields must NOT serialise as null: $detail")
+        assertNull(detail["baselineVersion"], "absent fields must NOT serialise as null: $detail")
+        assertEquals("IDEA", detail["productName"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    // -------------------------- managed variant ----------------------------
+
+    @Test
+    fun `managed row serialises a managedDetail block`() {
+        val row = BackendRow.FromManaged(
+            managedInfo(id = "idea-community-2025.2.6.2", state = ManagedBackendState.RUNNING, runningPid = 44),
+        )
         val backend = render(listOf(row))["backends"]!!.jsonArray.single().jsonObject
-        assertNull(backend["productFullName"], "absent fields must NOT serialise as null: $backend")
-        assertNull(backend["edition"], "absent fields must NOT serialise as null: $backend")
-        assertNull(backend["baselineVersion"], "absent fields must NOT serialise as null: $backend")
-        assertEquals("IDEA", backend["productName"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("managed", backend["source"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(true, backend["managed"]?.jsonPrimitive?.boolean)
+        assertEquals(false, backend["routable"]?.jsonPrimitive?.boolean)
+        // Managed rows carry no plugin info (no marker yet) — plugins[] must be empty, not absent-by-luck.
+        assertEquals(0, backend["plugins"]!!.jsonArray.size)
+        val detail = backend["managedDetail"]!!.jsonObject
+        assertEquals("idea-community-2025.2.6.2", detail["managedId"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("2025.2.6.2", detail["version"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("running", detail["state"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("/managed/idea-community-2025.2.6.2", detail["installPath"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("/caches/idea-community-2025.2.6.2", detail["cachePath"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(44L, detail["runningPid"]?.jsonPrimitive?.long)
     }
 
     // ---------------------------- mixed list -------------------------------
 
     @Test
-    fun `mixed list keeps input order and assigns backend ids from natural identifiers`() {
+    fun `mixed list keeps input order and assigns backend names from the uniform hash scheme`() {
         val rows = listOf(
             BackendRow.FromMarker(markerIde(pid = 1L), emptyList()),
             BackendRow.FromPort(portIde(port = 63342)),
@@ -306,97 +342,69 @@ class BackendCommandJsonRenderTest {
         )
         val backends = render(rows)["backends"]!!.jsonArray
         assertEquals(3, backends.size)
-        assertEquals(listOf("pid-1", "port-63342", "pid-2"),
-            backends.map { it.jsonObject["id"]!!.jsonPrimitive.content })
+        assertEquals(rows.map { backendNameForRow(it) }, backends.map { it.jsonObject["backend_name"]!!.jsonPrimitive.content })
         assertEquals("marker", backends[0].jsonObject["source"]?.jsonPrimitive?.contentOrNull)
         assertEquals("port", backends[1].jsonObject["source"]?.jsonPrimitive?.contentOrNull)
         assertEquals("marker", backends[2].jsonObject["source"]?.jsonPrimitive?.contentOrNull)
     }
 
     @Test
-    fun `top-level projects reference valid backend ids`() {
+    fun `top-level projects reference valid backend names`() {
         val rows = listOf(
             BackendRow.FromMarker(markerIde(pid = 1L), listOf(ProjectInfo("a", "/a"), ProjectInfo("b", "/b"))),
             BackendRow.FromPort(portIde(port = 63342)),
             BackendRow.FromMarker(markerIde(pid = 2L), listOf(ProjectInfo("c", "/c"))),
         )
         val root = render(rows)
-        val ids = root["backends"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }.toSet()
-        val refs = root["projects"]!!.jsonArray.map { it.jsonObject["backend"]!!.jsonPrimitive.content }
-        assertEquals(listOf("pid-1", "pid-1", "pid-2"), refs)
-        assertTrue(refs.all { it in ids }, "every projects[].backend must resolve to a backend id; ids=$ids refs=$refs")
+        val names = root["backends"]!!.jsonArray.map { it.jsonObject["backend_name"]!!.jsonPrimitive.content }.toSet()
+        val refs = root["projects"]!!.jsonArray.map { it.jsonObject["backend_name"]!!.jsonPrimitive.content }
+        assertEquals(3, refs.size)
+        assertTrue(refs.all { it in names }, "every projects[].backend_name must resolve to a backend; names=$names refs=$refs")
     }
 
     @Test
-    fun `backend ids use natural identifier for marker port and managed rows`() {
-        val rows = listOf(
-            BackendRow.FromMarker(markerIde(pid = 4242L), listOf(ProjectInfo("known", "/known"))),
-            BackendRow.FromPort(portIde(port = 65432)),
-            BackendRow.FromManaged(managedInfo(id = "idea-community-2025.2.6.2")),
-        )
-
-        val root = render(rows)
-
-        assertEquals(listOf("pid-4242", "port-65432", "idea-community-2025.2.6.2"), backendIds(root))
-        val projects = root["projects"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf("pid-4242"), projects.map { it["backend"]!!.jsonPrimitive.content })
-    }
-
-    @Test
-    fun `json document contains no synthetic backend prefix strings`() {
-        val root = render(
-            listOf(
-                BackendRow.FromMarker(markerIde(pid = 4242L), listOf(ProjectInfo("known", "/known"))),
-                BackendRow.FromPort(portIde(port = 65432)),
-                BackendRow.FromManaged(managedInfo(id = "idea-community-2025.2.6.2")),
-            ),
-        )
-
-        val syntheticValues = jsonStrings(root).filter { it.startsWith("backend-") }
-        assertEquals(emptyList<String>(), syntheticValues)
-    }
-
-    @Test
-    fun `backend ids stay stable when discovery rows are reordered`() {
+    fun `backend names stay stable when discovery rows are reordered`() {
         val marker = BackendRow.FromMarker(markerIde(pid = 200L), emptyList())
         val port = BackendRow.FromPort(portIde(port = 65432))
         val managed = BackendRow.FromManaged(managedInfo(id = "idea-community-2025.2.6.2"))
         val expected = mapOf(
-            "marker" to "pid-200",
-            "port" to "port-65432",
-            "managed" to "idea-community-2025.2.6.2",
+            "marker" to backendNameForRow(marker),
+            "port" to backendNameForRow(port),
+            "managed" to backendNameForRow(managed),
         )
 
-        fun idsBySource(rows: List<BackendRow>) = render(rows)["backends"]!!.jsonArray.associate { element ->
+        fun namesBySource(rows: List<BackendRow>) = render(rows)["backends"]!!.jsonArray.associate { element ->
             val backend = element.jsonObject
-            backend["source"]!!.jsonPrimitive.content to backend["id"]!!.jsonPrimitive.content
+            backend["source"]!!.jsonPrimitive.content to backend["backend_name"]!!.jsonPrimitive.content
         }
 
-        assertEquals(expected, idsBySource(listOf(marker, port, managed)))
-        assertEquals(expected, idsBySource(listOf(managed, marker, port)))
+        assertEquals(expected, namesBySource(listOf(marker, port, managed)))
+        assertEquals(expected, namesBySource(listOf(managed, marker, port)))
     }
 
     @Test
-    fun `duplicate stable ids log warning and keep first row`() {
+    fun `duplicate backend names log warning and keep first row`() {
+        // Same pid + same build => same backend_name. Keep-first de-dup, WARN logged.
         val first = BackendRow.FromMarker(markerIde(pid = 777L), listOf(ProjectInfo("first", "/first")))
         val second = BackendRow.FromMarker(
             markerIde(pid = 777L, mcpUrl = "http://localhost:7778/mcp"),
             listOf(ProjectInfo("second", "/second")),
         )
+        val expectedName = backendNameForRow(first)
 
         val (root, events) = captureBackendCommandLogs { render(listOf(first, second)) }
 
-        val ids = backendIds(root)
-        assertEquals(1, ids.count { it == "pid-777" })
-        assertEquals(listOf("pid-777"), ids)
+        val names = backendNames(root)
+        assertEquals(1, names.count { it == expectedName })
+        assertEquals(listOf(expectedName), names)
         val projects = root["projects"]!!.jsonArray.map { it.jsonObject }
         assertEquals(listOf("first"), projects.map { it["name"]!!.jsonPrimitive.content })
-        assertEquals(listOf("pid-777"), projects.map { it["backend"]!!.jsonPrimitive.content })
+        assertEquals(listOf(expectedName), projects.map { it["backend_name"]!!.jsonPrimitive.content })
 
         val warnMessages = events.filter { it.level == Level.WARN }.map { it.formattedMessage }
         assertTrue(
-            warnMessages.any { it.contains("Duplicate backend ids in backend --json output") && it.contains("pid-777") },
-            "expected a WARN mentioning duplicate pid-777; got $warnMessages",
+            warnMessages.any { it.contains("Duplicate backend_name in backend --json output") && it.contains(expectedName) },
+            "expected a WARN mentioning duplicate $expectedName; got $warnMessages",
         )
     }
 

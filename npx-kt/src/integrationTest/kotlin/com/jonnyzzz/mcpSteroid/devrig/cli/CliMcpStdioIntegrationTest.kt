@@ -23,12 +23,12 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * Integration tests that drive the devrig CLI launcher (`bin/devrig mpc`) and exchange MCP 2025-11-25
+ * Integration tests that drive the devrig CLI launcher (`bin/devrig mcp`) and exchange MCP 2025-11-25
  * JSON-RPC frames over stdio.
  *
  * The launcher runs INSIDE the shared `mcp-cli` container ([DevrigCliContainer]), never on the host — a
  * host run would create the developer's real `~/.mcp-steroid` (devrig's home is hardcoded and no longer
- * overridable). The container is built once for the class; each test gets a fresh `devrig mpc` process.
+ * overridable). The container is built once for the class; each test gets a fresh `devrig mcp` process.
  *
  * Scope: confirm the stdio MCP server boots, completes the initialize handshake, and answers list/ping
  * requests with shapes that match the spec.
@@ -92,7 +92,7 @@ class CliMcpStdioIntegrationTest {
             requireNotNull(tool["name"]?.jsonPrimitive?.contentOrNull) { "tool entry missing name: $tool" }
         }.toSet()
 
-        // This protocol-level check (devrig mpc directly, no agent) is the
+        // This protocol-level check (devrig mcp directly, no agent) is the
         // canonical guard against a McpSteroidTools.registerAll regression; the
         // live-agent path lives in :test-integration's DevrigStdioAgentMatrixTest.
         val missing = EXPECTED_STEROID_TOOL_NAMES - names

@@ -426,6 +426,24 @@ to** (and vice-versa). The wire surface is: the **JSON-RPC tool-call params** de
   `DevrigToolBridgeClientTest` pins each tool's exact param names/types (golden-ish assertions); a diff
   fails the build. Add a pinned case for any new tool/param.
 
+**Wire `ProjectInfo` is pristine `{name, path}`.** The wire DTO carries exactly two fields; there is **no**
+`backend` field on it. (An earlier round added `ProjectInfo.backend: String? = null`; it was reverted — the
+per-project backend reference now lives on the devrig-owned, MCP-surface-only `ListedProject.backendName`,
+which never crosses the wire. `ProjectsStreamService` only ever builds `ProjectInfo(name, path)`, so the
+reversion changed zero emitted bytes.) A **wire-pristineness guard test** (`WirePristinenessTest`,
+`mcp-steroid-server`) asserts `NpxStreamEnvelope` (`/projects/stream`) and `NpxBridgeWindowsResponse`
+(`/windows`) never serialize the devrig-only `backend_name` / `project_name` / `BackendInfo` / `ListedProject`
+keys.
+
+**MCP-surface-only, never wire-crossing:**
+- `OpenProjectParams.backendName: String? = null` is **MCP-surface only** and is **NOT forwarded** to the
+  IDE bridge. devrig resolves it locally to a target IDE and POSTs the byte-identical `steroid_open_project`
+  body (`project_path` / `trust_project` / `task_id` / `reason`). The non-forwarding invariant is pinned in
+  `DevrigToolBridgeClientTest` (forwarded `arguments["backend_name"] == null`).
+- `ListProjectsResponse.backends` / `BackendInfo` / `ListedProject` are devrig-computed MCP/CLI output types
+  (built from devrig's routing snapshot, never fetched from the IDE) — devrig-owned and outside the wire
+  contract. See PHILOSOPHY.md Tenet 5.
+
 Deferred (revisit with a baseline release): (a) a cross-version test (devrig HEAD ↔ an older plugin build);
 (b) giving devrig its **own** copy of the marker/bridge DTOs so the two version independently and only the
 JSON wire shape is shared (today devrig reuses `mcp-steroid-server`'s classes, decoding tolerantly).

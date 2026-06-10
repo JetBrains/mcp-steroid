@@ -35,7 +35,7 @@ a spec section, not a TODO):
   registrations as `failed` on process exit, by design), a stdio session
   ≡ the inner devrig process lifetime. New versions take effect on the
   user's next agent CLI restart. The wrapper does NOT loop on exit code.
-- **Automatic cache GC** at every `mpc` startup keeps current + 1
+- **Automatic cache GC** at every `mcp` startup keeps current + 1
   previous per artifact; per-version `FileChannel` lock prevents deleting
   in-use dirs. **No user-facing prune subcommand.**
 - Wrappers self-update via `bin/devrig.new` + rename-on-next-launch (the

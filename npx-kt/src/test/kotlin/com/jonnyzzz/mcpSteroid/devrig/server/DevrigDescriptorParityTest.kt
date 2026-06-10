@@ -11,6 +11,8 @@ import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
 import com.jonnyzzz.mcpSteroid.devrig.HomePaths
 import com.jonnyzzz.mcpSteroid.devrig.DevrigServices
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
+import com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler
+import com.jonnyzzz.mcpSteroid.server.OpenProjectToolSpec
 import com.jonnyzzz.mcpSteroid.server.PromptsContextHandler
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import java.io.ByteArrayInputStream
@@ -19,10 +21,19 @@ import java.io.PrintStream
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.io.TempDir
 
 class DevrigDescriptorParityTest {
+    // The one intentional divergence: the devrig steroid_open_project surface advertises the optional
+    // `backend_name` routing parameter (REQUIRED on devrig), letting the agent pick which discovered IDE
+    // a project opens in. The direct in-IDE surface (one connection == one IDE) does not expose it. Every
+    // other tool — and the existence of steroid_open_project on both sides — must stay identical.
+    private val backendOnlyTool = "steroid_open_project"
+
     @Test
     fun `devrig descriptors match direct IDE supported surface`(
         @TempDir tempDir: Path,
@@ -30,10 +41,26 @@ class DevrigDescriptorParityTest {
         val direct = directIdeServer(PromptsContext(productCode = "IU", baselineVersion = 261))
         val devrig = devrigServer(tempDir)
 
-        assertEquals(
-            direct.toolRegistry.listTools().sortedBy(Tool::name),
-            devrig.toolRegistry.listTools().sortedBy(Tool::name),
-        )
+        val directTools = direct.toolRegistry.listTools().associateBy(Tool::name)
+        val devrigTools = devrig.toolRegistry.listTools().associateBy(Tool::name)
+
+        // The set of advertised tools is identical on both surfaces.
+        assertEquals(directTools.keys, devrigTools.keys)
+
+        // Every tool except steroid_open_project is byte-identical across the two surfaces.
+        for ((name, directTool) in directTools) {
+            if (name == backendOnlyTool) continue
+            assertEquals(directTool, devrigTools.getValue(name), "tool descriptor mismatch for $name")
+        }
+
+        // steroid_open_project: present on both, and the devrig variant is a deliberate superset that
+        // adds the REQUIRED backend_name parameter; the direct surface must NOT carry it.
+        val directOpen = directTools.getValue(backendOnlyTool)
+        val devrigOpen = devrigTools.getValue(backendOnlyTool)
+        val directProps = directOpen.inputSchema["properties"]?.jsonObject ?: error("missing properties")
+        val devrigProps = devrigOpen.inputSchema["properties"]?.jsonObject ?: error("missing properties")
+        assertFalse(directProps.containsKey("backend_name"), "direct IDE surface must not expose backend_name")
+        assertTrue(devrigProps.containsKey("backend_name"), "devrig surface must expose backend_name")
 
         assertDescriptorSubset(
             direct = direct.resourceRegistry.listResources().associateBy(Resource::uri),
@@ -49,21 +76,33 @@ class DevrigDescriptorParityTest {
 
     private fun directIdeServer(context: PromptsContext): McpServerCore =
         newServer().also { server ->
-            DirectDescriptorTools(context).registerAll(server)
+            val tools = DirectDescriptorTools(context)
+            tools.registerAll(server)
+            // Mirror the in-IDE SteroidsMcpServer callsite: registerAll() no longer registers
+            // open_project, so the single-backend surface registers its own spec (no backend_name).
+            server.toolRegistry.registerTool(
+                OpenProjectToolSpec(includeBackendName = false) { tools.handler<OpenProjectToolHandler>() }
+            )
         }
 
     private fun devrigServer(tempDir: Path): McpServerCore {
         val lifetime = CloseableStackHost()
         return try {
             newServer().also { server ->
-                StubMcpSteroidTools(
+                val tools = StubMcpSteroidTools(
                     DevrigServices(
                         lifetime = lifetime,
                         homePaths = HomePaths(tempDir.resolve("devrig-home")).also { it.mkdirsAll() },
                         mcpStdin = ByteArrayInputStream(ByteArray(0)),
                         mcpStdout = PrintStream(ByteArrayOutputStream(), true, Charsets.UTF_8),
                     )
-                ).registerAll(server)
+                )
+                tools.registerAll(server)
+                // Mirror the devrig StubStdioMcpServer callsite: the multi-backend surface registers
+                // its own open_project spec advertising the required backend_name routing param.
+                server.toolRegistry.registerTool(
+                    OpenProjectToolSpec(includeBackendName = true) { tools.handler<OpenProjectToolHandler>() }
+                )
             }
         } finally {
             lifetime.closeAllStacks()

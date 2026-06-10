@@ -9,6 +9,8 @@ import com.jonnyzzz.mcpSteroid.mcp.ServerInfo
 import com.jonnyzzz.mcpSteroid.mcp.ToolsCapability
 import com.jonnyzzz.mcpSteroid.devrig.DevrigServices
 import com.jonnyzzz.mcpSteroid.devrig.DevrigVersionMetadata
+import com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler
+import com.jonnyzzz.mcpSteroid.server.OpenProjectToolSpec
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -64,6 +66,12 @@ suspend fun runStubStdioMcpServer(
 
     val tools = StubMcpSteroidTools(services)
     tools.registerAll(server)
+    // devrig routes to one of several discovered IDEs, so its steroid_open_project advertises the
+    // required `backend_name` routing param (includeBackendName = true). registerAll() no longer
+    // registers open_project; each surface registers its own spec.
+    server.toolRegistry.registerTool(
+        OpenProjectToolSpec(includeBackendName = true) { tools.handler<OpenProjectToolHandler>() }
+    )
 
     McpStdioServer(server, input = services.mcpStdin, output = services.mcpStdout).run()
 }

@@ -1,12 +1,13 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig.server
 
-import com.jonnyzzz.mcpSteroid.IdeInfo
-import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.prompts.Generic
 import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
+import com.jonnyzzz.mcpSteroid.devrig.BackendInventory
+import com.jonnyzzz.mcpSteroid.devrig.BackendRow
 import com.jonnyzzz.mcpSteroid.devrig.DevrigServices
-import com.jonnyzzz.mcpSteroid.devrig.DevrigVersionMetadata
+import com.jonnyzzz.mcpSteroid.devrig.collectBackendInfos
+import com.jonnyzzz.mcpSteroid.server.ListedProject
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
 import com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandler
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
@@ -14,7 +15,6 @@ import com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler
 import com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler
-import com.jonnyzzz.mcpSteroid.server.ProjectInfo
 import com.jonnyzzz.mcpSteroid.server.PromptsContextHandler
 import com.jonnyzzz.mcpSteroid.server.VisionInputToolHandler
 import com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandler
@@ -23,8 +23,13 @@ class StubMcpSteroidTools(
     val services: DevrigServices,
 ) : McpSteroidTools() {
     private val bridge = DevrigToolBridgeClient(services.projectRouting, services.mcpHttpClient)
-    private val listProjects = DevrigListProjectsToolHandler(services)
-    private val listWindows = DevrigListWindowsToolHandler(services)
+    private val listProjects = DevrigListProjectsToolHandler(services.projectRouting, services.backendInventory)
+    private val listWindows = DevrigListWindowsToolHandler(
+        states = { services.ideMonitor.states.value.values },
+        httpClient = services.commandHttpClient,
+        routing = services.projectRouting,
+        inventory = services.backendInventory,
+    )
     val promptsContext = DevrigPromptsContextHandler(services.projectRouting)
     private val executeCode = DevrigExecuteCodeToolHandler(bridge, services.beacon)
     private val executeFeedback = DevrigExecuteFeedbackToolHandler(bridge, services.beacon)
@@ -54,25 +59,37 @@ class StubMcpSteroidTools(
 }
 
 class DevrigListProjectsToolHandler(
-    private val services: DevrigServices,
+    private val routing: DevrigProjectRoutingService,
+    private val inventory: BackendInventory,
 ) : ListProjectsToolHandler {
     override suspend fun collectListProjectsResponse(): ListProjectsResponse {
-        val routes = services.projectRouting.routes().values.toList()
-        val first = routes.firstOrNull()
+        val routes = routing.routes().values.toList()
+        // Each route maps to its owning backend's backend_name so projects[] and backends[] agree.
+        // discoveredBackends() de-dupes by backend_name (keep-first + WARN) — the same names the
+        // inventory computes for its marker rows (both use backendNameForMarker(pid, build)).
+        val backendNameByPid = routing.discoveredBackends().associate { (name, ide) -> ide.pid to name }
+        val listedProjects = routes.mapNotNull { route ->
+            val backendName = backendNameByPid[route.idePid] ?: return@mapNotNull null
+            ListedProject(
+                projectName = route.exposedProjectName,
+                name = route.originalProjectName,
+                path = route.projectPath,
+                backendName = backendName,
+            )
+        }
+        // backends[] = ALL inventory rows (markers + port-discovered + managed) through the ONE
+        // BackendRow -> BackendInfo mapping shared with the CLI, so the MCP `backends[]` and
+        // `devrig backend --json` never diverge. Marker rows own their routes' projects; port/managed
+        // rows surface with routable=false and no openProjects so the agent sees the full picture.
+        val backends = inventory.collectBackendInfos { backendName, row ->
+            when (row) {
+                is BackendRow.FromMarker -> listedProjects.filter { it.backendName == backendName }
+                is BackendRow.FromPort, is BackendRow.FromManaged -> emptyList()
+            }
+        }
         return ListProjectsResponse(
-            ide = first?.ide ?: IdeInfo("devrig", DevrigVersionMetadata.getDevrigVersion(), "devrig"),
-            plugin = first?.plugin ?: PluginInfo(
-                "com.jonnyzzz.mcp-steroid.devrig",
-                "devrig",
-                DevrigVersionMetadata.getDevrigVersion(),
-            ),
-            pid = first?.idePid ?: ProcessHandle.current().pid(),
-            projects = routes.map { route ->
-                ProjectInfo(
-                    name = route.exposedProjectName,
-                    path = route.projectPath,
-                )
-            },
+            projects = listedProjects,
+            backends = backends,
         )
     }
 }

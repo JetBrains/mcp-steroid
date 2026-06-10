@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -81,7 +82,8 @@ class DevrigCommandOutputTest {
         assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
         val out = stdout()
         assertTrue(out.contains("Usage:"), "help output should mention 'Usage:'; got:\n$out")
-        assertTrue(out.contains("devrig mpc"), "help should advertise mpc subcommand; got:\n$out")
+        assertTrue(out.contains("devrig mcp"), "help should advertise the canonical mcp subcommand; got:\n$out")
+        assertFalse(out.contains("devrig mpc"), "help must NOT advertise the hidden mpc alias; got:\n$out")
         assertTrue(out.contains("--version"), "help should advertise --version; got:\n$out")
         assertTrue(out.contains("--help"), "help should advertise --help itself; got:\n$out")
         assertTrue(out.contains("devrig install claude|codex|gemini"), "help should advertise agent install; got:\n$out")

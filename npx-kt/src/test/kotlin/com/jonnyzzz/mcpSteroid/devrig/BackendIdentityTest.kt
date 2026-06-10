@@ -7,19 +7,56 @@ import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
+import com.jonnyzzz.mcpSteroid.server.backendNameForMarker
+import com.jonnyzzz.mcpSteroid.server.base62Sha256
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
 
+/** R3.3: one uniform `backend_name` scheme `<productCodeLower>-<hash8>` for every source. */
 class BackendIdentityTest {
     @Test
-    fun `backend stable id uses the natural source identifier`() {
-        assertEquals("pid-4242", backendStableId(BackendRow.FromMarker(markerIde(pid = 4242L), emptyList())))
-        assertEquals("port-65432", backendStableId(BackendRow.FromPort(portIde(port = 65432))))
-        assertEquals(
-            "idea-community-2025.2.6.2",
-            backendStableId(BackendRow.FromManaged(managedInfo(id = "idea-community-2025.2.6.2"))),
-        )
+    fun `backend_name uses the lowercased product code and an 8-char base62 hash of the source key`() {
+        val marker = backendNameForRow(BackendRow.FromMarker(markerIde(pid = 4242L), emptyList()))
+        val port = backendNameForRow(BackendRow.FromPort(portIde(port = 65432)))
+        val managed = backendNameForRow(BackendRow.FromManaged(managedInfo(id = "idea-community-2025.2.6.2")))
+
+        // Product code prefix is lowercased; build is IC-… everywhere here.
+        assertTrue(marker.startsWith("ic-"), marker)
+        assertTrue(port.startsWith("ic-"), port)
+        assertTrue(managed.startsWith("ic-"), managed)
+
+        // hash8 is exactly 8 base62 (alphanumeric) chars.
+        for (name in listOf(marker, port, managed)) {
+            val hash = name.substringAfter('-')
+            assertEquals(8, hash.length, name)
+            assertTrue(hash.all { it.isLetterOrDigit() }, name)
+        }
+
+        // Deterministic and round-trippable: recomputing from the same source key gives the same id.
+        assertEquals("ic-" + base62Sha256("pid:4242").take(8), marker)
+        assertEquals("ic-" + base62Sha256("port:65432").take(8), port)
+        assertEquals("ic-" + base62Sha256("managed:idea-community-2025.2.6.2").take(8), managed)
+    }
+
+    @Test
+    fun `the same pid yields the same id and different pids differ even with the same product`() {
+        val a = backendNameForMarker(pid = 1L, build = "IU-261.1")
+        val aAgain = backendNameForMarker(pid = 1L, build = "IU-261.1")
+        val b = backendNameForMarker(pid = 2L, build = "IU-261.1")
+        assertEquals(a, aAgain)
+        assertNotEquals(a, b)
+        assertTrue(a.startsWith("iu-"))
+    }
+
+    @Test
+    fun `missing product code falls back to the ide- prefix`() {
+        assertTrue(backendNameForMarker(pid = 7L, build = null).startsWith("ide-"))
+        assertTrue(backendNameForMarker(pid = 7L, build = "").startsWith("ide-"))
+        // A build with no product-code prefix (port /api/about can return "253.x") also falls back.
+        assertTrue(backendNameForPort(port = 63342, build = "253.21581.142").startsWith("ide-"))
     }
 
     private fun markerIde(pid: Long): DiscoveredIde {

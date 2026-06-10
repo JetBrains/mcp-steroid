@@ -15,6 +15,18 @@ enum class AiAgentCli(
         GEMINI -> geminiMcpAddStdioArgs(command, serverName)
     }
 
+    fun mcpRemoveArgs(serverName: String = DEFAULT_SERVER_NAME): List<String> = when (this) {
+        CLAUDE -> claudeMcpRemoveArgs(serverName)
+        CODEX -> codexMcpRemoveArgs(serverName)
+        GEMINI -> geminiMcpRemoveArgs(serverName)
+    }
+
+    fun mcpListArgs(): List<String> = when (this) {
+        CLAUDE -> claudeMcpListArgs()
+        CODEX -> codexMcpListArgs()
+        GEMINI -> geminiMcpListArgs()
+    }
+
     companion object {
         fun parse(value: String): AiAgentCli? =
             entries.firstOrNull { it.name.equals(value, ignoreCase = true) || it.binary == value.lowercase() }
@@ -54,4 +66,21 @@ fun mcpAddStdioInvocation(
     AiAgentCliInvocation(
         binary = agent.binary,
         args = agent.mcpAddStdioArgs(command, serverName),
+    )
+
+fun mcpRemoveInvocation(
+    agent: AiAgentCli,
+    serverName: String = DEFAULT_SERVER_NAME,
+): AiAgentCliInvocation =
+    AiAgentCliInvocation(
+        binary = agent.binary,
+        args = agent.mcpRemoveArgs(serverName),
+    )
+
+fun mcpListInvocation(
+    agent: AiAgentCli,
+): AiAgentCliInvocation =
+    AiAgentCliInvocation(
+        binary = agent.binary,
+        args = agent.mcpListArgs(),
     )

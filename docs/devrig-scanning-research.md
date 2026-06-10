@@ -6,7 +6,7 @@ background scanners is final and tracked as implementation work.
 
 ## Question
 
-Today `devrig mpc` runs three background tasks for the entire MCP
+Today `devrig mcp` runs three background tasks for the entire MCP
 session lifetime:
 
 1. **Marker scanner** — polls `~/.mcp-steroid/markers/` every **2 s**
@@ -107,7 +107,7 @@ fast.
 - **No stale-snapshot window.** Every call reflects the moment.
   The "marker disappeared 1.5 s ago but the 2 s scan hasn't fired
   yet" case can't happen.
-- **No idle resource cost.** A `devrig mpc` process with no MCP
+- **No idle resource cost.** A `devrig mcp` process with no MCP
   calls in flight uses zero CPU and zero idle sockets. Today it
   keeps N long-lived HTTP streams + two polling loops alive.
 - **Crash recovery is trivial.** No "reconnect a dropped stream"

@@ -178,7 +178,7 @@ in `intelliJ.kt`) — so the IDE and devrig can be debugged at the same time:
   `export DEVRIG_OPTS="-agentlib:jdwp=…,server=y,suspend=n,quiet=y,address=*:5006 …"`.
   `DEVRIG_OPTS` is the Gradle-application opts var (only the `devrig` launch reads it — it does
   **not** leak into child JVMs and double-bind the port, which `JAVA_TOOL_OPTIONS` would).
-  `quiet=y` keeps the agent's own "Listening …" line **off stdout** — `devrig mpc` speaks JSON-RPC
+  `quiet=y` keeps the agent's own "Listening …" line **off stdout** — `devrig mcp` speaks JSON-RPC
   on stdout, so a stray line would corrupt the protocol.
 - The port is published (`.ports(… DEVRIG_DEBUG_PORT)`) and Docker-mapped. The host-mapped port is
   printed on the host in the JVM's own wording — `Listening for transport dt_socket at address:
@@ -187,9 +187,9 @@ in `intelliJ.kt`) — so the IDE and devrig can be debugged at the same time:
 - Attach a **second** "Remote JVM Debug" with classpath of module **`npx-kt`** to that host port.
 
 Caveat: the agent (`address=*:5006`, `server=y`) binds a fixed port, so it assumes a single live
-`devrig` JVM per container (the long-lived `devrig mpc` MCP server). A concurrent second `devrig`
+`devrig` JVM per container (the long-lived `devrig mcp` MCP server). A concurrent second `devrig`
 invocation in the same container would fail with "Address already in use" — fine for the stdio-bridge
-tests, where only `devrig mpc` runs.
+tests, where only `devrig mcp` runs.
 
 ## RLM Analysis of Arena Runs (run-*/intellij/mcp-steroid/)
 

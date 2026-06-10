@@ -117,7 +117,7 @@ When changing files across multiple sub-folders, read the guides for each.
   of unresolved-reference errors. Rewrite as `//` line comments or quote the
   substring to avoid the `/*` sequence.
 - **MCP stdio scripts writing to stdout.** Any shell/PowerShell wrapper
-  invoked by an agent CLI as a stdio MCP server (`devrig mpc`, etc.) must
+  invoked by an agent CLI as a stdio MCP server (`devrig mcp`, etc.) must
   emit **only stderr** before `exec`-ing the inner binary. Stdout is the
   JSON-RPC channel — a single stray byte corrupts the protocol. Use `>&2`
   (POSIX) or `Write-Error` / `[Console]::Error.WriteLine` (PowerShell).

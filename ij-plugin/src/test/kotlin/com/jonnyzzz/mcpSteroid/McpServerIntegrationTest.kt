@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import com.jonnyzzz.mcpSteroid.mcp.*
+import com.jonnyzzz.mcpSteroid.server.hasMcpSteroid
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
 import com.jonnyzzz.mcpSteroid.server.NpxBridgeService
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.jsonObject
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -120,11 +122,11 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertFalse("steroid_list_projects should succeed", listProjectsResult.isError)
         val projectsPayload = (listProjectsResult.content.single() as ContentItem.Text).text
         val projects = McpJson.decodeFromString<ListProjectsResponse>(projectsPayload)
-        assertTrue("IDE name should be reported", projects.ide.name.isNotBlank())
-        assertTrue("IDE version should be reported", projects.ide.version.isNotBlank())
-        assertTrue("IDE build should be reported", projects.ide.build.isNotBlank())
-        assertTrue("Plugin id should be reported", projects.plugin.id.isNotBlank())
-        assertTrue("Plugin version should be reported", projects.plugin.version.isNotBlank())
+        val projectsSelfBackend = projects.backends.single()
+        assertTrue("IDE name should be reported on the self backend", projectsSelfBackend.ide?.name.orEmpty().isNotBlank())
+        assertTrue("IDE version should be reported on the self backend", projectsSelfBackend.ide?.version.orEmpty().isNotBlank())
+        assertTrue("IDE build should be reported on the self backend", projectsSelfBackend.ide?.build.orEmpty().isNotBlank())
+        assertTrue("MCP Steroid plugin should be reported on the self backend", projectsSelfBackend.hasMcpSteroid())
         assertTrue(
             "Current project should be discoverable via the MCP tool",
             projects.projects.any { it.name == project.name }
@@ -178,10 +180,39 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         assertFalse("steroid_list_windows should succeed", listWindowsResult.isError)
 
         val payload = listWindowsResult.content.filterIsInstance<ContentItem.Text>().firstOrNull()?.text ?: ""
+
+        // #89: no top-level ide/plugin/pid header — identity lives in backends[] only.
+        val rawWindowsJson = McpJson.parseToJsonElement(payload).jsonObject
+        for (droppedHeaderKey in listOf("ide", "plugin", "pid")) {
+            assertFalse(
+                "steroid_list_windows must not carry the dropped top-level '$droppedHeaderKey' header",
+                rawWindowsJson.containsKey(droppedHeaderKey)
+            )
+        }
+
         val windows = McpJson.decodeFromString(ListWindowsResponse.serializer(), payload)
         assertNotNull("Should return windows payload", windows)
-        assertTrue("Plugin id should be reported", windows.plugin.id.isNotBlank())
-        assertTrue("Plugin version should be reported", windows.plugin.version.isNotBlank())
+        assertEquals(
+            "Direct-IDE list_windows must self-describe with exactly one backend",
+            1,
+            windows.backends.size
+        )
+        val selfBackend = windows.backends.single()
+        assertTrue("The self backend must report the MCP Steroid plugin installed", selfBackend.hasMcpSteroid())
+        windows.windows.forEach { window ->
+            assertEquals(
+                "Every window must be bound to the single self backend",
+                selfBackend.backendName,
+                window.backendName
+            )
+        }
+        windows.backgroundTasks.forEach { task ->
+            assertEquals(
+                "Every background task must be bound to the single self backend",
+                selfBackend.backendName,
+                task.backendName
+            )
+        }
         if (windows.windows.isNotEmpty()) {
             assertTrue(
                 "windows should include windowId values",
@@ -204,6 +235,111 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
             header(HttpHeaders.Authorization, "Bearer wrong-token")
         }
         assertEquals(HttpStatusCode.Unauthorized, wrongTokenResponse.status)
+    }
+
+    /**
+     * The direct in-IDE surface serves exactly one backend, so steroid_open_project must NOT advertise
+     * the devrig-only `backend_name` parameter (Option B). Guards the in-IDE
+     * `OpenProjectToolSpec(includeBackendName = false)` registration in SteroidsMcpServer.
+     */
+    fun testOpenProjectSchemaOmitsBackendNameOnDirectSurface(): Unit = timeoutRunBlocking(30.seconds) {
+        val server = SteroidsMcpServer.getInstance()
+        server.startServerIfNeeded()
+
+        val sessionId = initializeSession(server)
+
+        val toolsListResponse = client.post(server.mcpUrl) {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody("""{"jsonrpc":"2.0","id":"tools-list","method":"tools/list"}""")
+        }
+        assertEquals(HttpStatusCode.OK, toolsListResponse.status)
+        val toolsRpc = McpJson.decodeFromString<JsonRpcResponse>(toolsListResponse.bodyAsText())
+        assertNull("tools/list should succeed", toolsRpc.error)
+        val toolsList = McpJson.decodeFromJsonElement<ToolsListResult>(toolsRpc.result!!)
+
+        val openProject = toolsList.tools.single { it.name == "steroid_open_project" }
+        val properties = openProject.inputSchema["properties"]!!.jsonObject
+        assertFalse(
+            "Direct-IDE steroid_open_project must not advertise backend_name (devrig-only param)",
+            properties.containsKey("backend_name")
+        )
+    }
+
+    /**
+     * R3.6 — the direct in-IDE surface self-describes with the SAME shape devrig emits: exactly one
+     * routable backend (this IDE), and every project's `project_name == name` and `backend_name` points
+     * at that single backend. Replaces the round-2 "direct surface stays empty" guard.
+     */
+    fun testDirectIdeListProjectsSelfDescribes(): Unit = timeoutRunBlocking(30.seconds) {
+        val server = SteroidsMcpServer.getInstance()
+        server.startServerIfNeeded()
+
+        val sessionId = initializeSession(server)
+
+        val listProjectsResponse = client.post(server.mcpUrl) {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(McpHttpTransport.SESSION_HEADER, sessionId)
+            setBody("""{"jsonrpc":"2.0","id":"call-list-projects","method":"tools/call","params":{"name":"steroid_list_projects"}}""")
+        }
+        assertEquals(HttpStatusCode.OK, listProjectsResponse.status)
+        val listProjectsRpc = McpJson.decodeFromString<JsonRpcResponse>(listProjectsResponse.bodyAsText())
+        assertNull("steroid_list_projects should not return JSON-RPC error", listProjectsRpc.error)
+        val listProjectsResult = McpJson.decodeFromJsonElement<ToolCallResult>(listProjectsRpc.result!!)
+        assertFalse("steroid_list_projects should succeed", listProjectsResult.isError)
+        val projectsPayload = (listProjectsResult.content.single() as ContentItem.Text).text
+
+        // #89: no top-level ide/plugin/pid header — identity lives in backends[] only.
+        val rawProjectsJson = McpJson.parseToJsonElement(projectsPayload).jsonObject
+        for (droppedHeaderKey in listOf("ide", "plugin", "pid")) {
+            assertFalse(
+                "steroid_list_projects must not carry the dropped top-level '$droppedHeaderKey' header",
+                rawProjectsJson.containsKey(droppedHeaderKey)
+            )
+        }
+
+        val response = McpJson.decodeFromString<ListProjectsResponse>(projectsPayload)
+
+        assertEquals(
+            "Direct-IDE list_projects must self-describe with exactly one backend",
+            1,
+            response.backends.size
+        )
+        val selfBackend = response.backends.single()
+        assertTrue(
+            "The self backend must be routable",
+            selfBackend.routable
+        )
+        assertTrue(
+            "The self backend must report the MCP Steroid plugin installed",
+            selfBackend.hasMcpSteroid()
+        )
+        response.projects.forEach { project ->
+            assertEquals(
+                "Direct-IDE project_name must equal the real name",
+                project.name,
+                project.projectName
+            )
+            assertEquals(
+                "Direct-IDE project must point at the single self backend",
+                selfBackend.backendName,
+                project.backendName
+            )
+        }
+    }
+
+    private suspend fun initializeSession(server: SteroidsMcpServer): String {
+        val initResponse = client.post(server.mcpUrl) {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            setBody(buildInitializeRequest())
+        }
+        assertEquals(HttpStatusCode.OK, initResponse.status)
+        val sessionId = initResponse.headers[McpHttpTransport.SESSION_HEADER]
+        assertNotNull("Server must issue an MCP session ID", sessionId)
+        return sessionId!!
     }
 
     private fun buildInitializeRequest() = buildJsonObject {

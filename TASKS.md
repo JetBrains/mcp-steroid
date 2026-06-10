@@ -24,7 +24,7 @@ Verified-good items are noted so the next iteration knows what already works.
     `devrig backend` discovered it as a managed backend with **MCP Steroid
     0.96.19999-SNAPSHOT-930b6fc7 loaded and responding** — even over a
     headless SSH session.
-  - **`steroid_open_project` verified end-to-end over `devrig mpc`**: the call
+  - **`steroid_open_project` verified end-to-end over `devrig mcp`**: the call
     returned `isError:false` ("Project opening initiated") and `devrig backend`
     then showed the project **open** in the managed IDE:
     `devrig-openproj-test → C:/Users/jonnyzzz/devrig-openproj-test`. So the
@@ -40,7 +40,7 @@ Verified-good items are noted so the next iteration knows what already works.
   IDEA 2026.1.2 (pid 42649) — R5 smoke now unblocked.
 - **macOS agent flow end-to-end OK**: `devrig backend start idea-community`
   launched the managed IDEA CE 2026.1.2 (pid 63943) detached; it is
-  discovered with the MCP Steroid plugin loaded. `devrig mpc` over stdio:
+  discovered with the MCP Steroid plugin loaded. `devrig mcp` over stdio:
   `initialize` ok, `tools/list` = 8 tools incl. `steroid_open_project`,
   `steroid_list_projects` routes through the bridge to real backends.
   `open_project` routing (`openProjectTargetIde`) prefers the managed
@@ -124,7 +124,7 @@ class file versions up to 65.0
   devrig log is **2026-05-15** — the current flow has never run there.
 - `devrig install <agent>` (`InstallCommand.selfMcpCommand`) does **not**
   provision Java either — it pins the *install-time* `JAVA_HOME` into the
-  agent's `devrig mpc` launch command. On a host whose only JDK is 21, that
+  agent's `devrig mcp` launch command. On a host whose only JDK is 21, that
   bakes in a JDK that can't run devrig.
 - Workaround proven: after manually installing Corretto **25** on the host
   (`jdk25.0.3_9`) and pointing `JAVA_HOME` at it, `devrig --version`,
@@ -218,7 +218,7 @@ transport) was completely untested on TC:
 - `ciIntegrationTests` = `:test-helper:test` → `:ij-plugin:integrationTest` →
   `:test-integration:test` — **`:npx-kt:integrationTest` is not in it.**
 - Net: neither devrig unit tests nor the devrig **stdio** integration tests
-  (`CliMcpStdio*`, `CliInstall*` — `devrig mpc` driven over stdin/stdout) ran
+  (`CliMcpStdio*`, `CliInstall*` — `devrig mcp` driven over stdin/stdout) ran
   anywhere on TeamCity. The stale rationale ("distributed separately, no
   influence on the IDE plugin") predates devrig shipping as a release artifact
   + becoming the agent stdio entrypoint.
@@ -536,7 +536,7 @@ This is the current source of truth after the devrig cleanup commit
 - Agent/test-helper registration should talk in terms of generic stdio MCP
   registration (`registerStdioMcp`) plus devrig-specific install/deploy
   helpers. Do not reintroduce `registerNpxMcp` or `NpxProxyInstaller`.
-- `devrig mpc` is the stdio MCP subcommand. Normal CLI output may use the
+- `devrig mcp` is the stdio MCP subcommand. Normal CLI output may use the
   captured service stdout; MCP mode must keep MCP stdout clean and route logs
   through stderr / devrig log files.
 
@@ -550,7 +550,7 @@ Verification for the cleanup checkpoint:
 
 # Active focus — npx-kt testing and stabilization plan (2026-05-18)
 
-Goal: turn npx-kt/devrig `mpc` mode from "implemented" into a stable,
+Goal: turn npx-kt/devrig `mcp` mode from "implemented" into a stable,
 diagnosable replacement for the direct IDE HTTP MCP server.
 
 Why this exists: the first full `AI_NPX` batch proved the fast/fake-IDE path
@@ -926,12 +926,12 @@ Prompt/resource behavior:
   `run_20260518-135010-58149`, Gemini `run_20260518-135010-58166`.
 
 CLI/runtime behavior:
-- [x] `devrig mpc` starts a clean stdio MCP server and exits cleanly on stdin
+- [x] `devrig mcp` starts a clean stdio MCP server and exits cleanly on stdin
   close.
-- [x] No stdout leaks before MCP frames in `mpc` mode.
+- [x] No stdout leaks before MCP frames in `mcp` mode.
   Covered by
   `CliMcpStdioStdoutCleanlinessTest.host launcher writes only JSON-RPC frames to stdout`,
-  which runs the real `installDist` launcher with `mpc`, completes after stdin
+  which runs the real `installDist` launcher with `mcp`, completes after stdin
   closes, and parses every stdout line as JSON-RPC. Verification:
   `./gradlew :npx-kt:integrationTest --tests 'com.jonnyzzz.mcpSteroid.proxy.cli.CliMcpStdioStdoutCleanlinessTest.host launcher writes only JSON-RPC frames to stdout' --tests 'com.jonnyzzz.mcpSteroid.proxy.cli.CliOptionsIntegrationTest' --rerun-tasks --console=plain`
   passed after fixing launcher stderr noise and CliKt-native parse-error
@@ -961,7 +961,7 @@ CLI/runtime behavior:
   logs.
   Covered by
   `CliMcpStdioStdoutCleanlinessTest.host startup failure before handshake is visible on stderr`,
-  which runs the real `mpc` launcher with an invalid absolute `DEVRIG_HOME`,
+  which runs the real `mcp` launcher with an invalid absolute `DEVRIG_HOME`,
   feeds a normal MCP handshake, and asserts exit 64, blank stdout, and stderr
   containing `Startup failure:`, `DEVRIG_HOME`, and the canonical-path failure.
   Verification:
@@ -1011,7 +1011,7 @@ agent prompt/tool-selection bugs.
   marker and returns it through devrig.
   Added `NpxKtRealIdeBridgeIntegrationTest`, which starts one Docker IDE with
   the plugin, uses HTTP MCP only for setup, registers only `/home/agent/devrig
-  mpc` as the test MCP server, and verifies initialize -> list projects ->
+  mcp` as the test MCP server, and verifies initialize -> list projects ->
   execute-code through devrig stdio. Also fixed `NpxSteroidDriver.deploy` so
   the immutable container request builder actually runs the install script, and
   refreshed `/npx/v1/projects/stream` on subscription so devrig routes the
@@ -1100,7 +1100,7 @@ Tasks:
 
 # Active focus — npx-kt as stable MCP Steroid stdio replacement (2026-05-17)
 
-Goal: make npx-kt/devrig `mpc` mode a real replacement for the IDE HTTP MCP
+Goal: make npx-kt/devrig `mcp` mode a real replacement for the IDE HTTP MCP
 server by routing tool calls through discovered IDE bridge endpoints while
 keeping prompt/resource rendering local to npx-kt.
 
@@ -3752,3 +3752,78 @@ What to set up (revisit after the current devrig tasks):
 
 **Still deferred** (need a baseline release / larger refactor): (2) cross-version test (devrig HEAD ↔ older
 plugin build); (5) give devrig its own copy of the marker/bridge DTOs for fully independent versioning.
+
+---
+
+# Active focus — backend_name follow-ups: plugins[], shared BackendInfo, de-inherit tool reg, devrig-mgmt docs (2026-06-10)
+
+Follow-up to the merged #87 (`backend_name` routing). Five split tasks. Hard invariant for ALL of them:
+**the npx-kt ↔ ij-plugin WIRE is untouched** (`/projects/stream` `ProjectInfo{name,path}`, `/windows`
+`NpxBridgeWindowsResponse`, `/tools/call` params). Everything here is MCP/CLI-output (devrig-owned, free
+to reshape per PHILOSOPHY.md Tenet 5) or internal registration/docs. `WirePristinenessTest` must stay green.
+
+- **A — plugins[] in BackendInfo (#88 prep).** Add `@Serializable BackendPlugin(id, name, version, kind)`
+  (`kind`: `"mcp-steroid"` | `"other"`; room for `"intellij-native-mcp"`). On `BackendInfo`, REPLACE the
+  `plugin: PluginInfo?` + `mcpSteroidPluginInstalled: Boolean` fields with `plugins: List<BackendPlugin> =
+  emptyList()`. Keep `type = "intellij"` (document: more backend types may come). Add helpers
+  `BackendInfo.mcpSteroidPlugin(): BackendPlugin?` + `BackendInfo.hasMcpSteroid(): Boolean` (the "simplify
+  the check" helper). Update all producers (devrig `backendInfoForRow`, ij self-describe) and consumers
+  (BackendCommandJsonRenderTest, BackendAndProjectJsonAreIdenticalTest, DevrigToolBridgeClientTest,
+  McpServerIntegrationTest) to plugins[]/helper. Markers → one `BackendPlugin(kind=mcp-steroid)`;
+  port/managed → empty.
+- **B — share the marker→BackendInfo builder.** Extract into `mcp-steroid-server` a
+  `markerBackendInfo(backendName, pid, ide: IdeInfo, plugins, openProjects, managed, routable, reachable)`
+  assembler PLUS shared marker display/locator formatters (`markerDisplayName(ide)`,
+  `markerLocator(build, pid)`). devrig's `markerBackendDisplayName`/`markerBackendLocatorLabel` delegate to
+  them; devrig `backendInfoForRow(FromMarker)` and ij `ListProjectsToolHandler` both call
+  `markerBackendInfo` — one definition, no per-side re-implementation.
+- **C — de-inherit tool registration.** Remove `McpSteroidTools.openProjectToolSpec()` (the protected-open
+  override seam) and the `StubMcpSteroidTools` override. `registerAll` registers only the common tools; each
+  call site registers open_project explicitly — ij (`SteroidsMcpServer`) with `includeBackendName=false`,
+  devrig (`StubStdioMcpServer`) with `includeBackendName=true`, both via `tools.handler<…>()`. Delete
+  `McpSteroidToolsSeamTest`.
+- **D — backend_name devrig-management docs.** In `OpenProjectTool` BACKEND_NAME_DESCRIPTION + the agent
+  guide + `managing-backends.md`: how to manage backends via the devrig CLI — `devrig backend
+  [download|start|stop|provision] <id>` — with the launcher path on macOS/Linux (`devrig`) AND Windows
+  (`devrig.bat`, via `cmd.exe /c`), and that devrig needs Java 25: set `DEVRIG_JAVA_HOME` to a 25 home if
+  `java`/`JAVA_HOME` is older.
+- **E — verify.** `:mcp-steroid-server:test` + `:npx-kt:test` green; `:ij-plugin` compiles +
+  `McpServerIntegrationTest` green; `WirePristinenessTest` green (wire unaffected). Full diff audit.
+
+---
+
+# Active focus — #89: backend-attributed list_projects/list_windows, no top-level ide header (2026-06-10)
+
+User-decided design (supersedes the earlier options list):
+- **No `ide`/`plugin`/`pid` header block** on `ListProjectsResponse` / `ListWindowsResponse` — devrig's own
+  identity is already in the MCP server info; per-entry attribution replaces the header entirely.
+- Both responses carry **`backends[]`** (shared `BackendInfo`), and every project/window/background-task
+  entry is bound to its backend via `backend_name`.
+- **All backends are listed** in `backends[]` — including port-only / managed-not-running and marker IDEs
+  with zero open projects (b1).
+- No "ran in:" echo in tool results (rejected — `backend_name` is already the key, info already reported).
+
+Split:
+- **W1 — mcp-steroid-server reshape.** `ListProjectsResponse { projects, backends }` (drop ide/plugin/pid);
+  `ListWindowsResponse { windows: List<ListedWindow>, backgroundTasks: List<ListedBackgroundTask>,
+  backends: List<BackendInfo> }` (drop ide/plugin/pid). New MCP-only `ListedWindow` (WindowInfo fields +
+  `@SerialName("backend_name") backendName`) and `ListedBackgroundTask` (ProgressTaskInfo fields +
+  backend_name). WIRE STAYS PRISTINE: `WindowInfo`/`ProgressTaskInfo`/`NpxBridgeWindowsResponse` (8
+  required fields incl. pid) unchanged — extend `WirePristinenessTest`.
+- **W2 — devrig BackendInventory + handlers.** One service scanning the whole model (markers + managed +
+  port), shared by the CLI (`collectBackendRows` delegates) and MCP handlers. MCP mode: markers from the
+  monitor's cached state (no re-fetch); CLI mode: scanOnce + snapshot fetch (today's behavior). Managed
+  rows: check `runningPid` liveness before any HTTP. Port scan: bounded ~1s. `DevrigListProjectsToolHandler`
+  backends[] = ALL inventory rows via `backendInfoForRow`; `DevrigListWindowsToolHandler` binds each
+  window/task via `backendNameForMarker(pid, build)` (the wire response already carries the pid) + same
+  backends[]. Performance optimization only if it hurts (no caching yet).
+- **W3 — ij-plugin.** Drop the header fields; windows handler binds every window/task to the self
+  backend_name and emits backends[] = [self] (reuse `markerBackendInfo`). REFACTOR SEAM: `NpxBridgeService
+  .buildWindows` currently builds the WIRE response from the MCP handler's output — split so the wire path
+  gets raw `WindowInfo`/`ProgressTaskInfo` + self pid (byte-identical wire) and the MCP handler wraps them.
+  Migrate test-integration infra consumers of the dropped header pid (`intelliJ-window.kt` listWindows
+  `it.pid`, `DialogKillerIntegrationTest` pid filters, the mcp-steroid.kt helper) to per-window
+  backend_name → backends[].pid resolution.
+- **W4 — docs + verify.** AGENT-STEROID-GUIDE / managing-backends: responses self-describe via backends[]
+  only (no top-level ide); backends[] now lists non-routable port/managed rows too (check `routable`).
+  Suites green; wire-pristineness green.

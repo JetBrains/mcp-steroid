@@ -3,6 +3,14 @@ package com.jonnyzzz.mcpSteroid.server
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 
 abstract class McpSteroidTools {
+    /**
+     * Registers the tools common to every backend surface (in-IDE plugin and devrig CLI).
+     *
+     * `steroid_open_project` is intentionally NOT registered here: its spec differs per surface
+     * (the in-IDE plugin advertises no `backend_name`, devrig advertises a required `backend_name`
+     * routing param). Each caller registers its own `OpenProjectToolSpec(...)` after this call,
+     * using the public [handler] accessor to resolve the [OpenProjectToolHandler].
+     */
     fun registerAll(server: McpServerCore) {
         val tools = server.toolRegistry
 
@@ -12,7 +20,6 @@ abstract class McpSteroidTools {
         tools.registerTool(ExecuteFeedbackToolSpec { handler<ExecuteFeedbackToolHandler>() })
         tools.registerTool(VisionScreenshotToolSpec { handler<VisionScreenshotToolHandler>() })
         tools.registerTool(VisionInputToolSpec { handler<VisionInputToolHandler>() })
-        tools.registerTool(OpenProjectToolSpec { handler<OpenProjectToolHandler>() })
         tools.registerTool(FetchResourceToolHandler { handler<PromptsContextHandler>() })
     }
 

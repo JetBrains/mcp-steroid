@@ -98,7 +98,14 @@ class SteroidsMcpServer(
             // mcp-steroid:// articles are NOT exposed via resources/list or
             // prompts/list — the steroid_fetch_resource tool is the only path
             // because it requires project_name for correct IDE-conditional rendering.
-            service<McpSteroidToolsIJ>().registerAll(mcpServer)
+            val tools = service<McpSteroidToolsIJ>()
+            tools.registerAll(mcpServer)
+            // The in-IDE plugin is a single backend, so its steroid_open_project advertises
+            // NO `backend_name` routing param (includeBackendName = false). devrig registers its
+            // own backend_name-carrying spec. registerAll() no longer registers open_project.
+            mcpServer.toolRegistry.registerTool(
+                OpenProjectToolSpec(includeBackendName = false) { tools.handler<OpenProjectToolHandler>() }
+            )
 
             val configuredPort = Registry.intValue("mcp.steroid.server.port")
 

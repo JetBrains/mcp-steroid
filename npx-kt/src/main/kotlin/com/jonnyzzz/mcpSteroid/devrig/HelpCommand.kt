@@ -12,7 +12,7 @@ fun printHelp(out: PrintStream) : Int {
         """
         Usage:
 
-          devrig mpc                     run as an MCP stdio server,
+          devrig mcp                     run as an MCP stdio server,
                                          register that setup in your coding agent
 
           devrig backend [--json]        list discovered backends (with versions) and the

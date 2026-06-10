@@ -28,15 +28,15 @@ class DevrigCliContainer(
     /** Absolute path of the devrig launcher inside the container. */
     val launcher: String,
 ) {
-    /** Start `devrig mpc` in the container as a stdio MCP server, driven over the docker-exec stdin/stdout. */
-    fun startMpc(lifetime: CloseableStack, resourceName: String = "devrig-mpc"): StdioMcpProcess =
+    /** Start `devrig mcp` in the container as a stdio MCP server, driven over the docker-exec stdin/stdout. */
+    fun startMpc(lifetime: CloseableStack, resourceName: String = "devrig-mcp"): StdioMcpProcess =
         startStdioMcpProcess(lifetime, resourceName) { stdin: Flow<ByteArray> ->
             container.startProcessInContainer {
-                args(launcher, "mpc")
+                args(launcher, "mcp")
                     .interactive()
                     .stdin(stdin)
                     .timeoutSeconds(300)
-                    .description("devrig mpc (container)")
+                    .description("devrig mcp (container)")
                     .quietly()
             }
         }
@@ -50,14 +50,14 @@ class DevrigCliContainer(
                 .quietly()
         }.awaitForProcessFinish()
 
-    /** Run `devrig mpc` once in the container feeding [stdin] (e.g. a fixed handshake), returning the result. */
+    /** Run `devrig mcp` once in the container feeding [stdin] (e.g. a fixed handshake), returning the result. */
     fun runMpcWithStdin(stdin: ByteArray, timeoutSeconds: Long = 60): ProcessResult =
         container.startProcessInContainer {
-            args(launcher, "mpc")
+            args(launcher, "mcp")
                 .interactive()
                 .stdin(flowOf(stdin))
                 .timeoutSeconds(timeoutSeconds)
-                .description("devrig mpc (container, fixed stdin)")
+                .description("devrig mcp (container, fixed stdin)")
                 .quietly()
         }.awaitForProcessFinish()
 }

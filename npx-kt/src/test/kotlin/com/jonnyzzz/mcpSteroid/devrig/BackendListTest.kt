@@ -95,14 +95,15 @@ class BackendListTest {
 
         val root = Json.parseToJsonElement(buf.toString(Charsets.UTF_8)).jsonObject
         val backend = root["backends"]!!.jsonArray.single().jsonObject
-        assertEquals("idea-community-2025.3.3", backend["id"]!!.jsonPrimitive.content)
         assertEquals("intellij", backend["type"]!!.jsonPrimitive.content)
         assertEquals("managed", backend["source"]!!.jsonPrimitive.content)
         assertEquals(true, backend["managed"]!!.jsonPrimitive.boolean)
-        assertEquals("idea-community-2025.3.3", backend["managedId"]!!.jsonPrimitive.content)
-        assertEquals("2025.3.3", backend["version"]!!.jsonPrimitive.content)
-        assertEquals("/managed/idea-community-2025.3.3", backend["installPath"]!!.jsonPrimitive.contentOrNull)
-        assertEquals("/caches/idea-community-2025.3.3", backend["cachePath"]!!.jsonPrimitive.contentOrNull)
+        // R3.4: managed-only fields live under managedDetail, not flattened on the backend.
+        val detail = backend["managedDetail"]!!.jsonObject
+        assertEquals("idea-community-2025.3.3", detail["managedId"]!!.jsonPrimitive.content)
+        assertEquals("2025.3.3", detail["version"]!!.jsonPrimitive.content)
+        assertEquals("/managed/idea-community-2025.3.3", detail["installPath"]!!.jsonPrimitive.contentOrNull)
+        assertEquals("/caches/idea-community-2025.3.3", detail["cachePath"]!!.jsonPrimitive.contentOrNull)
     }
 
     @Test

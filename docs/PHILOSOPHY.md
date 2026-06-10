@@ -85,7 +85,7 @@ the **IntelliJ capability** surface stays full, exposed via
 ## Tenet 3 — devrig is stateless
 
 **The `devrig` binary holds no state across calls.** Every CLI
-invocation is a fresh process; `devrig mpc` (the stdio MCP server)
+invocation is a fresh process; `devrig mcp` (the stdio MCP server)
 holds only in-memory caches that live for the duration of the
 session and are rebuilt from scratch on the next process start.
 
@@ -108,7 +108,7 @@ Concretely:
   the process.
 - **Background scanning is implementation-detail, not contract.**
   Today devrig runs marker / port / per-IDE-stream scanners in the
-  background of `devrig mpc`; whether those stay or get replaced
+  background of `devrig mcp`; whether those stay or get replaced
   by on-demand rebuild (see
   [`docs/devrig-scanning-research.md`](devrig-scanning-research.md))
   is a tactical decision. Neither variant changes the contract
@@ -168,6 +168,60 @@ surface. Production guidance routes agents to the
 `mcp-steroid://ide/apply-patch` recipe inside `steroid_execute_code` —
 there is no dedicated MCP tool wrapping it. New context methods must
 clear the same bar.
+
+## Tenet 5 — the devrig↔plugin WIRE is additive-only (the devrig-computed output is not)
+
+**The wire between `devrig` and the in-IDE plugin must stay forward AND
+backward compatible at all times. No breaking changes — ever.** A given
+devrig binary talks to many plugin versions and vice-versa (Tenet 3:
+devrig is reconstructable, not migratable).
+
+**Scope this precisely.** The additive-only contract binds the
+**devrig↔IDE wire ONLY**: the `/projects/stream` and `/windows`
+responses, the JSON-RPC `/tools/call` params devrig POSTs to the bridge,
+and the `@Serializable` DTOs they (de)serialize (`NpxStreamEnvelope`,
+`NpxBridgeWindowsResponse`, `PidMarker`, `ToolCallResult`, `ProjectInfo`).
+Every change to one of those shapes is **additive and optional**:
+
+- New fields are optional with a safe default (`= null` / `= ""` /
+  `= false` / a defaulted enum). An older peer that omits them still
+  decodes; a newer peer that ignores them still works.
+- Never remove, rename, or retype an existing field. Enums must degrade
+  on an unknown value, not throw.
+
+**The devrig-computed MCP/CLI output is devrig-owned and outside this
+contract — free to reshape.** `steroid_list_projects` results
+(`ListProjectsResponse`, `BackendInfo`, `ListedProject`) and the devrig
+CLI `backend`/`project --json` output are built by devrig from its own
+routing snapshot and returned to one freshly-attached agent or user —
+devrig **never fetches** the IDE's `steroid_list_projects`, so these
+types never cross the wire. They may be renamed, restructured, or
+re-keyed at will; only the wire above is frozen.
+
+- **Prefer resolving new behavior inside devrig over extending the
+  wire.** The `backend_name` routing parameter is the canonical example:
+  it is an MCP-surface parameter that devrig resolves **locally** to a
+  target IDE and **never forwards** to the bridge, so the
+  `steroid_open_project` bridge call stayed byte-identical while the
+  agent gained backend selection. `backend_name` is resolved locally,
+  never forwarded.
+- Because the per-project backend reference now lives on the
+  devrig-owned `ListedProject` (not on the wire), the wire `ProjectInfo`
+  was **reverted to pristine `{name, path}`**. `ProjectsStreamService`
+  only ever builds `ProjectInfo(name, path)`, so this reversion changes
+  **zero emitted bytes** on `/projects/stream`.
+- Every wire change ships with a cross-version compatibility test (the
+  wire-pristineness guard `WirePristinenessTest` asserts the wire never
+  serializes the devrig-only `backend_name`/`project_name`/`BackendInfo`/
+  `ListedProject` keys; `DevrigToolBridgeClientTest` pins the forwarded
+  params) and a one-line entry in the `ij-plugin/CLAUDE.md` wire-contract
+  table.
+
+**Why:** the protocol is the one thing two independently-versioned
+binaries share; a breaking change there strands every mismatched pair.
+Additive-only is what makes "delete devrig, reinstall any version" safe.
+Conversely, the devrig-computed output answers a single live agent and
+need not carry that burden.
 
 ---
 

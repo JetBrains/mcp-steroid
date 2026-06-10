@@ -5,6 +5,8 @@ import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeDiscoveryService
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IntelliJPortDiscovery
+import com.jonnyzzz.mcpSteroid.server.BackendInfo
+import com.jonnyzzz.mcpSteroid.server.ListedProject
 import com.jonnyzzz.mcpSteroid.server.NpxStreamClientInfo
 import com.jonnyzzz.mcpSteroid.server.NpxStreamJson
 import com.jonnyzzz.mcpSteroid.server.ProjectInfo
@@ -27,10 +29,11 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 
@@ -122,41 +125,15 @@ fun DevrigServices.runBackendCommand(command: DevrigCommand.DevrigCommandBackend
     return 0
 }
 
-fun DevrigServices.collectBackendRows(): List<BackendRow> {
-    return collectBackendRows(
-        discovery = ideDiscovery,
-        httpClient = commandHttpClient,
-        portDiscovery = portDiscovery,
-        clientInfo = clientInfo,
-        managedBackends = { backendManager.list() },
-    )
-}
-
-private fun collectBackendRows(
-    discovery: IdeDiscoveryService,
-    httpClient: HttpClient,
-    portDiscovery: IntelliJPortDiscovery,
-    clientInfo: NpxStreamClientInfo,
-    managedBackends: () -> List<ManagedBackendInfo>,
-): List<BackendRow> {
-    discovery.scanOnce()
-    val ides = discovery.ides.value
-        .sortedWith(compareBy({ it.marker.ide.name }, { it.pid }))
-
-    return runBlocking(Dispatchers.IO) {
-        // Run marker-fetch and port-scan concurrently — both hit localhost
-        // and they're independent, so there's no reason to serialise.
-        val markerRowsAsync = async {
-            collectMarkerSnapshots(httpClient, ides, perIdeTimeout = 8.seconds, clientInfo = clientInfo)
-        }
-        val portIdesAsync = async {
-            collectPortDiscoveredIdes(portDiscovery)
-        }
-        val markerRows = markerRowsAsync.await()
-        val portIdes = portIdesAsync.await()
-        mergeRows(markerRows, portIdes, managedBackends())
+/**
+ * CLI entry point for the whole-model backend listing. Delegates to the shared [BackendInventory]
+ * in CLI mode (one-shot marker scan + snapshot fetch) so `devrig backend` / `devrig project` and the
+ * MCP `steroid_list_projects` / `steroid_list_windows` handlers can never diverge on discovery.
+ */
+fun DevrigServices.collectBackendRows(): List<BackendRow> =
+    runBlocking(Dispatchers.IO) {
+        cliBackendInventory(this@collectBackendRows).collectRows()
     }
-}
 
 fun scanMarkersOnce(
     homePaths: HomePaths = resolveHomePaths(),
@@ -656,8 +633,8 @@ private fun backendActionSuffix(row: BackendRow): String = when (row) {
  * scripted consumption (`devrig backend --json | jq …`):
  *  - **No banner** — stdout is one JSON document, nothing else.
  *  - **Top-level object** with `tool`, `backends`, and flat `projects`.
- *  - **Backend ids** are stable across runs and use the natural identifier
- *    for each source (`pid-<n>`, `port-<n>`, or the managed id).
+ *  - **`backend_name`** is the R3.3 uniform id (`<productCodeLower>-<hash8>`),
+ *    computed the same way for every source so devrig can round-trip it.
  *  - **Pretty-printed**: humans can read without `jq -P`, scripts don't care.
  *
  * Example query:
@@ -665,32 +642,35 @@ private fun backendActionSuffix(row: BackendRow): String = when (row) {
  */
 fun renderBackendJson(rows: List<BackendRow>, out: PrintStream) {
     val rowsWithIds = backendRowsWithStableIds(rows)
-    val json = Json { prettyPrint = true; encodeDefaults = true }
+    // encodeDefaults so meaningful defaults (type/routable/managed/...) are emitted; explicitNulls=false
+    // so absent optional fields (error/port/portDetail/...) are omitted rather than serialised as null —
+    // matching the old hand-built backendEntryJson and keeping `jq` consumers simple.
+    val json = Json { prettyPrint = true; encodeDefaults = true; explicitNulls = false }
+    // Build each backend's owned projects first so they can be embedded AND flattened identically.
+    val projectsByRow: Map<BackendRow, List<ListedProject>> = rowsWithIds.associate { (backendName, row) ->
+        row to listedProjectsForRow(backendName, row)
+    }
+    val backends = rowsWithIds.map { (backendName, row) ->
+        backendInfoForRow(row, backendName = backendName, openProjects = projectsByRow.getValue(row))
+    }
+    val projects = rowsWithIds.flatMap { (_, row) -> projectsByRow.getValue(row) }
     val payload = buildJsonObject {
         put("tool", buildJsonObject {
             put("name", "devrig")
             put("version", DevrigVersionMetadata.getDevrigVersion())
         })
-        put("backends", buildJsonArray {
-            for ((backendId, row) in rowsWithIds) {
-                add(backendEntryJson(backendId, row))
-            }
-        })
-        put("projects", buildJsonArray {
-            for ((backendId, row) in rowsWithIds) {
-                if (row is BackendRow.FromMarker && row.projects != null) {
-                    for (project in row.projects) {
-                        add(projectToBackendJson(backendId, project))
-                    }
-                }
-            }
-        })
+        put("backends", json.encodeToJsonElement(ListSerializer(BackendInfo.serializer()), backends))
+        put("projects", json.encodeToJsonElement(ListSerializer(ListedProject.serializer()), projects))
     }
     out.println(json.encodeToString(JsonObject.serializer(), payload))
 }
 
-private fun backendRowsWithStableIds(rows: List<BackendRow>): List<Pair<String, BackendRow>> {
-    val rowsWithIds = rows.map { row -> backendStableId(row) to row }
+/**
+ * Pairs every row with its R3.3 `backend_name`, de-duplicating by keep-first + WARN. Shared by
+ * `backend/project --json` and the MCP handlers' `backends[]` (via `collectBackendInfos`).
+ */
+fun backendRowsWithStableIds(rows: List<BackendRow>): List<Pair<String, BackendRow>> {
+    val rowsWithIds = rows.map { row -> backendNameForRow(row) to row }
     val ids = rowsWithIds.map { it.first }
     if (ids.toSet().size != rows.size) {
         val duplicateIds = ids.groupingBy { it }.eachCount()
@@ -698,7 +678,7 @@ private fun backendRowsWithStableIds(rows: List<BackendRow>): List<Pair<String, 
             .keys
             .sorted()
         backendCommandLog.warn(
-            "Duplicate backend ids in backend --json output: {}. Keeping the first row for each duplicate id.",
+            "Duplicate backend_name in backend --json output: {}. Keeping the first row for each duplicate id.",
             duplicateIds.joinToString(", "),
         )
     }
@@ -707,10 +687,40 @@ private fun backendRowsWithStableIds(rows: List<BackendRow>): List<Pair<String, 
     return rowsWithIds.filter { (id, _) -> seen.add(id) }
 }
 
-private fun projectToBackendJson(backendId: String, project: ProjectInfo): JsonObject = buildJsonObject {
-    put("backend", backendId)
-    put("name", project.name)
-    put("path", project.path)
+/**
+ * Maps a row's reachable projects to [ListedProject], computing the SAME devrig-exposed `project_name`
+ * (`<name>-<projectHash>`) that the MCP `steroid_list_projects` / routing layer surfaces, so CLI and MCP
+ * agree (R3.7). Only marker rows carry projects. The raw folder [ListedProject.name] is preserved so
+ * existing `jq '.projects[].name'` consumers keep working.
+ */
+private fun listedProjectsForRow(backendName: String, row: BackendRow): List<ListedProject> {
+    if (row !is BackendRow.FromMarker) return emptyList()
+    val projects = row.projects ?: return emptyList()
+    return projects.map { project ->
+        ListedProject(
+            projectName = exposedProjectName(project, row.ide.pid),
+            name = project.name,
+            path = project.path,
+            backendName = backendName,
+        )
+    }
+}
+
+/**
+ * Devrig-exposed disambiguated project name = `<name>-<projectHash>`, where `projectHash` salts on the
+ * canonical project home + the owning IDE pid (same scheme as [DevrigProjectRoutingService]). Falls back
+ * to the raw folder name when the path cannot be canonicalized (e.g. an already-closed project), so the
+ * CLI never crashes mid-render.
+ */
+private fun exposedProjectName(project: ProjectInfo, idePid: Long): String {
+    val hash = try {
+        val realHome = com.jonnyzzz.mcpSteroid.devrig.server.DevrigProjectRoutingService.canonicalProjectHome(project.path)
+        com.jonnyzzz.mcpSteroid.devrig.server.DevrigProjectRoutingService.projectHash(realHome, idePid)
+    } catch (e: Exception) {
+        backendCommandLog.debug("Cannot compute project hash for {} (pid {}): {}", project.path, idePid, e.message)
+        return project.name
+    }
+    return "${project.name}-$hash"
 }
 
 private fun renderMarkerProjects(row: BackendRow.FromMarker, out: PrintStream) {

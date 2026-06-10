@@ -6,7 +6,7 @@ package com.jonnyzzz.mcpSteroid.devrig.cli
  * [com.jonnyzzz.mcpSteroid.server.McpSteroidTools.registerAll] is expected to
  * register on the server. The protocol-level [CliMcpStdioIntegrationTest]
  * asserts `tools/list` advertises exactly these — a regression that drops or
- * renames a tool is caught here, against `devrig mpc` directly, with no live
+ * renames a tool is caught here, against `devrig mcp` directly, with no live
  * agent. The live-agent × devrig-stdio path (against a real IDE) is covered
  * separately by `:test-integration`'s `DevrigStdioAgentMatrixTest`.
  */

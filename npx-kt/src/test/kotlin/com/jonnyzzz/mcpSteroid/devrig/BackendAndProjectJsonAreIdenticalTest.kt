@@ -11,6 +11,7 @@ import com.jonnyzzz.mcpSteroid.server.ProjectInfo
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -115,23 +116,29 @@ class BackendAndProjectJsonAreIdenticalTest {
         assertTrue(backends.all { it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "intellij" },
             "every current backend must carry type=intellij: $backends")
 
+        fun JsonObject.hasMcpSteroidPlugin(): Boolean =
+            this["plugins"]!!.jsonArray.any { it.jsonObject["kind"]?.jsonPrimitive?.contentOrNull == "mcp-steroid" }
+
         val markerReachable = backends[0].jsonObject
         assertEquals("marker", markerReachable["source"]!!.jsonPrimitive.content)
-        assertEquals(true, markerReachable["pluginInstalled"]!!.jsonPrimitive.boolean)
+        assertTrue(markerReachable.hasMcpSteroidPlugin(), "reachable marker has a kind=mcp-steroid plugin: $markerReachable")
         assertEquals(true, markerReachable["reachable"]!!.jsonPrimitive.boolean)
 
         val markerUnreachable = backends[1].jsonObject
         assertEquals("marker", markerUnreachable["source"]!!.jsonPrimitive.content)
-        assertEquals(true, markerUnreachable["pluginInstalled"]!!.jsonPrimitive.boolean)
+        assertTrue(markerUnreachable.hasMcpSteroidPlugin(), "unreachable marker still reports its plugin: $markerUnreachable")
         assertEquals(false, markerUnreachable["reachable"]!!.jsonPrimitive.boolean)
         assertEquals("timed out after 8s", markerUnreachable["error"]!!.jsonPrimitive.content)
 
         val portBackends = backends.drop(2).map { it.jsonObject }
         assertTrue(portBackends.all { it["source"]!!.jsonPrimitive.content == "port" }, "last two rows are port rows: $backends")
-        assertTrue(portBackends.all { it["pluginInstalled"]!!.jsonPrimitive.boolean == false }, "port rows have no plugin: $backends")
+        assertTrue(portBackends.none { it.hasMcpSteroidPlugin() }, "port rows have no plugin: $backends")
         assertTrue(portBackends.all { it["reachable"]!!.jsonPrimitive.boolean }, "port rows are reachable because the probe succeeded: $backends")
 
+        // Both projects belong to the same (first) marker backend; project_name keeps the raw name as prefix.
+        val expectedFirstBackend = backends[0].jsonObject["backend_name"]!!.jsonPrimitive.content
         val projects = root["projects"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf("pid-1", "pid-1"), projects.map { it["backend"]!!.jsonPrimitive.content })
+        assertEquals(listOf(expectedFirstBackend, expectedFirstBackend), projects.map { it["backend_name"]!!.jsonPrimitive.content })
+        assertEquals(listOf("alpha", "bravo"), projects.map { it["name"]!!.jsonPrimitive.content })
     }
 }

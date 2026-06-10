@@ -4,8 +4,11 @@ package com.jonnyzzz.mcpSteroid.devrig.server
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
+import com.jonnyzzz.mcpSteroid.devrig.BackendInventory
+import com.jonnyzzz.mcpSteroid.devrig.BackendVersionSkew
 import com.jonnyzzz.mcpSteroid.devrig.DevrigBeacon
-import com.jonnyzzz.mcpSteroid.devrig.DevrigServices
+import com.jonnyzzz.mcpSteroid.devrig.collectBackendInfos
+import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorState
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
 import com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolHandler
@@ -21,6 +24,8 @@ import com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler
 import com.jonnyzzz.mcpSteroid.server.ScreenshotParams
 import com.jonnyzzz.mcpSteroid.server.VisionInputToolHandler
 import com.jonnyzzz.mcpSteroid.server.VisionScreenshotToolHandler
+import com.jonnyzzz.mcpSteroid.server.backendNameForMarker
+import com.jonnyzzz.mcpSteroid.server.listed
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
@@ -46,13 +51,16 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 class DevrigListWindowsToolHandler(
-    private val services: DevrigServices,
+    private val states: () -> Collection<IdeMonitorState>,
+    private val httpClient: HttpClient,
+    private val routing: DevrigProjectRoutingService,
+    private val inventory: BackendInventory,
 ) : ListWindowsToolHandler {
     override suspend fun collectListWindowsResponse(): ListWindowsResponse = coroutineScope {
-        val states = services.ideMonitor.states.value.values.toList()
-        val responses = states.map { state ->
+        val monitored = states().toList()
+        val responses = monitored.map { state ->
             async {
-                val response = services.commandHttpClient.get("${state.ide.rpcBaseUrl}/windows") {
+                val response = httpClient.get("${state.ide.rpcBaseUrl}/windows") {
                     headers {
                         for ((name, value) in state.ide.bridgeHeaders) {
                             append(name, value)
@@ -62,21 +70,22 @@ class DevrigListWindowsToolHandler(
                 if (response.status.value !in 200..299) {
                     error("HTTP ${response.status.value} from ${state.ide.label} bridge /windows: ${response.bodyAsText()}")
                 }
-                state.ide.pid to McpJson.decodeFromString(NpxBridgeWindowsResponse.serializer(), response.bodyAsText())
+                state to McpJson.decodeFromString(NpxBridgeWindowsResponse.serializer(), response.bodyAsText())
             }
         }.awaitAll()
 
-        val firstState = states.firstOrNull()
+        // Every window/background-task is bound to its source IDE via backend_name — the same R3.3 id
+        // the inventory computes for that IDE's marker row, so entries join backends[] by name.
         ListWindowsResponse(
-            ide = firstState?.ide?.marker?.ide ?: com.jonnyzzz.mcpSteroid.IdeInfo("devrig", "", "devrig"),
-            plugin = firstState?.ide?.marker?.plugin ?: com.jonnyzzz.mcpSteroid.PluginInfo("com.jonnyzzz.mcp-steroid.devrig", "devrig", ""),
-            pid = firstState?.ide?.pid ?: ProcessHandle.current().pid(),
-            windows = responses.flatMap { (pid, response) ->
-                response.windows.map { services.projectRouting.rewriteWindow(pid, it) }
+            windows = responses.flatMap { (state, response) ->
+                val backendName = backendNameForMarker(state.ide.pid, state.ide.marker.ide.build)
+                response.windows.map { routing.rewriteWindow(state.ide.pid, it).listed(backendName) }
             },
-            backgroundTasks = responses.flatMap { (pid, response) ->
-                response.backgroundTasks.map { services.projectRouting.rewriteBackgroundTask(pid, it) }
+            backgroundTasks = responses.flatMap { (state, response) ->
+                val backendName = backendNameForMarker(state.ide.pid, state.ide.marker.ide.build)
+                response.backgroundTasks.map { routing.rewriteBackgroundTask(state.ide.pid, it).listed(backendName) }
             },
+            backends = inventory.collectBackendInfos(),
         )
     }
 }
@@ -91,6 +100,8 @@ class DevrigExecuteCodeToolHandler(
         callProgress: McpProgressReporter,
     ): ToolCallResult {
         val route = bridge.routing.requireProject(projectName)
+        // Version-base skew check on every routed exec_code call (devrig scenario only; stderr).
+        BackendVersionSkew.warnOnExecCode(pid = route.idePid, pluginVersion = route.plugin.version)
         val result = bridge.callTool(route, "steroid_execute_code", callProgress) {
             put("project_name", route.originalProjectName)
             put("code", execCodeParams.code)
@@ -164,13 +175,41 @@ class DevrigOpenProjectToolHandler(
     private val bridge: DevrigToolBridgeClient,
 ) : OpenProjectToolHandler {
     override suspend fun handleOpenProject(openProjectParams: OpenProjectParams): ToolCallResult {
-        // Prefer a devrig-managed backend if the agent has one running; otherwise route to the newest
-        // discovered IDE instead of failing. Every discovered IDE runs the MCP Steroid plugin.
+        val requestedBackend = openProjectParams.backendName?.trim()?.takeIf { it.isNotEmpty() }
+
+        // When the agent named a backend (devrig surface, where backend_name is REQUIRED), resolve it to
+        // that exact IDE. When it is absent (direct-handler / E2E callers pass null), keep the existing
+        // auto-pick: prefer a devrig-managed backend, else the newest discovered IDE.
         // Off the call dispatcher: the managed-pid lookup scans the local backends dir + checks pid liveness.
-        val ide = withContext(Dispatchers.IO) { bridge.routing.openProjectTargetIde() }
-            ?: return ToolCallResult.errorResult(
-                "steroid_open_project requires at least one discovered IDE with the MCP Steroid plugin; start an IDE or call steroid_list_projects"
-            )
+        val ide = withContext(Dispatchers.IO) {
+            if (requestedBackend != null) {
+                bridge.routing.resolveBackend(requestedBackend)
+            } else {
+                bridge.routing.openProjectTargetIde()
+            }
+        }
+
+        if (ide == null) {
+            return if (requestedBackend != null) {
+                // The id is now an opaque hash (R3.3) — no prefix to key a hint off. resolveBackend only ever
+                // returns routable marker IDEs, so a miss means the requested name is not a currently-routable
+                // backend. Self-correct by listing the routable backend_names; the agent likely copied a
+                // non-routable id (a port-only or not-yet-running managed backend) from `devrig backend --json`.
+                val routable = bridge.routing.discoveredBackends().map { it.first }
+                ToolCallResult.errorResult(
+                    "Unknown backend_name '$requestedBackend'. Only running IDEs with the MCP Steroid plugin " +
+                        "are routable for open_project; port-only and not-yet-running managed backends listed by " +
+                        "'devrig backend --json' are not. " +
+                        if (routable.isEmpty()) "No routable IDE backends are currently discovered; start an IDE or call steroid_list_projects."
+                        else "Routable backends: ${routable.joinToString(", ")}. Call steroid_list_projects to refresh."
+                )
+            } else {
+                ToolCallResult.errorResult(
+                    "steroid_open_project requires at least one discovered IDE with the MCP Steroid plugin; start an IDE or call steroid_list_projects"
+                )
+            }
+        }
+
         val route = ProjectRoute(
             idePid = ide.pid,
             bridgeBaseUrl = ide.rpcBaseUrl,

@@ -27,6 +27,7 @@ class DevrigCommandFuzzTest {
                 "-h",
                 "-v",
                 "--frobnicate",
+                "mcp",
                 "mpc",
                 "backend",
                 "project",

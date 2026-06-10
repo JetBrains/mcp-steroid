@@ -11,8 +11,6 @@ import com.intellij.openapi.progress.TaskInfo
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.StatusBarEx
-import com.jonnyzzz.mcpSteroid.IdeInfo
-import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.execution.dialogWindowsLookup
 import com.jonnyzzz.mcpSteroid.vision.WindowIdUtil
 import java.awt.Frame
@@ -20,10 +18,42 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
 
+/**
+ * Direct in-IDE `steroid_list_windows`. Wraps the WIRE-shaped [IdeWindowsCollector] snapshot into the
+ * MCP-only [ListWindowsResponse]: every [ListedWindow]/[ListedBackgroundTask] is bound to this IDE's
+ * own `backend_name` and `backends[]` carries exactly the self [BackendInfo] (shared
+ * [describeSelfBackend] assembler, same as [ListProjectsToolHandlerIJ]). The `/windows` bridge takes
+ * the raw [IdeWindowsCollector.collect] output instead — see [NpxBridgeService.buildWindows] — so the
+ * devrig<->IDE wire stays pristine [WindowInfo]/[ProgressTaskInfo].
+ */
 class ListWindowsToolHandlerIJ : ListWindowsToolHandler {
-    private val log = logger<ListWindowsToolHandler>()
-
     override suspend fun collectListWindowsResponse(): ListWindowsResponse {
+        val snapshot = IdeWindowsCollector.collect()
+        val self = describeSelfBackend()
+        return ListWindowsResponse(
+            windows = snapshot.windows.map { it.listed(self.backendName) },
+            backgroundTasks = snapshot.backgroundTasks.map { it.listed(self.backendName) },
+            backends = listOf(self.backend),
+        )
+    }
+}
+
+/**
+ * Wire-shaped snapshot of this IDE's windows and background tasks — exactly the lists carried inside
+ * the pristine [NpxBridgeWindowsResponse]. Shared seam between the `/windows` bridge
+ * ([NpxBridgeService.buildWindows], wire) and the MCP handler ([ListWindowsToolHandlerIJ], which wraps
+ * the same lists into [ListedWindow]/[ListedBackgroundTask]).
+ */
+data class IdeWindowsSnapshot(
+    val windows: List<WindowInfo>,
+    val backgroundTasks: List<ProgressTaskInfo>,
+)
+
+/** Collects the [IdeWindowsSnapshot] from the running IDE (EDT enumeration, modality-aware). */
+object IdeWindowsCollector {
+    private val log = logger<IdeWindowsCollector>()
+
+    suspend fun collect(): IdeWindowsSnapshot {
         // Use DialogWindowsLookup for reliable modal detection:
         // fast negative path (canPumpEdtNonModal), then EDT check if needed.
         val lookup = dialogWindowsLookup()
@@ -125,12 +155,9 @@ class ListWindowsToolHandlerIJ : ListWindowsToolHandler {
             }
         }
 
-        return ListWindowsResponse(
+        return IdeWindowsSnapshot(
             windows = windowInfos,
             backgroundTasks = progressTasks,
-            ide = IdeInfo.ofApplication(),
-            plugin = PluginInfo.ofCurrentPlugin(),
-            pid = ProcessHandle.current().pid(),
         )
     }
 }

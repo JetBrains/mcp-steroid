@@ -11,7 +11,7 @@ devrig is an **independent binary**. Its output is consumed by:
 1. **Humans** reading `devrig backend` / `devrig project` text.
 2. **Scripts** consuming `devrig backend --json` / `devrig project --json`.
 3. **AI agents** calling `steroid_list_projects` / `steroid_list_windows`
-   over the devrig stdio MCP server (`devrig mpc`).
+   over the devrig stdio MCP server (`devrig mcp`).
 
 All three surfaces share the names defined here. **They are not meant to
 be valid against the in-IDE MCP Steroid server** — that's a separate
@@ -363,14 +363,15 @@ in its current state.
       "locator": "build IU-261.23567.138, pid 24017",
       "source": "marker",
       "managed": false,
-      "pluginInstalled": true,
       "reachable": true,
       "pid": 24017,
       "bootHash": "G6h8sQwIu5b3xL9p2mN0Aq",
       "startedTime": "2026-05-22T09:42:11Z",
       "buildNumber": "IU-261.23567.138",
       "mcpUrl": "http://localhost:6315/mcp",
-      "plugin": { "installed": true, "id": "com.jonnyzzz.mcp-steroid", "name": "MCP Steroid", "version": "0.95.0" },
+      "plugins": [
+        { "id": "com.jonnyzzz.mcp-steroid", "name": "MCP Steroid", "version": "0.95.0", "kind": "mcp-steroid" }
+      ],
       "actions": []
     },
     {
@@ -379,11 +380,10 @@ in its current state.
       "locator": "build 261.24374.151, port 63342",
       "source": "port",
       "managed": false,
-      "pluginInstalled": false,
       "reachable": true,
       "port": 63342,
       "buildNumber": "261.24374.151",
-      "plugin": { "installed": false },
+      "plugins": [],
       "actions": [
         {
           "id": "provision",
@@ -399,12 +399,11 @@ in its current state.
       "locator": "managed, installed",
       "source": "managed",
       "managed": true,
-      "pluginInstalled": false,
       "reachable": false,
       "buildNumber": "IC-261.23567.138",
       "installPath": "/Users/me/.mcp-steroid/backends/idea-community-2025.3.3",
       "cachePath": "/Users/me/.cache/mcp-steroid/backends/idea-community-2025.3.3",
-      "plugin": { "installed": false },
+      "plugins": [],
       "actions": [
         {
           "id": "start",
@@ -440,12 +439,12 @@ in its current state.
 
 | Field | Meaning |
 |---|---|
-| `id` | Exposed backend name. Primary key for devrig backend JSON and CLI commands. CLI-only id; there is no backend identity in `steroid_list_projects`'s response shape today. |
+| `id` | Exposed backend name. Primary key for devrig backend JSON and CLI commands. The same backend identity is exposed as `backends[].backend_name` in `steroid_list_projects` (both the devrig and the in-IDE MCP surfaces self-describe). |
 | `originalName` | Raw label from the source (marker/port/managed). Display only. |
 | `locator` | Human-readable "how do I reach this" hint. Never parsed. |
 | `source` | `"marker"` / `"port"` / `"managed"`. |
 | `managed` | `true` if this backend is devrig-managed. |
-| `pluginInstalled` | `true` if the MCP Steroid plugin is present. A managed backend that is running with the plugin writes a marker and surfaces as `source = marker, managed = true` — it does **not** surface as `source = managed`. The `managed` source is reserved for managed backends that are installed but not running (no marker yet). |
+| `plugins[]` | Relevant installed plugins, each `{id, name, version, kind}`; `kind` is `"mcp-steroid"` for the MCP Steroid plugin (`"other"` otherwise; room reserved for `"intellij-native-mcp"`). Empty on port/managed rows. A managed backend that is running with the plugin writes a marker and surfaces as `source = marker, managed = true` — it does **not** surface as `source = managed`. The `managed` source is reserved for managed backends that are installed but not running (no marker yet). |
 | `reachable` | `true` if the backend currently answers HTTP / has a project snapshot. |
 | `pid` | OS pid (marker / managed-running). Omitted otherwise. Published on marker rows (and on managed-running rows surfaced as markers). The same value is fed into the marker `sourceKey` and into the project hash, so operators can correlate JSON rows with OS processes without parsing the opaque suffix. |
 | `bootHash` | Plugin-generated per-startup secret (marker rows only). Long base64url string. Folded into `id`'s hash for marker rows. |
@@ -455,7 +454,6 @@ in its current state.
 | `installPath` | Filesystem path of the managed install (managed rows only). |
 | `cachePath` | Filesystem path of the managed cache (managed rows only). |
 | `mcpUrl` | MCP endpoint URL (marker only). |
-| `plugin` | `{installed, id?, name?, version?}` — plugin identity when known. |
 | `actions` | Every actionable follow-up command for this row in its current state, as `{id, label, argv, command}`.<br><br>`argv` — array of strings, the **canonical execution form**. Pass directly to `ProcessBuilder` / `posix_spawn`. No shell involved, no quoting required. Safe regardless of what characters survive `slug()`.<br><br>`command` — derived display string, `argv.joinToString(" ")` for human readability. **For humans only — do not `sh -c` this.** Spelling or metacharacters in `originalName` may render here unescaped.<br><br>`id`, `label` — unchanged.<br><br>Empty array means no actionable commands for this row. |
 
 `projects[]`:

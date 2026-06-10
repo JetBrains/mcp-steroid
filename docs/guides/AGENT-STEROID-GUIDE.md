@@ -17,7 +17,7 @@ The IDE has indexed everything. It knows the code better than any file search. *
 ## Available MCP Tools
 
 > **Project / backend naming contract:** if you reach this guide via
-> the **devrig stdio MCP server** (`devrig mpc`), the `project_name`
+> the **devrig stdio MCP server** (`devrig mcp`), the `project_name`
 > values returned by `steroid_list_projects` follow the
 > [`docs/devrig-naming.md`](../devrig-naming.md) spec — they include a
 > hash suffix (`<slug(name)>-<hash8>`) and are routed through an
@@ -28,9 +28,20 @@ The IDE has indexed everything. It knows the code better than any file search. *
 ### `steroid_list_projects`
 List all open projects in the IDE. Use this to get project names for `steroid_execute_code`.
 
+There is **no top-level `ide`/`plugin`/`pid` header** in the response.
+Instead the response carries `backends[]` (one entry per discovered
+backend) and every `projects[]` entry self-attributes to its backend via
+`backend_name`. See "Choosing a backend" below for the `backends[]`
+shape.
+
 ### `steroid_list_windows`
 List open IDE windows and their associated projects. Some windows may not be tied to a project and a project can have multiple windows.
 Use this in multi-window setups to pick the right `project_name` and `window_id` for screenshot/input tools.
+
+Like `steroid_list_projects`, the response has **no top-level
+`ide`/`plugin`/`pid` header**: it carries `backends[]` (same shape as in
+`steroid_list_projects`), and every `windows[]` and `backgroundTasks[]`
+entry names its owning backend via `backend_name`.
 
 **Response Fields (per window):**
 | Field | Description |
@@ -43,6 +54,7 @@ Use this in multi-window setups to pick the right `project_name` and `window_id`
 | `projectInitialized` | **True if project is fully initialized** |
 | `isActive` | Whether window is currently focused |
 | `isVisible` | Whether window is visible |
+| `backend_name` | The backend (IDE) this window belongs to — matches a `backends[]` entry |
 
 **Response also includes `backgroundTasks` (list of running tasks):**
 | Field | Description |
@@ -52,6 +64,7 @@ Use this in multi-window setups to pick the right `project_name` and `window_id`
 | `fraction` | Progress 0.0-1.0 (null if indeterminate) |
 | `isIndeterminate` | True if no percentage available |
 | `projectName` | Associated project name |
+| `backend_name` | The backend (IDE) this task runs in — matches a `backends[]` entry |
 
 Use the modality/indexing fields and `backgroundTasks` to poll for project readiness after `steroid_open_project`.
 
@@ -145,6 +158,84 @@ Parameters:
    - Use `steroid_input` to interact with the dialog
 4. Use `steroid_take_screenshot` to visually confirm the project is loaded
 5. Verify with `steroid_list_projects` that the project appears
+
+#### Choosing a backend (`backend_name`)
+
+When you reach the IDE through the **devrig stdio MCP server**
+(`devrig mcp`), more than one IDE can be running behind a single MCP
+connection. The devrig `steroid_open_project` schema exposes an extra
+parameter, `backend_name`, that selects which IDE receives the open
+request. This parameter is **devrig-only** — on a direct in-IDE
+connection (one MCP server == one IDE) it is not advertised, and if sent
+anyway it is logged and ignored.
+
+`steroid_list_projects` and `steroid_list_windows` **self-describe on
+both surfaces**: neither response has a top-level `ide`/`plugin`/`pid`
+header — instead each carries `backends[]`, and every `projects[]`,
+`windows[]`, and `backgroundTasks[]` entry names its owning backend via
+`backend_name`. The devrig response lists one `backends[]` entry per
+discovered backend (including non-routable ones — see the rules below);
+a direct in-IDE response lists exactly one entry (the IDE you are
+connected to). Both shapes are identical.
+
+To pick a value:
+
+1. Call `steroid_list_projects` and read `backends[]`. Each entry carries
+   `backend_name` (the value to pass as `backend_name`, an opaque id like
+   `"iu-9fk2a0xQ"`), `displayName` (human label, not unique across
+   same-product IDEs), `locator` (disambiguator, e.g.
+   `"build IU-261.x, pid 1234"`), `routable` (true only for IDEs you can
+   actually open into), `plugins[]` (the IDE's relevant plugins, each
+   `{ id, name, version, kind }`; a `kind: "mcp-steroid"` entry means the
+   MCP Steroid plugin is installed), `openProjects[]` (`{ project_name, name,
+   path, backend_name }` for each project open in that backend), and
+   `managed` (true for the devrig-managed sandbox). Each `projects[]`
+   entry carries `project_name`, the raw folder `name`, `path`, and a
+   `backend_name` naming its owning backend.
+2. **Prefer the backend that already has the same project — or another
+   git worktree of the same repository — open.** Worktrees of one repo
+   share build/index/VCS context, so reusing that IDE keeps it warm and
+   avoids a redundant second indexing. Match
+   `backends[].openProjects[].path` against the repo you are opening
+   (same repo root / shared `.git`); if none matches, prefer a `managed`
+   backend, else any listed backend.
+3. Pass the chosen `backend_name` to `steroid_open_project`.
+
+Rules:
+- `backend_name` is a **devrig-only** parameter; it has no effect on a
+  direct in-IDE connection.
+- `backends[]` lists **all** discovered backends — marker IDEs (including
+  ones with zero open projects), port-only IDEs running **without** the
+  MCP Steroid plugin, and devrig-managed backends that are **not
+  running**. Only entries with `routable: true` (running IDEs with a live
+  MCP Steroid bridge, i.e. a `plugins[]` entry of `kind: "mcp-steroid"`)
+  are valid `backend_name` targets for `open_project` — **check
+  `routable` before passing a `backend_name`**. Non-routable rows are
+  provision/start targets: make them routable with
+  `devrig backend provision <id>` / `devrig backend start <id>` (see
+  below). Passing a non-routable or unknown `backend_name` returns a
+  self-correcting error listing the routable `backend_name`s.
+- A `backend_name` is **not stable across IDE restarts** (it is derived
+  from the pid) — **re-read `steroid_list_projects` rather than caching**
+  it.
+
+**Managing backends from the agent.** To list, provision, or run
+backends, call the `devrig` CLI directly — the *same* devrig you run as
+your MCP server:
+
+- `devrig backend` — list installed + running backends.
+- `devrig backend download <id>` — fetch an IDE.
+- `devrig backend start <id>` / `devrig backend stop <id>` — run/stop one.
+- `devrig backend provision <id>` — install the MCP Steroid plugin into it.
+
+The backend ids come from `devrig backend --json` (the
+`backends[].backend_name` field). Launcher path: on **macOS/Linux** run
+`devrig` (or `<install>/bin/devrig`); on **Windows** run `devrig.bat` via
+`cmd.exe /c devrig.bat backend ...`. devrig needs **Java 25** — if
+`java` / `JAVA_HOME` is not 25, set `DEVRIG_JAVA_HOME` to a JDK/JRE 25
+home for the devrig process.
+
+See also: `mcp-steroid://open-project/managing-backends`.
 
 ## Critical Rules
 
