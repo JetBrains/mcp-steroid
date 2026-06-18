@@ -16,18 +16,6 @@
 
 VERSION := $(shell cat ../VERSION)
 
-# Look up the .zip download URL for the published release matching VERSION on the public
-# jonnyzzz/mcp-steroid repository. Uses the GitHub REST API directly via curl + jq so the
-# lookup runs without any authentication token (public repos allow anonymous reads at
-# 60 req/hour per IP, which is far more than this Makefile ever spends). Falls back from
-# the `vX.Y.Z` tag form to the bare `X.Y.Z` form, mirroring the prior `gh` invocation.
-RELEASE_ZIP_URL := $(shell \
-    curl -fsSL "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/v$(VERSION)" 2>/dev/null \
-    | jq -r 'first(.assets[]? | select((.name | startswith("mcp-steroid")) and (.name | endswith(".zip")))) | .browser_download_url // empty' \
-    || curl -fsSL "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/$(VERSION)" 2>/dev/null \
-    | jq -r 'first(.assets[]? | select((.name | startswith("mcp-steroid")) and (.name | endswith(".zip")))) | .browser_download_url // empty' \
-)
-
 # First time setup - clone the public repository
 setup:
 	git clone git@github.com:jonnyzzz/mcp-steroid.git mcp-steroid-public
@@ -42,15 +30,17 @@ copy-root-files:
 	cp ../LICENSE static/LICENSE
 
 # Update version in hugo.toml, generate version.json + updatePlugins.xml.
+#
+# version.json + updatePlugins.xml are produced by the :website-gen Kotlin module (it resolves the
+# published GitHub release itself, downloads the plugin ZIP, reads the real version + since-build from
+# META-INF/plugin.xml, and writes both files into static/). Replaces the former curl/jq + Python/sh +
+# xmllint pipeline. The Gradle task knows all paths (VERSION + static/ + release/notes) and compiles only
+# :website-gen, so it does not build the rest of the project.
 update-config: ensure-public-repo copy-root-files
 	@echo "Updating version to $(VERSION)"
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
-	@echo "Generating version.json"
-	@echo '{"version-base": "$(VERSION)"}' > static/version.json
-	@if [ -z "$(RELEASE_ZIP_URL)" ]; then echo "ERROR: Could not find release ZIP for version $(VERSION). Is the release published on jonnyzzz/mcp-steroid?" >&2; exit 1; fi
-	@echo "Generating updatePlugins.xml (url: $(RELEASE_ZIP_URL))"
-	@./scripts/generate-update-plugins-xml.sh "$(VERSION)" "$(RELEASE_ZIP_URL)" > static/updatePlugins.xml
-	@xmllint --noout static/updatePlugins.xml 2>/dev/null && echo "updatePlugins.xml is valid XML" || echo "WARNING: xmllint not available, skipping XML validation"
+	@echo "Generating version.json + updatePlugins.xml via :website-gen (Kotlin)"
+	@cd .. && ./gradlew --console=plain --info --stacktrace :website-gen:generateWebsite
 	@mkdir -p mcp-steroid-public/mcp-steroid-plugin
 
 # Start development server with live reload
