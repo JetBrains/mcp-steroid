@@ -213,6 +213,14 @@ generate→edit→regenerate→commit workflow. The TC VCS root pulls from `jb`,
 GitHub Pages. Plugin tests are intentionally NOT mirrored — full coverage stays on TC (3–5× faster
 internal agents). Trigger PR builds via `workflow_dispatch` on the PR's head branch.
 
+**Website deploys from the `website` branch, NOT `main`.** GitHub Pages builds on a push to the
+long-lived **`website`** branch (`github-pages.yml`). `website` tracks `main` (advance via
+`git merge main → website`, normally often) but can deliberately lag it so website changes that depend
+on an **unreleased** devrig binary — e.g. a new `install.sh`/`install.ps1` CLI contract — stay off the
+live site until a matching GitHub release exists. The release process advances `website` AFTER
+publishing the release (`release/release-instructions.md` → "Stage 7c"). `website` is **origin-only**
+(never synced to `jb`, which runs TeamCity only). A push to `main` no longer deploys the website.
+
 ## Git Remotes: `origin` vs `jb`
 
 | Remote | URL | Role |

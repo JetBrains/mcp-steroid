@@ -14,6 +14,14 @@ This directory contains the Hugo source for the MCP Steroid website at https://m
 
 The website is built from this directory using Hugo and deployed via GitHub Pages.
 
+**Deploys from the `website` branch, not `main`.** GitHub Pages (`.github/workflows/github-pages.yml`)
+builds on a push to the long-lived **`website`** branch. `website` tracks `main` (advanced via
+`git merge main → website`, normally often) but can deliberately lag it so website changes that depend
+on an **unreleased** devrig binary — e.g. a new `install.sh`/`install.ps1` CLI contract — stay off the
+live site until a matching GitHub release exists. A push to `main` does NOT deploy. The release process
+advances `website` after publishing the release (`release/release-instructions.md` → "Stage 7c").
+`website` is origin-only (never synced to `jb`).
+
 ### What is `mcp-steroid-public/`?
 
 The `mcp-steroid-public/` directory is a **separate clone of the same repository** (`jonnyzzz/mcp-steroid`). This setup allows:
