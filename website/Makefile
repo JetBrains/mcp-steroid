@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: dev build clean setup update-config ensure-public-repo copy-root-files
+.PHONY: dev build clean setup update-config ensure-public-repo
 
 VERSION := $(shell cat ../VERSION)
 
@@ -24,22 +24,17 @@ setup:
 ensure-public-repo:
 	@mkdir -p mcp-steroid-public
 
-# Copy EULA and LICENSE from repository root into static/ so the website serves both
-copy-root-files:
-	cp ../EULA static/EULA
-	cp ../LICENSE static/LICENSE
-
-# Update version in hugo.toml, generate version.json + updatePlugins.xml.
+# Update version in hugo.toml, then generate every static file via the single :website-gen task.
 #
-# version.json + updatePlugins.xml are produced by the :website-gen Kotlin module (it resolves the
-# published GitHub release itself, downloads the plugin ZIP, reads the real version + since-build from
-# META-INF/plugin.xml, and writes both files into static/). Replaces the former curl/jq + Python/sh +
-# xmllint pipeline. The Gradle task knows all paths (VERSION + static/ + release/notes) and compiles only
-# :website-gen, so it does not build the rest of the project.
-update-config: ensure-public-repo copy-root-files
+# :website-gen:generateWebsite produces ALL generated static files into website/build/generated-static
+# (a gitignored build/ dir Hugo merges via its `staticDir` list): version.json + updatePlugins.xml
+# (resolving the published GitHub release itself — downloads the plugin ZIP, reads the real version +
+# since-build from META-INF/plugin.xml), install.sh + install.ps1 (via :installer-gen:generateInstaller),
+# and EULA + LICENSE (copied from the repo root). One task, one output dir — no out-of-band file copying.
+update-config: ensure-public-repo
 	@echo "Updating version to $(VERSION)"
 	@sed -i.bak 's/version = ".*"/version = "$(VERSION)"/' hugo.toml && rm -f hugo.toml.bak
-	@echo "Generating version.json + updatePlugins.xml via :website-gen (Kotlin)"
+	@echo "Generating website static files (version.json + updatePlugins.xml + install.sh + install.ps1) via :website-gen (Kotlin)"
 	@cd .. && ./gradlew --console=plain --info --stacktrace :website-gen:generateWebsite
 	@mkdir -p mcp-steroid-public/mcp-steroid-plugin
 

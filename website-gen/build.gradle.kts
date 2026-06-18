@@ -10,17 +10,12 @@ repositories {
 }
 
 dependencies {
-    // kotlinx-serialization (GitHub API JSON + version.json) + the Ktor CIO client (HTTP). ZIP/XML stay
-    // JDK built-in. NO project() dependencies on purpose: `generateWebsite` must compile only THIS module,
-    // never the rest of the build. (Ktor is the repo's standard HTTP stack — used more in later PRs.)
+    // :installer-gen is the lower build-tooling module — it owns JDK detection AND the shared HTTP/cache
+    // infra (KtorHttpFetcher). This is the ONLY project() dependency: :installer-gen has no IntelliJ deps,
+    // so `generateWebsite` still never builds the plugin side of the project.
+    implementation(project(":installer-gen"))
+    // kotlinx-serialization for the GitHub API JSON + version.json. ZIP/XML stay JDK built-in.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("io.ktor:ktor-client-core:3.3.2")
-    implementation("io.ktor:ktor-client-cio:3.3.2")
-    // BouncyCastle PGP: verify Amazon Corretto's detached .sig signatures (vendor-natural validation).
-    implementation("org.bouncycastle:bcpg-jdk18on:1.79")
-    // Apache Commons Compress: stream tar.gz / zip entries to locate each JDK's inner JAVA_HOME (bin/java).
-    implementation("org.apache.commons:commons-compress:1.27.1")
 
     testImplementation(kotlin("test"))
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
@@ -44,12 +39,21 @@ val websiteGenMain = "com.jonnyzzz.mcpSteroid.websitegen.WebsiteArtifactsKt"
 // on this module's classes (no project() deps), so it never builds the rest of the project — fast.
 val generateWebsite by tasks.registering(JavaExec::class) {
     group = "website"
-    description = "Generate version.json + updatePlugins.xml into website/static (resolves the GitHub release)."
+    description = "Generate ALL website static files (version.json + updatePlugins.xml + install.sh + install.ps1 + EULA + LICENSE) into website/build/generated-static."
     mainClass.set(websiteGenMain)
     classpath = sourceSets["main"].runtimeClasspath
+    // The website Make contract is a SINGLE task that produces every static file. This task writes
+    // version.json + updatePlugins.xml (+ copies EULA/LICENSE below); the installer scripts come from
+    // :installer-gen:generateInstaller, which writes into the same dir — so depend on it.
+    dependsOn(":installer-gen:generateInstaller")
 
+    val eula = rootProject.layout.projectDirectory.file("EULA")
+    val license = rootProject.layout.projectDirectory.file("LICENSE")
     val versionFile = rootProject.layout.projectDirectory.file("VERSION")
-    val outDir = rootProject.layout.projectDirectory.dir("website/static")
+    // Generated static files go into website/build/ (a `build/` dir → already gitignored, never the
+    // tracked source tree), which Hugo merges via its `staticDir` list. Adding a new generated file needs
+    // no .gitignore edit.
+    val outDir = rootProject.layout.projectDirectory.dir("website/build/generated-static")
     val notesDir = rootProject.layout.projectDirectory.dir("release/notes")
     inputs.file(versionFile)
     // Always re-run: the published GitHub release (and its notes) can change without VERSION changing, so
@@ -67,34 +71,13 @@ val generateWebsite by tasks.registering(JavaExec::class) {
         }
         args = resolved
     }
-}
-
-// The JDK download cache MUST live outside any `build/` folder so the multi-hundred-MB JDK archives
-// survive `clean` and are shared across runs/branches. The Gradle user home is the natural home; the
-// path is computed here and handed to the generator via --cache-dir (the generator never guesses it).
-val jdkDownloadCacheDir: java.io.File = gradle.gradleUserHomeDir.resolve("caches/mcp-steroid/website-gen-jdk")
-
-// Resolve all JDK builds (Amazon Corretto 25 + Azul Zulu 25) and write the version-pinned data model
-// JSON. Vendor-natural validation (detached OpenPGP signatures) happens inside the generator; downloads
-// are cached in jdkDownloadCacheDir. No project() deps — compiles only this module.
-val generateJdkModel by tasks.registering(JavaExec::class) {
-    group = "website"
-    description = "Resolve all JDK builds (Corretto + Azul) into the JDK data model JSON (PGP-verified, cached)."
-    mainClass.set("com.jonnyzzz.mcpSteroid.websitegen.JdkModelMainKt")
-    classpath = sourceSets["main"].runtimeClasspath
-    // JDK archives are read fully into memory (one ~230 MB array at a time) to hash + scan them.
-    maxHeapSize = "2g"
-
-    val outFile = layout.buildDirectory.file("jdk-model/jdk-model.json")
-    outputs.file(outFile)
-    // The live vendor sources can publish a new build at any time, so never treat this as up-to-date.
-    outputs.upToDateWhen { false }
-
-    doFirst {
-        jdkDownloadCacheDir.mkdirs()
-        args = listOf(
-            "--cache-dir", jdkDownloadCacheDir.absolutePath,
-            "--out", outFile.get().asFile.absolutePath,
-        )
+    // Own EULA + LICENSE too, so ALL served static files come from this one task (single source of truth),
+    // not an out-of-band Makefile copy into a Gradle-owned dir. Copied from the repo root, served verbatim.
+    doLast {
+        outDir.asFile.mkdirs()
+        eula.asFile.copyTo(outDir.file("EULA").asFile, overwrite = true)
+        license.asFile.copyTo(outDir.file("LICENSE").asFile, overwrite = true)
     }
 }
+
+// `generateJdkModel` moved to :installer-gen (it owns JDK detection now).

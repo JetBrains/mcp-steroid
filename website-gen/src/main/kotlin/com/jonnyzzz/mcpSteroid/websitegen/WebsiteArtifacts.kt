@@ -1,15 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.websitegen
 
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
-import io.ktor.client.statement.readRawBytes
-import io.ktor.http.isSuccess
-import kotlinx.coroutines.runBlocking
+import com.jonnyzzz.mcpSteroid.installer.KtorHttpFetcher
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -49,34 +41,12 @@ fun interface UrlBytesFetcher {
     fun fetch(url: String): ByteArray
 }
 
-// Ktor CIO client (the repo's standard HTTP stack). Lazy + process-lifetime — this is a short-lived CLI,
-// so we don't close it. followRedirects handles the GitHub release → S3 hop; the long request timeout
-// covers the (large) plugin ZIP download.
-private val ktorClient by lazy {
-    HttpClient(CIO) {
-        followRedirects = true
-        install(HttpTimeout) {
-            connectTimeoutMillis = 30_000
-            requestTimeoutMillis = 300_000
-        }
-    }
-}
+// HTTP is delegated to :installer-gen's shared KtorHttpFetcher (the repo's standard Ktor CIO stack —
+// followRedirects for the GitHub release → S3 hop, long timeout for the plugin ZIP). The GitHub REST API
+// returns v3 JSON by default, so no Accept header is needed.
+val HttpTextFetcher = UrlTextFetcher { url -> KtorHttpFetcher.getBytes(url).decodeToString() }
 
-val HttpTextFetcher = UrlTextFetcher { url ->
-    runBlocking {
-        val resp = ktorClient.get(url) { header("Accept", "application/vnd.github+json") }
-        require(resp.status.isSuccess()) { "GET $url failed: HTTP ${resp.status}" }
-        resp.bodyAsText()
-    }
-}
-
-val HttpBytesFetcher = UrlBytesFetcher { url ->
-    runBlocking {
-        val resp = ktorClient.get(url)
-        require(resp.status.isSuccess()) { "GET $url failed: HTTP ${resp.status}" }
-        resp.readRawBytes()
-    }
-}
+val HttpBytesFetcher = UrlBytesFetcher { url -> KtorHttpFetcher.getBytes(url) }
 
 @Serializable
 private data class GhRelease(val assets: List<GhAsset> = emptyList())

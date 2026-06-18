@@ -55,7 +55,8 @@ When changing files across multiple sub-folders, read the guides for each.
 | `test-experiments/` | [test-experiments/CLAUDE.md](test-experiments/CLAUDE.md) | DPAIA arena suite, debugger demos, prompt-quality comparisons, IMPROVEMENTS.md harness |
 | `docs/` | [docs/CLAUDE.md](docs/CLAUDE.md) | Autoresearch / prompt-optimization working notes, DPAIA history |
 | `website/` | [website/CLAUDE.md](website/CLAUDE.md) | Hugo site sources, GitHub Pages deployment |
-| `website-gen/` | [website-gen/CLAUDE.md](website-gen/CLAUDE.md) | Build-tooling generator: version.json + updatePlugins.xml, the computed JDK data model (Corretto/Azul, PGP-verified), the on-disk download cache |
+| `installer-gen/` | [installer-gen/CLAUDE.md](installer-gen/CLAUDE.md) | Build-tooling: computed JDK data model (Corretto/Azul, PGP-verified, pinned fingerprints), on-disk download cache, install.sh/install.ps1 generation |
+| `website-gen/` | [website-gen/CLAUDE.md](website-gen/CLAUDE.md) | Build-tooling generator: version.json + updatePlugins.xml (depends on `:installer-gen` for shared HTTP) |
 
 ## MUST DO
 

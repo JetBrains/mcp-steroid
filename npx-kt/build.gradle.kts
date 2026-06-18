@@ -1,4 +1,5 @@
 import com.jonnyzzz.mcpSteroid.gradle.GenerateMetadataTask
+import com.jonnyzzz.mcpSteroid.gradle.configurePathingJarClasspath
 import org.gradle.api.attributes.Usage
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.SortedSet
@@ -102,6 +103,10 @@ application {
     mainClass.set("com.jonnyzzz.mcpSteroid.devrig.MainKt")
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
+
+// Use a pathing JAR for the launcher classpath so a deep content-addressed install path can't blow
+// cmd.exe's 8191-char limit on Windows ("input line too long"). Shared logic; same jar on every OS.
+configurePathingJarClasspath()
 
 tasks.jar {
     archiveBaseName.set("devrig")
@@ -489,6 +494,10 @@ val verifyBundledLibraries by tasks.registering {
 
             // Internal jars (this project + sibling subprojects).
             "lib/devrig-$devrigVersion.jar",
+            // Pathing JAR (manifest Class-Path) the launcher's classpath points at. Spelled out
+            // literally — NOT via pathingJarFileName() — so this assert independently pins the name
+            // the production helper must produce (a bug in the helper can't corrupt both sides alike).
+            "lib/devrig-$devrigVersion-classpath.jar",
             "lib/ai-agents-$devrigVersion.jar",
             "lib/closeable-stack-$devrigVersion.jar",
             "lib/execution-storage-$devrigVersion.jar",

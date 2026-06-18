@@ -121,7 +121,24 @@ internal fun ensureBinLauncher(
     registerWindowsPath: Boolean = true,
 ) {
     val ownBin = ownRoot.resolve("bin").resolve(if (isWin) "devrig.bat" else "devrig").toAbsolutePath().normalize()
-    val jdkHome = ownJava.toAbsolutePath().normalize()
+    ensureBinLauncherCore(home, isWin, ownBin, ownJava.toAbsolutePath().normalize(), userHome, pathDirs, registerWindowsPath)
+}
+
+/**
+ * The launcher-writing core: write `~/.mcp-steroid/bin/devrig`(`.cmd`) so it pins [jdkHome] via
+ * `DEVRIG_JAVA_HOME` and execs the install-tree launcher [ownBin], then ensure it is on PATH. Both inputs
+ * are EXPLICIT (no `DevrigRoot`/`java.home` lookups) so `devrig install devrig` can register the exact
+ * launcher + JDK the install script computed and passed in.
+ */
+internal fun ensureBinLauncherCore(
+    home: HomePaths,
+    isWin: Boolean,
+    ownBin: Path,
+    jdkHome: Path,
+    userHome: Path,
+    pathDirs: List<String>,
+    registerWindowsPath: Boolean = true,
+) {
     if (isWin) {
         // CMD-only launcher: a single self-contained devrig.cmd. No PowerShell at launch — PS is only
         // needed by the install SCRIPT, not the launcher.
@@ -134,6 +151,36 @@ internal fun ensureBinLauncher(
         val devrig = home.binDir.resolve("devrig")
         writeIfChanged(home.binDir, devrig, renderPosixLauncher(ownBin, jdkHome), executable = true, ownBin = ownBin)
         ensurePosixPathSymlink(home.binDir, devrig, userHome, pathDirs)
+    }
+}
+
+/**
+ * Register `~/.mcp-steroid/bin/devrig`(`.cmd`) + PATH for an EXPLICIT install-tree launcher [installScript]
+ * and [jdkHome] (rather than deriving them from the running process). This is what `devrig install devrig`
+ * uses: the install script unpacks devrig + a JDK and passes their paths in. [force] defaults true
+ * (explicit user intent — writes even on a SNAPSHOT/dev dist; an explicit `DEVRIG_BIN_NO_AUTO_REGISTER`
+ * opt-out still wins).
+ */
+fun ensureBinLauncherForInstallScript(
+    home: HomePaths,
+    installScript: Path,
+    jdkHome: Path,
+    force: Boolean = true,
+    registerWindowsPath: Boolean = true,
+) {
+    if (!shouldWriteLauncher(System.getenv(ENV_BIN_NO_AUTO_REGISTER), force)) return
+    try {
+        ensureBinLauncherCore(
+            home = home,
+            isWin = isWindows(),
+            ownBin = installScript.toAbsolutePath().normalize(),
+            jdkHome = jdkHome.toAbsolutePath().normalize(),
+            userHome = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize(),
+            pathDirs = (System.getenv("PATH") ?: "").split(File.pathSeparatorChar),
+            registerWindowsPath = registerWindowsPath,
+        )
+    } catch (e: Exception) {
+        System.err.println("[mcp-steroid] could not (re)write the devrig launcher: $e")
     }
 }
 

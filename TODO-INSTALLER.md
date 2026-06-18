@@ -54,20 +54,20 @@ The **installer-script generator** — everything else from #113 is now supersed
   sha256/javaHome, and `InstallerBootstrapTest` does the real-HTTP+sha end-to-end check. Assert the
   model directly; no re-download.
 
-## Execution plan for the `:installer-gen` PR
+## Execution plan for the `:installer-gen` PR — DONE (PR #124)
 
-1. New `:installer-gen` module (bcpg + commons-compress + ktor + serialization). Move JDK detection
-   (`JdkArtifacts`, `PgpVerifier`, `Cache`/`HttpFetcher`, `JdkModelMain`) + their tests there; package
-   → `com.jonnyzzz.mcpSteroid.installer`. **Trim the model to the 5 platforms** (drop alpine + macos-x64;
-   drop the `ALPINE_LINUX` enum value).
-2. `:website-gen` depends on `:installer-gen`; reuse the shared `KtorHttpFetcher`/`Cache` (drop
-   `WebsiteArtifacts`'s duplicate fetchers). `generateJdkModel` moves to `:installer-gen`.
-3. Port the generator: `InstallerGenerator` + `install.sh.tmpl` / `install.ps1.tmpl`, consuming the
-   `JdkModel` via the adapter (no more `--jdk` args / `LocalJdkArtifact` / `CoordinateResolver`). Add the
-   **musl-detect-and-fail** arm to `install.sh`.
-4. Port + adapt the installer integration tests (`InstallerBootstrapTest` nginx-sidecar real-HTTP;
-   `InstallerRealArtifactsTest` → assert the model; `JdkCoordinatesMetadataTest` → 5 platforms) into an
-   `installerIntegrationTest` source set (NOT in `ciBuildPluginTests`).
+1. ✅ New `:installer-gen` module owns JDK detection (split `JdkModel`/`CorrettoJdk`/`AzulJdk`) + shared
+   HTTP/cache; package `com.jonnyzzz.mcpSteroid.installer`; trimmed to the 5 platforms (no alpine, no
+   macos-x64; `ALPINE_LINUX` removed).
+2. ✅ `:website-gen` depends on `:installer-gen` and reuses `KtorHttpFetcher`; `generateJdkModel` moved.
+3. ✅ Generator ported: `InstallerGenerator` adapts the `JdkModel` (no `--jdk` args), `install.sh` detects
+   musl and fails fast, `generateInstaller` task + Makefile wiring. Live-verified.
+4. ✅ `InstallerBootstrapTest` (minimal ubuntu/glibc lane) ported into an `installerIntegrationTest`
+   source set, reworked to drive `writeInstallerScripts` with a synthetic model + nginx-served fixtures
+   (no real JDK download). Passes end-to-end; joined the serialized `ciIntegrationTests` chain. The
+   metadata/platform-set + render contract are covered by the hermetic unit tests (so the #113
+   `JdkCoordinatesMetadataTest` / `InstallerRealArtifactsTest` did not need separate ports — D3:
+   trust the model).
 
 ## Minor, non-blocking (from the #122 quorum review)
 

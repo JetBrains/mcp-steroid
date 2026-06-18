@@ -44,4 +44,5 @@ include(":test-experiments")
 include(":npx")
 include(":npx-kt")
 
+include(":installer-gen")
 include(":website-gen")

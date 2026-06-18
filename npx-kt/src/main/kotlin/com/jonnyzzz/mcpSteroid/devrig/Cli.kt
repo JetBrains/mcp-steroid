@@ -66,6 +66,18 @@ sealed interface DevrigCommand {
         override val json: Boolean = false,
     ) : DevrigCommand
 
+    /**
+     * `devrig install devrig` — register devrig's OWN `~/.mcp-steroid/bin` launcher + PATH (NOT an agent).
+     * The install scripts call this with every non-trivial parameter explicit: [installScript] (the
+     * install-tree launcher the wrapper execs) and [jdkHome] (pinned as `DEVRIG_JAVA_HOME`).
+     */
+    data class DevrigCommandInstallDevrig(
+        val installScript: String? = null,
+        val jdkHome: String? = null,
+        override val debug: Boolean = false,
+        override val json: Boolean = false,
+    ) : DevrigCommand
+
     data class DevrigCommandHelp(
         override val debug: Boolean = false,
         override val json: Boolean = false,
@@ -211,11 +223,23 @@ private class InstallCommand(
     parent: DevrigCliktCommand,
 ) : DevrigCliktCommand("install", selected, parent) {
     private val agent by argument("agent")
+    // Only meaningful for `install devrig` (the install scripts pass them); rejected for agents below.
+    private val installScript: String? by option("--install-script")
+    private val jdkHome: String? by option("--jdk-home")
 
     override fun run() {
         val options = options()
+        if (agent == "devrig") {
+            select(DevrigCommand.DevrigCommandInstallDevrig(
+                installScript = installScript, jdkHome = jdkHome, debug = options.debug, json = options.json,
+            ))
+            return
+        }
         val target = AiAgentCli.parse(agent)
-            ?: throw UsageError("agent must be one of: claude, codex, gemini")
+            ?: throw UsageError("agent must be one of: claude, codex, gemini, devrig")
+        if (installScript != null || jdkHome != null) {
+            throw UsageError("--install-script / --jdk-home are only valid with 'devrig install devrig'")
+        }
         select(DevrigCommand.DevrigCommandInstall(target, debug = options.debug, json = options.json))
     }
 }
@@ -327,6 +351,7 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
             is DevrigCommand.DevrigCommandBackendProvision -> runBackendProvisionCommand(command)
             is DevrigCommand.DevrigCommandProject -> runProjectCommand(command)
             is DevrigCommand.DevrigCommandInstall -> runInstallCommand(command)
+            is DevrigCommand.DevrigCommandInstallDevrig -> runInstallDevrigCommand(command)
         }
     } catch (e: ManagedBackendLockException) {
         System.err.println(e.message)

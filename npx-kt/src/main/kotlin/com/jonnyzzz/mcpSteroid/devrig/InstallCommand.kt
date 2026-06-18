@@ -9,6 +9,7 @@ import com.jonnyzzz.mcpSteroid.aiAgents.mcpAddStdioInvocation
 import com.jonnyzzz.mcpSteroid.aiAgents.mcpListInvocation
 import com.jonnyzzz.mcpSteroid.aiAgents.mcpRemoveInvocation
 import java.io.PrintStream
+import java.nio.file.Path
 import kotlin.io.path.isRegularFile
 
 private const val DEVRIG_MCP_SERVER_NAME = "mcp-steroid"
@@ -25,6 +26,36 @@ private const val DEVRIG_LEGACY_SERVER_NAME = "devrig"
  * `~/.mcp-steroid/bin/devrig`; Windows `cmd.exe /d /c "…\bin\devrig.cmd"`), with no `JAVA_HOME` — the
  * launcher sets up its own runtime.
  */
+/**
+ * `devrig install devrig` — generate + register devrig's own `~/.mcp-steroid/bin/devrig`(`.cmd`) launcher
+ * and put it on PATH. This is devrig's normal launcher self-registration ([ensureBinLauncher], which runs
+ * on every start), here driven from the install script's EXPLICIT parameters: `--install-script` (the
+ * unpacked install-tree launcher the wrapper execs) and `--jdk-home` (pinned as `DEVRIG_JAVA_HOME`). It
+ * does ONLY that — no agent registration. Quiet: best-effort registration, one confirmation line.
+ */
+fun DevrigServices.runInstallDevrigCommand(command: DevrigCommand.DevrigCommandInstallDevrig): Int {
+    val installScript = command.installScript
+    if (installScript.isNullOrBlank()) {
+        System.err.println("[mcp-steroid] 'devrig install devrig' requires --install-script=<full path>")
+        return 64
+    }
+    // --jdk-home is what the wrapper pins as DEVRIG_JAVA_HOME; fall back to the JDK we run under.
+    val jdkHome = command.jdkHome?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
+        ?: Path.of(System.getProperty("java.home"))
+    ensureBinLauncherForInstallScript(homePaths, Path.of(installScript), jdkHome, force = true, registerWindowsPath = true)
+
+    val launcher = DevrigUserLauncher.path(homePaths)
+    if (!launcher.isRegularFile()) {
+        System.err.println(
+            "[mcp-steroid] ERROR: 'devrig install devrig' did not create the launcher $launcher " +
+                "(DEVRIG_BIN_NO_AUTO_REGISTER may opt out of writing it).",
+        )
+        return 64
+    }
+    System.err.println("[mcp-steroid] devrig is on PATH via $launcher")
+    return 0
+}
+
 fun DevrigServices.runInstallCommand(
     command: DevrigCommand.DevrigCommandInstall,
     runner: AiAgentCliRunner = ProcessAiAgentCliRunner(),

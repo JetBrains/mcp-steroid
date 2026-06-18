@@ -1,5 +1,5 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
-package com.jonnyzzz.mcpSteroid.websitegen
+package com.jonnyzzz.mcpSteroid.installer
 
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -56,17 +56,17 @@ class JdkArtifactsTest {
         val model = resolveAllJdks(cache, fixtures, keys.fingerprint, keys.fingerprint)
         val jdks = model.jdks
 
-        // 7 Corretto (linux/alpine x64+aarch64, macOS x64+aarch64, windows x64) + 1 Azul windows/aarch64.
-        assertEquals(8, jdks.size, "expected 7 Corretto + 1 Azul, got ${jdks.map { it.platform to it.vendor }}")
+        // 4 Corretto (linux x64+aarch64, macOS aarch64, windows x64) + 1 Azul windows/aarch64 = the 5
+        // platforms the installer ships. No alpine (musl unsupported), no macos-x64.
+        assertEquals(5, jdks.size, "expected 4 Corretto + 1 Azul, got ${jdks.map { it.platform to it.vendor }}")
 
         val corretto = jdks.filter { it.vendor == "corretto" }
-        assertEquals(7, corretto.size)
+        assertEquals(4, corretto.size)
         assertTrue(corretto.all { it.version == "25.0.3.9.1" }, "Corretto version parsed from resolved URL")
         assertEquals(
             setOf(
                 JdkPlatform(JdkOs.LINUX, JdkArch.X64), JdkPlatform(JdkOs.LINUX, JdkArch.AARCH64),
-                JdkPlatform(JdkOs.ALPINE_LINUX, JdkArch.X64), JdkPlatform(JdkOs.ALPINE_LINUX, JdkArch.AARCH64),
-                JdkPlatform(JdkOs.MACOS, JdkArch.X64), JdkPlatform(JdkOs.MACOS, JdkArch.AARCH64),
+                JdkPlatform(JdkOs.MACOS, JdkArch.AARCH64),
                 JdkPlatform(JdkOs.WINDOWS, JdkArch.X64),
             ),
             corretto.map { it.platform }.toSet(),

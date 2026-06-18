@@ -1,5 +1,5 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
-package com.jonnyzzz.mcpSteroid.websitegen
+package com.jonnyzzz.mcpSteroid.installer
 
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
@@ -25,7 +25,7 @@ fun main(argv: Array<String>) {
 
     out.parent?.let { Files.createDirectories(it) }
     Files.writeString(out, prettyJson.encodeToString(model))
-    System.err.println("[website-gen] wrote ${model.jdks.size} JDK entries to $out (cache=$cacheDir)")
+    System.err.println("[installer-gen] wrote ${model.jdks.size} JDK entries to $out (cache=$cacheDir)")
 }
 
 private fun parseFlags(argv: Array<String>): Map<String, String> {

@@ -1,5 +1,5 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
-package com.jonnyzzz.mcpSteroid.websitegen
+package com.jonnyzzz.mcpSteroid.installer
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -153,7 +153,7 @@ private class OnDiskCache(private val root: Path) : Cache {
         try {
             Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
-            System.err.println("[website-gen] atomic cache move unsupported (${e.message}); using a plain move")
+            System.err.println("[installer-gen] atomic cache move unsupported (${e.message}); using a plain move")
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
         } finally {
             Files.deleteIfExists(tmp)

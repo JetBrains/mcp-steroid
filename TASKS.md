@@ -1,4 +1,40 @@
 
+# ✅ DONE — `devrig install devrig` + Windows long-classpath fix (PR #124)
+
+**Motto held: the install script passes ALL non-trivial parameters to the devrig binary** (no env-derived
+magic). The generated `install.sh` / `install.ps1` no longer write the `~/.mcp-steroid/bin/devrig` wrapper
+themselves — they hand the facts to devrig and it registers itself (owns the wrapper + PATH, per #117).
+
+What landed:
+
+1. **CLI subcommand `devrig install devrig`** (`Cli.kt`, commit `d19854c2`) — register-only:
+   `DevrigCommand.DevrigCommandInstallDevrig(installScript, jdkHome, debug, json)`; `install`'s `agent`
+   arg accepts `devrig`; `--install-script=<full path>` (the unpacked launcher the wrapper execs) +
+   `--jdk-home=<full path>` (the bundled JDK pinned as `DEVRIG_JAVA_HOME`).
+2. **`BinLauncher.ensureBinLauncherForInstallScript(home, installScript, jdkHome, force=true,
+   registerWindowsPath=true)`** (`d19854c2`) — extracted `ensureBinLauncherCore` taking explicit `ownBin`
+   + `jdkHome`. `runInstallDevrigCommand` calls it, verifies the launcher, reports the beacon.
+3. **`:installer-gen` scripts** — `install.sh`/`install.ps1` after unpack run
+   `devrig install devrig --install-script=<launcher> --jdk-home=<jdk>`, then report "devrig is ready;
+   run `devrig install` to register with your agents". Docker integration test (ubuntu lane) asserts the
+   delegation via a fake devrig recorder; the alpine lane asserts musl is refused.
+4. **Windows long-classpath fix** (`b38b394e`) — the Gradle `application` launcher's 2358-char inline
+   `set CLASSPATH=…` blew cmd.exe's 8191-char limit at deep content-addressed install paths ("The input
+   line is too long"). Fixed with a **pathing JAR** (manifest `Class-Path:`, one short entry), shared via
+   buildSrc `configurePathingJarClasspath()` across devrig + ocr-tesseract; versioned like every other
+   lib/ jar; `verifyBundledLibraries` pins the name with an independent literal.
+
+**Validated on eugene-x220 (real Windows 10):** full `install.ps1` e2e — devrig (Mac-hosted, sha-verified)
++ Corretto JDK (sha-verified) downloaded, unpacked to a deep content-addressed path, `devrig install devrig`
+launched `devrig.bat` from that path (JVM started, version printed — no "input line is too long"),
+wrote the `devrig.cmd` wrapper + registered the user PATH, `INSTALL_EXIT=0`.
+
+Note (deferred from item 3 of the original plan): a **synchronous beacon capture + flush** for short-lived
+`install` subcommands is still TODO — `DevrigBeacon.capture()` is async, so a fast-exiting `install devrig`
+can drop the "install executed" event. Tracked for a follow-up.
+
+---
+
 # ✅ devrig-launcher + website-gen epic — COMPLETE (merged to main, 2026-06-18)
 
 All of this session's work is merged to `origin/main` and synced to `jb` (so TeamCity builds it):
