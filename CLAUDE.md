@@ -235,6 +235,14 @@ git checkout main && git branch -D jb-merge
 reachable. **Why this matters for CI:** TC pulls from `jb`. If your commit isn't on `jb/main`, TC builds
 stale code.
 
+**No GitHub Actions on `jb`.** The JetBrains-org mirror runs **TeamCity only** — it must carry **no**
+`.github/workflows/` at all (those are origin/jonnyzzz-only: the GitHub Pages website deploy, PR compile
+gate, etc.). `jb/main` intentionally **deletes** every workflow file (e.g. commit "Delete
+.github/workflows/github-pages.yml"); that deletion is org-specific history to preserve. So during
+`jb-merge`, a **modify/delete conflict on any `.github/workflows/*` file is expected** whenever origin
+edits a workflow — **always resolve by keeping it deleted on `jb`** (`git rm .github/workflows/<file>`
+then commit the merge). Never resurrect a workflow onto `jb`.
+
 ## IntelliJ Source Research
 
 The IntelliJ project at `~/Work/intellij` is open in the IDE for research. Use `steroid_execute_code` with

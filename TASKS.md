@@ -1,4 +1,29 @@
 
+# ✅ devrig-launcher + website-gen epic — COMPLETE (merged to main, 2026-06-18)
+
+All of this session's work is merged to `origin/main` and synced to `jb` (so TeamCity builds it):
+
+- **#117** (`61d4ce14`) — the devrig **binary** owns `~/.mcp-steroid/bin/devrig`(`.cmd`): atomic self-heal
+  on every start, PATH ownership (POSIX symlink / Windows HKCU registry), registers the stable wrapper,
+  `DEVRIG_BIN_NO_AUTO_REGISTER` gate (off for SNAPSHOT/dev/test), CMD-only Windows.
+- **#118** — every agent/user surface uses bare `devrig`; `devrig install` hard-fails if the launcher is
+  absent before registering; no `JAVA_HOME`/"uses Java" anywhere agent-facing or in `--help`.
+- **#119** (`1fed1560`) — new **`:website-gen`** module generates `version.json` + `updatePlugins.xml` in
+  Kotlin (**Ktor** CIO), replacing the `website/scripts/*.py|sh` + curl/jq/xmllint pipeline. Isolated
+  `generateWebsite` task (zero project deps). github-pages.yml → `setup-java`. CI green + deployed live
+  (count-free description; stale "8/58" counts dropped). The only setter of `DEVRIG_JAVA_HOME` is the
+  launcher generation (`BinLauncher.renderPosixLauncher`/`renderWindowsCmd`).
+- **#120** — docs: `jb` runs **TeamCity only**, NO GitHub Actions (workflow deletions stay deleted on jb-merge).
+
+Live-validated on Windows (eugene-x220) + the GitHub Pages deploy. **PR #113** (installer, parked on
+`installer/version-json-driven`) resume context: the two "SESSION UPDATE" blocks on **that branch's**
+TASKS.md (rebase onto main; drop the launcher + website halves now upstream; `:site-gen` keeps only the
+installer half).
+
+The detailed per-PR working log is in the sections below.
+
+---
+
 # Active focus — bin/devrig is the devrig binary's responsibility (PR `devrig/bin-launcher`, 2026-06-18)
 
 New PR off `origin/main` (NOT PR #113, which is parked on `installer/version-json-driven`). Contract: the
