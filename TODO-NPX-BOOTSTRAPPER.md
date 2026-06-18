@@ -14,9 +14,9 @@ conflict, the spec wins.
 a spec section, not a TODO):
 
 - Wrapper at `~/.mcp-steroid/bin/devrig` (POSIX shell) +
-  `~/.mcp-steroid/bin/devrig.ps1` (PowerShell). No `.bat` shim — the
-  agent config on Windows records `powershell.exe -File devrig.ps1`
-  directly.
+  `~/.mcp-steroid/bin/devrig.cmd` (Windows CMD — implemented CMD-only in
+  PR #117; no PowerShell launcher). The agent config on Windows records
+  `cmd.exe /d /c "%USERPROFILE%\.mcp-steroid\bin\devrig.cmd"`.
 - Manifest is `~/.mcp-steroid/version.properties` — Java Properties
   format (flat `binaries.<os>-<cpu>.devrig.url=…` keys). Picked over
   JSON/YAML/TOML so POSIX `awk`, PowerShell, and Java's built-in

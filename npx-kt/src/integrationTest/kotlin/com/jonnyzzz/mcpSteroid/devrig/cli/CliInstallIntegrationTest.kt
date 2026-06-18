@@ -72,10 +72,11 @@ class CliInstallIntegrationTest {
         val combined = result.stdout + "\n" + result.stderr
         // The install narrates what it did and confirms the registration (idempotent upsert).
         assertTrue(combined.contains("'mcp-steroid' is registered for ${agent.displayName}."), combined)
-        assertTrue(combined.contains("DEVRIG_JAVA_HOME"), combined)
-        // It registers the STABLE user-facing wrapper (~/.mcp-steroid/bin/devrig), NOT the install tree.
+        // It registers the STABLE user-facing wrapper (~/.mcp-steroid/bin/devrig), NOT the install tree,
+        // with no JAVA_HOME mentioned to the user.
         assertTrue(combined.contains(".mcp-steroid/bin/devrig mcp"), combined)
         assertTrue(!combined.contains("/tmp/${installDir.name}/bin/devrig mcp"), combined)
+        assertTrue(!combined.contains("JAVA_HOME"), "install output must not mention JAVA_HOME:\n$combined")
         assertTrue(combined.contains("${agent.cliName} mcp list"), combined)
 
         // The wrapper it registered must actually exist (install calls ensureBinLauncher first).

@@ -19,22 +19,28 @@ private const val DEVRIG_LEGACY_SERVER_NAME = "devrig"
  * register that stable wrapper — never the content-addressed install tree, which changes on every
  * upgrade — so an upgrade repoints the launcher underneath without re-registering the agent. `install`
  * is explicit user intent, so we call [ensureBinLauncher] with `force = true`: the wrapper is written
- * even on a SNAPSHOT/dev dist (where the passive on-each-start self-heal is off by default), so we never
- * register a path that does not exist. The wrapper pins the JDK devrig runs under via `DEVRIG_JAVA_HOME`, so the
- * registered command carries no `JAVA_HOME`. If an explicit opt-out still left the wrapper absent, we
- * warn loudly rather than silently registering a dead path.
+ * even on a SNAPSHOT/dev dist (where the passive on-each-start self-heal is off by default). We then
+ * **verify the launcher file actually exists before registering** and FAIL otherwise — registration must
+ * never point at a path that does not exist. The registered command is just the launcher (POSIX
+ * `~/.mcp-steroid/bin/devrig`; Windows `cmd.exe /d /c "…\bin\devrig.cmd"`), with no `JAVA_HOME` — the
+ * launcher sets up its own runtime.
  */
 fun DevrigServices.runInstallCommand(
     command: DevrigCommand.DevrigCommandInstall,
     runner: AiAgentCliRunner = ProcessAiAgentCliRunner(),
 ): Int {
+    // Create the stable launcher first, then guarantee it exists before we register it.
     ensureBinLauncher(homePaths, force = true, registerWindowsPath = true)
     val launcher = DevrigUserLauncher.path(homePaths)
     if (!launcher.isRegularFile()) {
         System.err.println(
-            "[mcp-steroid] WARNING: the launcher $launcher does not exist (DEVRIG_BIN_NO_AUTO_REGISTER " +
-                "opt-out?). Registering it anyway, but the MCP server will not start until it is created.",
+            "[mcp-steroid] ERROR: cannot register the MCP server — the launcher $launcher was not created.",
         )
+        System.err.println(
+            "  This usually means DEVRIG_BIN_NO_AUTO_REGISTER opts out of writing it. Unset that " +
+                "(or create the launcher yourself), then re-run 'devrig install'.",
+        )
+        return 64
     }
     return runInstallCommand(
         command = command,
@@ -79,8 +85,8 @@ fun runInstallCommand(
         "'$DEVRIG_MCP_SERVER_NAME' registration (user scope).")
     out.println("  - ${agent.displayName} will launch this command to start it:")
     out.println("      $renderedCommand")
-    out.println("  - The launcher pins the JDK devrig runs under (via DEVRIG_JAVA_HOME), so the registered")
-    out.println("    command carries no JAVA_HOME and survives devrig upgrades without re-registering.")
+    out.println("  - It points at the stable ~/.mcp-steroid/bin launcher, so it survives devrig upgrades")
+    out.println("    without re-registering.")
     out.println()
     out.println("Re-running install is safe — existing devrig entries are replaced.")
     out.println()

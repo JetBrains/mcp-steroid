@@ -169,7 +169,9 @@ class InstallCommandTest {
         assertTrue(out.contains("review", ignoreCase = true), out)
         assertTrue(out.contains("consolidat", ignoreCase = true), out)
         assertContains(out, "$launcherPath mcp")
-        assertTrue(out.contains("DEVRIG_JAVA_HOME", ignoreCase = false), out)
+        // The launch command is the stable bin launcher (no JAVA_HOME mentioned to the user).
+        assertTrue(out.contains("~/.mcp-steroid/bin", ignoreCase = false), out)
+        assertFalse(out.contains("JAVA_HOME"), "install output must not mention JAVA_HOME:\n$out")
         assertTrue(out.contains("Re-running", ignoreCase = true) || out.contains("safe", ignoreCase = true), out)
         assertContains(out, "claude mcp list")
     }
