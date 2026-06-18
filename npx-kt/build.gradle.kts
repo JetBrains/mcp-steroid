@@ -1,9 +1,6 @@
 import com.jonnyzzz.mcpSteroid.gradle.GenerateMetadataTask
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurper
 import org.gradle.api.attributes.Usage
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import java.security.MessageDigest
 import java.util.SortedSet
 
 plugins {
@@ -19,44 +16,6 @@ repositories {
 }
 
 val ktorVersion = "3.3.2"
-
-fun sha512(file: File): String {
-    val digest = MessageDigest.getInstance("SHA-512")
-    file.inputStream().use { input ->
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val bytesRead = input.read(buffer)
-            if (bytesRead < 0) break
-            if (bytesRead > 0) digest.update(buffer, 0, bytesRead)
-        }
-    }
-    return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-}
-
-fun stableJson(value: Any?): String = JsonOutput.prettyPrint(JsonOutput.toJson(value)) + "\n"
-
-fun requireJsonString(row: Map<*, *>, rowIndex: Int, key: String): String {
-    val value = row[key]
-    require(value is String) {
-        "jdk-manifest.json row $rowIndex field '$key' must be a string, got ${value?.let { it::class.qualifiedName } ?: "null"}"
-    }
-    return value
-}
-
-fun parseJdkManifest(json: String): List<LinkedHashMap<String, Any?>> {
-    val parsed = JsonSlurper().parseText(json)
-    require(parsed is List<*>) { "jdk-manifest.json must be a JSON array" }
-    return parsed.mapIndexed { index, item ->
-        val row = item as? Map<*, *> ?: error("jdk-manifest.json row $index must be an object")
-        linkedMapOf(
-            "name" to requireJsonString(row, index, "name"),
-            "os" to requireJsonString(row, index, "os"),
-            "cpu" to requireJsonString(row, index, "cpu"),
-            "downloadUrl" to requireJsonString(row, index, "downloadUrl"),
-            "sha-512" to requireJsonString(row, index, "sha-512"),
-        )
-    }
-}
 
 // Resolvable: pulls :ij-plugin's `buildPlugin` archive through the "plugin-zip"
 // Usage attribute (same hook :test-integration uses). The distribution bundles
@@ -77,16 +36,6 @@ val sevenZipBinaries by configurations.creating {
     isCanBeResolved = true
     attributes {
         attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "seven-zip-binaries"))
-    }
-}
-
-// Resolvable: pulls :jdk-downloader's generated JDK URL + SHA-512 manifest.
-// The future bootstrapper consumes this metadata instead of bundled JDK trees.
-val jdkManifest by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "jdk-manifest"))
     }
 }
 
@@ -126,9 +75,6 @@ dependencies {
     // Bundles :intellij-downloader's extracted 7-Zip binaries into the distZip under 7z/.
     // Resolved through the `sevenZipBinaries` configuration above.
     sevenZipBinaries(project(":intellij-downloader"))
-
-    // Consumes :jdk-downloader's JDK package rows for build/version.json.
-    jdkManifest(project(":jdk-downloader"))
 
     // SLF4J binding for the launcher. We use Logback (not slf4j-simple) so
     // operators can drop in a `logback.xml` to add appenders, change levels,
@@ -254,7 +200,6 @@ tasks.startScripts {
 // downstream tasks automatically. Going through `ijPluginZip.singleFile` is eager
 // and strips the Buildable, leaving the consumer without a path to producing the zip.
 val ijPluginZipFile = ijPluginZip.elements.map { it.single().asFile }
-val jdkManifestFile = jdkManifest.elements.map { it.single().asFile }
 val sevenZipBinariesDir = sevenZipBinaries.elements.map { it.single().asFile }
 val sevenZipLicenseFile = sevenZipBinariesDir.map { it.resolve("7z/License.txt") }
 
@@ -300,7 +245,7 @@ distributions {
                 from(rootProject.layout.projectDirectory.file("EULA"))
             }
 
-            // JDK bundling intentionally disabled — see TODO-NPX-BOOTSTRAPPER.md; devrig expects Java on PATH today, version.json will tell future bootstraps which Corretto build to fetch.
+            // JDK bundling intentionally disabled — devrig expects Java on PATH (see TODO-NPX-BOOTSTRAPPER.md).
         }
     }
 }
@@ -425,53 +370,8 @@ artifacts {
     add(devrigPackageElements.name, tasks.distZip)
 }
 
-val generateVersionJson by tasks.registering {
-    group = "build"
-    description = "Emit the devrig version.json manifest"
-    dependsOn(tasks.distZip)
-    inputs.file(jdkManifestFile).withPropertyName("jdkManifest")
-    inputs.file(ijPluginZipFile).withPropertyName("ijPluginZip")
-    inputs.file(tasks.distZip.flatMap { it.archiveFile }).withPropertyName("distZip")
-    val projectVersion = project.provider { project.version.toString() }
-    inputs.property("projectVersion", projectVersion)
-    val outputFile = layout.buildDirectory.file("version.json")
-    outputs.file(outputFile)
-
-    doLast {
-        val jdkEntries = parseJdkManifest(jdkManifestFile.get().readText())
-        val baseUrl = "https://github.com/jonnyzzz/mcp-steroid/releases/download/v${projectVersion.get()}"
-
-        val distZip = tasks.distZip.get().archiveFile.get().asFile
-        val pluginZip = ijPluginZipFile.get()
-
-        val devrigEntry = linkedMapOf<String, Any?>(
-            "name" to "devrig",
-            "downloadUrl" to "$baseUrl/${distZip.name}",
-            "sha-512" to sha512(distZip),
-        )
-        val ijPluginEntry = linkedMapOf<String, Any?>(
-            "name" to "ij-plugin",
-            "downloadUrl" to "$baseUrl/${pluginZip.name}",
-            "sha-512" to sha512(pluginZip),
-        )
-        val signature = linkedMapOf<String, Any?>(
-            "algorithm" to "pgp",
-            "status" to "unsigned-dev-build",
-            "value" to null,
-        )
-        val manifest = linkedMapOf<String, Any?>(
-            "packages" to jdkEntries + listOf(devrigEntry, ijPluginEntry),
-            "signature" to signature,
-        )
-
-        val file = outputFile.get().asFile
-        file.parentFile.mkdirs()
-        file.writeText(stableJson(manifest))
-    }
-}
-
 tasks.named("assemble") {
-    dependsOn(tasks.distZip, generateVersionJson)
+    dependsOn(tasks.distZip)
 }
 
 // Modelled on :ij-plugin's `verifyBundledLibraries`. Locks down what `distZip` ships so

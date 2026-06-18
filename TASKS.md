@@ -14,6 +14,11 @@ All of this session's work is merged to `origin/main` and synced to `jb` (so Tea
   (count-free description; stale "8/58" counts dropped). The only setter of `DEVRIG_JAVA_HOME` is the
   launcher generation (`BinLauncher.renderPosixLauncher`/`renderWindowsCmd`).
 - **#120** — docs: `jb` runs **TeamCity only**, NO GitHub Actions (workflow deletions stay deleted on jb-merge).
+- **#121** (dead-infra cleanup, PR open) — removed **`:jdk-downloader`** (its only output, npx-kt's
+  `version.json` manifest, was never published or consumed) and **`:pgp-verifier`** (its only consumer was
+  `:jdk-downloader`; downloaded IDEs are verified by **SHA-256** in `:intellij-downloader`'s `IdeDownloader`,
+  not PGP). Dropped the npx-kt `jdkManifest`/`generateVersionJson` wiring + both `pluginCoreSubprojects`
+  entries + settings includes.
 
 Live-validated on Windows (eugene-x220) + the GitHub Pages deploy. **PR #113** (installer, parked on
 `installer/version-json-driven`) resume context: the two "SESSION UPDATE" blocks on **that branch's**

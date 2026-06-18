@@ -1,5 +1,14 @@
 # TODO — npx bootstrapper, per-user lazy-fetch architecture
 
+> **NOTE (2026-06-18): the `:jdk-downloader` AND `:pgp-verifier` modules referenced below have been REMOVED.**
+> `:jdk-downloader` was dead — its only output, the npx-kt `version.json` manifest, was never published or
+> consumed (devrig uses Java on PATH; the in-IDE update checker reads the *website* `version.json`).
+> `:pgp-verifier` existed solely to PGP-verify those JDK downloads, so it went too — **note: downloaded IDEs
+> are verified by SHA-256** (`:intellij-downloader`'s `IdeDownloader`, against JetBrains' published
+> checksum), never PGP. The download → PGP-verify → extract pattern survives in git history, and the
+> installer epic's `:site-gen` (branch `installer/version-json-driven`) carries the live JDK-pinning. If
+> this bootstrapper is built, revive the pattern from there rather than expecting either module to exist.
+
 ## 2026-05-28 — Design phase complete; spec at v7 (commit b403efb7)
 
 **Authoritative design:**
