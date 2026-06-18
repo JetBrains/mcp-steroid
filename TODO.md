@@ -12,3 +12,60 @@
   optional `PidMarker.plugins: List<PluginInfo>? = null` (ij-plugin writes relevant plugins; old devrig
   ignores unknown key; new devrig falls back to the singular `plugin` field), devrig-side id→kind
   classification, PidMarker contract-test updates. Spec in the #88 closing comments.
+
+- [ ] **Fix the pre-existing `:prompts:test` failure** (broken on `main` since before 2026-06-09):
+  `MarkdownArticleContractTest.testNoNonKotlinFences` fails on
+  `debugger/debug-attach-remote-jvm.md` (5 ```text fences at lines 10/26/66/101/123). The contract
+  bans non-kotlin fences; rewrite those blocks as prose/inline code or ```kotlin. Until fixed, every
+  prompts contract run reports this one failure (sessions treat it as "green if sole failure" — debt).
+- [ ] **devrig-naming.md id-scheme drift**: the naming-contract doc still specifies the old
+  slug/bootHash exposed ids (`IntelliJ_IDEA_2025.3.3-AbC4Df01`) while the implementation has moved to
+  `productCode-hash8` backend_names (`iu-9fk2a0xQ`) and pid-salted project names. The plugins[] section
+  was fixed (2026-06-10); the id-scheme sections need their own reconciliation pass.
+- [ ] **list_windows graceful degradation**: devrig's `steroid_list_windows` is all-or-nothing — one
+  IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
+  `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
+
+- [ ] **`install --check` vs the literal Tenet-3 reading (review follow-up to #86)**: `--check` itself
+  is read-only, but `runsTool()` in `npx-kt/.../Main.kt` returns true for `DevrigCommandInstall`, so the
+  shared CLI startup still fires the PostHog beacon (`beacon.captureStarted`) and the background update
+  check — and the beacon may write `~/.mcp-steroid/.devrig-user-id` on first run (`DevrigBeacon.distinctId`).
+  This is common to every devrig tool command, not specific to --check. If a strictly side-effect-free
+  `--check` ever matters (e.g. for CI probes), make `runsTool()` return `!check` for install — decide
+  deliberately, since it also silences the update notice for that invocation (2026-06-12).
+
+- [ ] install.ps1 Windows smoke test: the devrig bootstrap installer (#97) was verified end-to-end on macOS (sh) and parse/behavior-checked under pwsh in Docker, but has never executed on real Windows PowerShell 5.1 — run it on a Windows box before promoting the PowerShell one-liner beyond the docs page (2026-06-12).
+- [ ] **inspect-and-fix recipe idiom follow-up (#81 review minor)**: the main recipe runs
+  `InspectionEngine.inspectEx` under plain `readAction { }` while the cross-project section uses
+  `smartReadAction` — unify on `smartReadAction` (kotlin-fence change → re-run the scoped
+  `InspectAndFixKtBlocksCompilationTest`).
+- [ ] **Hardcoded-URI lint gap (#81 review minor)**: `NoHardcodedMcpSteroidUriUsageTest` scans only
+  ij-plugin/prompts/prompt-generator src/main — `mcp-steroid-server/src/main` is not covered and
+  already carries a pre-existing `mcp-steroid://prompt/skill` literal in `FetchResourceToolHandler`'s
+  param description. Extend the lint to that module and replace the literal.
+- [ ] **ContentPart.kt `enterElseIf` bug (found by #98-t2 review, pre-existing)**: `ConditionalState.enterElseIf`
+  overwrites `frame.previousFilters` with only the latest branch filter, so a 3+-branch chain
+  `IF[A]/ELSE_IF[B]/ELSE_IF[C]` computes the third branch as `not(B).and(C)` instead of
+  `not(A).and(not(B)).and(C)`. No current article uses 3+ branches, but the corpus now leans harder
+  on conditionals — fix with a unit test before anyone writes one.
+- [ ] **#98 residual corpus-escape vectors (by design, documented)**: SHORTHAND_LIST_PATTERN only matches the
+  current list shape, and the availability audit is non-transitive (an article referenced only from a
+  skill/-root article's body escapes). Extend if a future gating bug slips through.
+- [ ] **DataGrip (DB) caveat**: test-run/debug articles are now fetchable in DB where they are meaningless
+  (graceful error at runtime); add a one-line DB caveat if dogfooding surfaces confusion.
+
+## IntelliJ-family IDE coverage (IU/IC/AI) — backlog
+
+- [ ] **Integration test lanes for IntelliJ Community (IC) and Android Studio (AI).** The `[IU,IC,AI]`
+  gating now claims IntelliJ-family Java/Kotlin/PSI/SSR/debugger recipes work in IDEA Ultimate, IDEA
+  Community, and Android Studio. We currently only prove the Ultimate side (KtBlock compiles against the
+  `idea` distribution; `PromptArticlePerIdeFetchIntegrationTest` covers the non-IU PyCharm/Rider/CLion
+  negative direction). Add Docker IDE lanes (or KtBlock distributions) for **IC** and **AI** so a positive
+  fetch + a representative `steroid_execute_code` recipe is proven on both. Needs an `IdeProduct.IntelliJCommunity`
+  (`IC`) and Android Studio (`AI`) image/distribution.
+- [ ] **API-difference audit near Spring etc.** Some Ultimate-bound APIs (Spring, `JUnitConfiguration`'s
+  framework integrations, etc.) genuinely differ or are absent in IC/AI. The IC/AI lanes above will surface
+  these — keep `[IU]`-only on the genuinely Ultimate-bound fences and split the recipe where the API differs.
+- [ ] **Corpus-wide `[IU]` → `[IU,IC,AI]` sweep.** This PR converted only its own articles. Audit the rest of
+  `prompts/src/main/prompts/**` for `[IU]` fences/sections whose APIs are actually in IC/AI and widen them
+  (leaving genuinely Ultimate-bound ones, e.g. `skill/coding-with-intellij-spring.md`, as `[IU]`).

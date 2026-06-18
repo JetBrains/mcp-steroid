@@ -9,7 +9,7 @@ import com.jonnyzzz.mcpSteroid.devrig.BackendInventory
 import com.jonnyzzz.mcpSteroid.devrig.BackendRow
 import com.jonnyzzz.mcpSteroid.devrig.ManagedBackendInfo
 import com.jonnyzzz.mcpSteroid.devrig.ManagedBackendState
-import com.jonnyzzz.mcpSteroid.devrig.backendNameForManaged
+import com.jonnyzzz.mcpSteroid.devrig.backendNameForRow
 import com.jonnyzzz.mcpSteroid.devrig.backendNameForPort
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
@@ -89,7 +89,8 @@ class DevrigListToolHandlersTest {
 
         val markerName = backendNameForMarker(42L, "IU-261.1")
         val portName = backendNameForPort(63342, "261.5555.1")
-        val managedName = backendNameForManaged(managed.id, managed.buildNumber)
+        // Derive via the production rule (re-attaches productCode to the bare managed buildNumber).
+        val managedName = backendNameForRow(BackendRow.FromManaged(managed))
         assertEquals(
             setOf(markerName, portName, managedName),
             response.backends.map { it.backendName }.toSet(),

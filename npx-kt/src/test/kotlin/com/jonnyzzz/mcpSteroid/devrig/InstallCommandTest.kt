@@ -15,8 +15,11 @@ import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 
 class InstallCommandTest {
-    private val launcher = Path.of("/opt/devrig/bin/devrig")
-    private val javaHome = Path.of("/opt/jdk-21")
+    // The install command registers the STABLE user-facing wrapper, not the install tree. Fixed home so
+    // the expected launch command is deterministic across platforms (windows = false in tests).
+    private val home = HomePaths(Path.of("/home/user/.mcp-steroid"))
+    private val launcherPath = "/home/user/.mcp-steroid/bin/devrig"
+    private val mcpCommand = DevrigUserLauncher.invocation(home, listOf("mcp"), windows = false)
 
     private val claudeListWithBothNames = """
         Checking MCP server health…
@@ -35,25 +38,6 @@ class InstallCommandTest {
     """.trimIndent()
 
     @Test
-    fun `self mcp command uses current java home on unix`() {
-        val command = selfMcpCommand(launcher, javaHome, windows = false)
-
-        assertEquals("/usr/bin/env", command.command)
-        assertEquals(listOf("JAVA_HOME=/opt/jdk-21", "/opt/devrig/bin/devrig", "mcp"), command.args)
-    }
-
-    @Test
-    fun `self mcp command uses cmd exe for bat launchers on windows`() {
-        val command = selfMcpCommand(Path.of("/opt/devrig/bin/devrig.bat"), Path.of("/opt/jdk-21"), windows = true)
-
-        assertEquals("cmd.exe", command.command)
-        assertEquals(
-            listOf("/d", "/c", "set \"JAVA_HOME=/opt/jdk-21\" && call \"/opt/devrig/bin/devrig.bat\" mcp"),
-            command.args,
-        )
-    }
-
-    @Test
     fun `install reviews the list first, then consolidates, then adds`() {
         // First invocation must be the list (review), last must be the add.
         val result = runInstall(AiAgentCli.CLAUDE, RecordingRunner())
@@ -67,8 +51,7 @@ class InstallCommandTest {
         val result = runInstall(AiAgentCli.CLAUDE, RecordingRunner())
         assertEquals(0, result.exitCode)
         assertEquals(
-            listOf("mcp", "add", "--scope", "user", "mcp-steroid", "--",
-                "/usr/bin/env", "JAVA_HOME=/opt/jdk-21", "/opt/devrig/bin/devrig", "mcp"),
+            listOf("mcp", "add", "--scope", "user", "mcp-steroid", "--", launcherPath, "mcp"),
             result.addInvocation.args,
         )
     }
@@ -77,7 +60,7 @@ class InstallCommandTest {
     fun `install add invocation per agent (codex, gemini)`() {
         val codex = runInstall(AiAgentCli.CODEX, RecordingRunner())
         assertEquals(
-            listOf("mcp", "add", "mcp-steroid", "--", "/usr/bin/env", "JAVA_HOME=/opt/jdk-21", "/opt/devrig/bin/devrig", "mcp"),
+            listOf("mcp", "add", "mcp-steroid", "--", launcherPath, "mcp"),
             codex.addInvocation.args,
         )
 
@@ -85,7 +68,7 @@ class InstallCommandTest {
         assertEquals(
             listOf(
                 "mcp", "add", "--type", "stdio", "--scope", "user", "--trust", "mcp-steroid",
-                "/usr/bin/env", "JAVA_HOME=/opt/jdk-21", "/opt/devrig/bin/devrig", "mcp",
+                launcherPath, "mcp",
             ),
             gemini.addInvocation.args,
         )
@@ -185,8 +168,8 @@ class InstallCommandTest {
         assertContains(out, "Claude")
         assertTrue(out.contains("review", ignoreCase = true), out)
         assertTrue(out.contains("consolidat", ignoreCase = true), out)
-        assertContains(out, "/usr/bin/env JAVA_HOME=/opt/jdk-21 /opt/devrig/bin/devrig mcp")
-        assertContains(out, "/opt/jdk-21")
+        assertContains(out, "$launcherPath mcp")
+        assertTrue(out.contains("DEVRIG_JAVA_HOME", ignoreCase = false), out)
         assertTrue(out.contains("Re-running", ignoreCase = true) || out.contains("safe", ignoreCase = true), out)
         assertContains(out, "claude mcp list")
     }
@@ -209,8 +192,7 @@ class InstallCommandTest {
         val stderr = ByteArrayOutputStream()
         val exitCode = runInstallCommand(
             command = DevrigCommand.DevrigCommandInstall(agent),
-            launcher = launcher,
-            javaHome = javaHome,
+            mcpCommand = mcpCommand,
             out = PrintStream(stdout, true, Charsets.UTF_8),
             err = PrintStream(stderr, true, Charsets.UTF_8),
             runner = runner,

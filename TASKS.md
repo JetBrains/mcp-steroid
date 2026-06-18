@@ -1,4 +1,84 @@
 
+# Active focus — bin/devrig is the devrig binary's responsibility (PR `devrig/bin-launcher`, 2026-06-18)
+
+New PR off `origin/main` (NOT PR #113, which is parked on `installer/version-json-driven`). Contract: the
+**devrig BINARY** owns `~/.mcp-steroid/bin/devrig` — the install script owns none of it.
+
+## Done (implemented + validated)
+
+- `HomePaths.binDir` = `~/.mcp-steroid/bin`; created by `mkdirsAll()`.
+- `BinLauncher.kt` — `ensureBinLauncher(home)` runs on EVERY devrig start (wired at the top of
+  `Main.mainImpl2`, best-effort, stderr-only). It:
+  - (re)writes `bin/devrig` (POSIX) / `bin/devrig.cmd` (Windows, CMD-only) **atomically** (temp +
+    ATOMIC_MOVE), rewrite-only-on-change (normalized compare) — safe to change while the file is in use.
+  - wrapper records **ABSOLUTE** paths (no `$HOME`-relative — works from any install location incl.
+    `/tmp/devrig` in tests) and always pins the bundled JDK via `DEVRIG_JAVA_HOME` (start script honors it).
+  - **owns PATH reachability**: POSIX symlinks `bin/devrig` into the first writable PATH dir under `$HOME`
+    (pure Java, never self-links, never clobbers a foreign devrig, returns silently when already correct).
+    Windows: **NO PowerShell / no subprocess at startup** (per user) — the JDK cannot persist the user
+    PATH in pure Java, so it only CHECKS membership (`System.getenv("PATH")` + `File.pathSeparator`) and
+    prints a one-time manual hint if absent. Agents launch the wrapper by ABSOLUTE path, so MCP works
+    regardless of PATH.
+  - **NO location guard** — the only safety is the gate below (per the "always on each start" contract).
+- `DevrigUserLauncher.kt` — single source of truth for the wrapper path + how to invoke it
+  (`cmd.exe /d /c "…devrig.cmd" …` on Windows; direct exec on POSIX; no JAVA_HOME at the call site).
+- `InstallCommand.kt` — `devrig install` now calls `ensureBinLauncher` first, then registers the STABLE
+  wrapper `~/.mcp-steroid/bin/devrig` (NOT the content-addressed install tree) so upgrades need no
+  re-registration. Dropped `selfMcpCommand` / `resolveDevrigLauncher` / the explicit-JAVA_HOME narration.
+- **Undocumented gate** `DEVRIG_BIN_NO_AUTO_REGISTER` (yes/true/1/on = OFF; no/false/0/off = ON). Default
+  (unset) = ON for release, **OFF for SNAPSHOT/dev/test** builds (SNAPSHOT in `DevrigVersionMetadata`),
+  so a dev/test build never clobbers the real launcher. Version read internally (no param).
+- Tests: `BinLauncherTest` (gate matrix, render, idempotent rewrite, symlink, foreign-not-clobbered),
+  updated `InstallCommandTest`/`HomePathsTest`; Docker `CliBinLauncherIntegrationTest` (self-heal + symlink
+  + wrapper-actually-runs with opt-in; default-off without) + updated `CliInstallIntegrationTest`
+  (opt-in env + asserts wrapper registration + wrapper written). All green. IDE inspections = 0 WARNING+.
+
+## Done (cont.)
+
+- **eugene-x220 (Windows 10, Corretto 25) live test — PASSED.** SSH works as `jonnyzzz@eugene-x220.local`
+  (cmd.exe shell). Deployed a fresh SNAPSHOT dist, ran `devrig version` with
+  `DEVRIG_BIN_NO_AUTO_REGISTER=no`: `%USERPROFILE%\.mcp-steroid\bin\devrig.cmd` written with the correct
+  absolute `call` + `DEVRIG_JAVA_HOME` pin; the wrapper itself launched devrig; a 2nd start was idempotent
+  (no rewrite); NO PowerShell at startup. Test artifacts cleaned up afterward (a dangling
+  `%USERPROFILE%\.mcp-steroid\bin` user-PATH entry remains — harmless).
+- 3× adversarial quorum: GO (correctness=GO, safety=GO, tests=GO_WITH_CHANGES, no blocking issues). Its
+  non-blocking notes applied: symlink already-correct fast-path, writeAtomically temp-file cleanup.
+- **Committed** `926763f9` on `devrig/bin-launcher` (author Eugene Petrenko). NOT pushed — confirm with user.
+
+## Done (cont. 2)
+
+- **3× independent `run-agent.sh` peer review** (2× claude PASS_WITH_NOTES, 1× codex HOLD). All findings fixed:
+  (A, consensus) `devrig install` could register a wrapper it never wrote on SNAPSHOT → now `force=true`
+  writes it (explicit opt-out still wins) + warns if absent; (D, codex HOLD) `writeIfChanged` now restores
+  a lost `+x` bit; (B) relative pre-existing symlink resolved via `resolveSibling`; (C) PowerShell PATH
+  registration no longer runs on the `devrig mcp` hot path (`registerWindowsPath=false` for MCP). New unit
+  tests + re-verified live on Windows. Commit `4eb6cfa3`.
+- **PR opened: https://github.com/jonnyzzz/mcp-steroid/pull/117** (`devrig/bin-launcher` → `main`), pushed to origin.
+
+## Done (cont. 3) — PR #117 author-comment review loop
+
+Author left 3 inline comments on PR #117; fed them through the run-agent.sh loop (round 3 → HOLD, round 4
+→ unanimous PASS_WITH_NOTES). Resolutions:
+- **C1** (`@Suppress("FunctionName")` on CliBinLauncherIntegrationTest): removed; live IDE CodeSmellDetector
+  = 0 warnings (backtick @Test names aren't flagged). Done.
+- **C2** ("container must not have JAVA installed"): the Docker test leaned on the container's system java,
+  never proving DEVRIG_JAVA_HOME is the SOLE JDK source. A literal no-Java image is infeasible (dist bundles
+  no JDK; first run needs java). Fix: after seeding the wrapper, the proof run poisons `java` on PATH
+  (exit-97 stub, first on PATH) + `env -u JAVA_HOME`, then runs the symlinked wrapper and asserts a version
+  still prints — proving the start script used `$DEVRIG_JAVA_HOME/bin/java` (absolute), not ambient java.
+  Docker-validated. Commit `c7b8de15`.
+- **C3** ("not looking for writable PATH on Windows?"): KEEP — all 3 reviewers confirm the HKCU user-PATH
+  registry approach is the correct Windows idiom (no ~/.local/bin convention; symlinks need admin). No change.
+- Also fixed loose "bundled JDK" wording (devrig pins the JDK it runs under) — commit `e686c7bd`.
+
+PR #117 commits now: 926763f9, b270101d, 978f8bf9, 4eb6cfa3, c7b8de15, e686c7bd (+ TASKS bookkeeping).
+
+## Pending
+
+- PR #117 review/merge. Known non-blocking notes (deferred, not raised by the author): Windows PATH dedup
+  compares literal strings so `%USERPROFILE%`-spelled / trailing-slash variants could survive (codex r2);
+  the "no writable PATH dir" POSIX hint can false-alarm when binDir itself is on PATH.
+
 # Active focus — 0.96 release quality check: devrig + ij-plugin (2026-05-29)
 
 Scope: keep the 0.96 version; quality-check **devrig** (`:npx-kt`) and
@@ -3827,3 +3907,25 @@ Split:
 - **W4 — docs + verify.** AGENT-STEROID-GUIDE / managing-backends: responses self-describe via backends[]
   only (no top-level ide); backends[] now lists non-routable port/managed rows too (check `routable`).
   Suites green; wire-pristineness green.
+
+---
+
+# Deliverable — agent feature review (2026-06-11)
+
+Multi-agent hands-on experiment (Claude 4-lens swarm + Codex via run-agent.sh -> top-30 -> 5 validation
+iterations -> 3-lens quorum). **Result: 29 ranked, evidence-backed missing features** in
+[docs/agent-feature-review-2026-06.md](docs/agent-feature-review-2026-06.md). Top themes: verification
+recipes (red-code check, single-call test run, JPS build errors), execute_code response shape
+(structured envelope, dedup diagnostics, line-number mapping), resource discoverability (102 articles vs
+31 indexed), execution lifecycle (queue/cancel/artifacts), and reliability bugs found live (decompiler
+modal poisoning EDT, smartReadAction output duplication, write-lock invisibility).
+
+## Status close-out (2026-06-11)
+
+- Epic **#91** filed: 29 evidence-backed agent-experience gaps from the dogfooding experiment, themed
+  checklist linking [docs/agent-feature-review-2026-06.md](docs/agent-feature-review-2026-06.md).
+  **#90** (response payload de-duplication) complements its response-shape theme.
+- All session work CI-green on `origin/main` @ `bef9a015`. **Pending**: `jb-merge` for
+  `fb7ab68f..bef9a015` (TeamCity builds stale until then); devrig local redeploy to serve the
+  newest schema (actions[]/ide-field drops landed after the deployed `ddf8027a` build);
+  managed-backend/test-dir cleanup (see MEMORY.md 2026-06-11 environment handoff).

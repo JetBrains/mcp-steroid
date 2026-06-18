@@ -209,8 +209,20 @@ class DevrigProjectRoutingService(
                 Instant.MIN
             }
 
-        fun canonicalProjectHome(projectHome: String): Path =
-            Path.of(projectHome).toRealPath()
+        /**
+         * Canonicalizes a project home for routing/hash purposes. `toRealPath()` resolves symlinks but
+         * THROWS when the directory no longer exists — and a single vanished project (e.g. a test
+         * project deleted while its IDE snapshot is still cached) must not break routing for every
+         * other project. Fall back to the lexically-normalized absolute path in that case.
+         */
+        fun canonicalProjectHome(projectHome: String): Path {
+            val path = Path.of(projectHome)
+            return try {
+                path.toRealPath()
+            } catch (e: java.io.IOException) {
+                path.toAbsolutePath().normalize()
+            }
+        }
 
         fun projectHash(realProjectHome: Path, idePid: Long): String {
             val digest = MessageDigest.getInstance("SHA-256")

@@ -146,6 +146,12 @@ When changing files across multiple sub-folders, read the guides for each.
   `grep '<YourTest>Test' /tmp/dump.txt -A 5`. Killing throws away evidence and forces guess-and-retry.
   Once you have the stuck test's name, iterate on just that test (`--tests 'com.example.StuckTest'`
   + `--rerun-tasks`).
+- **Prose-only prompt edits need only the contract test.** When a change under
+  `prompts/src/main/prompts/**` touches no ` ```kotlin ` fence, run
+  `./gradlew :prompts:test --tests '*MarkdownArticleContract*'` (seconds). The `*KtBlock*`
+  compilation matrix recompiles every fence against every unpacked IDE (60–120 min) and is only
+  needed when kotlin fences change — never run it casually (a workflow agent once hung 37 min on it
+  for a prose edit).
 - **1-minute rule for integration tests.** Any `:test-integration` / `:test-experiments` case that hasn't
   printed PASS/FAIL within ~60 s of `> Task :*:test` is suspicious — usually a modal dialog, indexing
   stall, or background task that won't finish. Capture the latest screenshot

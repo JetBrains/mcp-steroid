@@ -195,11 +195,9 @@ class BackendCommandJsonRenderTest {
         assertEquals("IU", backend["ideProductCode"]?.jsonPrimitive?.contentOrNull)
         assertEquals("IU-253.21581.142", backend["build"]?.jsonPrimitive?.contentOrNull)
 
-        // Marker identity now lives under `ide` (name/version/build), not flattened on the backend.
-        val ide = backend["ide"]!!.jsonObject
-        assertEquals("IntelliJ IDEA", ide["name"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("2025.3.3", ide["version"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("IU-253.21581.142", ide["build"]?.jsonPrimitive?.contentOrNull)
+        // The marker's IdeInfo type stays on the disk/wire side: the agent schema carries the
+        // identity only as displayName/build/ideProductCode — no embedded `ide` object.
+        assertNull(backend["ide"], "agent schema must not embed the marker IdeInfo: " + backend)
 
         // plugins[] carries one entry tagged kind=mcp-steroid (replaces the old `plugin` block + flag).
         val plugin = backend["plugins"]!!.jsonArray.single().jsonObject
@@ -208,7 +206,7 @@ class BackendCommandJsonRenderTest {
         assertEquals("0.0.0-test", plugin["version"]?.jsonPrimitive?.contentOrNull)
         assertEquals("mcp-steroid", plugin["kind"]?.jsonPrimitive?.contentOrNull)
         assertNull(backend["mcpSteroidPluginInstalled"], "the boolean flag is replaced by plugins[]: $backend")
-        assertEquals(0, backend["actions"]!!.jsonArray.size)
+        assertNull(backend["actions"], "actions[] was dropped from BackendInfo: $backend")
         assertNull(backend["error"], "reachable marker rows must not carry an error: $backend")
         assertNull(backend["portDetail"], "marker row carries no port detail: $backend")
         assertNull(backend["managedDetail"], "marker row carries no managed detail: $backend")
@@ -287,14 +285,7 @@ class BackendCommandJsonRenderTest {
         assertEquals("IU-253.21581.142", detail["buildNumber"]?.jsonPrimitive?.contentOrNull)
 
         assertEquals(0, backend["plugins"]!!.jsonArray.size, "port row has no plugins: $backend")
-        val action = backend["actions"]!!.jsonArray.single().jsonObject
-        assertEquals("provision", action["id"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("Install MCP Steroid plugin", action["label"]?.jsonPrimitive?.contentOrNull)
-        assertEquals("devrig backend provision port-63342", action["command"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(
-            listOf("devrig", "backend", "provision", "port-63342"),
-            action["argv"]!!.jsonArray.map { it.jsonPrimitive.content },
-        )
+        assertNull(backend["actions"], "actions[] was dropped from BackendInfo: $backend")
         assertNull(backend["pid"], "port row must not carry a pid: $backend")
         assertNull(backend["ide"], "port row carries no marker ide identity: $backend")
     }

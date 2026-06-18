@@ -345,8 +345,10 @@ subcommand called with `--json`, and the devrig stdio MCP rows carry
 the fields a script needs to drive a follow-up `devrig` command or an
 MCP call. For row-based surfaces, `id` is the canonical reference (the
 exposed name); source-specific identifiers (`pid`, `port`, `mcpUrl`)
-are present when known; the `actions[]` array carries every applicable
-follow-up command. The execution channel is `actions[].argv` (array,
+are present when known. The download/provision target listings carry an
+`actions[]` array with every applicable follow-up command (the
+`backends[]`/`projects[]` rows do NOT carry `actions[]` — drive those
+via the documented `devrig backend` commands instead). The execution channel is `actions[].argv` (array,
 shell-free). Scripts that exec via `actions[].command` (the derived
 display string) MUST shell-quote the argument list themselves —
 devrig does not guarantee `command` is safe to pass to `sh -c`. If a
@@ -371,8 +373,7 @@ in its current state.
       "mcpUrl": "http://localhost:6315/mcp",
       "plugins": [
         { "id": "com.jonnyzzz.mcp-steroid", "name": "MCP Steroid", "version": "0.95.0", "kind": "mcp-steroid" }
-      ],
-      "actions": []
+      ]
     },
     {
       "id": "IntelliJ_IDEA_Ultimate-9F8E7D02",
@@ -383,15 +384,7 @@ in its current state.
       "reachable": true,
       "port": 63342,
       "buildNumber": "261.24374.151",
-      "plugins": [],
-      "actions": [
-        {
-          "id": "provision",
-          "label": "Install MCP Steroid plugin",
-          "argv": ["devrig", "backend", "provision", "IntelliJ_IDEA_Ultimate-9F8E7D02"],
-          "command": "devrig backend provision IntelliJ_IDEA_Ultimate-9F8E7D02"
-        }
-      ]
+      "plugins": []
     },
     {
       "id": "idea-community_2025.3.3-1z8KqM03",
@@ -403,21 +396,7 @@ in its current state.
       "buildNumber": "IC-261.23567.138",
       "installPath": "/Users/me/.mcp-steroid/backends/idea-community-2025.3.3",
       "cachePath": "/Users/me/.cache/mcp-steroid/backends/idea-community-2025.3.3",
-      "plugins": [],
-      "actions": [
-        {
-          "id": "start",
-          "label": "Start managed backend",
-          "argv": ["devrig", "backend", "start", "idea-community_2025.3.3-1z8KqM03"],
-          "command": "devrig backend start idea-community_2025.3.3-1z8KqM03"
-        },
-        {
-          "id": "stop",
-          "label": "Stop managed backend",
-          "argv": ["devrig", "backend", "stop", "idea-community_2025.3.3-1z8KqM03"],
-          "command": "devrig backend stop idea-community_2025.3.3-1z8KqM03"
-        }
-      ]
+      "plugins": []
     }
   ],
   "projects": [
@@ -426,8 +405,7 @@ in its current state.
       "originalName": "myproject",
       "path": "/Users/me/Work/myproject",
       "idePid": 24017,
-      "backend": "IntelliJ_IDEA_2025.3.3-AbC4Df01",
-      "actions": []
+      "backend": "IntelliJ_IDEA_2025.3.3-AbC4Df01"
     }
   ]
 }
@@ -454,7 +432,6 @@ in its current state.
 | `installPath` | Filesystem path of the managed install (managed rows only). |
 | `cachePath` | Filesystem path of the managed cache (managed rows only). |
 | `mcpUrl` | MCP endpoint URL (marker only). |
-| `actions` | Every actionable follow-up command for this row in its current state, as `{id, label, argv, command}`.<br><br>`argv` — array of strings, the **canonical execution form**. Pass directly to `ProcessBuilder` / `posix_spawn`. No shell involved, no quoting required. Safe regardless of what characters survive `slug()`.<br><br>`command` — derived display string, `argv.joinToString(" ")` for human readability. **For humans only — do not `sh -c` this.** Spelling or metacharacters in `originalName` may render here unescaped.<br><br>`id`, `label` — unchanged.<br><br>Empty array means no actionable commands for this row. |
 
 `projects[]`:
 
@@ -465,7 +442,6 @@ in its current state.
 | `path` | Canonical project base path (`Path.of(projectBasePath).toRealPath()`). Same value the hash computes over. Symlinks resolved. |
 | `idePid` | OS PID of the IntelliJ JVM that owns this project row. Same value as `backends[].pid` for the row referenced by `backend`. Folded into the project hash for debuggability and as a redundancy check against `bootHash`. |
 | `backend` | Foreign key to `backends[].id`. |
-| `actions` | Reserved for project-level follow-up commands as `{id, label, argv, command}`. `argv` is the canonical execution form; `command` is display-only. Empty array means no actionable commands for the row in its current state. |
 
 On Unix, `toRealPath()` resolves symlinks. On Windows, it additionally
 resolves directory junctions and reparse points. Both produce a path

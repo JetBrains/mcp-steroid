@@ -84,6 +84,12 @@ data class BackendInfo(
     val routable: Boolean,
     /** True when discovery-reachable. */
     val reachable: Boolean,
+    /**
+     * True when this devrig instance owns the backend's lifecycle (`devrig backend start`) — the
+     * documented tier-2 pick for open_project when no worktree match exists. Orthogonal to [source]:
+     * a RUNNING managed backend appears as `source="marker"` with `managed=true`; `source="managed"`
+     * covers installed-but-not-running rows only.
+     */
     val managed: Boolean = false,
     /** Listed for humans/disambiguation; NOT encoded into [backendName]. */
     val pid: Long? = null,
@@ -98,14 +104,10 @@ data class BackendInfo(
     val plugins: List<BackendPlugin> = emptyList(),
     /** Marker-unreachable message (was backendEntryJson "error"). */
     val error: String? = null,
-    /** Top-level provision actions (e.g. port provisioning); not nested under managed. */
-    val actions: List<BackendAction> = emptyList(),
     /** Port-only identity extras (renamed from the colliding scalar `port`). */
     val portDetail: PortBackendDetail? = null,
     /** Managed-only extras. */
     val managedDetail: ManagedBackendDetail? = null,
-    /** Marker identity (name/version/build). */
-    val ide: IdeInfo? = null,
     val openProjects: List<ListedProject> = emptyList(),
 )
 
@@ -208,16 +210,7 @@ fun markerBackendInfo(
     build = ide.build,
     plugins = plugins,
     error = error,
-    ide = ide,
     openProjects = openProjects,
-)
-
-@Serializable
-data class BackendAction(
-    val id: String,
-    val label: String,
-    val command: String,
-    val argv: List<String> = emptyList(),
 )
 
 @Serializable

@@ -1,8 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
-import com.jonnyzzz.mcpSteroid.server.BackendAction
 import com.jonnyzzz.mcpSteroid.server.BackendInfo
 import com.jonnyzzz.mcpSteroid.server.ListedProject
 import com.jonnyzzz.mcpSteroid.server.ManagedBackendDetail
@@ -29,7 +27,9 @@ fun backendNameForManaged(managedId: String, build: String?): String =
 fun backendNameForRow(row: BackendRow): String = when (row) {
     is BackendRow.FromMarker -> backendNameForMarker(row.ide.pid, row.ide.marker.ide.build)
     is BackendRow.FromPort -> backendNameForPort(row.ide.port, row.ide.buildNumber)
-    is BackendRow.FromManaged -> backendNameForManaged(row.info.id, row.info.buildNumber)
+    // Managed buildNumbers come without the product prefix ("261.x"); re-attach the known productCode
+    // so the backend_name carries the product hint ("pc-...") instead of the "ide-" fallback.
+    is BackendRow.FromManaged -> backendNameForManaged(row.info.id, "${row.info.productCode}-${row.info.buildNumber ?: ""}")
 }
 
 /**
@@ -77,7 +77,6 @@ fun backendInfoForRow(
             port = ide.port,
             ideProductCode = productCodeFromBuild(ide.buildNumber),
             build = ide.buildNumber,
-            actions = portProvisionActions(ide),
             portDetail = PortBackendDetail(
                 baseUrl = ide.baseUrl,
                 productName = ide.productName,
@@ -118,15 +117,3 @@ fun backendInfoForRow(
     }
 }
 
-private fun portProvisionActions(ide: DiscoveredIdeByPort): List<BackendAction> {
-    val targetId = provisionTargetId(ide.port)
-    return listOf(
-        BackendAction(
-            id = PROVISION_ACTION_ID,
-            label = "Install MCP Steroid plugin",
-            command = provisionCommand(targetId),
-            // Canonical execution form (devrig-naming.md): pass directly to ProcessBuilder, no shell.
-            argv = listOf("devrig", "backend", "provision", targetId),
-        ),
-    )
-}

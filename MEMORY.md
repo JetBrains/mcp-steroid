@@ -451,3 +451,56 @@
   manifest + JDK download + wizard + auto-GC + tests) → Phase 2 (~400, key
   generation + signing workflow + `devrig upgrade` + URL-liveness GH
   Action) → Phase 3 (~80, optional curl shims).
+
+## 2026-06-11 - backend_name/plugins[]/#89 session: shipped state + environment handoff
+
+- Shipped to `origin/main` (all CI-green via `build-plugin.yml`):
+  - #87 `backend_name` routing (merge `4c6fe3ae`): REQUIRED on the devrig `steroid_open_project` surface,
+    absent on the in-IDE surface; resolved locally in devrig, **never forwarded** to the IDE bridge.
+  - #88 `plugins[]` (merge `ddf8027a`): `BackendPlugin{id,name,version,kind}` replaces the boolean;
+    helpers `hasMcpSteroid()`/`mcpSteroidPlugin()`; shared `markerBackendInfo` assembler; open_project
+    registration de-inherited (explicit per call site). Closed; enumeration follow-up in TODO.md.
+  - #89 headerless responses (same merge + follow-ups `fb7ab68f..bb738d57`): no top-level
+    `ide`/`plugin`/`pid` on `list_projects`/`list_windows`; every projects[]/windows[]/backgroundTasks[]
+    entry carries `backend_name`; `backends[]` (ALL backends incl. port/managed) via `BackendInventory`
+    shared by CLI + MCP. `actions[]` dropped from BackendInfo; `BackendInfo.ide` dropped (marker-disk vs
+    agent JSON split — agent schema has zero wire/marker types); `managed` kept per 3/3 quorum + KDoc.
+  - Version-skew rework (`0aa037c5`): compares `major.minor` version bases only (the `version.json`
+    `version-base` notion); warns on EVERY routed exec_code call, devrig-only, stderr.
+  - Routing robustness (`bb738d57`): `canonicalProjectHome` survives vanished project dirs (found LIVE:
+    a deleted test project broke routing for every project; `toRealPath()` -> normalized fallback).
+- **jb mirror lag**: `jb/main` synced only to `55e557ef` (post-#89 merge). Commits `fb7ab68f..bef9a015`
+  (actions[] drop, managed fixes, model split, routing fix, feature-review doc) are NOT on jb —
+  TeamCity builds stale code until the next `jb-merge` (procedure in root CLAUDE.md).
+- Local environment state:
+  - Fresh devrig `0.100.19999-SNAPSHOT-ddf8027a` unpacked under `~/.mcp-steroid/` and registered for
+    Claude (user scope) + Codex (global), canonical `mcp` subcommand, JAVA_HOME=corretto-25 recorded.
+    NOTE: it predates the actions[]/ide-field drops — redeploy (distZip + `devrig install`) to serve
+    the newest schema.
+  - User IDEs (IDEA Ultimate pid 16764, GoLand pid 17798) intentionally still run plugin
+    `0.100-409f23a2` — same `0.100` base, so no skew warnings (by design).
+  - Managed backends: idea-community 2026.1.3 RUNNING (`ic-phhp9dDU`, bundled fresh plugin);
+    pycharm-community 2026.1.2 installed-not-running. Cleanup candidates: `devrig backend stop
+    idea-community`; test dirs `~/devrig-openproj-claude` + `~/devrig-openproj-codex` (opened in
+    idea-community during backend_name verification, incl. by Codex via run-agent.sh).
+- Multi-agent experiment (epic #91, doc `docs/agent-feature-review-2026-06.md`): Claude 4-lens swarm +
+  Codex top-20s -> top-30 -> 5 hands-on validation iterations -> 3-lens quorum = 29 evidence-backed
+  items (26 validated / 3 contested). #90 tracks response payload de-duplication separately.
+
+## 2026-06-11 - Harness/test gotchas learned this session
+
+- **`:prompts:test` with `*KtBlock*` is a 60-120 min IDE-matrix run** — a workflow agent hung 37 min on
+  it for a prose-only .md edit. For article-text-only changes run ONLY
+  `--tests '*MarkdownArticleContract*'`; the KtBlock matrix is needed only when ```kotlin fences change.
+- **Workflow structured-output bloat stalls agents**: iterated editor outputs grew 31->54KB JSON
+  (evidence concatenation); the next editor stalled 6x with ZERO tool calls (~68k tokens/attempt burned
+  generating giant JSON). Fix: hard per-field length caps (maxLength in the schema + explicit prompt
+  limits) and "keep only the strongest citation, never concatenate". Recovery: results are journaled —
+  extract state from `journal.jsonl` and continue in a new workflow (or resumeFromRunId).
+- **ktor `embeddedServer` inside `runBlocking` resolves to the CoroutineScope extension** — the server
+  becomes a child coroutine and runBlocking never returns (test hangs, zero TCP, withTimeout unfireable).
+  Create embedded servers OUTSIDE runBlocking (comment lives in DevrigToolBridgeClientTest).
+- **kotlinx string templates inside steroid_execute_code script strings**: `${...}` in an applyPatch
+  newString is interpolated by the OUTER script — escape via a `val dollar = "$"` indirection.
+- IDE-side review loop that works: `getHighlightsWhenReady(vf)` per changed file (0 highlights at
+  WEAK_WARNING+ = clean) + `applyPatch { hunk(...) }` for multi-file edits, per ij-plugin/CLAUDE.md.

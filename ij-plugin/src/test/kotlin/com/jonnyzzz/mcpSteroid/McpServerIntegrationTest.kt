@@ -123,9 +123,8 @@ class McpServerIntegrationTest : BasePlatformTestCase() {
         val projectsPayload = (listProjectsResult.content.single() as ContentItem.Text).text
         val projects = McpJson.decodeFromString<ListProjectsResponse>(projectsPayload)
         val projectsSelfBackend = projects.backends.single()
-        assertTrue("IDE name should be reported on the self backend", projectsSelfBackend.ide?.name.orEmpty().isNotBlank())
-        assertTrue("IDE version should be reported on the self backend", projectsSelfBackend.ide?.version.orEmpty().isNotBlank())
-        assertTrue("IDE build should be reported on the self backend", projectsSelfBackend.ide?.build.orEmpty().isNotBlank())
+        assertTrue("IDE display name should be reported on the self backend", projectsSelfBackend.displayName.isNotBlank())
+        assertTrue("IDE build should be reported on the self backend", projectsSelfBackend.build.orEmpty().isNotBlank())
         assertTrue("MCP Steroid plugin should be reported on the self backend", projectsSelfBackend.hasMcpSteroid())
         assertTrue(
             "Current project should be discoverable via the MCP tool",

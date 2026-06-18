@@ -9,23 +9,41 @@ import com.jonnyzzz.mcpSteroid.aiAgents.mcpAddStdioInvocation
 import com.jonnyzzz.mcpSteroid.aiAgents.mcpListInvocation
 import com.jonnyzzz.mcpSteroid.aiAgents.mcpRemoveInvocation
 import java.io.PrintStream
-import java.nio.file.Path
 import kotlin.io.path.isRegularFile
 
 private const val DEVRIG_MCP_SERVER_NAME = "mcp-steroid"
 private const val DEVRIG_LEGACY_SERVER_NAME = "devrig"
 
+/**
+ * Registers the **user-facing launcher** (`~/.mcp-steroid/bin/devrig`) as the agent's MCP server. We
+ * register that stable wrapper — never the content-addressed install tree, which changes on every
+ * upgrade — so an upgrade repoints the launcher underneath without re-registering the agent. `install`
+ * is explicit user intent, so we call [ensureBinLauncher] with `force = true`: the wrapper is written
+ * even on a SNAPSHOT/dev dist (where the passive on-each-start self-heal is off by default), so we never
+ * register a path that does not exist. The wrapper pins the JDK devrig runs under via `DEVRIG_JAVA_HOME`, so the
+ * registered command carries no `JAVA_HOME`. If an explicit opt-out still left the wrapper absent, we
+ * warn loudly rather than silently registering a dead path.
+ */
 fun DevrigServices.runInstallCommand(
     command: DevrigCommand.DevrigCommandInstall,
     runner: AiAgentCliRunner = ProcessAiAgentCliRunner(),
-): Int = runInstallCommand(
-    command = command,
-    launcher = resolveDevrigLauncher(),
-    javaHome = Path.of(System.getProperty("java.home")),
-    out = mcpStdout,
-    err = System.err,
-    runner = runner,
-)
+): Int {
+    ensureBinLauncher(homePaths, force = true, registerWindowsPath = true)
+    val launcher = DevrigUserLauncher.path(homePaths)
+    if (!launcher.isRegularFile()) {
+        System.err.println(
+            "[mcp-steroid] WARNING: the launcher $launcher does not exist (DEVRIG_BIN_NO_AUTO_REGISTER " +
+                "opt-out?). Registering it anyway, but the MCP server will not start until it is created.",
+        )
+    }
+    return runInstallCommand(
+        command = command,
+        mcpCommand = DevrigUserLauncher.invocation(homePaths, listOf("mcp")),
+        out = mcpStdout,
+        err = System.err,
+        runner = runner,
+    )
+}
 
 /**
  * Registers devrig as the `mcp-steroid` stdio MCP server in [command]'s agent, narrating each step so
@@ -44,14 +62,12 @@ fun DevrigServices.runInstallCommand(
  */
 fun runInstallCommand(
     command: DevrigCommand.DevrigCommandInstall,
-    launcher: Path,
-    javaHome: Path,
+    mcpCommand: StdioMcpCommand,
     out: PrintStream,
     err: PrintStream,
     runner: AiAgentCliRunner,
 ): Int {
     val agent = command.agent
-    val mcpCommand = selfMcpCommand(launcher, javaHome)
     val renderedCommand = "${mcpCommand.command} ${mcpCommand.args.joinToString(" ")}"
 
     out.println("Installing devrig as the '$DEVRIG_MCP_SERVER_NAME' MCP server for ${agent.displayName}.")
@@ -63,7 +79,8 @@ fun runInstallCommand(
         "'$DEVRIG_MCP_SERVER_NAME' registration (user scope).")
     out.println("  - ${agent.displayName} will launch this command to start it:")
     out.println("      $renderedCommand")
-    out.println("  - JAVA_HOME recorded for that launch: $javaHome")
+    out.println("  - The launcher pins the JDK devrig runs under (via DEVRIG_JAVA_HOME), so the registered")
+    out.println("    command carries no JAVA_HOME and survives devrig upgrades without re-registering.")
     out.println()
     out.println("Re-running install is safe — existing devrig entries are replaced.")
     out.println()
@@ -137,42 +154,3 @@ private fun emitAgentOutput(result: AiAgentCliResult, err: PrintStream) {
     }
 }
 
-fun selfMcpCommand(
-    launcher: Path,
-    javaHome: Path,
-    windows: Boolean = isWindows(),
-): StdioMcpCommand {
-    val normalizedLauncher = launcher.toAbsolutePath().normalize()
-    val normalizedJavaHome = javaHome.toAbsolutePath().normalize()
-    return if (windows) {
-        StdioMcpCommand(
-            command = "cmd.exe",
-            args = listOf("/d", "/c", "set \"JAVA_HOME=$normalizedJavaHome\" && call \"$normalizedLauncher\" mcp"),
-        )
-    } else {
-        StdioMcpCommand(
-            command = "/usr/bin/env",
-            args = listOf("JAVA_HOME=$normalizedJavaHome", normalizedLauncher.toString(), "mcp"),
-        )
-    }
-}
-
-private fun resolveDevrigLauncher(): Path {
-    val name = if (isWindows()) "devrig.bat" else "devrig"
-    val expected = DevrigRoot.path.resolve("bin").resolve(name)
-    if (expected.isRegularFile()) return expected
-
-    // Fat-jar / non-Gradle-distribution layouts don't have `<root>/bin/devrig`.
-    // Fall back to the current process's launcher so `devrig install`
-    // still records a reproducible command line.
-    val processCommand = ProcessHandle.current().info().command().orElse(null)
-    if (processCommand != null) {
-        val launcher = Path.of(processCommand)
-        if (launcher.isRegularFile()) return launcher
-    }
-
-    error("devrig launcher is missing: $expected")
-}
-
-private fun isWindows(): Boolean =
-    System.getProperty("os.name").lowercase().contains("windows")

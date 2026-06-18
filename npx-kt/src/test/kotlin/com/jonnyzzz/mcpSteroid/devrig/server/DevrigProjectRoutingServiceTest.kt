@@ -74,6 +74,37 @@ class DevrigProjectRoutingServiceTest {
     }
 
     @Test
+    fun `canonical path degrades to normalized absolute path when the directory vanished`() {
+        // A deleted project (e.g. a test project removed while its IDE snapshot is still cached)
+        // must not throw — toRealPath() would — or one vanished path breaks routing for everyone.
+        val vanished = tempDir.resolve("gone").resolve("..").resolve("gone-project")
+        assertEquals(
+            vanished.toAbsolutePath().normalize(),
+            DevrigProjectRoutingService.canonicalProjectHome(vanished.toString()),
+        )
+    }
+
+    @Test
+    fun `routes survive a project whose directory no longer exists`() {
+        val existing = Files.createDirectories(tempDir.resolve("alive"))
+        val service = routingService(
+            state(
+                pid = 42,
+                projects = listOf(
+                    ProjectInfo("alive", existing.toString()),
+                    ProjectInfo("vanished", tempDir.resolve("deleted-project").toString()),
+                ),
+            )
+        )
+
+        val routes = service.routes().values
+        assertEquals(setOf("alive", "vanished"), routes.map { it.originalProjectName }.toSet())
+        // The surviving project still resolves normally.
+        val alive = routes.single { it.originalProjectName == "alive" }
+        assertEquals(alive, service.requireProject(alive.exposedProjectName))
+    }
+
+    @Test
     fun `project route exposes unique name and maps back to original project name`() {
         val projectHome = Files.createDirectories(tempDir.resolve("project"))
         val service = routingService(
