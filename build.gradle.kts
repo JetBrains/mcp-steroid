@@ -278,6 +278,17 @@ val ciBuildPluginTests by tasks.registering {
             "${missingCore.joinToString { ":$it" }}. Either add them to settings.gradle.kts " +
             "or drop them from pluginCoreSubprojects."
     }
+
+    // :website-gen is build-tooling (website artifacts + the JDK data model; no IntelliJ deps), so it is
+    // not "plugin core". But its on-disk Cache exercises atomic file moves / path handling that genuinely
+    // benefit from the per-OS matrix, so it rides this aggregator (swept in by auto-discovery — it is in
+    // neither exclusion set) rather than getting a dedicated config. Assert that explicitly so a future
+    // refactor of the exclusion sets cannot silently drop :website-gen:test from CI.
+    require(":website-gen:test" in testTaskPaths) {
+        "ciBuildPluginTests no longer includes :website-gen:test. If :website-gen was intentionally " +
+            "excluded, give it dedicated CI coverage; otherwise keep it out of nonPluginTestSubprojects."
+    }
+
     dependsOn(testTaskPaths)
 
     dependsOn("ij-plugin:verifyPlugin")

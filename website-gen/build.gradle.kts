@@ -17,6 +17,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("io.ktor:ktor-client-core:3.3.2")
     implementation("io.ktor:ktor-client-cio:3.3.2")
+    // BouncyCastle PGP: verify Amazon Corretto's detached .sig signatures (vendor-natural validation).
+    implementation("org.bouncycastle:bcpg-jdk18on:1.79")
+    // Apache Commons Compress: stream tar.gz / zip entries to locate each JDK's inner JAVA_HOME (bin/java).
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     testImplementation(kotlin("test"))
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
@@ -62,5 +66,35 @@ val generateWebsite by tasks.registering(JavaExec::class) {
             resolved += listOf("--notes", notes.absolutePath)
         }
         args = resolved
+    }
+}
+
+// The JDK download cache MUST live outside any `build/` folder so the multi-hundred-MB JDK archives
+// survive `clean` and are shared across runs/branches. The Gradle user home is the natural home; the
+// path is computed here and handed to the generator via --cache-dir (the generator never guesses it).
+val jdkDownloadCacheDir: java.io.File = gradle.gradleUserHomeDir.resolve("caches/mcp-steroid/website-gen-jdk")
+
+// Resolve all JDK builds (Amazon Corretto 25 + Azul Zulu 25) and write the version-pinned data model
+// JSON. Vendor-natural validation (detached OpenPGP signatures) happens inside the generator; downloads
+// are cached in jdkDownloadCacheDir. No project() deps — compiles only this module.
+val generateJdkModel by tasks.registering(JavaExec::class) {
+    group = "website"
+    description = "Resolve all JDK builds (Corretto + Azul) into the JDK data model JSON (PGP-verified, cached)."
+    mainClass.set("com.jonnyzzz.mcpSteroid.websitegen.JdkModelMainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    // JDK archives are read fully into memory (one ~230 MB array at a time) to hash + scan them.
+    maxHeapSize = "2g"
+
+    val outFile = layout.buildDirectory.file("jdk-model/jdk-model.json")
+    outputs.file(outFile)
+    // The live vendor sources can publish a new build at any time, so never treat this as up-to-date.
+    outputs.upToDateWhen { false }
+
+    doFirst {
+        jdkDownloadCacheDir.mkdirs()
+        args = listOf(
+            "--cache-dir", jdkDownloadCacheDir.absolutePath,
+            "--out", outFile.get().asFile.absolutePath,
+        )
     }
 }
