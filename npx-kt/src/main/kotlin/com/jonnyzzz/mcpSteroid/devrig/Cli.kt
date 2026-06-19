@@ -62,6 +62,8 @@ sealed interface DevrigCommand {
 
     data class DevrigCommandInstall(
         val agent: AiAgentCli,
+        /** Read-only dry-run: report the registration diff + IDE reachability, change nothing. */
+        val check: Boolean = false,
         override val debug: Boolean = false,
         override val json: Boolean = false,
     ) : DevrigCommand
@@ -226,10 +228,16 @@ private class InstallCommand(
     // Only meaningful for `install devrig` (the install scripts pass them); rejected for agents below.
     private val installScript: String? by option("--install-script")
     private val jdkHome: String? by option("--jdk-home")
+    private val checkFlag by option(
+        "--check",
+        help = "read-only dry-run: report the registration diff + IDE reachability, change nothing " +
+            "(exit 1 if install would change anything)",
+    ).flag()
 
     override fun run() {
         val options = options()
         if (agent == "devrig") {
+            if (checkFlag) throw UsageError("--check is only valid for an agent install (claude / codex / gemini)")
             select(DevrigCommand.DevrigCommandInstallDevrig(
                 installScript = installScript, jdkHome = jdkHome, debug = options.debug, json = options.json,
             ))
@@ -240,7 +248,7 @@ private class InstallCommand(
         if (installScript != null || jdkHome != null) {
             throw UsageError("--install-script / --jdk-home are only valid with 'devrig install devrig'")
         }
-        select(DevrigCommand.DevrigCommandInstall(target, debug = options.debug, json = options.json))
+        select(DevrigCommand.DevrigCommandInstall(target, check = checkFlag, debug = options.debug, json = options.json))
     }
 }
 

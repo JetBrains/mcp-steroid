@@ -37,6 +37,23 @@ class InstallCommandTest {
         ]
     """.trimIndent()
 
+    // A CANONICAL claude listing: exactly one 'mcp-steroid' entry whose command is the stable wrapper
+    // install would register ("$launcherPath mcp"). Re-running install would change nothing.
+    private val claudeCanonicalList = """
+        Checking MCP server health…
+
+        mcp-steroid: $launcherPath mcp - ✓ Connected
+        playwright: npx @playwright/mcp@latest - ✓ Connected
+    """.trimIndent()
+
+    // The codex (--json) analog: command + args reconstruct to the exact canonical "$launcherPath mcp".
+    private val codexCanonicalJson = """
+        [
+          {"name":"mcp-steroid","transport":{"type":"stdio","command":"$launcherPath","args":["mcp"]}},
+          {"name":"playwright","transport":{"type":"stdio","command":"npx","args":["@playwright/mcp@latest"]}}
+        ]
+    """.trimIndent()
+
     @Test
     fun `install reviews the list first, then consolidates, then adds`() {
         // First invocation must be the list (review), last must be the add.
@@ -188,6 +205,177 @@ class InstallCommandTest {
         assertContains(result.stderr, "17")
         assertTrue(result.stderr.contains("fail", ignoreCase = true), result.stderr)
     }
+
+    // ── install --check (read-only dry-run, issue #86) ──
+
+    @Test
+    fun `check reports no drift for a canonical registration and exits 0`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, claudeCanonicalList)),
+            reachability = IdeReachabilityReport(reachable = 2, discovered = 3),
+        )
+        assertEquals(0, r.exitCode)
+        assertContains(r.stdout, "already canonical")
+        assertContains(r.stdout, "No drift")
+        assertContains(r.stdout, "2 of 3 discovered backend(s) reachable")
+    }
+
+    @Test
+    fun `check never mutates for ANY agent - only 'mcp list' is ever invoked (canonical and drift)`() {
+        // The no-mutate guarantee is the most safety-critical property of --check, and parseMcpServerList
+        // takes a DIFFERENT code path per agent (codex = JSON, claude/gemini = line) — so assert it for all
+        // three, in both canonical and drift states.
+        val cases = listOf(
+            AiAgentCli.CLAUDE to claudeCanonicalList,
+            AiAgentCli.CLAUDE to "mcp-steroid: /old/path/devrig mcp - ✓ Connected",
+            AiAgentCli.CODEX to codexCanonicalJson,
+            AiAgentCli.CODEX to codexListJson,
+            AiAgentCli.GEMINI to claudeCanonicalList,
+            AiAgentCli.GEMINI to "Checking MCP server health…\n\n",
+        )
+        for ((agent, list) in cases) {
+            val r = runCheck(agent, RecordingRunner(listResult = AiAgentCliResult(0, list)))
+            assertTrue(r.invocations.all { it.args.contains("list") }, "$agent: ${r.invocations}")
+            assertFalse(
+                r.invocations.any { it.args.contains("add") || it.args.contains("remove") },
+                "$agent check must never add/remove: ${r.invocations}",
+            )
+        }
+    }
+
+    @Test
+    fun `check reports no drift for a canonical codex (--json) registration and exits 0`() {
+        val r = runCheck(AiAgentCli.CODEX, RecordingRunner(listResult = AiAgentCliResult(0, codexCanonicalJson)))
+        assertEquals(0, r.exitCode)
+        assertContains(r.stdout, "already canonical")
+    }
+
+    @Test
+    fun `check detects a custom-named devrig entry as drift (by config), exit 1`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, "old-steroid: /usr/bin/env /custom/devrig mcp - ✓ Connected")),
+        )
+        assertEquals(INSTALL_CHECK_DRIFT_EXIT_CODE, r.exitCode)
+        // Detected by its command (not name) → removed WITHOUT the "if present" qualifier.
+        assertContains(r.stdout, "remove 'old-steroid'")
+        assertFalse(r.stdout.contains("remove 'old-steroid', if present"), r.stdout)
+        assertContains(r.stdout, "add 'mcp-steroid'")
+    }
+
+    @Test
+    fun `check detects two simultaneous devrig entries as drift, both removed without 'if present'`() {
+        val r = runCheck(AiAgentCli.CLAUDE, RecordingRunner(listResult = AiAgentCliResult(0, claudeListWithBothNames)))
+        assertEquals(INSTALL_CHECK_DRIFT_EXIT_CODE, r.exitCode)
+        assertContains(r.stdout, "remove 'mcp-steroid'")
+        assertContains(r.stdout, "remove 'devrig'")
+        // Both names were detected, so neither carries the defensive "if present" qualifier.
+        assertFalse(r.stdout.contains(", if present"), r.stdout)
+    }
+
+    @Test
+    fun `check reports the launcher is absent when it does not exist yet`() {
+        // Canonical agent registration, but the wrapper file itself is missing — the diagnostic the
+        // feature exists for (issue #86): the registration points at a launcher that is not there yet.
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, claudeCanonicalList)),
+            missingLauncherPath = Path.of(launcherPath),
+        )
+        assertContains(r.stdout, "does not exist yet")
+        assertContains(r.stdout, launcherPath)
+    }
+
+    @Test
+    fun `check detects a stale command as drift and prints the repair plan, exit 1`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, "mcp-steroid: /old/path/devrig mcp - ✓ Connected")),
+        )
+        assertEquals(INSTALL_CHECK_DRIFT_EXIT_CODE, r.exitCode)
+        assertContains(r.stdout, "Drift detected")
+        assertContains(r.stdout, "remove 'mcp-steroid'")
+        assertContains(r.stdout, "add 'mcp-steroid' → $launcherPath mcp")
+    }
+
+    @Test
+    fun `check treats an empty list as drift (install would add) and exits 1`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, "Checking MCP server health…\n\n")),
+        )
+        assertEquals(INSTALL_CHECK_DRIFT_EXIT_CODE, r.exitCode)
+        assertTrue(r.stdout.contains("no existing", ignoreCase = true), r.stdout)
+        assertContains(r.stdout, "add 'mcp-steroid'")
+    }
+
+    @Test
+    fun `check treats an unreadable list as drift (cannot verify) and includes the legacy name, exit 1`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(exitCode = 2, output = "boom: cannot list\n")),
+        )
+        assertEquals(INSTALL_CHECK_DRIFT_EXIT_CODE, r.exitCode)
+        assertTrue(r.stdout.contains("could not read", ignoreCase = true), r.stdout)
+        // Unreadable → install would defensively clear the legacy 'devrig' name too (shared installRemovalNames).
+        assertContains(r.stdout, "remove 'devrig'")
+    }
+
+    @Test
+    fun `check tolerates an IDE-discovery failure (reports it, does not abort the diagnosis)`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, "Checking MCP server health…\n\n")),
+            reachabilityThrows = true,
+        )
+        assertEquals(INSTALL_CHECK_DRIFT_EXIT_CODE, r.exitCode)
+        assertContains(r.stderr, "IDE discovery failed")
+        assertContains(r.stdout, "discovery failed")
+    }
+
+    @Test
+    fun `check reports when no IDE backends are discovered`() {
+        val r = runCheck(
+            AiAgentCli.CLAUDE,
+            RecordingRunner(listResult = AiAgentCliResult(0, claudeCanonicalList)),
+            reachability = IdeReachabilityReport(reachable = 0, discovered = 0),
+        )
+        assertContains(r.stdout, "none discovered")
+    }
+
+    private fun runCheck(
+        agent: AiAgentCli,
+        runner: RecordingRunner,
+        reachability: IdeReachabilityReport = IdeReachabilityReport(reachable = 0, discovered = 0),
+        reachabilityThrows: Boolean = false,
+        missingLauncherPath: Path? = null,
+    ): CheckRunResult {
+        val stdout = ByteArrayOutputStream()
+        val stderr = ByteArrayOutputStream()
+        val exitCode = runInstallCheckCommand(
+            command = DevrigCommand.DevrigCommandInstall(agent, check = true),
+            mcpCommand = mcpCommand,
+            out = PrintStream(stdout, true, Charsets.UTF_8),
+            err = PrintStream(stderr, true, Charsets.UTF_8),
+            runner = runner,
+            ideReachability = { if (reachabilityThrows) error("probe boom") else reachability },
+            missingLauncherPath = missingLauncherPath,
+        )
+        return CheckRunResult(
+            exitCode = exitCode,
+            invocations = runner.invocations,
+            stdout = stdout.toString(Charsets.UTF_8),
+            stderr = stderr.toString(Charsets.UTF_8),
+        )
+    }
+
+    private data class CheckRunResult(
+        val exitCode: Int,
+        val invocations: List<AiAgentCliInvocation>,
+        val stdout: String,
+        val stderr: String,
+    )
 
     private fun runInstall(agent: AiAgentCli, runner: RecordingRunner): InstallRunResult {
         val stdout = ByteArrayOutputStream()
