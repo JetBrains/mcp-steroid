@@ -1,10 +1,10 @@
 # TASKS
 
 Open tasks only. Finished work lives in git history, the per-module `CLAUDE.md`/`AGENTS.md`, the PR
-descriptions, and the auto-memory. The full historical running log (through 2026-06-19, ~4k lines across
-the installer, npx-kt stabilization, prompts, apply-patch, managed-backend, EAP, and cleanup epics) was
-moved to **[TASKS-archive.md](TASKS-archive.md)** — consult it (or `git log`) for the detail behind any
-shipped item.
+descriptions, and the design docs under `docs/`. The historical running log (through 2026-06-19, ~4k lines
+across the installer, npx-kt stabilization, prompts, apply-patch, managed-backend, EAP, and cleanup epics)
+had its durable facts distilled into those permanent docs and was then removed; consult `git log` for the
+detail behind any shipped item.
 
 Discipline (standing rule): per change — design → implement → 0 WARNING+ IDE inspections
 (`CodeSmellDetector` via `steroid_execute_code`) → 3× adversarial quorum before committing. Commits as
