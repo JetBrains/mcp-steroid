@@ -265,7 +265,9 @@ abstract class KtBlockCompilationTestBase {
             // ApplyPatch.kt defines ApplyPatchBuilder / ApplyPatchResult / ApplyPatchException,
             // which McpScriptContext.kt references at its `applyPatch { }` extension — must be
             // supplied to kotlinc alongside so fenced-block scripts that use the DSL compile.
-            listOf("McpScriptContext.kt", "McpScriptBuilder.kt", "ApplyPatch.kt").map { fileName ->
+            // InspectionCrashIsolation.kt defines InspectionRunResult / FailedInspection, the
+            // return type of McpScriptContext.runInspectionsDirectly — same reason.
+            listOf("McpScriptContext.kt", "McpScriptBuilder.kt", "ApplyPatch.kt", "InspectionCrashIsolation.kt").map { fileName ->
                 val file = executionDir.resolve(fileName)
                 require(file.isRegularFile()) { "ij-plugin source file not found: $file" }
                 file

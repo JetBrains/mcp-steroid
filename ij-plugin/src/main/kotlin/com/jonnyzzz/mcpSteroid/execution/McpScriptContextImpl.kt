@@ -472,14 +472,19 @@ class McpScriptContextImpl(
         val (problems, toolFailures) = intellijSmartReadAction(project) {
             // Per-tool crash isolation (issue #93): first failure of each tool, keyed by short name.
             val attemptFailures = ConcurrentHashMap<String, InspectionToolFailure>()
-            val recordFailure: (String, Class<*>?, Throwable) -> Unit = { toolId, toolClass, error ->
-                attemptFailures.putIfAbsent(toolId, InspectionToolFailure(toolClass, error))
+            val recordFailure: (String, Class<*>?, Throwable, Boolean) -> Unit = { toolId, toolClass, error, logAsError ->
+                attemptFailures.putIfAbsent(toolId, InspectionToolFailure(toolClass, error, logAsError))
             }
             val noProblems = emptyMap<String, List<ProblemDescriptor>>()
 
             val psiFile = PsiManager.getInstance(project).findFile(file)
             if (psiFile == null) {
-                log.warn("[$executionId] Could not find PSI file for ${file.name}")
+                recordFailure(
+                    InspectionRunResult.SWEEP_FAILURE_ID,
+                    null,
+                    IllegalArgumentException("No PSI file for ${file.path}; runInspectionsDirectly requires a real file VirtualFile"),
+                    false
+                )
                 return@intellijSmartReadAction noProblems to attemptFailures
             }
 
@@ -521,7 +526,11 @@ class McpScriptContextImpl(
             // applicability, IDs) and the result keys are unchanged.
             val isolatedWrappers = toolWrappers.mapNotNull { wrapper ->
                 try {
-                    LocalInspectionToolWrapper(CrashIsolatingLocalInspectionTool(wrapper.tool, recordFailure))
+                    LocalInspectionToolWrapper(
+                        CrashIsolatingLocalInspectionTool(wrapper.tool) { toolId, toolClass, error ->
+                            recordFailure(toolId, toolClass, error, true)
+                        }
+                    )
                 } catch (e: ProcessCanceledException) {
                     throw e
                 } catch (e: CancellationException) {
@@ -535,7 +544,7 @@ class McpScriptContextImpl(
                     // with NoClassDefFoundError / LinkageError / AssertionError, not just Exception,
                     // so this mirrors the delegate's Throwable isolation. No tool instance exists
                     // here, hence no class to attribute the failure to (toolClass = null).
-                    recordFailure(wrapper.shortName, null, e)
+                    recordFailure(wrapper.shortName, null, e, true)
                     null
                 }
             }
@@ -572,7 +581,7 @@ class McpScriptContextImpl(
                 // PsiInvalidElementAccessException on stale PSI, AssertionError, stub-tree
                 // inconsistency errors. A file-level failure must not throw out of the helper:
                 // scripts inspecting files in a loop keep the healthy files' results.
-                recordFailure(InspectionRunResult.SWEEP_FAILURE_ID, null, e)
+                recordFailure(InspectionRunResult.SWEEP_FAILURE_ID, null, e, true)
                 noProblems
             }
 
@@ -585,14 +594,18 @@ class McpScriptContextImpl(
                 // from InspectionEngine.createVisitor), so IDE fatal-error balloons blame the plugin
                 // that owns the inspection rather than mcp-steroid. Falls back to the raw error when
                 // no tool instance exists (EP instantiation or sweep-level failures).
-                val attributed = failure.toolClass
-                    ?.let { toolClass -> PluginException.createByClass("Inspection tool '$toolId' failed", failure.error, toolClass) }
-                    ?: failure.error
-                log.error("[$executionId] inspection '$toolId' crashed while inspecting ${file.name} — findings from other tools are preserved", attributed)
+                if (failure.logAsError) {
+                    val attributed = failure.toolClass
+                        ?.let { toolClass -> PluginException.createByClass("Inspection tool '$toolId' failed", failure.error, toolClass) }
+                        ?: failure.error
+                    log.error("[$executionId] inspection '$toolId' crashed while inspecting ${file.name} — findings from other tools are preserved", attributed)
+                } else {
+                    log.warn("[$executionId] inspection '$toolId' did not run for ${file.path}: ${failure.error.message}")
+                }
             }
             resultBuilder.logMessage(
-                "WARNING: ${toolFailures.size} inspection tool(s) crashed on ${file.name} " +
-                    "(findings from the remaining tools are preserved): " +
+                "WARNING: ${toolFailures.size} inspection issue(s) while inspecting ${file.name} " +
+                    "(findings from any completed tools are preserved): " +
                     toolFailures.keys.sorted().joinToString(", ") +
                     ". Details are in the result's failedTools property."
             )
@@ -609,8 +622,10 @@ class McpScriptContextImpl(
      * [FailedInspection.error]) plus the crashing tool's class, used only to attribute the logged
      * error to the inspection's plugin via [PluginException.createByClass]. [toolClass] is null
      * when no tool instance exists — EP instantiation failures and sweep-level failures.
+     * [logAsError] is false for user/setup inputs that make a sweep impossible, such as passing
+     * a directory [VirtualFile]; those are reported in-band through failedTools and logged as warn.
      */
-    private class InspectionToolFailure(val toolClass: Class<*>?, val error: Throwable)
+    private class InspectionToolFailure(val toolClass: Class<*>?, val error: Throwable, val logAsError: Boolean)
 
     // ============================================================
     // Read/Write Actions - Convenience Wrappers

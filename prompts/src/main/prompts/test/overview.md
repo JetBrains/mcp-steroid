@@ -62,6 +62,7 @@ Or run [Demo Debug Test](mcp-steroid://test/demo-debug-test) for a one-call end-
 ### Basic Test Execution
 
 - **`run-test-at-caret.md`** - Run/debug at caret position (IDE-agnostic, preferred)
+- **`run-test-class-structured.md`** - Run one Gradle-backed JVM test class and return structured JSON
 - **`list-run-configurations.md`** - List all run configurations in the project
 - **`run-tests.md`** - Execute a named test run configuration
 - **`wait-for-completion.md`** - Wait for test execution to complete
@@ -251,12 +252,25 @@ println("Compile errors: ${result.hasErrors()}, aborted: ${result.isAborted()}")
 Run this BEFORE `./mvnw` to catch errors early:
 ```kotlin
 val vf = findProjectFile("src/main/java/com/example/NewClass.java")!!
-val problems = runInspectionsDirectly(vf)
-if (problems.isEmpty()) println("OK: no compile errors")
-else problems.forEach { (id, descs) -> descs.forEach { println("[$id] ${it.descriptionTemplate}") } }
+val result = runInspectionsDirectly(vf)
+val findings = readAction {
+    result.entries.flatMap { (id, descs) ->
+        descs.map { descriptor ->
+            mapOf("toolId" to id, "message" to descriptor.descriptionTemplate)
+        }
+    }
+}
+val status = when {
+    result.failedTools.isNotEmpty() -> "check_failed"
+    findings.isNotEmpty() -> "findings"
+    else -> "clean"
+}
+printJson(mapOf("status" to status, "findings" to findings, "failedTools" to result.failedTools))
 ```
 
 **Scope limitation**: `runInspectionsDirectly` is **file-scoped** — it only checks the single file you pass. After modifying a widely-used class (DTO, command, entity), also check dependent files or run `./mvnw test-compile` for project-wide verification.
+
+**Never treat an empty findings map alone as clean.** Always check `failedTools`; a sweep-level setup failure or a crashing inspection may leave findings empty while the check did not complete cleanly.
 
 **Inspect MODIFIED files too** — not just newly created ones. After adding methods to an existing file (e.g., `findByFeature_Code` to a Spring Data repository), run `runInspectionsDirectly` on that file immediately. Spring Data JPA derived query names throw `QueryCreationException` at Spring context startup — the Spring Data plugin inspection catches these in ~5s, before `./mvnw test` (~90s).
 

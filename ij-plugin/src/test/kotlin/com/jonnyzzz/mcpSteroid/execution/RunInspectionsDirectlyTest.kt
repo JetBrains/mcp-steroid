@@ -256,6 +256,38 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         }
     }
 
+    fun testNonPsiVirtualFileReportsSweepFailure() {
+        timeoutRunBlocking(60.seconds) {
+            val manager = project.service<ExecutionManager>()
+
+            val code = $$"""
+                val directory = findFile(project.basePath ?: error("No base path")) ?: error("Project directory not found")
+
+                val result = runInspectionsDirectly(directory)
+
+                println("TOTAL=${result.values.sumOf { it.size }}")
+                println("FAILED_TOOLS=" + result.failedTools.joinToString(";") { it.toolId })
+                println("FAILED_ERRORS=" + result.failedTools.joinToString(";") { it.error })
+            """.trimIndent()
+
+            val result = manager.executeWithProgress(
+                testExecParams(code, taskId = "non-psi-virtual-file-test", reason = "test non-PSI VirtualFile sweep failure"),
+                NoOpProgressReporter
+            )
+
+            val text = getTextContent(result)
+            println("Test output:\n$text")
+
+            assertFalse("A non-PSI input must be reported in-band, not fail the script. Output:\n$text", result.isError)
+            assertTrue("The legacy findings map should stay empty for a non-PSI input. Output:\n$text", text.contains("TOTAL=0"))
+            assertTrue(
+                "A non-PSI input must not look clean; it must report a sweep failure. Output:\n$text",
+                text.contains("FAILED_TOOLS=${InspectionRunResult.SWEEP_FAILURE_ID}")
+            )
+            assertTrue("The failure should explain that no PSI file exists. Output:\n$text", text.contains("No PSI file"))
+        }
+    }
+
     fun testEmptyInspectionFindingsDoNotHideFailedTools() {
         // This is the dangerous shape from issue #69/#93: the legacy Map surface is empty,
         // but that must not be interpreted as "clean" when the only applicable tool crashed.

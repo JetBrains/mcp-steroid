@@ -269,12 +269,39 @@ The IDE has hundreds of inspections — `DuplicatedCode`, `RedundantCast`, `Unus
 
 | You want to… | Use |
 |---|---|
-| Run **all enabled** inspections on a file (warnings/errors style) | `runInspectionsDirectly(file)` — context-API helper, returns `Map<toolId, List<ProblemDescriptor>>`. Works regardless of window focus. |
+| Run **all enabled** inspections on a file (warnings/errors style) | `runInspectionsDirectly(file)` — context-API helper, behaves like `Map<toolId, List<ProblemDescriptor>>` and also exposes `failedTools`. Works regardless of window focus. |
 | Run **one named** inspection (e.g. `DuplicatedCode`) on a file | Construct the inspection class directly and pass it to `InspectionEngine.inspectEx(...)` via a `LocalInspectionToolWrapper`. See the `inspect-and-fix` and `find-duplicates` recipes. |
 | List which inspections are enabled (to know what's available) | `mcp-steroid://ide/inspection-summary` |
 | Find duplicate code clusters across the project | `mcp-steroid://ide/find-duplicates` (typed `DuplicateProblemDescriptor.textClone`, no reflection) |
 
-**Pitfall — `ProblemDescriptor` results need a read lock to walk.** A `ProblemDescriptor` returned from `runInspectionsDirectly` / `InspectionEngine.inspectEx` is *not* a snapshot: its `psiElement` is a live PSI reference. Accessing `.text`, `.textRange`, `containingFile`, etc. on it **outside a `readAction { }` / `smartReadAction { }`** throws `ReadAccessException`. Either consume the descriptor inside the same read action, or re-enter one when post-processing.
+**Pitfall — do not `printJson(result)` from `runInspectionsDirectly`.** The result is Map-compatible for legacy callers, but each `ProblemDescriptor` carries live PSI/VFS objects and can recurse through Jackson. Snapshot the descriptors under a read action, include `failedTools`, and compute an explicit status:
+
+```kotlin
+val vf = findProjectFile("src/main/java/com/example/Foo.java") ?: error("file not found")
+val result = runInspectionsDirectly(vf)
+
+val findings = readAction {
+    result.entries.flatMap { (toolId, descriptors) ->
+        descriptors.map { descriptor ->
+            mapOf(
+                "toolId" to toolId,
+                "message" to descriptor.descriptionTemplate,
+                "elementText" to (descriptor.psiElement?.text ?: "")
+            )
+        }
+    }
+}
+
+val status = when {
+    result.failedTools.isNotEmpty() -> "check_failed"
+    findings.isNotEmpty() -> "findings"
+    else -> "clean"
+}
+
+printJson(mapOf("status" to status, "findings" to findings, "failedTools" to result.failedTools))
+```
+
+`failedTools` is the guard against false clean results: when the sweep cannot run for an input file, or an inspection tool crashes, the findings map may be empty but `failedTools` is non-empty.
 
 ### 6. Running Tests
 
