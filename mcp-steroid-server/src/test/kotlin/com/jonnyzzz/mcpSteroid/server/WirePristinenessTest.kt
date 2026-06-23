@@ -75,7 +75,9 @@ class WirePristinenessTest {
         // The backend-id keys (the R3 additions) must never leak onto the wire.
         assertFalse(json.contains("backend_name"), "wire must not carry backend_name: $json")
         assertFalse(json.contains("backendName"), "wire must not carry backendName: $json")
-        // Note: `projectName` IS a legitimate, pre-existing WindowInfo wire field (the IDE's open project
-        // name on a window). It is NOT the MCP-only ListedProject.project_name, so it stays on the wire.
+        // Note: `projectName` IS a legitimate WindowInfo wire field — now the IDE's stable project id
+        // (base36 hash of the project's base dir + name), the same id `/projects` emits, so devrig can
+        // match a window to its project. It is NOT the MCP-only ListedProject.project_name key, so it
+        // stays on the wire.
     }
 }

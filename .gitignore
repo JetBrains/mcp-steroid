@@ -10,6 +10,9 @@ build/
 
 .worktrees/
 
+# superpowers SDD scratch (progress ledger etc.) — local-only, never committed
+.superpowers/
+
 # IntelliJ IDEA
 .idea/
 !.idea/dictionaries

@@ -26,7 +26,7 @@ class DevrigProjectRoutingService(
         return stateProvider().flatMap { ide ->
             ide.projects.map { proj ->
                 val realHome = canonicalProjectHome(proj.projectPath)
-                val projectHash = base36FixedWidth(realHome, ide.ide.backendName)
+                val projectHash = base36FixedWidth(realHome, ide.ide.backendName, proj.ideProjectName)
                 ProjectRoute(
                     route = ide.ide,
                     exposedProjectName = "${proj.name}-$projectHash",

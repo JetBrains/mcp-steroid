@@ -27,7 +27,7 @@ class ProjectScopedToolHandler {
     suspend fun resolveProject(projectName: String): Project {
         val (project, availableNames) = readAction {
             val openProjects = ProjectManager.getInstance().openProjects
-            openProjects.find { it.name == projectName } to openProjects.map { it.name }
+            openProjects.find { projectNameFor(it) == projectName || it.name == projectName } to openProjects.map { it.name }
         }
         return project ?: throw ToolCallErrorException(
             "Project not found: \"$projectName\". Available projects: $availableNames"

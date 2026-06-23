@@ -106,14 +106,14 @@ class IdeWindowsCollector {
                                     fraction = if (progressModel.isIndeterminate()) null else progressModel.getFraction(),
                                     isIndeterminate = progressModel.isIndeterminate(),
                                     isCancellable = progressModel.isCancellable(),
-                                    projectName = project?.name
+                                    projectName = project?.let { projectNameFor(it) }
                                 )
                             )
                         }
                     }
 
                     WindowInfo(
-                        projectName = project?.name,
+                        projectName = project?.let { projectNameFor(it) },
                         projectPath = project?.basePath,
                         title = (window as? Frame)?.title,
                         isActive = window?.isActive ?: false,
