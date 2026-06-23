@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
  */
 class ListProjectsToolSpec(val handler: () -> ListProjectsToolHandler) : McpToolBase() {
     override val name = "steroid_list_projects"
-    override val description = "List all open projects in the IDE. Returns project names that can be used with steroid_execute_code and steroid_open_project."
+    override val description = "List all open projects in the IDE. Each entry has `project_name` (a unique routing key — pass it to steroid_execute_code and the other project-scoped tools) and `name` (the raw folder name, informational only); they are not equal."
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
         val response = handler().collectListProjectsResponse()
@@ -37,11 +37,10 @@ interface ListProjectsToolHandler {
 @Serializable
 data class ListProjectsResponse(
     /**
-     * Projects reachable through this connection. On a direct in-IDE connection `project_name` is
-     * `<name>-<hash>` (the plugin's `projectNameFor`: readable name + a base36 hash of the project's
-     * base dir + name) and `backend_name` is this IDE's self-id; on devrig `project_name` is the
-     * disambiguated exposed name and `backend_name` is the owning discovered IDE. The human-readable
-     * name is always in the `name` field.
+     * Projects reachable through this connection. Each entry's `project_name` is the within-IDE-unique
+     * routing KEY an agent passes back to the project-scoped tools — opaque (do not parse or rely on its
+     * format); never equal to the raw `name`; `name` is the raw folder name and is informational only. On
+     * a direct in-IDE connection `backend_name` is this IDE's self-id; on devrig the owning discovered IDE.
      */
     val projects: List<ListedProject>,
 )
@@ -69,9 +68,16 @@ fun markerLocator(build: String?, pid: Long): String = buildString {
 
 @Serializable
 data class ListedProject(
-    /** devrig: exposed disambiguated name; IDE-direct: `<name>-<base36 hash of base dir + name>`. */
+    /**
+     * The within-IDE-unique routing KEY an agent passes back to every project-scoped tool
+     * (`steroid_execute_code`, `steroid_input`, `steroid_take_screenshot`, …). Opaque — do not parse or
+     * construct it; never equal to [name]. devrig and IDE-direct compute the same key for the same project.
+     */
     @SerialName("project_name") val projectName: String,
-    /** Raw folder name (R3.7) — kept so existing `jq '.projects[].name'` consumers do not break. */
+    /**
+     * Raw IntelliJ `Project.name` (the folder name) — INFORMATIONAL ONLY (display / `jq`), NOT a routing
+     * key. Kept so existing `jq '.projects[].name'` consumers do not break. Use [projectName] to address a project.
+     */
     val name: String,
     val path: String,
     /** Owning backend's backend_name; null only when unknown. */

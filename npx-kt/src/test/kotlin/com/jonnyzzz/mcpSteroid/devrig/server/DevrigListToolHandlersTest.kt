@@ -27,6 +27,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
@@ -66,6 +67,26 @@ class DevrigListToolHandlersTest {
         // projects[] only lists the IDE that actually has a project open, tagged with its own backend_name.
         assertEquals(listOf(name42), response.projects.map { it.backendName })
         assertEquals(listOf("alpha"), response.projects.map { it.name })
+    }
+
+    @Test
+    fun `list_projects name is the human folder name, not the IDE project_name hash`(
+        @TempDir tempDir: Path,
+    ) = runBlocking {
+        val homeA = Files.createDirectories(tempDir.resolve("dupproj"))
+        // The IDE reports project_name as the opaque hash (ideProjectName) distinct from the folder name.
+        val ide = IdeMonitorState(
+            ide = discoveredIde(pid = 42, build = "IU-261.1"),
+            projects = listOf(IdeProjectState("dupproj", homeA.toString(), ideProjectName = "dupproj-9fk2a0xq")),
+        )
+        val routing = DevrigProjectRoutingService { listOf(ide) }
+
+        val project = DevrigListProjectsToolHandler(routing).collectListProjectsResponse().projects.single()
+
+        // `name` is the raw folder name (informational), NOT originalProjectName (the IDE's project_name hash).
+        assertEquals("dupproj", project.name)
+        // `project_name` is the opaque routing key, and it must differ from the folder name.
+        assertNotEquals("dupproj", project.projectName)
     }
 
     @Test

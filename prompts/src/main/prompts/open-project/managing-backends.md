@@ -48,6 +48,11 @@ Every `projects[]`, `windows[]`, and `backgroundTasks[]` entry in
 2. Call `steroid_open_project` with the `backend_name` of the IDE you
    want.
 
+Each `projects[]` entry also carries `project_name` (the unique, opaque
+routing KEY you pass to project-scoped tools), the human-readable folder
+`name` (informational only), `path`, and a `backend_name` naming its
+owning backend.
+
 If the chosen `backend_name` belongs to a startable managed backend
 (not yet running), `open_project` starts it and blocks until it is
 reachable, then opens the project.

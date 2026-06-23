@@ -11,8 +11,11 @@ class DevrigListProjectsToolHandler(
         val routes = routing.routes()
         val listedProjects = routes.map { route ->
             ListedProject(
+                // Opaque routing key (the disambiguated <name>-<hash>). `name` is the human-readable
+                // folder name — NOT originalProjectName, which is the IDE's project_name hash and would
+                // make `name` unreadable and break consumers that filter by the real folder name.
                 projectName = route.exposedProjectName,
-                name = route.originalProjectName,
+                name = route.projectInfo.name,
                 path = route.projectPath,
                 backendName = route.exposedBackendName,
             )
