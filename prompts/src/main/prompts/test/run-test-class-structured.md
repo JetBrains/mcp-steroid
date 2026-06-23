@@ -18,7 +18,6 @@ import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessListener
 import com.intellij.execution.testframework.sm.runner.SMTestProxy
 import com.intellij.execution.testframework.sm.runner.SMTRunnerEventsListener
-import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView
 import com.intellij.execution.ui.RunContentManager
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemRunConfiguration
 import kotlinx.coroutines.CompletableDeferred
@@ -86,26 +85,42 @@ fun summarize(root: SMTestProxy.SMRootTestProxy): TestSummary {
 
 val startedRoots = Collections.synchronizedList(mutableListOf<SMTestProxy.SMRootTestProxy>())
 val finishedRoots = Collections.synchronizedList(mutableListOf<SMTestProxy.SMRootTestProxy>())
+val targetProcessHandler = AtomicReference<com.intellij.execution.process.ProcessHandler?>()
 val targetRoot = AtomicReference<SMTestProxy.SMRootTestProxy?>()
 val matchingSummary = AtomicReference<TestSummary?>()
 val processFinished = CompletableDeferred<Int?>()
 
+fun isTargetRoot(root: SMTestProxy.SMRootTestProxy): Boolean {
+    val handler = targetProcessHandler.get()
+    return handler != null && root.handler === handler
+}
+
+fun rememberStarted(root: SMTestProxy.SMRootTestProxy) {
+    startedRoots += root
+    if (isTargetRoot(root)) {
+        targetRoot.compareAndSet(null, root)
+    }
+}
+
 fun rememberFinished(root: SMTestProxy.SMRootTestProxy) {
     finishedRoots += root
-    if (targetRoot.get() === root) {
+    if (isTargetRoot(root)) {
+        targetRoot.compareAndSet(null, root)
         matchingSummary.compareAndSet(null, summarize(root))
     }
 }
 
 // Subscribe before launch. TEST_STATUS is a typed project message-bus topic; no reflection is
 // required. The topic is project-wide, so events are accepted only after they are correlated
-// with the testsRootNode belonging to the RunContentDescriptor launched below.
+// by public SMRootTestProxy.getHandler() identity with the process handler belonging to the
+// RunContentDescriptor launched below. This also works when Gradle wraps the SM console in BuildView;
+// BuildView.getConsoleView() is @ApiStatus.Internal and is deliberately not used.
 val connection = project.messageBus.connect(disposable)
 connection.subscribe(
     SMTRunnerEventsListener.TEST_STATUS,
     object : SMTRunnerEventsListener {
         override fun onTestingStarted(testsRoot: SMTestProxy.SMRootTestProxy) {
-            startedRoots += testsRoot
+            rememberStarted(testsRoot)
         }
 
         override fun onTestingFinished(testsRoot: SMTestProxy.SMRootTestProxy) {
@@ -178,26 +193,6 @@ try {
         return
     }
 
-    val console = descriptor.executionConsole as? SMTRunnerConsoleView
-    if (console == null) {
-        printJson(
-            mapOf(
-                "status" to "check_failed",
-                "check_ran" to false,
-                "testPattern" to testPattern,
-                "gradleTask" to gradleTestTaskPath,
-                "message" to "RunContentDescriptor console is not an SMTRunnerConsoleView.",
-            )
-        )
-        return
-    }
-
-    val root = console.resultsViewer.testsRootNode
-    targetRoot.set(root)
-    synchronized(finishedRoots) {
-        finishedRoots.firstOrNull { it === root }?.let { matchingSummary.compareAndSet(null, summarize(it)) }
-    }
-
     val handler = descriptor.processHandler
     if (handler == null) {
         printJson(
@@ -210,6 +205,17 @@ try {
             )
         )
         return
+    }
+
+    targetProcessHandler.set(handler)
+    synchronized(startedRoots) {
+        startedRoots.firstOrNull(::isTargetRoot)?.let { targetRoot.compareAndSet(null, it) }
+    }
+    synchronized(finishedRoots) {
+        finishedRoots.firstOrNull(::isTargetRoot)?.let { root ->
+            targetRoot.compareAndSet(null, root)
+            matchingSummary.compareAndSet(null, summarize(root))
+        }
     }
 
     handler.addProcessListener(
@@ -229,7 +235,7 @@ try {
         summary = matchingSummary.get()
     }
 
-    val matchingStarted = synchronized(startedRoots) { startedRoots.any { it === root } }
+    val matchingStarted = targetRoot.get() != null
     var exitCode = if (processFinished.isCompleted) processFinished.await() else null
 
     if (summary == null) {
@@ -319,9 +325,9 @@ Pitfalls:
   such as `java.desktop does not open java.awt`, unrelated to the code under test.
 - `isRunAsTest = true` is required. Without it, the Gradle process can run while no
   `SMTRunnerEventsListener.TEST_STATUS` events are published.
-- `SMTRunnerEventsListener.TEST_STATUS` is project-wide. Correlate events with the
-  launched descriptor's `SMTRunnerConsoleView.resultsViewer.testsRootNode`; otherwise a
-  concurrent test run can complete your latch with the wrong result.
+- `SMTRunnerEventsListener.TEST_STATUS` is project-wide. Correlate each root's public
+  `SMRootTestProxy.getHandler()` identity with the launched descriptor's process handler;
+  otherwise a concurrent test run can complete your latch with the wrong result.
 - Do not unwrap `executionConsole` wrappers reflectively. Reflection is only for exploration in
   this repo's prompt corpus. The typed event listener above is the shipped recipe.
 - Remove the temporary run configuration in `finally`, otherwise repeated agent calls leave

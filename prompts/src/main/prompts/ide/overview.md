@@ -29,6 +29,9 @@ that go beyond LSP capabilities. Each example is a complete script for `steroid_
 
 | Resource | Operation | Description |
 |----------|-----------|-------------|
+| `mcp-steroid://ide/verify-after-edit` | Verify After Edit | Canonical edit -> verify result vocabulary and workflow |
+| `mcp-steroid://ide/jps-build-errors` | JPS Build Errors | Run a JPS build and collect structured compiler diagnostics |
+| `mcp-steroid://ide/module-inspection-sweep` | Module Inspection Sweep | Run enabled file-scoped inspections across a module without internal batch APIs |
 | `mcp-steroid://ide/optimize-imports` | Optimize Imports | Remove unused imports and sort remaining ones |
 | `mcp-steroid://ide/inspect-and-fix` | Inspection + Fix | Run an inspection and apply a quick fix |
 | `mcp-steroid://ide/inspection-summary` | Inspection Summary | List enabled inspections in the project |
@@ -75,7 +78,7 @@ that go beyond LSP capabilities. Each example is a complete script for `steroid_
 
 ### IDE Power Operations
 - Refactorings: `extract-method`, `introduce-variable`, `inline-method`, `change-signature`, `move-file`, `safe-delete`, `pull-up-members`, `push-down-members`, `extract-interface`, `move-class`
-- Code Hygiene: `optimize-imports`, `inspect-and-fix`, `inspection-summary`, `find-duplicates`
+- Code Hygiene: `verify-after-edit`, `jps-build-errors`, `module-inspection-sweep`, `optimize-imports`, `inspect-and-fix`, `inspection-summary`, `find-duplicates`
 - Navigation & Generation: `generate-override`, `hierarchy-search`, `call-hierarchy`, `generate-constructor`
 - Project Intelligence: `project-dependencies`, `project-search`, `run-configuration`
 
