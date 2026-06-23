@@ -167,15 +167,5 @@ suspend fun DevrigServices.mainImplMcp(
     // plus legacy .<pid>.mcp-steroid markers from $HOME during the transition.
     // The monitor opens one POST <rpcBaseUrl>/projects/stream per IDE and receives
     // push notifications on project open/close.
-
-    val discoveryJob = ideDiscovery.start(this)
-    val monitorJob = ideMonitor.start(this)
-    val portDiscoveryJob = portDiscovery.start(this)
-    try {
-        runStubStdioMcpServer(this@mainImplMcp, onServerReady = onServerReady)
-    } finally {
-        portDiscoveryJob.cancel()
-        monitorJob.cancel()
-        discoveryJob.cancel()
-    }
+    runStubStdioMcpServer(this@mainImplMcp, onServerReady = onServerReady)
 }

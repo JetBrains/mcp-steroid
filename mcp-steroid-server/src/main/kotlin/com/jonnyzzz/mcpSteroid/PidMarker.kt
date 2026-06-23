@@ -27,6 +27,8 @@ data class PidMarker(
     val ide: IdeInfo,
     val plugin: PluginInfo,
     val createdAt: String,
+    /** Absolute IDE install home (`PathManager.getHomePath()`); identifies the install across restarts. */
+    val ideHome: String? = null,
     // Both transports are optional and independent: the `/mcp` MCP-client endpoint and the devrig bridge
     // endpoint are split at the protocol level. A marker may advertise only one of them — e.g. only
     // [devrigEndpoint] with no [mcpSteroidServer]. devrig reads ONLY [devrigEndpoint] and never touches MCP.

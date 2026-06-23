@@ -31,18 +31,12 @@ interface ListWindowsToolHandler {
 /**
  * MCP-only output of `steroid_list_windows` — never crosses the devrig<->IDE wire. There is no
  * top-level `ide`/`plugin`/`pid` header: the responding server's identity lives in the MCP server
- * info, and per-entry attribution happens via `backend_name` against [backends].
+ * info, and per-entry attribution happens via `backend_name` on each window/task entry.
  */
 @Serializable
 data class ListWindowsResponse(
     val windows: List<ListedWindow>,
     val backgroundTasks: List<ListedBackgroundTask>,
-    /**
-     * Backends reachable through this connection. On a direct in-IDE connection exactly one entry (this
-     * IDE); on devrig one entry per discovered backend. Each window/background-task entry references its
-     * owning backend via `backend_name`.
-     */
-    val backends: List<BackendInfo> = emptyList(),
 )
 
 /**
@@ -64,12 +58,12 @@ data class ListedWindow(
     val indexingInProgress: Boolean? = null,
     /** True if the project has been fully initialized */
     val projectInitialized: Boolean? = null,
-    /** Owning backend's [BackendInfo.backendName]; null only when unknown. */
+    /** Owning backend's backend_name; null only when unknown. */
     @SerialName("backend_name") val backendName: String? = null,
 )
 
 /** Maps the wire [WindowInfo] to the MCP-only [ListedWindow], binding it to [backendName]. */
-fun WindowInfo.listed(backendName: String?): ListedWindow = ListedWindow(
+fun WindowInfo.listed(projectName: String?, backendName: String?): ListedWindow = ListedWindow(
     projectName = projectName,
     projectPath = projectPath,
     title = title,
@@ -104,12 +98,12 @@ data class ListedBackgroundTask(
     val isCancellable: Boolean,
     /** Project name this task belongs to (if known) */
     val projectName: String?,
-    /** Owning backend's [BackendInfo.backendName]; null only when unknown. */
+    /** Owning backend's backend_name; null only when unknown. */
     @SerialName("backend_name") val backendName: String? = null,
 )
 
 /** Maps the wire [ProgressTaskInfo] to the MCP-only [ListedBackgroundTask], binding it to [backendName]. */
-fun ProgressTaskInfo.listed(backendName: String?): ListedBackgroundTask = ListedBackgroundTask(
+fun ProgressTaskInfo.listed(projectName: String?, backendName: String?): ListedBackgroundTask = ListedBackgroundTask(
     title = title,
     text = text,
     text2 = text2,

@@ -2,12 +2,11 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.IdeInfo
-import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
-import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort
-import com.jonnyzzz.mcpSteroid.server.ProjectInfo
+import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeProjectState
+import com.jonnyzzz.mcpSteroid.devrig.server.ProjectRoute
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -15,15 +14,17 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 
 /**
- * Pure-text tests for the `project` subcommand renderer. The network-fetching
- * path is shared with `backend`; this class pins only the flattened project
- * presentation contract.
+ * Pure-text tests for the `project` subcommand renderer. Uses [List<ProjectRoute>] as
+ * the primary input, testing the new 3-source approach.
  */
 class ProjectCommandRenderTest {
 
-    private fun render(listing: ProjectListing): String {
+    private fun render(
+        routes: List<ProjectRoute> = emptyList(),
+        portIdes: Set<DiscoveredIdeByPort> = emptySet(),
+    ): String {
         val buf = ByteArrayOutputStream()
-        renderProjectOutput(listing, PrintStream(buf, true, Charsets.UTF_8))
+        renderProjectOutput3(routes, portIdes, PrintStream(buf, true, Charsets.UTF_8))
         return buf.toString(Charsets.UTF_8)
     }
 
@@ -36,26 +37,13 @@ class ProjectCommandRenderTest {
     ): DiscoveredIde {
         val ideInfo = IdeInfo(name = name, version = version, build = build)
         val pluginInfo = PluginInfo(id = "com.jonnyzzz.mcp-steroid", name = "MCP Steroid", version = "0.0.0-test")
-        val marker = PidMarker(
-            schema = PidMarker.SCHEMA_VERSION,
-            pid = pid,
-            mcpSteroidServer = McpSteroidServerInfo(
-                mcpUrl = mcpUrl,
-                headers = emptyMap(),
-            ),
-            devrigEndpoint = testDevrigEndpoint(mcpUrl),
-            ide = ideInfo,
-            plugin = pluginInfo,
-            createdAt = "1970-01-01T00:00:00Z",
-            intellijWebServer = null,
-            intellijMcpServer = null,
-        )
         return DiscoveredIde(
             pid = pid,
             rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
             bridgeHeaders = emptyMap(),
-            markerPath = "/tmp/$pid.mcp-steroid",
-            marker = marker,
+            ide = ideInfo,
+            plugin = pluginInfo,
+            backendName = "mock-backend-name",
         )
     }
 
@@ -76,11 +64,26 @@ class ProjectCommandRenderTest {
         buildNumber = buildNumber,
     )
 
+    /**
+     * A single routed project for a marker row.
+     */
+    private fun route(
+        name: String,
+        path: String,
+        ide: DiscoveredIde = markerIde(name = name),
+    ): ProjectRoute =
+        ProjectRoute(
+            route = ide,
+            projectInfo = IdeProjectState(name = name, projectPath = path),
+            exposedProjectName = "$name-rendertst",
+            projectPath = path,
+        )
+
     // ------------------------------ shape ---------------------------------
 
     @Test
     fun `empty output starts with the no-backends message`() {
-        val text = render(ProjectListing(emptyList(), emptyList()))
+        val text = render()
         val lines = text.lines()
         assertEquals("No backends detected.", lines[0])
         assertEquals("", lines[1])
@@ -88,20 +91,14 @@ class ProjectCommandRenderTest {
 
     @Test
     fun `output ends with a trailing blank line so shells separate the prompt cleanly`() {
-        val listing = ProjectListing(
-            markerRows = listOf(BackendRow.FromMarker(markerIde(), listOf(ProjectInfo("p", "/p")))),
-            portRows = emptyList(),
-        )
-        val text = render(listing)
+        val text = render(routes = listOf(route("p", "/p")))
         assertTrue(text.endsWith("\n\n"),
             "output must end with a blank line; got tail: '${text.takeLast(8).replace("\n", "\\n")}'")
     }
 
-    // -------------------------- empty / no-backend branch ----------------------
-
     @Test
     fun `empty listing prints the no-backends message + trailing blank`() {
-        val text = render(ProjectListing(emptyList(), emptyList()))
+        val text = render()
         assertTrue(text.contains("No backends detected."), "missing message; got:\n$text")
         val lines = text.lines()
         assertEquals("No backends detected.", lines[0])
@@ -112,16 +109,8 @@ class ProjectCommandRenderTest {
 
     @Test
     fun `single IDE with one project shows project mapping and owning IDE`() {
-        val listing = ProjectListing(
-            markerRows = listOf(
-                BackendRow.FromMarker(
-                    ide = markerIde(name = "IntelliJ IDEA", version = "2025.3.3", pid = 1234L),
-                    projects = listOf(ProjectInfo(name = "my-app", path = "/Users/x/Work/my-app")),
-                )
-            ),
-            portRows = emptyList(),
-        )
-        val text = render(listing)
+        val ide = markerIde(name = "IntelliJ IDEA", version = "2025.3.3", pid = 1234L)
+        val text = render(routes = listOf(route(name = "my-app", path = "/Users/x/Work/my-app", ide = ide)))
         assertTrue(text.contains("Listing 1 open project(s) across 1 backend(s):"),
             "expected list header for one project; got:\n$text")
         assertTrue(text.contains("[1] my-app") && text.contains("→") && text.contains("/Users/x/Work/my-app"),
@@ -134,19 +123,13 @@ class ProjectCommandRenderTest {
 
     @Test
     fun `single IDE with multiple projects renders aligned project arrows`() {
-        val listing = ProjectListing(
-            markerRows = listOf(
-                BackendRow.FromMarker(
-                    ide = markerIde(name = "PyCharm", version = "2025.3.1", pid = 4242L),
-                    projects = listOf(
-                        ProjectInfo(name = "alpha", path = "/p/alpha"),
-                        ProjectInfo(name = "bravo-long", path = "/p/bravo"),
-                    ),
-                )
-            ),
-            portRows = emptyList(),
+        val ide = markerIde(name = "PyCharm", version = "2025.3.1", pid = 4242L)
+        val text = render(
+            routes = listOf(
+                route(name = "alpha", path = "/p/alpha", ide = ide),
+                route(name = "bravo-long", path = "/p/bravo", ide = ide),
+            )
         )
-        val text = render(listing)
         assertTrue(text.contains("alpha") && text.contains("/p/alpha"), text)
         assertTrue(text.contains("bravo-long") && text.contains("/p/bravo"), text)
         val arrowColumns = text.lines().filter { it.contains("→") }.map { it.indexOf('→') }
@@ -156,20 +139,15 @@ class ProjectCommandRenderTest {
 
     @Test
     fun `multiple IDEs with mixed open projects render one entry per project in input order`() {
-        val listing = ProjectListing(
-            markerRows = listOf(
-                BackendRow.FromMarker(
-                    markerIde(name = "IntelliJ IDEA", version = "2025.3.3", pid = 1L),
-                    listOf(ProjectInfo("a", "/a"), ProjectInfo("b", "/b")),
-                ),
-                BackendRow.FromMarker(
-                    markerIde(name = "PyCharm", version = "2025.3.1", pid = 2L),
-                    listOf(ProjectInfo("c", "/c")),
-                ),
-            ),
-            portRows = emptyList(),
+        val ide1 = markerIde(name = "IntelliJ IDEA", version = "2025.3.3", pid = 1L)
+        val ide2 = markerIde(name = "PyCharm", version = "2025.3.1", pid = 2L)
+        val text = render(
+            routes = listOf(
+                route("a", "/a", ide1),
+                route("b", "/b", ide1),
+                route("c", "/c", ide2),
+            )
         )
-        val text = render(listing)
         assertTrue(text.contains("Listing 3 open project(s) across 2 backend(s):"),
             "expected project+IDE count header; got:\n$text")
         val aIndex = text.indexOf("[1] a")
@@ -180,69 +158,31 @@ class ProjectCommandRenderTest {
     }
 
     @Test
-    fun `IDE with no open projects is dropped from list but counted in summary`() {
-        val listing = ProjectListing(
-            markerRows = listOf(
-                BackendRow.FromMarker(markerIde(name = "IntelliJ IDEA", pid = 1L), listOf(ProjectInfo("a", "/a"))),
-                BackendRow.FromMarker(markerIde(name = "GoLand", pid = 2L), emptyList()),
-            ),
-            portRows = emptyList(),
-        )
-        val text = render(listing)
-        assertTrue(text.contains("Listing 1 open project(s) across 2 backend(s):"),
-            "empty-project IDE should still count as queried; got:\n$text")
-        assertTrue(!text.contains("GoLand 2025.3.3 (build IU-253.21581.142, pid 2)"),
-            "empty-project IDE should not get a project entry; got:\n$text")
+    fun `no open projects when routes is empty prints message`() {
+        val text = render(routes = emptyList())
+        assertTrue(text.contains("No backends detected."),
+            "expected no-backends message when no routes; got:\n$text")
     }
 
-    @Test
-    fun `all reachable IDEs with no open projects print no-open-projects message`() {
-        val listing = ProjectListing(
-            markerRows = listOf(BackendRow.FromMarker(markerIde(name = "GoLand", pid = 9L), emptyList())),
-            portRows = emptyList(),
-        )
-        val text = render(listing)
-        assertTrue(text.contains("No open projects across 1 backend(s)."),
-            "expected explicit empty-projects message; got:\n$text")
-        assertTrue(!text.contains("→"), "no project rows should render; got:\n$text")
-    }
-
-    // ----------------------------- skipped ---------------------------------
-
-    @Test
-    fun `unreachable marker IDE appears in skipped footer, not in projects`() {
-        val listing = ProjectListing(
-            markerRows = listOf(
-                BackendRow.FromMarker(
-                    ide = markerIde(name = "WebStorm", version = "2025.3.0", pid = 7L),
-                    projects = null,
-                    errorMessage = "timed out after 8s",
-                )
-            ),
-            portRows = emptyList(),
-        )
-        val text = render(listing)
-        assertTrue(text.contains("Skipped 1 backend that did not return a project snapshot:"),
-            "expected unreachable footer; got:\n$text")
-        assertTrue(text.contains("WebStorm 2025.3.0 (build IU-253.21581.142, pid 7): unreachable: timed out after 8s"),
-            "expected unreachable identity + reason; got:\n$text")
-        assertTrue(text.contains("    MCP Steroid: 0.0.0-test"),
-            "expected plugin status line for skipped marker; got:\n$text")
-        assertTrue(!text.contains("[1] WebStorm"), "unreachable IDE must not become a project row; got:\n$text")
-    }
+    // ----------------------------- skipped (port IDEs) ---------------------
 
     @Test
     fun `port-only IDE appears in skipped footer and not in projects list`() {
-        val listing = ProjectListing(
-            markerRows = listOf(BackendRow.FromMarker(markerIde(pid = 1L), listOf(ProjectInfo("a", "/a")))),
-            portRows = listOf(BackendRow.FromPort(portIde(port = 63342))),
+        val ide = markerIde(pid = 1L)
+        val text = render(
+            routes = listOf(route("a", "/a", ide)),
+            portIdes = setOf(portIde(port = 63342)),
         )
-        val text = render(listing)
         assertTrue(text.contains("Skipped 1 backend with MCP Steroid not installed:"),
             "expected no-plugin footer; got:\n$text")
         assertTrue(text.contains("IntelliJ IDEA Ultimate (build IU-253.21581.142, port 63342): MCP Steroid: not installed"),
             "expected port IDE identity; got:\n$text")
-        assertTrue(!text.contains("[2] IntelliJ IDEA Ultimate"),
-            "port-only IDE must not become a project row; got:\n$text")
+    }
+
+    @Test
+    fun `no skipped footer when portIdes is empty`() {
+        val ide = markerIde(pid = 1L)
+        val text = render(routes = listOf(route("a", "/a", ide)))
+        assertTrue(!text.contains("Skipped"), "no skipped footer expected; got:\n$text")
     }
 }

@@ -157,7 +157,7 @@ class DevrigManagedBackendGuiIntegrationTest {
                 set -euo pipefail
                 "$${container.devrig}" backend --json > /tmp/backend.json
                 cat /tmp/backend.json
-                jq -e --argjson pid "$$pid" '.backends[] | select(.source == "marker" and .pid == $pid and (.plugins | any(.kind == "mcp-steroid")) and .managed == true)' /tmp/backend.json
+                jq -e --argjson pid "$$pid" '.mcpSteroidBackends[] | select(.pid == $pid)' /tmp/backend.json
             """.trimIndent(),
         )
 

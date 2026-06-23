@@ -11,6 +11,7 @@ import com.intellij.openapi.project.ProjectManager.getInstance
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.builder
+import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
@@ -19,7 +20,10 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
     private val logger = thisLogger()
 
 
-    override suspend fun handleOpenProject(openProjectParams: OpenProjectParams): ToolCallResult {
+    override suspend fun handleOpenProject(
+        openProjectParams: OpenProjectParams,
+        callProgress: McpProgressReporter,
+    ): ToolCallResult {
         val projectPath = Path.of(openProjectParams.projectPath).toAbsolutePath()
 
         // backend_name is a devrig-only routing hint. A direct in-IDE connection serves exactly one

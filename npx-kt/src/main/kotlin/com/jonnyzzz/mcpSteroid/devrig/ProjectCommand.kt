@@ -1,30 +1,32 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.jonnyzzz.mcpSteroid.server.ProjectInfo
+import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
+import com.jonnyzzz.mcpSteroid.devrig.server.ProjectRoute
 import java.io.PrintStream
-
-data class ProjectListing(
-    val markerRows: List<BackendRow.FromMarker>,
-    val portRows: List<BackendRow.FromPort>,
-    val managedRows: List<BackendRow.FromManaged> = emptyList(),
-)
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 
 fun DevrigServices.runProjectCommand(command: DevrigCommand.DevrigCommandProject): Int {
-    val listing = projectListingFromRows(collectBackendRows())
+    val routes = projectRouting.routes()
     if (command.json) {
-        renderProjectJson(listing, mcpStdout)
+        renderProjectJson3(routes, mcpStdout)
     } else {
-        renderProjectOutput(listing, mcpStdout)
+        // Port scan only feeds the text "skipped backends" footer; --json ignores it, so skip the 1s cost there.
+        val s2 = runBlocking(Dispatchers.IO) {
+            withTimeoutOrNull(1.seconds) { collectPortDiscoveredIdes(portDiscovery) } ?: emptySet()
+        }
+        renderProjectOutput3(routes, s2, mcpStdout)
     }
     return 0
 }
-
-fun projectListingFromRows(rows: List<BackendRow>): ProjectListing = ProjectListing(
-    markerRows = rows.filterIsInstance<BackendRow.FromMarker>(),
-    portRows = rows.filterIsInstance<BackendRow.FromPort>(),
-    managedRows = rows.filterIsInstance<BackendRow.FromManaged>(),
-)
 
 /**
  * Pure renderer for `devrig project`.
@@ -41,101 +43,91 @@ fun projectListingFromRows(rows: List<BackendRow>): ProjectListing = ProjectList
  *   - <IDE display> (build <build>, port <port>)
  *
  * ```
- *
- * The project rows are a flattened view of the same marker snapshots the
- * `backend` command fetches. Port-only IDEs and marker IDEs whose snapshot
- * fetch failed are excluded from the project list and reported in a footer.
  */
-fun renderProjectOutput(listing: ProjectListing, out: PrintStream) {
-    if (listing.markerRows.isEmpty() && listing.portRows.isEmpty() && listing.managedRows.isEmpty()) {
+fun renderProjectOutput3(
+    routes: List<ProjectRoute>,
+    portIdes: Set<com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort>,
+    out: PrintStream,
+) {
+    // Group routes by their owning IDE (DiscoveredIde)
+    val routesByIde: Map<DiscoveredIde, List<ProjectRoute>> = routes.groupBy { it.route }
+    val reachableIdeCount = routesByIde.keys.size
+
+    if (routes.isEmpty() && portIdes.isEmpty()) {
         out.println(NO_BACKENDS_DETECTED_MESSAGE)
         out.println()
         return
     }
 
-    val reachableRows = listing.markerRows.filter { it.projects != null }
-    val projectEntries = reachableRows.flatMap { row ->
-        row.projects.orEmpty().map { project -> ProjectEntry(row, project) }
-    }
-
-    if (projectEntries.isEmpty()) {
-        out.println("No open projects across ${reachableRows.size} backend(s).")
-        renderSkippedProjectFooter(listing, out, leadingBlank = true)
+    if (routes.isEmpty()) {
+        out.println("No open projects across $reachableIdeCount backend(s).")
+        renderPortSkippedFooter(portIdes, out)
         out.println()
         return
     }
 
-    out.println("Listing ${projectEntries.size} open project(s) across ${reachableRows.size} backend(s):")
+    val backendCount = routesByIde.keys.size
+    out.println("Listing ${routes.size} open project(s) across $backendCount backend(s):")
     out.println()
-    val padWidth = projectEntries.maxOf { it.project.name.codePointWidth() }.coerceAtMost(40)
-    for ((index, entry) in projectEntries.withIndex()) {
-        val paddedName = entry.project.name.padEndCodePoints(padWidth)
-        out.println("  [${index + 1}] $paddedName  →  ${entry.project.path}")
-        out.println("        ${backendDisplayName(entry.row)} (${backendLocatorLabel(entry.row)})")
-        out.println("        ${backendPluginStatusText(entry.row)}")
-        if (index < projectEntries.lastIndex) out.println()
+
+    val padWidth = routes.maxOf { it.exposedProjectName.codePointWidth() }.coerceAtMost(40)
+    for ((index, route) in routes.withIndex()) {
+        val paddedName = route.exposedProjectName.padEndCodePoints(padWidth)
+        out.println("  [${index + 1}] $paddedName  →  ${route.projectPath}")
+        out.println("        ${markerBackendDisplayName(route.route)} (${markerBackendLocatorLabel(route.route)})")
+        val plugin = route.route.plugin
+        out.println("        ${plugin.name.ifBlank { "MCP Steroid" }}: ${plugin.version.ifBlank { "unknown" }}")
+        if (index < routes.lastIndex) out.println()
     }
 
-    renderSkippedProjectFooter(listing, out, leadingBlank = true)
+    renderPortSkippedFooter(portIdes, out)
     out.println()
+}
+
+private fun renderPortSkippedFooter(
+    portIdes: Set<com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIdeByPort>,
+    out: PrintStream,
+) {
+    if (portIdes.isEmpty()) return
+    out.println()
+    out.println("Skipped ${portIdes.size} ${backendNoun(portIdes.size)} with MCP Steroid not installed:")
+    for (ide in portIdes.sortedBy { it.port }) {
+        out.println("  - ${portBackendDisplayName(ide)} (${portBackendLocatorLabel(ide)}): MCP Steroid: not installed")
+    }
 }
 
 /**
  * Pretty-printed JSON renderer for `devrig project --json`.
  *
- * Output shape (shared R3.4 BackendInfo / ListedProject schema):
- * ```
+ * Output shape:
+ * ```json
  * {
  *   "tool": { "name": "devrig", "version": "..." },
- *   "backends": [
- *     { "backend_name": "iu-9fk2a0xQ", "type": "intellij", "source": "marker", "routable": true, ... }
- *   ],
  *   "projects": [
- *     { "project_name": "myproject-1z8KqM03", "name": "myproject",
- *       "path": "/Users/me/myproject", "backend_name": "iu-9fk2a0xQ" }
+ *     { "project_name": "...", "name": "...", "path": "...", "backend_name": "..." }
  *   ]
  * }
  * ```
- *
- * Delegates to [renderBackendJson] so `project --json` is byte-for-byte
- * identical to `backend --json` for the same discovery rows.
  */
-fun renderProjectJson(listing: ProjectListing, out: PrintStream) {
-    val rows: List<BackendRow> = listing.markerRows + listing.portRows + listing.managedRows
-    renderBackendJson(rows, out)
-}
-
-private data class ProjectEntry(
-    val row: BackendRow.FromMarker,
-    val project: ProjectInfo,
-)
-
-private fun renderSkippedProjectFooter(
-    listing: ProjectListing,
-    out: PrintStream,
-    leadingBlank: Boolean,
-) {
-    val unreachableRows = listing.markerRows.filter { it.projects == null }
-    val portRows = listing.portRows
-    if (unreachableRows.isEmpty() && portRows.isEmpty()) return
-
-    if (leadingBlank) out.println()
-
-    if (unreachableRows.isNotEmpty()) {
-        out.println("Skipped ${unreachableRows.size} ${backendNoun(unreachableRows.size)} that did not return a project snapshot:")
-        for (row in unreachableRows) {
-            out.println("  - ${backendDisplayName(row)} (${backendLocatorLabel(row)}): unreachable: ${row.errorMessage ?: "unreachable"}")
-            out.println("    ${backendPluginStatusText(row)}")
-        }
-        if (portRows.isNotEmpty()) out.println()
-    }
-
-    if (portRows.isNotEmpty()) {
-        out.println("Skipped ${portRows.size} ${backendNoun(portRows.size)} with MCP Steroid not installed:")
-        for (row in portRows) {
-            out.println("  - ${backendDisplayName(row)} (${backendLocatorLabel(row)}): ${backendPluginStatusText(row)}")
+fun renderProjectJson3(routes: List<ProjectRoute>, out: PrintStream) {
+    val json = Json { prettyPrint = true; encodeDefaults = true; explicitNulls = false }
+    val payload = buildJsonObject {
+        put("tool", buildJsonObject {
+            put("name", "devrig")
+            put("version", DevrigVersionMetadata.getDevrigVersion())
+        })
+        putJsonArray("projects") {
+            for (route in routes) {
+                add(buildJsonObject {
+                    put("project_name", route.exposedProjectName)
+                    put("name", route.originalProjectName)
+                    put("path", route.projectPath)
+                    put("backend_name", route.exposedBackendName)
+                })
+            }
         }
     }
+    out.println(json.encodeToString(JsonObject.serializer(), payload))
 }
 
 private fun backendNoun(count: Int): String = if (count == 1) "backend" else "backends"

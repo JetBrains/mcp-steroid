@@ -19,13 +19,14 @@ class OpenProjectToolSpecSchemaTest {
     }
 
     @Test
-    fun `inputSchema with backend name exposes REQUIRED backend_name`() {
+    fun `inputSchema with backend name exposes optional backend_name`() {
         val spec = OpenProjectToolSpec(includeBackendName = true) { unreachableHandler() }
         val schema = spec.inputSchema
         assertToolSpecHasValidJsonSchema(spec)
         assertToolIdentity(spec, "steroid_open_project")
-        // R2.1: backend_name is REQUIRED on the devrig surface.
-        assertRequiredExactly(schema, "project_path", "task_id", "reason", "backend_name")
+        // backend_name is optional: omit when there is exactly one candidate; the handler picks it
+        // automatically. The required set does NOT include backend_name.
+        assertRequiredExactly(schema, "project_path", "task_id", "reason")
         assertStringProperty(schema, "backend_name")
     }
 }

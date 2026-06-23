@@ -189,10 +189,23 @@ Every change to one of those shapes is **additive and optional**:
 - Never remove, rename, or retype an existing field. Enums must degrade
   on an unknown value, not throw.
 
+**One-release waiver — startable-backends (2026-06-22).** The additive-
+only constraint was **deliberately waived for the startable-backends
+change**. devrig and the plugin shipped together in that release, so DTO
+fields, marker fields, and tool-response shapes were reshaped and removed
+outright (no deprecation shims). Specifically: `BackendInfo` and
+`ListedBackendInfo` were deleted; `backends[]` was removed from
+`ListProjectsResponse` and `ListWindowsResponse` (which now carry only
+`projects` / `windows` + `backgroundTasks`); the CLI `backend --json`
+shape changed from one `backends[]` to three explicit arrays
+(`mcpSteroidBackends[]`, `otherIdes[]`, `startableBackends[]`). This
+waiver is a one-time exception, not a precedent — the principle stays in
+force for all future changes. See `docs/startable-backends-design.md`.
+
 **The devrig-computed MCP/CLI output is devrig-owned and outside this
 contract — free to reshape.** `steroid_list_projects` results
-(`ListProjectsResponse`, `BackendInfo`, `ListedProject`) and the devrig
-CLI `backend`/`project --json` output are built by devrig from its own
+(`ListProjectsResponse`, `ListedProject`) and the devrig CLI
+`backend`/`project --json` output are built by devrig from its own
 routing snapshot and returned to one freshly-attached agent or user —
 devrig **never fetches** the IDE's `steroid_list_projects`, so these
 types never cross the wire. They may be renamed, restructured, or
@@ -205,17 +218,16 @@ re-keyed at will; only the wire above is frozen.
   `steroid_open_project` bridge call stayed byte-identical while the
   agent gained backend selection. `backend_name` is resolved locally,
   never forwarded.
-- Because the per-project backend reference now lives on the
-  devrig-owned `ListedProject` (not on the wire), the wire `ProjectInfo`
-  was **reverted to pristine `{name, path}`**. `ProjectsStreamService`
-  only ever builds `ProjectInfo(name, path)`, so this reversion changes
-  **zero emitted bytes** on `/projects/stream`.
+- Because the per-project backend reference lives on the devrig-owned
+  `ListedProject` (not on the wire), the wire `ProjectInfo` stays
+  pristine `{name, path}`. `ProjectsStreamService` only ever builds
+  `ProjectInfo(name, path)`, so no backend reference ever crosses the
+  wire.
 - Every wire change ships with a cross-version compatibility test (the
   wire-pristineness guard `WirePristinenessTest` asserts the wire never
-  serializes the devrig-only `backend_name`/`project_name`/`BackendInfo`/
-  `ListedProject` keys; `DevrigToolBridgeClientTest` pins the forwarded
-  params) and a one-line entry in the `ij-plugin/CLAUDE.md` wire-contract
-  table.
+  serializes the devrig-only `backend_name`/`project_name`/`ListedProject`
+  keys; `DevrigToolBridgeClientTest` pins the forwarded params) and a
+  one-line entry in the `ij-plugin/CLAUDE.md` wire-contract table.
 
 **Why:** the protocol is the one thing two independently-versioned
 binaries share; a breaking change there strands every mismatched pair.

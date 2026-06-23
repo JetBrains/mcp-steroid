@@ -9,24 +9,14 @@ import io.ktor.http.ContentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.Closeable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -34,7 +24,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 
 /**
  * One IntelliJ-family IDE detected by an active probe of the local
@@ -53,17 +45,22 @@ data class DiscoveredIdeByPort(
     val edition: String?,
     val baselineVersion: Int?,
     val buildNumber: String?,
-) {
-    /** Human-friendly identifier used in logs (`IntelliJ IDEA Ultimate :63342`). */
-    val label: String
-        get() = (productFullName ?: productName ?: "ide") + " :$port"
+)
+
+/**
+ * Port-scan discovery seam consumed by the `devrig backend` / `devrig project` commands. Extracted so
+ * callers depend on the capability ("give me the IDEs answering on local HTTP ports"), not on the
+ * concrete [IntelliJPortDiscovery] which needs a live [HttpClient] — tests inject a trivial fake instead.
+ */
+fun interface PortDiscovery {
+    suspend fun stateSnapshot(): Set<DiscoveredIdeByPort>
 }
 
 /**
  * Active discovery of IntelliJ-family IDEs running on `127.0.0.1` by
  * probing common HTTP-server ports.
  *
- * Complements [IdeDiscoveryService] (which discovers `mcp-steroid`-aware
+ * Complements [IdePidDiscoveryService] (which discovers `mcp-steroid`-aware
  * IDEs via their managed PID marker). Port-based discovery finds *any*
  * JetBrains IDE — even ones without the
  * `mcp-steroid` plugin installed.
@@ -74,67 +71,46 @@ data class DiscoveredIdeByPort(
  * Server plugin uses the same 20-port fallback scheme on top of
  * `DEFAULT_MCP_PORT = 64342`).
  *
- * **Parallelism is bounded by a dedicated daemon-thread pool**
- * (`mcp-steroid-port-scan-<n>`). Probes run on that pool, never on the
- * coroutine dispatcher driving the rest of the process, so a single
- * slow TCP connect cannot stall the stdio MCP server or marker
+ * **Parallelism is bounded** via `Dispatchers.IO.limitedParallelism([parallelism])`. Probes run on
+ * IO's daemon worker threads, and each probe is independently capped by [probeTimeout]
+ * ([withTimeoutOrNull]), so a single slow TCP connect cannot stall the stdio MCP server or marker
  * discovery.
- *
- * The service is [Closeable] — call [close] from the wiring root to
- * drain the executor on shutdown. (Threads are daemon, so a forgotten
- * close won't prevent JVM exit.)
  */
 class IntelliJPortDiscovery(
     private val httpClient: HttpClient,
     private val portRanges: List<IntRange> = DEFAULT_PORT_RANGES,
-    private val scanInterval: Duration = 30.seconds,
     private val probeTimeout: Duration = 1500.milliseconds,
-    parallelism: Int = 8,
-) : Closeable {
+    private val parallelism: Int = 8,
+) : PortDiscovery {
     private val log = LoggerFactory.getLogger(IntelliJPortDiscovery::class.java)
-    private val threadCounter = AtomicInteger(0)
-
-    private val executor: ExecutorService = Executors.newFixedThreadPool(parallelism) { runnable ->
-        Thread(runnable, "mcp-steroid-port-scan-${threadCounter.incrementAndGet()}").apply {
-            isDaemon = true
-        }
-    }
-    private val scanDispatcher: CoroutineDispatcher = executor.asCoroutineDispatcher()
-
-    private val _detected = MutableStateFlow<Set<DiscoveredIdeByPort>>(emptySet())
-    val detected: StateFlow<Set<DiscoveredIdeByPort>> = _detected.asStateFlow()
-
-    /**
-     * Launch the periodic scan loop on [scope]. The returned [Job] is
-     * cancellable; when it cancels, the dedicated thread pool is drained
-     * on a non-cancellable finally so in-flight probes don't leak.
-     */
-    fun start(scope: CoroutineScope): Job = scope.launch {
-        try {
-            scanOnce()
-            while (isActive) {
-                delay(scanInterval)
-                scanOnce()
-            }
-        } finally {
-            withContext(NonCancellable) { shutdownExecutor() }
-        }
-    }
-
     /**
      * One scan pass. Probes every port in [portRanges] concurrently on
-     * the dedicated dispatcher, replaces [detected] with the resulting
-     * set. Exposed for tests + for forced refresh after a known event
+     * the dedicated dispatcher and returns every IDE that answered.
+     * Exposed for tests + for forced refresh after a known event
      * (e.g. an IDE just started).
+     *
+     * Each probe is independent: a port that times out (or otherwise
+     * fails to answer within [probeTimeout]) contributes nothing and
+     * cannot discard the results of the ports that *did* answer. Probes
+     * publish into a shared concurrent set as they finish — there is no
+     * `awaitAll` join that a single slow port could fail. So the snapshot
+     * always carries every IDE detected within the per-probe timeout
+     * window.
      */
-    suspend fun scanOnce() {
+    //TODO: same IDE can be returned multiple times.
+    override suspend fun stateSnapshot() : Set<DiscoveredIdeByPort> {
         val ports = portRanges.flatMap { it.toList() }.toSortedSet()
-        val results: Set<DiscoveredIdeByPort> = coroutineScope {
-            ports.map { port ->
-                async(scanDispatcher) { probePort(port) }
-            }.awaitAll().filterNotNull().toSet()
+        val results = ConcurrentHashMap.newKeySet<DiscoveredIdeByPort>()
+        coroutineScope {
+            withContext(Dispatchers.IO.limitedParallelism(parallelism)) {
+                ports.forEach { port ->
+                    launch {
+                        probePort(port)?.let { results.add(it) }
+                    }
+                }
+            }
         }
-        _detected.value = results
+        return results.toSet()
     }
 
     /**
@@ -145,22 +121,27 @@ class IntelliJPortDiscovery(
      * normal outcome, not an error.
      */
     private suspend fun probePort(port: Int): DiscoveredIdeByPort? = try {
-        withTimeout(probeTimeout) {
+        // withTimeoutOrNull, not withTimeout: a probe that exceeds
+        // probeTimeout is a non-answering port, not an error. Returning
+        // null keeps the TimeoutCancellationException from escaping and
+        // cancelling sibling probes (the whole scan would otherwise be
+        // lost the moment one port hangs).
+        withTimeoutOrNull(probeTimeout) {
             val response = httpClient.get("http://127.0.0.1:$port/api/about") {
                 accept(ContentType.Application.Json)
             }
-            if (!response.status.isSuccess()) return@withTimeout null
+            if (!response.status.isSuccess()) return@withTimeoutOrNull null
             val body = response.bodyAsText()
             val about = try {
                 aboutJson.decodeFromString(AboutResponse.serializer(), body)
             } catch (e: Exception) {
                 log.debug("Port {} did not return /api/about JSON: {}", port, e.message)
-                return@withTimeout null
+                return@withTimeoutOrNull null
             }
             // Accept only responses that carry at least one IDE-identifying
             // field — a stray JSON 200 from a different service shouldn't
             // get classified as an IntelliJ.
-            if (about.productName == null && about.name == null) return@withTimeout null
+            if (about.productName == null && about.name == null) return@withTimeoutOrNull null
             DiscoveredIdeByPort(
                 port = port,
                 baseUrl = "http://127.0.0.1:$port",
@@ -173,25 +154,8 @@ class IntelliJPortDiscovery(
         }
     } catch (e: CancellationException) {
         throw e
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
-    }
-
-    override fun close() {
-        shutdownExecutor()
-    }
-
-    private fun shutdownExecutor() {
-        if (executor.isShutdown) return
-        executor.shutdown()
-        try {
-            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
-                executor.shutdownNow()
-            }
-        } catch (e: InterruptedException) {
-            executor.shutdownNow()
-            Thread.currentThread().interrupt()
-        }
     }
 
     companion object {

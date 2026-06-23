@@ -221,19 +221,20 @@ internal fun installRemovalNames(detected: List<McpServerRef>, listReadable: Boo
 data class IdeReachabilityReport(val reachable: Int, val discovered: Int)
 
 /**
- * One-shot, read-only IDE reachability snapshot for `install --check`: reuses the shared
- * [collectBackendRows] discovery and counts the marker rows — IDEs that wrote a `~/.mcp-steroid/markers`
- * marker, i.e. have the MCP Steroid plugin — that answered the snapshot fetch (`projects != null`).
+ * One-shot, read-only IDE reachability snapshot for `install --check`: uses the routing service to
+ * count discovered IDEs (via [DevrigProjectRoutingService.discoveredBackends]) and those that have
+ * at least one open project route (i.e. answered the snapshot fetch).
  *
- * NOTE: this performs the same LIVE scan `devrig backend` does (a `/projects/stream` fetch per discovered
- * IDE, bounded per-IDE), so it can block for a few seconds per running IDE. That is intentional for a
- * diagnostic command — `--check` reports real liveness, not cached state — but it is not instant.
+ * NOTE: this uses the same live data the routing service holds — IDEs that wrote a
+ * `~/.mcp-steroid/markers` marker, i.e. have the MCP Steroid plugin.
  */
 fun DevrigServices.collectIdeReachability(): IdeReachabilityReport {
-    val markerRows = collectBackendRows().filterIsInstance<BackendRow.FromMarker>()
+    val discovered = projectRouting.discoveredBackends()
+    val routes = projectRouting.routes()
+    val reachableBackendNames = routes.map { it.route.backendName }.toSet()
     return IdeReachabilityReport(
-        reachable = markerRows.count { it.projects != null },
-        discovered = markerRows.size,
+        reachable = discovered.count { it.backendName in reachableBackendNames },
+        discovered = discovered.size,
     )
 }
 

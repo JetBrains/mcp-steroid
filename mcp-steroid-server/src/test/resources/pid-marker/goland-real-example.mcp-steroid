@@ -1,0 +1,38 @@
+{
+    "schema": 1,
+    "pid": 13940,
+    "ide": {
+        "name": "GoLand 2026.1.3",
+        "version": "2026.1.3",
+        "build": "GO-261.25134.147"
+    },
+    "plugin": {
+        "id": "com.jonnyzzz.mcp-steroid",
+        "name": "MCP Steroid",
+        "version": "0.100-409f23a2"
+    },
+    "createdAt": "2026-06-22T11:35:33.211077Z",
+    "mcpSteroidServer": {
+        "mcpUrl": "http://localhost:6317/mcp",
+        "headers": {
+            "Authorization": "Bearer REDACTED-FOR-TEST"
+        }
+    },
+    "devrigEndpoint": {
+        "rpcBaseUrl": "http://localhost:6317/api/jonnyzzz/mcp-steroid/v1",
+        "headers": {
+            "Authorization": "Bearer REDACTED-FOR-TEST"
+        }
+    },
+    "intellijWebServer": {
+        "enabled": true,
+        "host": "127.0.0.1",
+        "port": 63344,
+        "baseUrl": "http://127.0.0.1:63344",
+        "aboutUrl": "http://127.0.0.1:63344/api/about?_ijt=REDACTED",
+        "headers": {
+            "x-ijt": "REDACTED"
+        }
+    },
+    "intellijMcpServer": null
+}

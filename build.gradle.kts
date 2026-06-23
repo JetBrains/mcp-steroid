@@ -414,7 +414,7 @@ val ciDevrigTests by tasks.registering {
  * instead of a green build that compiled nothing.
  */
 val compileAllClasses by tasks.registering {
-    group = "build"
+    group = "ci"
     description = "Compile every source set (classes / testClasses / extra source sets) across all modules — no tests, no packaging."
 }
 

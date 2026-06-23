@@ -3,8 +3,10 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.Urls
@@ -14,6 +16,7 @@ import com.jonnyzzz.mcpSteroid.IntelliJWebServerInfo
 import com.jonnyzzz.mcpSteroid.McpSteroidServerInfo
 import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PidMarkerJson
+import com.jonnyzzz.mcpSteroid.PluginDescriptorProvider
 import com.jonnyzzz.mcpSteroid.PluginInfo
 import org.jetbrains.ide.BuiltInServerManager
 import java.net.URLDecoder
@@ -65,6 +68,7 @@ class ServerUrlWriter : Disposable {
             mcpSteroidServer = McpSteroidServerInfo(
                 mcpUrl = serverUrl,
                 headers = bridgeHeaders,
+                pluginPath = pluginInstallPath(),
             ),
             devrigEndpoint = DevrigEndpointInfo(
                 rpcBaseUrl = "$ktorBaseUrl$DEVRIG_RPC_PATH_PREFIX",
@@ -73,6 +77,7 @@ class ServerUrlWriter : Disposable {
             ide = IdeInfo.ofApplication(),
             plugin = PluginInfo.ofCurrentPlugin(),
             createdAt = DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+            ideHome = PathManager.getHomePath(),
             intellijWebServer = buildIntelliJWebServerInfo(),
             intellijMcpServer = IntelliJMcpServerProbe.getInstanceOrNull()?.probe(),
         )
@@ -169,6 +174,20 @@ class ServerUrlWriter : Disposable {
     companion object {
         fun getInstance(): ServerUrlWriter = service()
     }
+}
+
+/**
+ * Returns the absolute plugin install folder for the mcp-steroid plugin, or `null` if
+ * it cannot be resolved (e.g. in a test environment where no descriptor is registered).
+ * Null-safe: callers must never crash when this returns null — older markers omit the field.
+ */
+private val pluginInstallPathLogger = Logger.getInstance(ServerUrlWriter::class.java)
+
+private fun pluginInstallPath(): String? = try {
+    PluginDescriptorProvider.getInstance().descriptor.pluginPath?.toString()
+} catch (e: Exception) {
+    pluginInstallPathLogger.warn("could not resolve plugin install path (marker will omit pluginPath)", e)
+    null
 }
 
 private fun bearerHeaders(token: String): Map<String, String> =

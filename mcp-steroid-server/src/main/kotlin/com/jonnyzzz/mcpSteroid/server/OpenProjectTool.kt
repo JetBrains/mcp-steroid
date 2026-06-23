@@ -56,22 +56,21 @@ class OpenProjectToolSpec(
         .boolean()
         .registerToSchema()
 
-    // Devrig-only and REQUIRED there (R2.1). Registered/advertised only when includeBackendName is true.
+    // Devrig-only and OPTIONAL: when omitted with a single candidate the handler picks it automatically.
+    // Registered/advertised only when includeBackendName is true.
     val backendName = if (includeBackendName) {
         InputSchemaElement.param("backend_name")
             .description(
-                "REQUIRED. The backend to open the project in, identified by its `backend_name` from " +
-                    "steroid_list_projects (the `backend_name` of each project, and of each `backends[]` " +
-                    "entry) — an opaque id like \"iu-9fk2a0xQ\". First call steroid_list_projects and inspect " +
-                    "`backends[]` (displayName, locator, routable, openProjects); only `routable: true` " +
-                    "entries are valid here. PREFER the backend that already has the same " +
-                    "project — or another git worktree of the same repository — open (match " +
-                    "backends[].openProjects[].path / shared repo root): worktrees share build/index/VCS " +
-                    "context, so reusing that IDE avoids a redundant second indexing. Otherwise prefer a " +
-                    "`managed` backend, else any listed backend."
+                "Optional. The backend to open the project in — an opaque id like \"iu-9fk2a0xQ\" " +
+                    "returned by steroid_open_project when called with no backend_name and several " +
+                    "candidates exist. Omit when there is exactly one candidate: the handler picks it " +
+                    "automatically and starts it if needed. A startable (installed but not running) " +
+                    "managed IDE is started automatically; the call blocks until the IDE is reachable. " +
+                    "PREFER the backend that already has the same project — or another git worktree of " +
+                    "the same repository — open: worktrees share build/index/VCS context, avoiding " +
+                    "redundant indexing. See mcp-steroid://open-project/managing-backends."
             )
             .string()
-            .required()
             .registerToSchema()
     } else null
 
@@ -108,7 +107,8 @@ class OpenProjectToolSpec(
                 projectPath = projectPath.toString(),
                 trustProject = trustProject,
                 backendName = backendNameValue,
-            )
+            ),
+            context.mcpProgressReporter,
         )
     }
 
@@ -134,19 +134,19 @@ Dialog Handling:
 - Always check modalDialogShowing in steroid_list_windows response"""
 
         const val BACKEND_NAME_DESCRIPTION = """Choosing a backend (multiple IDEs):
-This connection can route to more than one running IDE. Call steroid_list_projects first: `backends[]`
-lists ALL backends (including non-routable ones); pass a `routable: true` entry's `backend_name` to
-open the project in that specific IDE. PREFER the backend that already has the same project — or another git worktree of the
-same repository — open (match backends[].openProjects[].path / a shared repo root): worktrees share
-build/index/VCS context, so reusing that IDE keeps the context warm and avoids a redundant second
-indexing. Otherwise prefer a `managed` backend, else any listed backend.
+This connection can route to more than one running IDE. Call steroid_open_project WITHOUT a backend_name
+first: if there are several candidates the tool returns them in the error message — pick one and retry
+with backend_name set. PREFER the backend that already has the same project — or a git worktree of
+the same repo — open: worktrees share build/index/VCS context and reusing that IDE avoids redundant
+indexing. A startable (installed but not running) managed IDE is started automatically when chosen;
+the call blocks until the IDE is reachable.
 
 Managing backends from the agent:
 To list/provision/run backends, call the devrig CLI (the same devrig you run as your MCP server):
-`devrig backend` (list), `devrig backend download <id>`, `devrig backend start <id>`, `devrig backend
-stop <id>`, `devrig backend provision <id>`. Backend ids come from `devrig backend --json` /
-backends[].backend_name. devrig is on your PATH as `devrig` (the stable launcher the devrig binary keeps
-current) — just run it. See mcp-steroid://open-project/managing-backends."""
+`devrig backend` (list), `devrig backend download <id>`, `devrig backend start <id>`,
+`devrig backend stop <id>`, `devrig backend provision <id>`. Backend ids come from `devrig backend
+--json`. devrig is on your PATH as `devrig` — just run it.
+See mcp-steroid://open-project/managing-backends."""
     }
 }
 
@@ -163,5 +163,8 @@ data class OpenProjectParams(
 )
 
 interface OpenProjectToolHandler {
-    suspend fun handleOpenProject(openProjectParams: OpenProjectParams): ToolCallResult
+    suspend fun handleOpenProject(
+        openProjectParams: OpenProjectParams,
+        callProgress: McpProgressReporter,
+    ): ToolCallResult
 }
