@@ -96,6 +96,7 @@ class SingleInstanceLockTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
         )
         val started = manager.start(parseBackendId("idea-community-2025.3.3"))
@@ -121,6 +122,7 @@ class SingleInstanceLockTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
             processInspector = FakeProcessInspector(
                 snapshots = listOf(ProcessSnapshot(pid = 4242L, command = orphanCommand)),
@@ -151,12 +153,14 @@ class SingleInstanceLockTest {
         val firstManager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
             processInspector = processInspector,
         )
         val secondManager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
             processInspector = processInspector,
         )

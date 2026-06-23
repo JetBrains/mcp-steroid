@@ -111,20 +111,13 @@ PR #139 delivered: marker `ideHome` identity, `pluginPath` marker field, the fou
 taxonomy, dedup, running-managed exclusion, and `open_project` auto-start. Design + contract:
 `docs/startable-backends-design.md`. Remaining:
 
-12. **Finding A — re-provision the current plugin on managed start ("update plugin before run").**
-    `BackendManager.start` must install/refresh the *current* mcp-steroid plugin into the managed
-    backend before launch, so a started managed IDE boots compatible (writes `ideHome`) instead of
-    the stale bundled plugin. Until this lands, `open_project` on a pre-existing managed backend
-    (old plugin, no `ideHome`) times out at 120 s. The `McpSteroidServerInfo.pluginPath` marker
-    field (shipped in #139) is the hook — nothing reads it yet. Consumer side reads `pluginPath`,
-    compares to the deploying devrig's plugin version, redeploys if stale.
-
-13. **Live-prove running-managed exclusion from startable.** #139 covers it with unit tests at
+12. **Live-prove running-managed exclusion from startable.** #139 covers it with unit tests at
     `startableBackends()`, `DevrigBackendService.candidates()`, and CLI render levels, but it was
-    not live-verified by actually starting a managed IDE (avoided the finding-A 120 s timeout +
-    modal-dialog risk). Re-verify live once Finding A removes the timeout.
+    not live-verified by actually starting a managed IDE. Re-verify live now that Finding A has
+    removed the 120 s timeout (start re-provisions vmoptions + the current plugin on every
+    not-already-running start, so a managed IDE boots reachable).
 
-14. **Group 4 (downloadable) — real catalog flow.** Today group 4 is advertise-only: the footer
+13. **Group 4 (downloadable) — real catalog flow.** Today group 4 is advertise-only: the footer
     points at the full-cycle install command `devrig backend download <product>`. Decide whether
     `open_project` / `devrig backend` should ever enumerate concrete downloadable IDEs (catalog),
     or keep it advertise-only.

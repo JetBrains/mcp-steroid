@@ -450,6 +450,11 @@ class BackendManager(
         require(Files.isExecutable(launcher)) { "Launcher is not executable: $launcher" }
 
         writeBackendVmOptions(homePaths, resolved.id, descriptor.bundleDirName)
+        // Re-provision the current bundled plugin before launch so a backend downloaded by an older
+        // devrig boots with THIS devrig's plugin (writes ideHome → becomes reachable). Only reached when
+        // the backend is not already running (the pid-file checks above early-return otherwise), so the
+        // plugin dir is never rewritten under a live IDE.
+        deployMcpSteroidPlugin(resolved.id)
         val cacheDir = homePaths.cacheDir(resolved.id)
         val logDir = cacheDir.resolve("logs")
         listOf("config", "system", "logs", "plugins").forEach { Files.createDirectories(cacheDir.resolve(it)) }

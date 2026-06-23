@@ -1,6 +1,6 @@
 # Startable backends + backend-listing simplification
 
-**Status:** design approved 2026-06-22; implementation plan pending.
+**Status:** core shipped in PR #139; Finding A (re-provision the current plugin on managed start) shipped in PR #143.
 
 ## Goal
 
@@ -77,12 +77,13 @@ Group-specific contracts:
 - **Group 2** is display-only — devrig cannot drive or start these. The group exists to *advertise
   the `devrig backend` subcommands* (download/start) so the user can move an incompatible/plugin-less
   IDE toward a usable state. Never an `open_project` candidate.
-- **Group 3** backends are started fresh by devrig. Today `BackendManager.start` re-provisions
-  **vmoptions** before launch; the mcp-steroid **plugin** is provisioned at `download` time (so a
-  freshly-downloaded backend boots with the current plugin). Re-provisioning the *current* plugin on
-  every `start` ("update plugin before run") is **Finding A — deferred** (see `TASKS.md` item 12); the
-  `McpSteroidServerInfo.pluginPath` marker field is the hook for it. Excluded from startable while a
-  live managed pid exists (Finding B).
+- **Group 3** backends are started fresh by devrig. `BackendManager.start` re-provisions both
+  **vmoptions** and the **current bundled mcp-steroid plugin** on every not-already-running start
+  (Finding A implemented). This ensures a backend downloaded by an older devrig boots with the
+  current plugin and writes `ideHome` in its marker, making it reachable. Concurrency is safe: the
+  marker/port wait in `DevrigBackendService.ensureBackendRunning` plus IntelliJ's own single-instance
+  lock (a duplicate spawn exits cleanly) handle races — no lock file needed. Excluded from startable
+  while a live managed pid exists (Finding B).
 - **Group 4** is never enumerated in the listing — the command only surfaces the install entry point.
   The promotion footer picks the **full-cycle install command** `devrig backend download <product>`,
   which *downloads and installs* the managed backend (per its `--help`); the IDE then appears as a
@@ -150,7 +151,7 @@ sources — no `BackendRow`:
 2. **Other IDEs (incompatible or no MCP Steroid)** (S1 `ideHome == null` + S2) — *detected; cannot
    be driven; use the `devrig backend` subcommands to make one usable.*
 3. **Installed, not running (startable)** (S3) — *startable; a fresh start re-provisions vmoptions +
-   plugins.*
+   the mcp-steroid plugin.*
 4. **footer** — how to download/install more (`devrig backend download …`); group 4 is advertised
    here, never enumerated.
 
@@ -261,9 +262,14 @@ BackendManager scans pid files to determine liveness. A managed IDE that is runn
 written a marker (e.g. still booting) is therefore correctly excluded from startable before its
 marker appears.
 
-### A — plugin path (deferred)
+### A — plugin path
+
+**Finding A is implemented.** `BackendManager.start` now re-provisions vmoptions AND the current
+bundled mcp-steroid plugin on every not-already-running start (see `ManagedBackend.kt`,
+`startLocked`). A backend downloaded by an older devrig boots with the current plugin, writes
+`ideHome` in its marker, and becomes reachable without a 120 s timeout.
 
 `McpSteroidServerInfo.pluginPath` carries the absolute path of the deployed mcp-steroid plugin
-folder inside the IDE's plugin directory. This field is plumbing for a future
-"update plugin before run" step (Finding A): when devrig detects an outdated plugin version at
-`pluginPath`, it can redeploy before starting. No logic reads this field yet.
+folder inside the IDE's plugin directory. It remains the hook for a future *already-running*
+staleness hint: when a running IDE's plugin is outdated, devrig could surface a nudge via
+`pluginPath`. No logic reads this field for that purpose yet.

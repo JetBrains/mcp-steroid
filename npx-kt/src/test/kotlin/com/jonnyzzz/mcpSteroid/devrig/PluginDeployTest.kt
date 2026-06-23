@@ -3,8 +3,6 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.ideDownloader.IdeProduct
 import kotlinx.coroutines.runBlocking
-import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
-import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -21,7 +19,7 @@ class PluginDeployTest {
         @TempDir tempDir: Path,
     ) {
         val homePaths = HomePaths(tempDir.resolve("home"))
-        val source = pluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), version = "one")
+        val source = bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), version = "one")
         val stale = homePaths.cacheDir("idea-community-2025.3.3")
             .resolve("plugins/mcp-steroid/stale/old.txt")
         Files.createDirectories(stale.parent)
@@ -30,7 +28,7 @@ class PluginDeployTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
-            bundledPluginResolver = FixedPluginResolver(source),
+            bundledPluginResolver = FixedBundledPluginResolver(source),
         )
 
         val deployed = manager.deployMcpSteroidPlugin("idea-community-2025.3.3")
@@ -47,7 +45,7 @@ class PluginDeployTest {
         @TempDir tempDir: Path,
     ) = runBlocking {
         val homePaths = HomePaths(tempDir.resolve("home"))
-        val resolver = MutablePluginResolver(pluginZipFixture(tempDir.resolve("dist-v1/ij-plugin.zip"), version = "one"))
+        val resolver = MutablePluginResolver(bundledPluginZipFixture(tempDir.resolve("dist-v1/ij-plugin.zip"), version = "one"))
         val downloader = InstallingDownloader()
         val manager = BackendManager(
             homePaths = homePaths,
@@ -61,7 +59,7 @@ class PluginDeployTest {
         assertEquals("one", Files.readString(deployedFile))
         assertEquals(1, downloader.unpackCount)
 
-        resolver.zip = pluginZipFixture(tempDir.resolve("dist-v2/ij-plugin.zip"), version = "two")
+        resolver.zip = bundledPluginZipFixture(tempDir.resolve("dist-v2/ij-plugin.zip"), version = "two")
         val stale = homePaths.cacheDir("idea-community-2025.3.3")
             .resolve("plugins/mcp-steroid/stale.txt")
         Files.writeString(stale, "stale")
@@ -71,30 +69,6 @@ class PluginDeployTest {
         assertEquals("two", Files.readString(deployedFile))
         assertFalse(stale.exists(), "re-download must remove stale plugin files before redeploy")
         assertEquals(1, downloader.unpackCount, "existing IDE archive should be reused on the second download")
-    }
-
-    private fun pluginZipFixture(zip: Path, version: String): Path {
-        Files.createDirectories(zip.parent)
-        ZipArchiveOutputStream(Files.newOutputStream(zip)).use { out ->
-            out.addFile("mcp-steroid/lib/plugin.txt", version)
-            out.addFile("mcp-steroid/kotlinc/bin/kotlinc", "#!/usr/bin/env sh\n", mode = 0b111_101_101)
-        }
-        return zip
-    }
-
-    private fun ZipArchiveOutputStream.addFile(name: String, text: String, mode: Int = 0b110_100_100) {
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        val entry = ZipArchiveEntry(name).apply {
-            size = bytes.size.toLong()
-            unixMode = mode
-        }
-        putArchiveEntry(entry)
-        write(bytes)
-        closeArchiveEntry()
-    }
-
-    private class FixedPluginResolver(private val zip: Path) : BundledPluginResolver {
-        override fun resolveBundledPluginZip(): Path = zip
     }
 
     private class MutablePluginResolver(var zip: Path) : BundledPluginResolver {
