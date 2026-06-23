@@ -11,6 +11,12 @@ Control the graphical display inside the Docker container. You have a full X11 d
 
 All commands run directly in the container shell. Use your agent's shell execution capability.
 
+> **Coordinate spaces differ — do not mix them.** `xdotool` uses the X display's **physical** pixels.
+> `steroid_take_screenshot` returns the IDE window's **logical** pixels (off from physical by the
+> display scale factor, e.g. ~1.37×). Never feed `steroid_take_screenshot` coordinates into `xdotool`.
+> Source `xdotool` coordinates from `scrot` (also physical), or click via `steroid_input`
+> (`click:Left@x,y`) which consumes the logical screenshot coordinates directly.
+
 ### Mouse Control (xdotool)
 
 ```bash

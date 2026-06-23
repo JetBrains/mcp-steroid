@@ -25,6 +25,11 @@ class VisionScreenshotToolSpec(val handler: () -> VisionScreenshotToolHandler) :
         - screenshot-tree.md
         - screenshot-meta.json
 
+        Coordinates are in the IDE window's LOGICAL pixels. Feed them back only to steroid_input
+        (sequence "click:Left@x,y"), which maps them onto the live component. Do NOT pass these
+        coordinates to external tools like xdotool — those use the X display's PHYSICAL pixels and
+        will be off by the display scale factor; for xdotool, source coordinates from scrot instead.
+
         After execution, call steroid_execute_feedback to log your feedback.
     """.trimIndent()
 

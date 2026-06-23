@@ -102,6 +102,8 @@ withContext(Dispatchers.EDT) {
 - The `DaemonCodeAnalyzer` wait loop is required: `ShowIntentionsPass.getActionsToShow` returns whatever the daemon has computed at call time, so call it after the daemon settles.
 - Place identifiers like `EditorPopup` (passed to `AnActionEvent.createEvent`) come from `ActionPlaces`; check `mcp-steroid://ide/run-configuration` and `mcp-steroid://prompt/test-skill` for context-action patterns by IDE.
 - The caret matters: an action that depends on PSI context (refactoring, test runner) is enabled only when the caret is on the relevant identifier.
+- **Never call `ActionGroup.getChildren(null)`** to enumerate a group's children — it is a documented Platform anti-pattern (`getChildren` is `@OverrideOnly`, and `DefaultActionGroup.getChildren(null)` logs an error / can throw). To inspect a group, pass a real event: `group.getChildren(AnActionEvent.createEvent(dataContext, presentation, ActionPlaces.UNKNOWN, ActionUiKind.NONE, null))`; to invoke a specific item, fetch it by id via `ActionManager.getInstance().getAction(id)`.
+- **Popup-style actions silently no-op from a headless/synthetic `DataContext`.** Actions that open their own popup (e.g. `AIAssistantHubPopupAction`) need a live on-screen component to anchor to, so `ActionUtil.performAction` with a `DataManager` data context does nothing and reports no error. For those, drive the UI directly: `steroid_take_screenshot` to locate the control, then `steroid_input` with a `screenshot:x,y` click.
 
 # See also
 

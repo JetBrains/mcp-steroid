@@ -104,6 +104,21 @@ class McpSteroidConfigurable : BoundConfigurable(DISPLAY_NAME) {
                     )
                 }
                 row {
+                    text("<b>Install devrig</b> — one command, then register your agent:")
+                }.topGap(TopGap.SMALL)
+                row("macOS / Linux:") {
+                    cell(copyableTextField(DEVRIG_INSTALL_SH)).align(AlignX.FILL)
+                }
+                row("Windows (PowerShell):") {
+                    cell(copyableTextField(DEVRIG_INSTALL_PS1)).align(AlignX.FILL)
+                }
+                row {
+                    comment(
+                        "Then point your agent at it: <code>devrig install claude</code> " +
+                            "(or <code>codex</code> / <code>gemini</code>)."
+                    )
+                }
+                row {
                     browserLink("Read the Devrig documentation to get started", DEVRIG_DOCS_URL)
                 }.topGap(TopGap.SMALL)
             }
@@ -190,6 +205,10 @@ class McpSteroidConfigurable : BoundConfigurable(DISPLAY_NAME) {
         const val DISPLAY_NAME = "MCP Steroid — devrig"
 
         const val DEVRIG_DOCS_URL = "https://mcp-steroid.jonnyzzz.com/docs/devrig/"
+
+        /** One-line devrig installers (served from the website). Shown copyable on the settings page. */
+        const val DEVRIG_INSTALL_SH = "curl -fsSL https://mcp-steroid.jonnyzzz.com/install.sh | sh"
+        const val DEVRIG_INSTALL_PS1 = "irm https://mcp-steroid.jonnyzzz.com/install.ps1 | iex"
 
         const val FEEDBACK_URL = "https://mcp-steroid.jonnyzzz.com"
     }
