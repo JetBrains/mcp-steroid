@@ -17,9 +17,7 @@ import com.jonnyzzz.mcpSteroid.server.DEVRIG_RPC_PATH_PREFIX
 import com.jonnyzzz.mcpSteroid.server.NPX_NDJSON_MIME_TYPE
 import com.jonnyzzz.mcpSteroid.server.NpxBridgeToolCallRequest
 import com.jonnyzzz.mcpSteroid.server.NpxBridgeWindowsResponse
-import com.jonnyzzz.mcpSteroid.server.NpxStreamEnvelope
 import com.jonnyzzz.mcpSteroid.server.NpxStreamJson
-import com.jonnyzzz.mcpSteroid.server.ProjectInfo
 import com.jonnyzzz.mcpSteroid.server.WindowInfo
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.StdioMcpProcess
@@ -37,11 +35,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -170,8 +170,8 @@ class DevrigFakeIdeBridgeIntegrationTest {
             val projects = McpJson.parseToJsonElement(textContent(result)).jsonObject["projects"]?.jsonArray
                 ?: error("list_projects result missing projects: $result")
             if (projects.isNotEmpty()) {
-                return projects.single().jsonObject["name"]?.jsonPrimitive?.content
-                    ?: error("project missing name: ${projects.single()}")
+                return projects.single().jsonObject["project_name"]?.jsonPrimitive?.content
+                    ?: error("project missing project_name: ${projects.single()}")
             }
             Thread.sleep(250)
         }
@@ -204,17 +204,13 @@ class DevrigFakeIdeBridgeIntegrationTest {
         srv.executor = Executors.newCachedThreadPool()
         port = srv.address.port
 
-        srv.createContext("$DEVRIG_RPC_PATH_PREFIX/projects/stream") { ex ->
+        // Since #92 the monitor (IdeProjectMonitor.collectProjectsImpl) POLLS `GET <rpcBaseUrl>/projects`
+        // once per second and requires every entry to carry name/path/project_name/backend_name. Serve a
+        // plain JSON object body matching that contract.
+        srv.createContext("$DEVRIG_RPC_PATH_PREFIX/projects") { ex ->
             receivedProjectsStreamAuth = ex.requestHeaders.getFirst("Authorization")
             ex.requestBody.use { it.readBytes() }
-            ex.responseHeaders.add("Content-Type", NPX_NDJSON_MIME_TYPE)
-            ex.sendResponseHeaders(200, 0)
-            val os = ex.responseBody
-            os.write((NpxStreamJson.encodeEnvelope(snapshot()) + "\n").toByteArray())
-            os.flush()
-            // Hold the stream open like the real IDE bridge does, until the test tears the server down.
-            while (!bridgeStopped.get()) Thread.sleep(50)
-            try { os.close() } catch (e: Exception) { System.err.println("fake bridge stream close: ${e.message}") }
+            respondJson(ex, NpxStreamJson.encodeJsonObject(projectsResponse()))
         }
 
         srv.createContext("$DEVRIG_RPC_PATH_PREFIX/windows") { ex ->
@@ -250,15 +246,20 @@ class DevrigFakeIdeBridgeIntegrationTest {
         ex.responseBody.use { it.write(bytes) }
     }
 
-    private fun snapshot(): NpxStreamEnvelope =
-        NpxStreamEnvelope(
-            type = "snapshot",
-            instanceId = "fake-instance",
-            seq = seq.incrementAndGet(),
-            sentAt = Instant.now().toString(),
-            pid = fakeIdePid,
-            projects = listOf(ProjectInfo("sample", fakeProjectPath)),
-        )
+    // The `GET /projects` body the monitor parses: a {"projects":[ … ]} object whose entries carry
+    // name/path/project_name/backend_name (all four are required via getValue() in collectProjectsImpl).
+    // `project_name` is the IDE-side raw name "sample"; devrig hashes it into the routed "sample-<hash>".
+    private fun projectsResponse(): JsonObject =
+        buildJsonObject {
+            putJsonArray("projects") {
+                addJsonObject {
+                    put("name", "sample")
+                    put("path", fakeProjectPath)
+                    put("project_name", "sample")
+                    put("backend_name", "default")
+                }
+            }
+        }
 
     private fun windowsResponse(): NpxBridgeWindowsResponse =
         NpxBridgeWindowsResponse(

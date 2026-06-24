@@ -28,7 +28,7 @@ class McpSteroidConfigurableTest : BasePlatformTestCase() {
         configurable.disposeUIResources()
     }
 
-    fun `test panel promotes devrig and points to its documentation only`() {
+    fun `test panel promotes devrig and shows copyable install one-liners`() {
         val configurable = McpSteroidConfigurable()
         try {
             val texts = collectTexts(configurable.createComponent())
@@ -38,13 +38,22 @@ class McpSteroidConfigurableTest : BasePlatformTestCase() {
             assertContainsText(texts, "AI Agents")
             assertContainsText(texts, "Devrig")
 
-            // devrig install is not shipped yet: the panel must NOT advertise any install command,
-            // only point to the documentation.
-            assertEquals("https://mcp-steroid.jonnyzzz.com/docs/devrig/", McpSteroidConfigurable.DEVRIG_DOCS_URL)
-            assertFalse(
-                "Panel must not advertise the unimplemented devrig install; found:\n$joined",
-                joined.contains("install.sh") || joined.contains("devrig install "),
+            // devrig install is implemented: the panel shows the copyable one-liners for both
+            // macOS/Linux (curl … | sh) and Windows (irm … | iex), plus the agent-registration hint.
+            assertContainsText(texts, McpSteroidConfigurable.DEVRIG_INSTALL_SH)
+            assertContainsText(texts, McpSteroidConfigurable.DEVRIG_INSTALL_PS1)
+            assertTrue(
+                "macOS/Linux installer must be a copyable curl|sh one-liner; found:\n$joined",
+                joined.contains("install.sh") && joined.contains("| sh"),
             )
+            assertTrue(
+                "Windows installer must be a copyable irm|iex one-liner; found:\n$joined",
+                joined.contains("install.ps1") && joined.contains("| iex"),
+            )
+            assertContainsText(texts, "devrig install claude")
+
+            // The panel still links to the devrig documentation.
+            assertEquals("https://mcp-steroid.jonnyzzz.com/docs/devrig/", McpSteroidConfigurable.DEVRIG_DOCS_URL)
 
             // The legacy HTTP examples must carry a "not recommended" warning steering users to devrig.
             assertContainsText(texts, "Not recommended")

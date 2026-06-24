@@ -200,9 +200,14 @@ class ContentModuleClasspathTest {
 
             // --- Miscellaneous unloaded modules ---
             // Each has a specific reason for not being loaded at startup.
+            //
+            // NOTE: plugins/DatabaseTools/lib/modules/intellij.database.mcp.jar is
+            // intentionally NOT listed here — it is build-gated. See
+            // DATABASE_MCP_DROPPED_BUILD / isDatabaseMcpUnloaded() below: it was an
+            // unloaded content module up to IU-261.22158 but was dropped from the IDE
+            // distribution in IU-261.25134+, so its presence in the allowlist depends
+            // on the resolved build.
             addAll(listOf(
-                // MCP integration for database tools — loaded on demand
-                "plugins/DatabaseTools/lib/modules/intellij.database.mcp.jar",
                 // Groovy Ant integration — loaded only when Ant is used
                 "plugins/Groovy/lib/modules/intellij.groovy.ant.jar",
                 // Spring JSF — loaded only when JSF framework is detected
@@ -229,12 +234,66 @@ class ContentModuleClasspathTest {
         }
 
         /**
-         * Returns the set of expected unloaded content module JARs for the given IDE product.
-         * Fails if the product has no known allowlist — forces adding one explicitly.
+         * Build-gated module: plugins/DatabaseTools/lib/modules/intellij.database.mcp.jar.
+         *
+         * The set of unloaded content modules drifts within a single major because
+         * :test-integration resolves the LATEST 261 build dynamically. Two confirmed
+         * data points for this JAR:
+         *   - IU-261.22158.277 (plugin-verifier lane): present on disk, NOT loaded at
+         *     runtime → it IS an unloaded content module → the entry is needed.
+         *   - IU-261.25134.95  (current test-integration lane): absent from the IDE
+         *     filesystem (no longer bundled) → the entry would be stale.
+         *
+         * So the JAR is included as an expected-unloaded module only for builds BELOW
+         * this threshold (the second build-number component for the 261 major).
          */
-        private fun unloadedContentModules(ideProduct: String): Set<String> {
+        private const val DATABASE_MCP_DROPPED_BUILD = 25134
+
+        private const val DATABASE_MCP_MODULE =
+            "plugins/DatabaseTools/lib/modules/intellij.database.mcp.jar"
+
+        /**
+         * Whether intellij.database.mcp.jar is expected as an unloaded content module
+         * for the given build. True for builds below 261.25134 (e.g. .22158), false for
+         * 261.25134 and newer.
+         *
+         * Fails CLOSED: if the build string is missing or unparseable, default to
+         * INCLUDING the entry so older/unknown builds keep prior behavior (the entry
+         * was unconditional before build-gating was introduced).
+         *
+         * BuildNumber.fromString() is deliberately not used: this is a plain host-JVM
+         * JUnit module with no IntelliJ Platform on its classpath (see build.gradle.kts),
+         * so com.intellij.openapi.util.BuildNumber is not available here. Parse manually.
+         */
+        private fun isDatabaseMcpUnloaded(ideBuild: String?): Boolean {
+            // Strip an optional product prefix like "IU-" → "261.25134.95".
+            val numeric = ideBuild?.substringAfterLast('-')?.trim()
+            val parts = numeric?.split('.')
+            val major = parts?.getOrNull(0)?.toIntOrNull()
+            val build = parts?.getOrNull(1)?.toIntOrNull()
+            // Fail closed: unknown/unparseable → keep the entry (prior behavior).
+            if (major == null || build == null) return true
+            // Only gate the 261 major; other majors keep prior (include) behavior until
+            // a data point says otherwise.
+            if (major != 261) return true
+            return build < DATABASE_MCP_DROPPED_BUILD
+        }
+
+        /**
+         * Returns the set of expected unloaded content module JARs for the given IDE
+         * product and resolved build. Fails if the product has no known allowlist —
+         * forces adding one explicitly.
+         *
+         * The set is build-aware: :test-integration resolves the latest build of a
+         * major dynamically, so some entries are gated on the build number (see
+         * isDatabaseMcpUnloaded). All other entries are unconditional.
+         */
+        private fun unloadedContentModules(ideProduct: String, ideBuild: String?): Set<String> {
             return when (ideProduct) {
-                "IU" -> UNLOADED_CONTENT_MODULES_IU_261
+                "IU" -> buildSet {
+                    addAll(UNLOADED_CONTENT_MODULES_IU_261)
+                    if (isDatabaseMcpUnloaded(ideBuild)) add(DATABASE_MCP_MODULE)
+                }
                 else -> error(
                     "No unloaded content modules allowlist for IDE product '$ideProduct'. " +
                         "Run the test, collect the list of unloaded modules, and add a new constant."
@@ -359,7 +418,7 @@ class ContentModuleClasspathTest {
         val afterStructural = onlyInFilesystem.filter { !isStructuralException(it) }
 
         // Remaining should all be plugins/*/lib/modules/*.jar — check against explicit allowlist
-        val expectedUnloaded = unloadedContentModules(ideProduct ?: "IU")
+        val expectedUnloaded = unloadedContentModules(ideProduct ?: "IU", ideBuild)
         val unexplained = afterStructural.filter { it !in expectedUnloaded }.sorted()
 
         // Detect stale allowlist entries (modules that were expected to be unloaded
