@@ -1,0 +1,80 @@
+package com.jonnyzzz.mcpSteroid.report
+
+import org.junit.jupiter.api.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class HtmlRendererTest {
+    private fun sampleReport(): Report {
+        val runs = listOf(
+            AgentRun("petclinic-27", "claude", McpMode.WITH, claimedFix = true, agentDurationMs = 521_000, costUsd = 3.21, buildSuccess = false, testsRun = 96, testsFail = 0, usedMcp = true, execCodeCalls = 1, summary = "Created REST CRUD",
+                model = "claude-opus-4-6", agentVersion = "2.1.119", contextWindow = 200_000, maxOutputTokens = 64_000, inputTokens = 23, outputTokens = 21_064,
+                toolCalls = mapOf("Read" to 13, "Edit" to 2, "mcp__mcp-steroid__steroid_execute_code" to 1)),
+            AgentRun("petclinic-27", "claude", McpMode.WITHOUT, claimedFix = true, agentDurationMs = 711_000, buildSuccess = true, testsRun = 94, testsFail = 0, usedMcp = false,
+                model = "claude-opus-4-6", agentVersion = "2.1.119", contextWindow = 200_000, inputTokens = 50, outputTokens = 30_000,
+                toolCalls = mapOf("Read" to 25, "Edit" to 6, "Bash" to 9)),
+            AgentRun("train-ticket-1", "codex", McpMode.WITH, claimedFix = true, agentDurationMs = 100_000),
+            AgentRun("train-ticket-1", "codex", McpMode.WITHOUT, claimedFix = false, agentDurationMs = 120_000),
+        )
+        return Report("MCP Steroid — Experiments", "2026-06-26T20:00:00Z", Aggregator.compare(runs), runs)
+    }
+
+    @Test
+    fun `renders a self-contained html dashboard with the primary comparison`() {
+        val html = HtmlRenderer.render(sampleReport())
+
+        assertTrue(html.startsWith("<!DOCTYPE html>"), "is an html document")
+        assertTrue(html.contains("MCP Steroid — Experiments"), "has the title")
+        // both scenarios and agents appear
+        assertTrue(html.contains("petclinic-27"))
+        assertTrue(html.contains("train-ticket-1"))
+        assertTrue(html.contains("claude"))
+        assertTrue(html.contains("codex"))
+        // primary axis is with vs without MCP
+        assertTrue(html.contains("with MCP"))
+        assertTrue(html.contains("without MCP"))
+        // a verdict the heuristic produced (codex train-ticket: with fixed, without not)
+        assertTrue(html.contains("MCP helped"))
+        // secondary section exists
+        assertTrue(html.contains("Top problems"))
+        // run detail carried through
+        assertTrue(html.contains("Created REST CRUD"))
+        // self-contained: no external stylesheet/script
+        assertFalse(html.contains("<link"), "no external stylesheet")
+        assertFalse(html.contains("src=\"http"), "no external script src")
+    }
+
+    @Test
+    fun `states clearly that compared durations exclude the IDE preparation phase`() {
+        val html = HtmlRenderer.render(sampleReport())
+        assertTrue(html.contains("IDE preparation"), "must disclose the IDE-prep cutoff")
+        assertTrue(html.contains("agent execution time"), "must say the metric is agent execution time")
+        assertTrue(html.contains("Δ agent time"), "delta column is labelled as agent time, not wall clock")
+    }
+
+    @Test
+    fun `shows model, agent version, token budget, tokens and a tool-call diff`() {
+        val html = HtmlRenderer.render(sampleReport())
+        // model + agent version + token budget from the agent output
+        assertTrue(html.contains("claude-opus-4-6"), "model name shown")
+        assertTrue(html.contains("2.1.119"), "agent version shown")
+        assertTrue(html.contains("200,000") || html.contains("200000") || html.contains("200K"), "token budget shown")
+        // tokens spent
+        assertTrue(html.contains("tokens"), "token usage labelled")
+        // tool-call diff: a tool present in both modes, plus the delta
+        assertTrue(html.contains("Read"), "tool name shown")
+        assertTrue(html.contains("tool calls", ignoreCase = true) || html.contains("Tool calls"), "tool-call section present")
+    }
+
+    @Test
+    fun `escapes html special characters in agent text`() {
+        val runs = listOf(
+            AgentRun("x", "claude", McpMode.WITH, claimedFix = true, summary = "<script>alert(1)</script> & co"),
+            AgentRun("x", "claude", McpMode.WITHOUT, claimedFix = true),
+        )
+        val html = HtmlRenderer.render(Report("t", "now", Aggregator.compare(runs), runs))
+        assertFalse(html.contains("<script>alert(1)</script>"), "raw script must not leak")
+        assertTrue(html.contains("&lt;script&gt;"))
+        assertTrue(html.contains("&amp; co"))
+    }
+}

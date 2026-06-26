@@ -1,0 +1,106 @@
+package com.jonnyzzz.mcpSteroid.report
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
+
+/**
+ * Reads an input directory tree into a merged list of [AgentRun]s.
+ *
+ * Two layouts, one reader:
+ *  - **CI collector layout** — a `builds/` directory with one sub-folder per build config
+ *    (`builds/<configId>/log.txt`, `…/runs/<mode>/agent.ndjson`, optional `…/summaries/…json`,
+ *    optional `…/meta.json`). Processed per build folder, so NDJSON metrics attach to the right
+ *    (scenario, agent) — taken from the build's own log — keyed by mode-from-path.
+ *  - **Local test-output layout** — a flat tree of summary JSONs and the arena log. Summary JSONs are
+ *    self-identifying; NDJSON is skipped here because the summary JSON already carries its metrics.
+ *
+ * Within a file:
+ *  - a `.json` named like `dpaia-arena-run-…` → [RunSummaryJsonParser]
+ *  - a `.log` / `.txt` containing `[ARENA]` → [ArenaLogParser]
+ *  - a `.ndjson` (build layout only) → [NdjsonParser], tagged with the build's (scenario, agent) and the
+ *    mode parsed from its path
+ *
+ * Parse failures on a single file are swallowed so one malformed input never sinks the report. Runs are
+ * merged by (scenario, agent, mode) via [mergeRuns].
+ */
+object InputReader {
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    fun read(root: File): List<AgentRun> {
+        val buildsDir = File(root, "builds")
+        val runs = if (buildsDir.isDirectory) {
+            buildsDir.listFiles { f -> f.isDirectory }.orEmpty().flatMap { readBuildFolder(it) }
+        } else {
+            readFlat(root)
+        }
+        return mergeRuns(runs)
+    }
+
+    /** Flat layout: only the self-identifying sources (summary JSON + arena log). */
+    private fun readFlat(root: File): List<AgentRun> = buildList {
+        root.walkTopDown().filter { it.isFile }.forEach { f ->
+            runCatching { addAll(parseSelfIdentifying(f)) }
+        }
+    }
+
+    private fun parseSelfIdentifying(f: File): List<AgentRun> {
+        val name = f.name.lowercase()
+        return when {
+            name.endsWith(".json") && name.contains("dpaia-arena-run") -> listOf(RunSummaryJsonParser.parse(f.readText()))
+            name.endsWith(".log") || name.endsWith(".txt") -> {
+                val text = f.readText()
+                if (text.contains("[ARENA]")) ArenaLogParser.parse(text) else emptyList()
+            }
+            else -> emptyList()
+        }
+    }
+
+    /** One build config's folder: log + summaries are self-identifying; ndjson is attached via build context. */
+    private fun readBuildFolder(dir: File): List<AgentRun> {
+        val files = dir.walkTopDown().filter { it.isFile }.toList()
+        val selfId = files.flatMap { f -> runCatching { parseSelfIdentifying(f) }.getOrDefault(emptyList()) }
+
+        // (scenario, agent) for this build: the log/summary tells us; meta.json is the fallback.
+        val ctx = selfId.firstOrNull()?.let { it.scenario to it.agent } ?: readMeta(dir)
+
+        val ndjsonRuns = if (ctx == null) emptyList() else files
+            .filter { it.name.lowercase().endsWith(".ndjson") }
+            .mapNotNull { f ->
+                val mode = modeFromPath(f.path) ?: return@mapNotNull null
+                val m = runCatching { NdjsonParser.parse(f.readText()) }.getOrNull() ?: return@mapNotNull null
+                AgentRun(
+                    scenario = ctx.first, agent = ctx.second, mode = mode,
+                    model = m.model, agentVersion = m.agentVersion,
+                    contextWindow = m.contextWindow, maxOutputTokens = m.maxOutputTokens,
+                    inputTokens = m.inputTokens, outputTokens = m.outputTokens,
+                    cacheReadTokens = m.cacheReadTokens, cacheCreationTokens = m.cacheCreationTokens,
+                    costUsd = m.costUsd, numTurns = m.numTurns,
+                    toolCalls = m.toolCalls,
+                    execCodeCalls = m.toolCalls.entries.firstOrNull { it.key.contains("steroid_execute_code") }?.value,
+                )
+            }
+
+        return selfId + ndjsonRuns
+    }
+
+    /** mcp / none from a path segment (run dir names like `runs/mcp` or `run-…-none`). */
+    private fun modeFromPath(path: String): McpMode? {
+        val p = path.lowercase()
+        return when {
+            p.contains("none") || p.contains("without") -> McpMode.WITHOUT
+            p.contains("mcp") -> McpMode.WITH
+            else -> null
+        }
+    }
+
+    private fun readMeta(dir: File): Pair<String, String>? {
+        val meta = File(dir, "meta.json").takeIf { it.isFile } ?: return null
+        val o = runCatching { json.parseToJsonElement(meta.readText()).jsonObject }.getOrNull() ?: return null
+        val scenario = o["scenario"]?.jsonPrimitive?.contentOrNull ?: return null
+        val agent = o["agent"]?.jsonPrimitive?.contentOrNull ?: return null
+        return scenario to agent
+    }
+}
