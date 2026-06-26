@@ -134,6 +134,9 @@ sealed class IntelliJProject{
     object YouTrackDbProject : ProjectFromRemoteGit("https://github.com/JetBrains/youtrackdb.git")
     object IntelliJPlatformGradlePluginProject : ProjectFromRemoteGit("https://github.com/JetBrains/intellij-platform-gradle-plugin.git")
 
+    /** A real Android (Gradle) project, used to exercise Android Studio. Google's official base template. */
+    object AndroidSampleProject : ProjectFromRemoteGit("https://github.com/android/architecture-templates.git")
+
     open class ProjectFromRepository protected constructor(
         val projectName: String,
         private val openFile: String?,
