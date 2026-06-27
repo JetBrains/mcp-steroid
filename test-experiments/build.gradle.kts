@@ -21,9 +21,22 @@ val agentOutputFilterDist by configurations.creating {
     isCanBeResolved = true
 }
 
+// Resolvable configuration to get the Kotlin devrig CLI distribution zip from :npx-kt. The integration
+// infra (IdeTestFolders / IdeTestHelpers) now REQUIRES `test.integration.devrig.package.zip`, so the
+// experiment tests must provide it exactly like :test-integration does — otherwise every
+// :test-experiments:test fails at init with "devrig.package.zip system property not set".
+val devrigPackageDist by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "devrig-package"))
+    }
+}
+
 dependencies {
     pluginZip(project(":ij-plugin"))
     agentOutputFilterDist(project(path = ":agent-output-filter", configuration = "executableDistribution"))
+    devrigPackageDist(project(":npx-kt"))
 
     // Shared infrastructure (containers, MCP client, drivers) lives in :test-integration's main source set.
     testImplementation(project(":test-integration"))
@@ -68,7 +81,7 @@ fun Test.configureExperimentalTest() {
         .filterKeys { it.toString().startsWith("arena.test.") }
         .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
 
-    dependsOn(pluginZip, agentOutputFilterDist)
+    dependsOn(pluginZip, agentOutputFilterDist, devrigPackageDist)
     doFirst {
         delete(layout.buildDirectory.dir("test-results/${this@configureExperimentalTest.name}/binary"))
         val testOutDir = layout.buildDirectory
@@ -91,6 +104,10 @@ fun Test.configureExperimentalTest() {
         systemProperty(
             "test.integration.agent.output.filter.zip",
             agentOutputFilterDist.singleFile.absolutePath,
+        )
+        systemProperty(
+            "test.integration.devrig.package.zip",
+            devrigPackageDist.singleFile.absolutePath,
         )
         systemProperty(
             "test.integration.repo.cache.dir",
