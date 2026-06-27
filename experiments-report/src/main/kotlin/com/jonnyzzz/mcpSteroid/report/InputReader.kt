@@ -39,6 +39,22 @@ object InputReader {
         return mergeRuns(runs)
     }
 
+    /** Every collected build's `meta.json` (collector layout only) — for the coverage view. */
+    fun readBuildMetas(root: File): List<BuildMeta> {
+        val buildsDir = File(root, "builds").takeIf { it.isDirectory } ?: return emptyList()
+        return buildsDir.listFiles { f -> f.isDirectory }.orEmpty().mapNotNull { dir ->
+            val meta = File(dir, "meta.json").takeIf { it.isFile } ?: return@mapNotNull null
+            val o = runCatching { json.parseToJsonElement(meta.readText()).jsonObject }.getOrNull() ?: return@mapNotNull null
+            BuildMeta(
+                buildConfigId = o["buildConfigId"]?.jsonPrimitive?.contentOrNull ?: dir.name,
+                buildId = o["buildId"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                scenario = o["scenario"]?.jsonPrimitive?.contentOrNull ?: "",
+                agent = o["agent"]?.jsonPrimitive?.contentOrNull ?: "",
+                status = o["status"]?.jsonPrimitive?.contentOrNull,
+            )
+        }.sortedBy { it.buildConfigId }
+    }
+
     /** Flat layout: only the self-identifying sources (summary JSON + arena log). */
     private fun readFlat(root: File): List<AgentRun> = buildList {
         root.walkTopDown().filter { it.isFile }.forEach { f ->

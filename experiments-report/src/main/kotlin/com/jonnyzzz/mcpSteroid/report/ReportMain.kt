@@ -15,6 +15,7 @@ fun buildReport(inputDir: File, title: String, generatedAt: String): Report {
         generatedAt = generatedAt,
         comparisons = Aggregator.compare(runs),
         allRuns = runs,
+        collectedBuilds = InputReader.readBuildMetas(inputDir),
     )
 }
 

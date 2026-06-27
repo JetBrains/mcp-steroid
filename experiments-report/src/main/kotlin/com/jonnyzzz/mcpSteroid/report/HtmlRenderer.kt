@@ -29,6 +29,7 @@ object HtmlRenderer {
         renderSummary(sb, report)
         renderComparisons(sb, report)
         renderProblems(sb, report)
+        renderCoverage(sb, report)
 
         sb.append("<footer>MCP Steroid experiments dashboard · heuristic verdicts — see raw columns for nuance</footer>\n")
         sb.append("</body>\n</html>\n")
@@ -139,6 +140,30 @@ object HtmlRenderer {
             sb.append("<tr><td>").append(esc(p.title)).append("</td>")
                 .append("<td class=\"num\">").append(p.count).append("</td>")
                 .append("<td class=\"where\">").append(esc(p.detail)).append("</td></tr>\n")
+        }
+        sb.append("</tbody>\n</table>\n</section>\n")
+    }
+
+    // ── Coverage: which collected builds produced run data ──────────────────────
+    private fun renderCoverage(sb: StringBuilder, report: Report) {
+        if (report.collectedBuilds.isEmpty()) return
+        // Builds whose status is not SUCCESS — their run data may be partial or absent (e.g. the build
+        // failed during IDE preparation, before any [ARENA] block was emitted).
+        val gaps = report.collectedBuilds.filter { it.status != null && !it.status.equals("SUCCESS", true) }
+
+        sb.append("<section><h2>Coverage</h2>\n")
+        sb.append("<p class=\"meta\">").append(report.collectedBuilds.size)
+            .append(" builds collected · ").append(report.allRuns.size).append(" runs parsed · ")
+            .append(gaps.size).append(" build(s) not SUCCESS (data may be partial/absent)</p>\n")
+        sb.append("<table>\n<thead><tr><th>build config</th><th>scenario</th><th>agent</th><th>status</th></tr></thead>\n<tbody>\n")
+        for (m in report.collectedBuilds) {
+            val ok = m.status.equals("SUCCESS", true)
+            val statusCell = if (ok) "<span class=\"ok\">${esc(m.status)}</span>"
+                else "<span class=\"bad\">${esc(m.status ?: "?")}</span>"
+            sb.append("<tr><td class=\"where\">").append(esc(m.buildConfigId)).append("</td>")
+                .append("<td>").append(esc(m.scenario)).append("</td>")
+                .append("<td>").append(esc(m.agent)).append("</td>")
+                .append("<td>").append(statusCell).append("</td></tr>\n")
         }
         sb.append("</tbody>\n</table>\n</section>\n")
     }
