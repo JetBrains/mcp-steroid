@@ -89,7 +89,12 @@ class IdePidDiscoveryServiceTest {
     @Test
     fun `scanOnce skips markers for processes that no longer exist`(@TempDir homeDir: Path) {
         // Spawn + wait → guaranteed-dead pid we can write a marker for.
-        val process = ProcessBuilder("/bin/echo", "monitor-test").start()
+        // Use the current JVM binary so this works on all platforms.
+        val javaExe = ProcessHandle.current().info().command().orElseThrow()
+        val process = ProcessBuilder(javaExe, "-version")
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
         process.waitFor()
         writeMarker(homeDir, process.pid(), "http://localhost:1/mcp")
 

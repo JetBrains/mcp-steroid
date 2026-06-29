@@ -913,9 +913,18 @@ private fun spawnDetachedOnWindows(
     val pidFile = Files.createTempFile("devrig-spawn-", ".pid")
     val errFile = Files.createTempFile("devrig-spawn-", ".err")
     try {
+        val launcherExt = launcher.fileName.toString().substringAfterLast('.', "").lowercase()
+        val isBatchScript = launcherExt == "bat" || launcherExt == "cmd"
         val script = buildString {
-            // Quote the launcher path so paths containing spaces parse correctly.
-            append("\$cmd = '\"' + '").append(psQuote(launcher.toString())).append("' + '\"'; ")
+            // Win32_Process.Create (which wraps CreateProcess) cannot execute .bat/.cmd scripts
+            // directly — they require the cmd.exe interpreter. Wrap with cmd.exe /c so the batch
+            // file path is still visible in the process's command-line arguments, which lets
+            // processCommandIsUnderBackendsDir() recognise the process for stop/list tracking.
+            if (isBatchScript) {
+                append("\$cmd = 'cmd.exe /c \"' + '").append(psQuote(launcher.toString())).append("' + '\"'; ")
+            } else {
+                append("\$cmd = '\"' + '").append(psQuote(launcher.toString())).append("' + '\"'; ")
+            }
             if (environment.isEmpty()) {
                 append("\$startup = \$null; ")
             } else {

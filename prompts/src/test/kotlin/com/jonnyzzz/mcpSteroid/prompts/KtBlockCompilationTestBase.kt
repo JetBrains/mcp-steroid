@@ -114,8 +114,12 @@ abstract class KtBlockCompilationTestBase {
         // kotlinc version for compiler identity
         val kotlincVersion = readKotlincVersion()
 
-        // Relative classpath paths (relative to IDE home) — avoids machine-specific absolute paths in hash
-        val relativeClasspath = classpath.map { homePath.relativize(it).toString() }
+        // Relative classpath paths (relative to IDE home) — avoids machine-specific absolute paths in hash.
+        // Extra classpath entries (e.g. project JARs in Gradle cache) may be on a different drive on
+        // Windows; for those, fall back to the absolute path string so the hash stays stable on this machine.
+        val relativeClasspath = classpath.map { entry ->
+            if (entry.root == homePath.root) homePath.relativize(entry).toString() else entry.toString()
+        }
 
         // Check compilation cache
         val cacheDir = cacheDir()
@@ -278,7 +282,9 @@ abstract class KtBlockCompilationTestBase {
             val kotlincHome = System.getProperty("mcp.steroid.kotlinc.home")
                 ?: error("Missing system property 'mcp.steroid.kotlinc.home'")
             val kotlincDir = File(kotlincHome, "kotlinc")
-            val bin = File(kotlincDir, "bin/kotlinc")
+            val isWindows = System.getProperty("os.name", "").lowercase().startsWith("windows")
+            val binName = if (isWindows) "kotlinc.bat" else "kotlinc"
+            val bin = File(kotlincDir, "bin/$binName")
             require(bin.isFile) { "kotlinc binary not found at: $bin" }
             return bin
         }

@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.copyToContainer
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
+import com.jonnyzzz.mcpSteroid.testHelper.docker.writeFileInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.git.BareRepoCache
 import com.jonnyzzz.mcpSteroid.testHelper.git.GitDriver
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -284,23 +285,8 @@ sealed class IntelliJProject{
                       </component>
                     </project>
                 """.trimIndent()
-                val script = """
-                    set -euo pipefail
-                    mkdir -p "$ideaDir"
-                    cat > "$ideaDir/misc.xml" << 'XMLEOF'
-$miscXml
-XMLEOF
-                    cat > "$ideaDir/modules.xml" << 'XMLEOF'
-$modulesXml
-XMLEOF
-                """.trimIndent()
-                container.startProcessInContainer {
-                    this
-                        .args("bash", "-c", script)
-                        .timeoutSeconds(15)
-                        .description("Pre-create .idea/ Maven config for $displayName")
-                        .quietly()
-                }.awaitForProcessFinish().assertExitCode(0, "Failed to create .idea/ for $displayName")
+                container.writeFileInContainer("$ideaDir/misc.xml", miscXml)
+                container.writeFileInContainer("$ideaDir/modules.xml", modulesXml)
             }
 
             console.writeSuccess("$displayName ready")

@@ -460,18 +460,19 @@ val verifyBundledLibraries by tasks.registering {
 
         // Bundled Windows 7-Zip binaries live under a dedicated `7z/` folder
         // (NOT bin/ — see distZip comment about java.library.path). The +x bit
-        // on 7z.exe / 7z.dll is not pinned: POSIX build hosts may strip it for
-        // non-launcher files and Windows ignores it. Pre-strip `:X` from these
-        // two entries so the final expectedFiles set comparison tolerates either
-        // form. The launcher bit (bin/devrig, bin/devrig.bat) IS pinned.
-        val sevenZipBinaryEntries = sortedSetOf("7z/7z.exe", "7z/7z.dll")
-        sevenZipBinaryEntries.forEach { sentinel ->
+        // on 7z.exe / 7z.dll / License.txt is not pinned: POSIX build hosts
+        // may strip it for non-launcher files and Windows ignores it. Pre-strip
+        // `:X` from these entries so the final expectedFiles set comparison
+        // tolerates either form. The launcher bit (bin/devrig, bin/devrig.bat)
+        // IS pinned.
+        val sevenZipEntries = sortedSetOf("7z/7z.exe", "7z/7z.dll", "7z/License.txt")
+        sevenZipEntries.forEach { sentinel ->
             check(allFiles.any { it.removeSuffix(":X") == sentinel }) {
                 "7z/ subtree missing sentinel '$sentinel'"
             }
         }
         allFiles = allFiles.map { entry ->
-            if (entry.removeSuffix(":X") in sevenZipBinaryEntries) entry.removeSuffix(":X") else entry
+            if (entry.removeSuffix(":X") in sevenZipEntries) entry.removeSuffix(":X") else entry
         }.toSortedSet()
 
         val expectedFiles = sortedSetOf(

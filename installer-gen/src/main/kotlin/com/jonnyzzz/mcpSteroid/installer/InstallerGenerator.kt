@@ -14,7 +14,10 @@ import kotlin.io.path.writeText
  * model into the per-platform table each script bakes in. No `--jdk` args, no local-file inspection.
  *
  * devrig coordinates: a local zip override (`--devrig-zip` + `--devrig-url`, used by tests / a pre-built
- * artifact), a pinned `--devrig-version`, or — by default — the latest published GitHub release.
+ * artifact), a pinned `--devrig-version`, or — by default — the devrig zip on the `v<VERSION>` GitHub
+ * release (NOT "latest": "latest" can drift ahead/behind the `--version` the generator runs with, baking
+ * a mismatched devrig into the install scripts). Whatever the source, the resolved zip's top dir is
+ * ASSERTED to be `devrig-<version>-…` so a mismatch fails generation instead of shipping silently.
  */
 
 /** The five supported platforms, keyed `<os>-<cpu>`. The script split is by OS. */
@@ -167,40 +170,63 @@ private fun parseFlags(argv: Array<String>): Map<String, MutableList<String>> {
     return m
 }
 
-private fun resolveLatestDevrigZipUrl(http: HttpFetcher): String {
-    val body = http.getBytes("https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/latest").decodeToString()
-    return ghJson.decodeFromString<GhRelease>(body).assets
-        .firstOrNull { it.name.startsWith("devrig") && it.name.endsWith(".zip") }
-        ?.browser_download_url
-        ?: error("no devrig-*.zip asset on the latest jonnyzzz/mcp-steroid release")
+/**
+ * The devrig zip on the GitHub release tagged `v<version>` (falling back to the bare `<version>` tag),
+ * mirroring `:website-gen`'s `resolveReleaseZipUrl` so devrig tracks the SAME release as the plugin zip.
+ * The asset name carries the build hash (`devrig-<version>-<hash>.zip`), so match by prefix/suffix —
+ * NEVER construct `devrig-<version>.zip` by hand (it omits the hash and 404s).
+ */
+private fun resolveDevrigZipUrlForRelease(version: String, http: HttpFetcher): String {
+    for (tag in listOf("v$version", version)) {
+        val body = try {
+            http.getBytes("https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/$tag").decodeToString()
+        } catch (e: Exception) {
+            System.err.println("[installer-gen] devrig release lookup for tag '$tag' failed: ${e.message}")
+            continue
+        }
+        val asset = ghJson.decodeFromString<GhRelease>(body).assets
+            .firstOrNull { it.name.startsWith("devrig") && it.name.endsWith(".zip") }
+        if (asset != null) return asset.browser_download_url
+    }
+    error("no devrig-*.zip asset found for release v$version (or $version) on jonnyzzz/mcp-steroid")
 }
 
 /**
- * Resolve devrig coordinates. Local override (a pre-built / fixture zip): `--devrig-zip <file>` +
- * `--devrig-url <public url>`. Otherwise download a published release — pinned `--devrig-version <v>` or,
- * by default, the latest GitHub release — and compute sha from the bytes.
+ * Resolve devrig coordinates and ASSERT the binary version matches [version]. Local override (a pre-built
+ * / fixture zip): `--devrig-zip <file>` + `--devrig-url <public url>`. Otherwise download a published
+ * release — pinned `--devrig-version <v>` or, by default, the `v<version>` release (NOT "latest") — and
+ * compute sha from the bytes. Whatever the source, the zip's top dir must be `devrig-<version>-…`.
  */
-internal fun resolveDevrig(flags: Map<String, List<String>>, http: HttpFetcher): DevrigEntry {
+internal fun resolveDevrig(flags: Map<String, List<String>>, http: HttpFetcher, version: String): DevrigEntry {
     val (url, bytes) = flags["devrig-zip"]?.firstOrNull()?.let { zip ->
         val u = flags["devrig-url"]?.firstOrNull() ?: error("--devrig-url is required with --devrig-zip")
         val file = Path.of(zip)
         require(Files.isRegularFile(file)) { "missing devrig package: $file" }
         u to Files.readAllBytes(file)
     } ?: run {
-        val version = flags["devrig-version"]?.firstOrNull()
-        val u = if (version != null) {
+        val pinned = flags["devrig-version"]?.firstOrNull()
+        val u = if (pinned != null) {
             // Guard the version token before it shapes a GitHub URL: a `..`/`@`/`%2F` could repoint the
             // download to a different release/path. The bytes are still sha-verified, but against a hash
             // the generator computes from THIS download — so a repointed URL would silently embed the
             // wrong artifact. Restrict to release-tag-safe characters.
-            require(version.matches(Regex("[A-Za-z0-9._+-]+"))) { "--devrig-version has unsafe characters: '$version'" }
-            "https://github.com/jonnyzzz/mcp-steroid/releases/download/v$version/devrig-$version.zip"
+            require(pinned.matches(Regex("[A-Za-z0-9._+-]+"))) { "--devrig-version has unsafe characters: '$pinned'" }
+            "https://github.com/jonnyzzz/mcp-steroid/releases/download/v$pinned/devrig-$pinned.zip"
         } else {
-            resolveLatestDevrigZipUrl(http)
+            // Default: the devrig zip on the v<version> release — tied to --version, so it cannot drift
+            // ahead/behind VERSION the way the old "latest release" lookup could.
+            resolveDevrigZipUrlForRelease(version, http)
         }
         u to http.getBytes(u)
     }
     val (posix, win) = devrigLaunchers(bytes)
+    // The launcher subpath is `<topDir>/bin/devrig`; the top dir is `devrig-<version>-<hash>`. Assert it
+    // matches --version regardless of how devrig was resolved (release / pinned / local zip) — a mismatch
+    // means the install scripts would ship a devrig whose version disagrees with the repo VERSION.
+    val topDir = posix.substringBefore('/')
+    require(topDir.startsWith("devrig-$version-")) {
+        "devrig binary version in '$topDir' does not match repo VERSION '$version' — install scripts would ship a mismatched devrig"
+    }
     return DevrigEntry(url = url, sha256 = sha256Hex(bytes), launcherPosix = posix, launcherWindows = win)
 }
 
@@ -225,7 +251,7 @@ fun main(argv: Array<String>) {
 
     KtorHttpFetcher.use { http ->
         val model = resolveAllJdks(Cache.onDisk(cacheDir), http)
-        val devrig = resolveDevrig(flags, http)
+        val devrig = resolveDevrig(flags, http, version)
         writeInstallerScripts(outDir, jdkScriptTable(model), devrig, version)
         System.err.println("[installer-gen] wrote install.sh + install.ps1 to $outDir (version $version, devrig ${devrig.url})")
     }

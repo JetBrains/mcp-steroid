@@ -18,7 +18,8 @@ class InstallCommandTest {
     // The install command registers the STABLE user-facing wrapper, not the install tree. Fixed home so
     // the expected launch command is deterministic across platforms (windows = false in tests).
     private val home = HomePaths(Path.of("/home/user/.mcp-steroid"))
-    private val launcherPath = "/home/user/.mcp-steroid/bin/devrig"
+    private val launcherPath = DevrigUserLauncher.path(home, windows = false).toString()
+    private val launcherPathJsonEscaped = launcherPath.replace("\\", "\\\\")
     private val mcpCommand = DevrigUserLauncher.invocation(home, listOf("mcp"), windows = false)
 
     private val claudeListWithBothNames = """
@@ -47,9 +48,11 @@ class InstallCommandTest {
     """.trimIndent()
 
     // The codex (--json) analog: command + args reconstruct to the exact canonical "$launcherPath mcp".
+    // launcherPathJsonEscaped is used here because on Windows launcherPath contains backslashes which are
+    // not valid unescaped inside a JSON string.
     private val codexCanonicalJson = """
         [
-          {"name":"mcp-steroid","transport":{"type":"stdio","command":"$launcherPath","args":["mcp"]}},
+          {"name":"mcp-steroid","transport":{"type":"stdio","command":"$launcherPathJsonEscaped","args":["mcp"]}},
           {"name":"playwright","transport":{"type":"stdio","command":"npx","args":["@playwright/mcp@latest"]}}
         ]
     """.trimIndent()
@@ -394,8 +397,8 @@ class InstallCommandTest {
             removeNames = removeInvocations.map { it.args.last() },
             removedNames = runner.removed,
             addInvocation = runner.invocations.last { it.args.contains("add") },
-            stdout = stdout.toString(Charsets.UTF_8),
-            stderr = stderr.toString(Charsets.UTF_8),
+            stdout = stdout.toString(Charsets.UTF_8).replace("\r\n", "\n"),
+            stderr = stderr.toString(Charsets.UTF_8).replace("\r\n", "\n"),
         )
     }
 

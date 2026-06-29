@@ -104,11 +104,12 @@ val generateJdkModel by tasks.registering(JavaExec::class) {
 }
 
 // Generate install.sh + install.ps1 into website/build/generated-static. Resolves the 5 JDKs (cached,
-// PGP-verified) and the devrig coordinates (latest GitHub release by default), then bakes the per-platform
-// table into the scripts. Knows all paths from the project layout — callers invoke it with no args.
+// PGP-verified) and the devrig coordinates (the v<VERSION> GitHub release by default — tied to --version,
+// not "latest"), then bakes the per-platform table into the scripts. Knows all paths from the project
+// layout — callers invoke it with no args.
 val generateInstaller by tasks.registering(JavaExec::class) {
     group = "installer"
-    description = "Generate install.sh + install.ps1 into website/build/generated-static (JDKs PGP-verified + cached; devrig from the latest release)."
+    description = "Generate install.sh + install.ps1 into website/build/generated-static (JDKs PGP-verified + cached; devrig from the v<VERSION> release)."
     mainClass.set("com.jonnyzzz.mcpSteroid.installer.InstallerGeneratorKt")
     classpath = sourceSets["main"].runtimeClasspath
     maxHeapSize = "2g" // resolveAllJdks holds one ~230 MB archive at a time

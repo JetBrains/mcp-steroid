@@ -1,3 +1,5 @@
+import java.util.concurrent.TimeUnit
+
 plugins {
     `java-library`
     kotlin("jvm")
@@ -40,6 +42,93 @@ kotlin {
     jvmToolchain(25)
 }
 
+/**
+ * `:test-helper:test` is structurally tied to the canonical Linux/macOS dev box.
+ * It spins up Docker containers (DockerReaperTest, Docker*ProgressTest) and drives
+ * real OS processes through a POSIX shell (bash/echo/pwd round-trips, JUnit @TempDir
+ * cleanup that assumes Unix file-handle semantics).
+ *
+ * On a host without a running Docker daemon — e.g. a Windows dev machine where Docker
+ * Desktop isn't started — every Docker-backed case fails at setup and the shell cases
+ * hit Windows path / temp-dir-locking quirks. Rather than fail `./gradlew build` with a
+ * cryptic stack, gate the whole suite on a live Docker daemon and tell the user exactly
+ * what to do.
+ *
+ * This is the CLAUDE.md-sanctioned exception: a Gradle-task-level `onlyIf` guard for a
+ * suite that is structurally incompatible with the current platform — never a runtime
+ * try/catch-and-skip inside a test body.
+ */
+fun isDockerRunning(): Boolean {
+    return try {
+        val process = ProcessBuilder("docker", "info")
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        if (!process.waitFor(20, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            logger.lifecycle("Docker daemon check timed out — `docker info` did not respond within 20s")
+            false
+        } else {
+            val exitCode = process.exitValue()
+            if (exitCode != 0) {
+                logger.lifecycle("Docker daemon is not running — `docker info` exited with $exitCode")
+            }
+            exitCode == 0
+        }
+    } catch (e: Exception) {
+        // docker CLI not on PATH at all
+        logger.lifecycle("Docker CLI is not available: ${e.message}")
+        false
+    }
+}
+
+private val isWindowsHost: Boolean =
+    System.getProperty("os.name").orEmpty().lowercase().contains("win")
+
 tasks.test {
     useJUnitPlatform()
+
+    onlyIf("Requires a POSIX host (Linux/macOS) with a running Docker daemon") {
+        // The suite is structurally a Linux/macOS + Docker suite (see the
+        // isDockerRunning KDoc above). Two independent requirements; report
+        // whichever is missing so the user knows exactly what to do.
+        if (isWindowsHost) {
+            logger.warn(
+                """
+                |
+                |======================================================================================
+                |  :test-helper:test SKIPPED — not supported on Windows.
+                |
+                |  These tests round-trip arguments through a POSIX shell (bash/echo/pwd), rely on
+                |  Unix @TempDir file-handle semantics, and bind-mount /var/run/docker.sock. On
+                |  Windows the shell mangles globs/quoting, temp dirs can't be deleted while a child
+                |  process holds them, and Git Bash rewrites the socket path to D:\var\run\... .
+                |
+                |  -> Run this suite on Linux/macOS, inside WSL2, or on CI. It is intentionally gated
+                |     out of `./gradlew build` on Windows.
+                |======================================================================================
+                """.trimMargin()
+            )
+            return@onlyIf false
+        }
+
+        val dockerUp = isDockerRunning()
+        if (!dockerUp) {
+            logger.warn(
+                """
+                |
+                |======================================================================================
+                |  :test-helper:test SKIPPED — Docker is not running.
+                |
+                |  These tests start Docker containers (DockerReaperTest, *ProgressTest). They need a
+                |  live Docker daemon.
+                |
+                |  -> Start Docker Desktop (or `dockerd`), wait until `docker info` succeeds, then
+                |     re-run:   ./gradlew :test-helper:test
+                |======================================================================================
+                """.trimMargin()
+            )
+        }
+        dockerUp
+    }
 }

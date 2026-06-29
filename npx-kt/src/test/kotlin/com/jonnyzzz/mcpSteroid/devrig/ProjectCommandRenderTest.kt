@@ -25,7 +25,7 @@ class ProjectCommandRenderTest {
     ): String {
         val buf = ByteArrayOutputStream()
         renderProjectOutput3(routes, portIdes, PrintStream(buf, true, Charsets.UTF_8))
-        return buf.toString(Charsets.UTF_8)
+        return buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
     }
 
     private fun markerIde(

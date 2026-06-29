@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.aiAgents.claudeMcpAddStdioArgs
 import com.jonnyzzz.mcpSteroid.filter.ClaudeOutputFilter
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
+import com.jonnyzzz.mcpSteroid.testHelper.docker.writeFileInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.process.StartedProcess
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertNoErrorsInOutput
@@ -129,9 +130,15 @@ class DockerClaudeSession(
             add("--output-format")
             add("stream-json")
             add("--verbose")
-            mcpConfigJson?.let {
+            mcpConfigJson?.let { configJson ->
+                // Write MCP config to a file to avoid Windows ProcessBuilder double-quote stripping.
+                // Passing JSON inline as a bash -c arg strips all " characters on Windows
+                // (CommandLineToArgvW interprets them as quote delimiters), so Claude CLI sees
+                // the unquoted string as a file path and fails with "MCP config file not found".
+                val configFile = "/tmp/claude-mcp-config.json"
+                session.writeFileInContainer(configFile, configJson)
                 add("--mcp-config")
-                add(it)
+                add(configFile)
                 add("--strict-mcp-config")
             }
             add("-p")
@@ -151,10 +158,10 @@ class DockerClaudeSession(
         override val displayName = "Claude Code"
         override val outputFilter get() = ClaudeOutputFilter()
 
-        override val apiKeyHint = "set env ANTHROPIC_API_KEY or ~/.anthropic"
+        override val apiKeyHint = "set env ANTHROPIC_API_KEY, CLAUDE_EVAL_API_KEY, or ~/.anthropic"
 
         override fun readApiKey(): String? {
-            System.getenv("ANTHROPIC_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
+            (System.getenv("CLAUDE_EVAL_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY"))?.takeIf { it.isNotBlank() }?.let { return it }
             val keyFile = File(System.getProperty("user.home"), ".anthropic")
             if (keyFile.exists()) {
                 val content = keyFile.readText().trim()

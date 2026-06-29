@@ -31,7 +31,7 @@ class BackendCommandRenderTest {
     ): String {
         val buf = ByteArrayOutputStream()
         renderBackendOutput3(s1, s2, s3, PrintStream(buf, true, Charsets.UTF_8))
-        return buf.toString(Charsets.UTF_8)
+        return buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
     }
 
     private fun markerIde(

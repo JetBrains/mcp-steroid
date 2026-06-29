@@ -185,13 +185,16 @@ fun ensureBinLauncherForInstallScript(
 }
 
 /** The POSIX wrapper: pins the JDK devrig runs under via DEVRIG_JAVA_HOME, then execs the install-tree launcher. */
-internal fun renderPosixLauncher(launcher: Path, jdkHome: Path): String =
-    "#!/bin/sh\n" +
+internal fun renderPosixLauncher(launcher: Path, jdkHome: Path): String {
+    val launcherStr = launcher.toString().replace('\\', '/')
+    val jdkStr = jdkHome.toString().replace('\\', '/')
+    return "#!/bin/sh\n" +
         "# devrig launcher — managed by the devrig binary. Writes nothing to stdout (MCP stdio channel).\n" +
         "# Pins the JDK devrig runs under via DEVRIG_JAVA_HOME (its supported runtime), then hands off to\n" +
         "# the install-tree devrig launcher.\n" +
-        "DEVRIG_JAVA_HOME=\"$jdkHome\"; export DEVRIG_JAVA_HOME\n" +
-        "exec \"$launcher\" \"\$@\"\n"
+        "DEVRIG_JAVA_HOME=\"$jdkStr\"; export DEVRIG_JAVA_HOME\n" +
+        "exec \"$launcherStr\" \"\$@\"\n"
+}
 
 /**
  * The self-contained Windows launcher: pure batch, NO PowerShell at launch. It ALWAYS pins the JDK devrig

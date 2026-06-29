@@ -25,6 +25,8 @@ import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
 
 // 1. Resolve file + open editor + position caret on EDT.
 val filePath = "${project.basePath}/src/main/kotlin/com/example/Service.kt"
@@ -50,11 +52,17 @@ withContext(Dispatchers.EDT) {
 }
 
 // 2. Wait for the daemon to finish so intentions/inspections are populated.
-DaemonCodeAnalyzer.getInstance(project).restart(psiFile)
-val deadline = System.currentTimeMillis() + 15_000L
-while (System.currentTimeMillis() < deadline) {
-    if (!DaemonCodeAnalyzer.getInstance(project).isRunning) break
-    kotlinx.coroutines.delay(150)
+// DaemonCodeAnalyzer.isRunning() is @Deprecated(forRemoval=true); use the event bus instead.
+val daemonDone = CompletableDeferred<Unit>()
+val conn = project.messageBus.connect()
+try {
+    conn.subscribe(DaemonCodeAnalyzer.DAEMON_EVENT_TOPIC, object : DaemonCodeAnalyzer.DaemonListener {
+        override fun daemonFinished() { daemonDone.complete(Unit) }
+    })
+    DaemonCodeAnalyzer.getInstance(project).restart("mcp-steroid: action discovery")
+    withTimeout(15_000L) { daemonDone.await() }
+} finally {
+    conn.disconnect()
 }
 kotlinx.coroutines.delay(300)
 
@@ -99,7 +107,7 @@ withContext(Dispatchers.EDT) {
 
 ## Notes
 
-- The `DaemonCodeAnalyzer` wait loop is required: `ShowIntentionsPass.getActionsToShow` returns whatever the daemon has computed at call time, so call it after the daemon settles.
+- Waiting for the daemon is required: `ShowIntentionsPass.getActionsToShow` returns whatever the daemon has computed at call time, so call it after the daemon settles. Subscribe to `DaemonCodeAnalyzer.DAEMON_EVENT_TOPIC` and await `daemonFinished()` — `DaemonCodeAnalyzer.isRunning()` is `@Deprecated(forRemoval=true)` and must not be used. Trigger the daemon with `restart(reason)` — pass a diagnostic reason string; the no-argument `restart()` and `restart(PsiFile)` overloads are both deprecated.
 - Place identifiers like `EditorPopup` (passed to `AnActionEvent.createEvent`) come from `ActionPlaces`; check `mcp-steroid://ide/run-configuration` and `mcp-steroid://prompt/test-skill` for context-action patterns by IDE.
 - The caret matters: an action that depends on PSI context (refactoring, test runner) is enabled only when the caret is on the relevant identifier.
 - **Never call `ActionGroup.getChildren(null)`** to enumerate a group's children — it is a documented Platform anti-pattern (`getChildren` is `@OverrideOnly`, and `DefaultActionGroup.getChildren(null)` logs an error / can throw). To inspect a group, pass a real event: `group.getChildren(AnActionEvent.createEvent(dataContext, presentation, ActionPlaces.UNKNOWN, ActionUiKind.NONE, null))`; to invoke a specific item, fetch it by id via `ActionManager.getInstance().getAction(id)`.

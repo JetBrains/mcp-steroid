@@ -6,7 +6,7 @@ package com.jonnyzzz.mcpSteroid.integration.tests
 
 fun hasAnyMarkerLine(output: String, vararg markers: String): Boolean {
     return markers.any { marker ->
-        Regex("""(?im)^\s*[*_`>#-]*\s*${Regex.escape(marker)}\s*:""").containsMatchIn(output)
+        Regex("""(?im)^\s*[*_`>#-]*\s*${Regex.escape(marker)}\s*[*_`>#-]*\s*:""").containsMatchIn(output)
     }
 }
 
@@ -14,7 +14,9 @@ fun findMarkerValue(output: String, vararg markers: String): String? {
     if (markers.isEmpty()) return null
     val markerAlternation = markers.joinToString("|") { Regex.escape(it) }
     val markerRegex = Regex(
-        pattern = """(?im)^\s*[*_`>#-]*\s*(?:$markerAlternation)\s*:\s*(.+?)\s*[*_`]*\s*$"""
+        // [*_`>#-]* on both sides of the marker name handles closing bold/italic markdown
+        // formatting, e.g. "**BUG_LINE**: value" where ** appears after the marker name too.
+        pattern = """(?im)^\s*[*_`>#-]*\s*(?:$markerAlternation)\s*[*_`>#-]*\s*:\s*(.+?)\s*[*_`]*\s*$"""
     )
     val candidates = markerRegex.findAll(output).mapNotNull { match ->
         match.groupValues

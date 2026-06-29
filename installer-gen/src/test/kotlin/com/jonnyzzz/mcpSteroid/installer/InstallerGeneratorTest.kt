@@ -111,7 +111,7 @@ class InstallerGeneratorTest {
             override fun head(url: String) = error("no network expected for the local-zip path")
             override fun getBytes(url: String) = error("no network expected for the local-zip path")
         }
-        val devrig = resolveDevrig(flags, noNetwork)
+        val devrig = resolveDevrig(flags, noNetwork, version = "1.0")
         assertEquals("https://example.com/devrig-1.0.zip", devrig.url)
         assertEquals(sha256Hex(Files.readAllBytes(zip)), devrig.sha256)
         // Computed + asserted from the real zip (NOT assumed devrig-<version>).
@@ -131,9 +131,54 @@ class InstallerGeneratorTest {
             resolveDevrig(flags, object : HttpFetcher {
                 override fun head(url: String) = error("no network")
                 override fun getBytes(url: String) = error("no network")
-            })
+            }, version = "1.0")
         }
         assertTrue(ex.message!!.contains("devrig.bat"), ex.message!!)
+    }
+
+    @Test
+    fun `resolveDevrig from the v-tag release resolves the devrig zip asset and the assert passes`(@TempDir dir: Path) {
+        val zip = dir.resolve("devrig.zip")
+        // The real release zip's top dir carries the build hash: devrig-<version>-<hash>.
+        ZipOutputStream(Files.newOutputStream(zip)).use { z ->
+            z.putNextEntry(ZipEntry("devrig-0.101-abc1234/bin/devrig")); z.write("#!/bin/sh".encodeToByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("devrig-0.101-abc1234/bin/devrig.bat")); z.write("@echo off".encodeToByteArray()); z.closeEntry()
+        }
+        val zipUrl = "https://github.com/jonnyzzz/mcp-steroid/releases/download/v0.101/devrig-0.101-abc1234.zip"
+        // Fake GitHub: the v<version> tag release serves a devrig-<version>-<hash>.zip asset; getBytes on the
+        // asset URL returns the synthetic zip bytes. No bare-tag fallback is needed (the v-tag resolves).
+        val fakeGh = object : HttpFetcher {
+            override fun head(url: String) = error("no head expected")
+            override fun getBytes(url: String): ByteArray = when {
+                url == "https://api.github.com/repos/jonnyzzz/mcp-steroid/releases/tags/v0.101" ->
+                    """{"assets":[{"name":"devrig-0.101-abc1234.zip","browser_download_url":"$zipUrl"}]}""".encodeToByteArray()
+                url == zipUrl -> Files.readAllBytes(zip)
+                else -> error("unexpected url: $url")
+            }
+        }
+        val devrig = resolveDevrig(emptyMap(), fakeGh, version = "0.101")
+        assertEquals(zipUrl, devrig.url)
+        assertEquals("devrig-0.101-abc1234/bin/devrig", devrig.launcherPosix)
+        validateDevrig(devrig) // must pass
+    }
+
+    @Test
+    fun `resolveDevrig fails when the local zip top-dir version does not match --version`(@TempDir dir: Path) {
+        val zip = dir.resolve("devrig.zip")
+        // Top dir says 0.100, but the generator runs with --version 0.101 → the install scripts would ship
+        // a mismatched devrig. This must fail fast regardless of how devrig was resolved (here: local zip).
+        ZipOutputStream(Files.newOutputStream(zip)).use { z ->
+            z.putNextEntry(ZipEntry("devrig-0.100-abc1234/bin/devrig")); z.write("#!/bin/sh".encodeToByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("devrig-0.100-abc1234/bin/devrig.bat")); z.write("@echo off".encodeToByteArray()); z.closeEntry()
+        }
+        val flags = mapOf("devrig-zip" to listOf(zip.toString()), "devrig-url" to listOf("https://example.com/devrig-0.100.zip"))
+        val ex = assertFailsWith<IllegalArgumentException> {
+            resolveDevrig(flags, object : HttpFetcher {
+                override fun head(url: String) = error("no network")
+                override fun getBytes(url: String) = error("no network")
+            }, version = "0.101")
+        }
+        assertTrue(ex.message!!.contains("does not match repo VERSION '0.101'"), ex.message!!)
     }
 
     @Test

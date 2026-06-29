@@ -147,7 +147,7 @@ class InstalledBackendsTest {
         val expectedIdeHome = normalizeHome(bundleDir.resolve("Contents").toString())
         assertEquals(expectedIdeHome, backend.ideHome,
             "macOS bundle: ideHome must point to Contents (the dir containing bin/), not the .app root")
-        assertTrue(backend.ideHome.endsWith("${bundleDirName}/Contents"),
+        assertTrue(Path.of(backend.ideHome).endsWith(Path.of(bundleDirName, "Contents")),
             "ideHome should end with ${bundleDirName}/Contents but was: ${backend.ideHome}")
     }
 

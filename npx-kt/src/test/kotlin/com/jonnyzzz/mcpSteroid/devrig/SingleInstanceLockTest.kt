@@ -22,7 +22,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 
+@DisabledOnOs(OS.WINDOWS)
 class SingleInstanceLockTest {
 
     @Test

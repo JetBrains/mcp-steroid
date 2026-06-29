@@ -305,7 +305,7 @@ class BackendProvisionTest {
             command = DevrigCommand.DevrigCommandBackendProvision(id = "port-63342"),
             provision = { result },
         )
-        val text = buf.toString(Charsets.UTF_8)
+        val text = buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
 
         assertEquals(0, exit)
         assertTrue(text.contains("Target: IntelliJ IDEA Ultimate 2026.1.1 (port 63342)"), text)
