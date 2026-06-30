@@ -132,57 +132,37 @@ object CodeWrapperForCompilation {
         val importLines = extracted.importLines
         val otherLines = extracted.otherLines
 
-        val wrappedCode = buildString {
-            append(defaultImports.joinToString(separator = "\n", postfix = "\n"))
-            appendLine()
-            appendLine("//imports from the submitted code")
-            importLines.forEach { appendLine(it) }
-            appendLine()
-            appendLine("class $clazzName {")
-            appendLine("  inline fun $scriptContextFqn.execute(ƒ: $scriptContextFqn.() -> Unit) = ƒ()")
-            appendLine("  fun $methodName(builder : $scriptBuilderFqn) { ")
-            appendLine("    builder.$addBlockName { ${methodName}_code() }")
-            appendLine("  }")
-            appendLine("  suspend fun $scriptContextFqn.${methodName}_code() {")
-            appendLine("    //the rest of submitted code")
-            otherLines.forEach { append("    ").appendLine(it) }
-            appendLine("  }")
-            appendLine("}")
-            append("\n")
-        }
-
-        // Build the line mapping from wrapped line numbers to original user line numbers.
-        //
-        // The wrapped code layout (1-based line numbers):
-        //   Lines 1..12:          defaultImports (12 lines via joinToString with \n separator + \n postfix)
-        //   Line 13:              empty (appendLine())
-        //   Line 14:              "//imports from the submitted code"
-        //   Lines 15..14+N:       user imports (N = importLines.size)
-        //   Line 15+N:            empty (appendLine())
-        //   Line 16+N:            "class $clazzName {"
-        //   Line 17+N:            "  inline fun ..."
-        //   Line 18+N:            "  fun $methodName..."
-        //   Line 19+N:            "    builder.$addBlockName..."
-        //   Line 20+N:            "  }"
-        //   Line 21+N:            "  suspend fun ..."
-        //   Line 22+N:            "    //the rest of submitted code"
-        //   Lines 23+N..22+N+M:   user code lines (M = otherLines.size)
-        //   Line 23+N+M:          "  }"
-        //   Line 24+N+M:          "}"
-        //   Line 25+N+M:          empty (trailing \n)
-        val n = importLines.size
+        // Build the wrapped code AND its line mapping in lock-step: record each user
+        // line's wrapped position as it is emitted. This is drift-proof — earlier the
+        // offsets were hardcoded (12 default imports → user code at line 23+N), so growing
+        // [defaultImports] silently shifted every user line and broke remapping (compiler
+        // errors then pointed at the generated line, not the submitted one). Never reintroduce
+        // magic offsets here; the only source of truth is the emission order below.
         val mapping = mutableMapOf<Int, Int>()
-
-        // Map user import lines
-        for (i in extracted.importLineNumbers.indices) {
-            val wrappedLine = 15 + i
-            mapping[wrappedLine] = extracted.importLineNumbers[i]
-        }
-
-        // Map user code lines (non-import)
-        for (i in extracted.otherLineNumbers.indices) {
-            val wrappedLine = 23 + n + i
-            mapping[wrappedLine] = extracted.otherLineNumbers[i]
+        var wrappedLine = 0
+        val wrappedCode = buildString {
+            defaultImports.forEach { appendLine(it); wrappedLine++ }
+            appendLine(); wrappedLine++
+            appendLine("//imports from the submitted code"); wrappedLine++
+            importLines.forEachIndexed { i, line ->
+                appendLine(line); wrappedLine++
+                mapping[wrappedLine] = extracted.importLineNumbers[i]
+            }
+            appendLine(); wrappedLine++
+            appendLine("class $clazzName {"); wrappedLine++
+            appendLine("  inline fun $scriptContextFqn.execute(ƒ: $scriptContextFqn.() -> Unit) = ƒ()"); wrappedLine++
+            appendLine("  fun $methodName(builder : $scriptBuilderFqn) { "); wrappedLine++
+            appendLine("    builder.$addBlockName { ${methodName}_code() }"); wrappedLine++
+            appendLine("  }"); wrappedLine++
+            appendLine("  suspend fun $scriptContextFqn.${methodName}_code() {"); wrappedLine++
+            appendLine("    //the rest of submitted code"); wrappedLine++
+            otherLines.forEachIndexed { i, line ->
+                append("    ").appendLine(line); wrappedLine++
+                mapping[wrappedLine] = extracted.otherLineNumbers[i]
+            }
+            appendLine("  }"); wrappedLine++
+            appendLine("}"); wrappedLine++
+            append("\n")
         }
 
         val lineMapping = LineMapping(mapping)
