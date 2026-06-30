@@ -83,6 +83,8 @@ class DockerClaudeSession(
         }
         val env = buildMap {
             put("ANTHROPIC_API_KEY", apiKey)
+            // Route through a host-side Anthropic-compatible gateway when one is configured (no-op on CI).
+            resolveContainerAgentBaseUrl("ANTHROPIC_BASE_URL")?.let { put("ANTHROPIC_BASE_URL", it) }
             if (debug) {
                 put("CLAUDE_CODE_DEBUG", "1")
                 put("DEBUG", "*")
@@ -153,7 +155,7 @@ class DockerClaudeSession(
 
     companion object : AIAgentCompanion<DockerClaudeSession>("claude-cli") {
         /** Default Claude model for all test runs. Override via system property `claude.model`. */
-        const val DEFAULT_MODEL = "claude-opus-4-6"
+        const val DEFAULT_MODEL = "claude-opus-4-8"
 
         override val displayName = "Claude Code"
         override val outputFilter get() = ClaudeOutputFilter()
