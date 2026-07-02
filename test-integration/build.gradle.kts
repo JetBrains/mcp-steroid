@@ -93,9 +93,11 @@ fun Test.configureIntegrationTest(sourceSetName: String = "test") {
         require(resolvedPluginZip.isFile) { "Plugin ZIP not found: ${resolvedPluginZip.absolutePath}" }
 
         systemProperty("test.integration.plugin.zip", resolvedPluginZip.absolutePath)
+        // Root-shared (same convention as test.integration.dependency.cache.dir): the integration and
+        // experiments suites reuse ONE IDE-archive cache instead of downloading per module.
         systemProperty(
             "test.integration.ide.download.dir",
-            layout.buildDirectory.dir("ide-download").get().asFile.absolutePath,
+            rootProject.layout.buildDirectory.dir("ide-download").get().asFile.absolutePath,
         )
         systemProperty(
             "test.integration.docker",
@@ -113,6 +115,13 @@ fun Test.configureIntegrationTest(sourceSetName: String = "test") {
         systemProperty(
             "test.integration.repo.cache.dir",
             layout.buildDirectory.dir("repo-cache").get().asFile.absolutePath,
+        )
+        // Persisted container Maven (~/.m2) + Gradle (~/.gradle) caches, shared (root build dir) with
+        // :test-experiments — the two suites never run concurrently — so deps + sources download once and
+        // are reused across runs. See IdeTestFolders.dependencyCacheVolumes.
+        systemProperty(
+            "test.integration.dependency.cache.dir",
+            rootProject.layout.buildDirectory.dir("test-dependency-cache").get().asFile.absolutePath,
         )
         // Persistent caches consumed by PluginBuildCompatibilityTest /
         // PluginVerificationTest. Both tests build the plugin from a clean

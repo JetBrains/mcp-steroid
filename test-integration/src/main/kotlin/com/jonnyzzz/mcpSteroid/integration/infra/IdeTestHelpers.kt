@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.infra
 
+import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerVolume
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -85,6 +86,17 @@ private fun normalizePathPrefix(path: String): String {
     return path.trimEnd('/')
 }
 
+/**
+ * Make [this] host path readable/writable/executable by any user (chmod a+rwX equivalent). Required before
+ * bind-mounting a host dir into a container whose user (uid 1000) differs from the host uid — Linux bind
+ * mounts do not remap UIDs (see [allocRunDirAndTitle]).
+ */
+internal fun File.makeContainerWritable(): File = apply {
+    setReadable(true, /* ownerOnly = */ false)
+    setWritable(true, /* ownerOnly = */ false)
+    setExecutable(true, /* ownerOnly = */ false)
+}
+
 object IdeTestFolders {
     val pluginZip = readFilePathFromSystemProperties("test.integration.plugin.zip") {
         findLatestPluginZipFromDist()
@@ -107,10 +119,42 @@ object IdeTestFolders {
     /**
      * Host directory caching IDE archives (e.g. `ideaIC-<version>.tar.gz`). Shared by the IDE-image
      * download and the devrig managed-backend downloads RW-mount — an archive fetched by either is reused
-     * by the other (IdeDownloader skips when the file already exists). Created on first use.
-     * Set via `test.integration.ide.download.dir` (default `build/ide-download`).
+     * by the other (IdeDownloader skips when the file already exists). Created on first use. Set via
+     * `test.integration.ide.download.dir` — the Gradle build points it at a ROOT-shared dir (sibling of
+     * [dependencyCacheDir], same convention) so the integration and experiments suites download each IDE
+     * archive once.
      */
-    val ideDownloadDir: File = File(System.getProperty("test.integration.ide.download.dir", "build/ide-download"))
+    val ideDownloadDir: File = System.getProperty("test.integration.ide.download.dir")
+        ?.let { File(it) }
+        ?: error("Failed to configure IDE download directory, set \"test.integration.ide.download.dir\"")
+
+    /**
+     * Host directory persisting the container's Maven (`~/.m2`) and Gradle (`~/.gradle`) caches across
+     * runs, so library jars + their sources/javadoc (always auto-downloaded on import) are resolved once
+     * and reused — turning a multi-minute cold Keycloak import into a warm one. Set via
+     * `test.integration.dependency.cache.dir` (the Gradle build points it at a root-shared dir so the
+     * integration and experiments suites — which never run concurrently — share one cache).
+     */
+    val dependencyCacheDir: File = System.getProperty("test.integration.dependency.cache.dir")
+        ?.let { File(it) }
+        ?: error("Failed to configure dependency cache directory, set \"test.integration.dependency.cache.dir\"")
+
+    /**
+     * Bind mounts that persist the container's `~/.m2` and `~/.gradle` to host dirs under
+     * [dependencyCacheDir]. The host dirs are made world-writable: Linux bind mounts do not remap UIDs, so
+     * the in-container `agent` (uid 1000) must be able to write them (see [allocRunDirAndTitle]). `agent`'s
+     * home is `/home/agent` (see the ide-base Dockerfile).
+     */
+    fun dependencyCacheVolumes(): List<ContainerVolume> = listOf(
+        dependencyCacheVolume("m2", "/home/agent/.m2"),
+        dependencyCacheVolume("gradle", "/home/agent/.gradle"),
+    )
+
+    private fun dependencyCacheVolume(name: String, guestPath: String): ContainerVolume {
+        val host = dependencyCacheDir.resolve(name)
+        require(host.isDirectory || host.mkdirs()) { "Could not create dependency cache dir: $host" }
+        return ContainerVolume(host.makeContainerWritable(), guestPath, "rw")
+    }
 
     val testOutputDir = remapPathForDockerHost(
         readFilePathFromSystemProperties("test.integration.testOutput"),
@@ -156,6 +200,15 @@ fun copyRecursively(source: File, destination: File) {
     }
 }
 
+/**
+ * Thrown from a [waitFor] action to stop polling immediately: a known terminal problem was observed (the
+ * awaited condition can never be reached), so retrying until the timeout is pointless. Extends [Error], and
+ * [waitFor] only ever catches [Exception] — so any [Error] (this and its subtypes, e.g. the MCP layer's
+ * [McpRequestFailedError]) is *not* swallowed and propagates out of the loop to stop it. `open` so
+ * terminal-problem subtypes can inherit the stop-the-loop behavior.
+ */
+open class WaitAbortedError(message: String, cause: Throwable? = null) : Error(message, cause)
+
 fun waitFor(timeoutMillis: Long, condition: String = "condition", action: () -> Boolean) {
     println("Waiting $condition for $timeoutMillis ms...")
     val now = System.currentTimeMillis()
@@ -166,6 +219,9 @@ fun waitFor(timeoutMillis: Long, condition: String = "condition", action: () -> 
             if (action()) return
             lastException = null
         } catch (e: Exception) {
+            // Only Exceptions are transient — swallow and retry. Any Error (e.g. WaitAbortedError /
+            // McpRequestFailedError) is deliberately NOT caught here, so it propagates out of the loop to
+            // stop polling at once: a terminal problem the wait can never recover from.
             lastException = e
         }
         Thread.sleep(50)
