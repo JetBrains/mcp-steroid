@@ -34,7 +34,7 @@ improving tests, or enhancing documentation, your help makes the project better 
 
 ## Development Setup
 
-- **JDK 25** or later (matches IDEA 2026.1's bundled JBR)
+- **JDK 25** or later (matches IDEA 2026.1's bundled JBR; build output targets **Java 21 bytecode** so the plugin also loads in JBR-21 IDEs like Android Studio)
 - **Gradle 8.11.1** (wrapper included)
 - **IntelliJ IDEA 2026.1+** recommended for development
 - **Docker** required for integration tests
