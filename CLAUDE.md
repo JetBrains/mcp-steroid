@@ -178,7 +178,13 @@ IDE via Kotlin code execution.
 
 ## Technology Stack
 
-Gradle 9.5.1 / Kotlin 2.3.20 / Java 25 / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
+Gradle 9.5.1 / Kotlin 2.3.20 / Java 25 toolchain / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
+
+**Bytecode targets Java 21** (class-file v65) while the toolchain stays JDK 25: Android Studio 2026.1
+bundles JBR 21 (IDEA bundles JBR 25), so the plugin must load on both. Set via the root `subprojects {}`
+convention (`jvmTarget=21` + `-Xjdk-release=21` + `options.release=21`); enforced by
+`verifyClassFileVersions` on the plugin/devrig distributions; regression-gated by
+`AndroidStudioRuntimeCompatTest`. See issue #157.
 
 The Gradle Daemon is pinned to **JDK 25** via `gradle/gradle-daemon-jvm.properties`
 (matches IDEA 2026.1's bundled JBR — see `docs/262-EAP-PLAN.md`). The

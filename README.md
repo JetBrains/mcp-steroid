@@ -96,7 +96,7 @@ Download the latest ZIP from [GitHub Releases](https://github.com/jonnyzzz/mcp-s
 
 **[`devrig`](https://mcp-steroid.jonnyzzz.com/docs/devrig/)** is the standalone CLI for connecting agents to MCP Steroid. It runs a stdio MCP bridge and connects your agent to **every running IntelliJ instance at once** (across projects), discovered automatically — and when none is open it can **download, prepare, and start a managed IDE backend** for the agent (IDEA Community/Ultimate, PyCharm, Android Studio). It's the recommended way to wire up Claude Code, Codex CLI, and Gemini CLI — one registration per agent, applies to every project on the machine.
 
-> **Requirement: JDK 25.** `devrig` is a Kotlin/JVM application compiled for **Java 25** (class-file v69) and is **not** bundled with a JRE. A **JDK/JRE 25 or newer** must be available on the machine that runs it — either on `PATH` or via `JAVA_HOME` (the `devrig` launcher honours `JAVA_HOME` first). An older Java (21, etc.) fails at startup with `UnsupportedClassVersionError ... class file version 69.0`. Install e.g. [Amazon Corretto 25](https://aws.amazon.com/corretto/) or [Eclipse Temurin 25](https://adoptium.net/), and point `JAVA_HOME` at it if your default `java` is older.
+> **Requirement: JDK 25.** `devrig` is a Kotlin/JVM application and is **not** bundled with a JRE. A **JDK/JRE 25** is the supported runtime and must be available on the machine that runs it — either on `PATH` or via `JAVA_HOME` (the `devrig` launcher honours `JAVA_HOME` first). The binaries target **Java 21 bytecode** (class-file v65 — so the IDE plugin also loads in JBR-21 IDEs like Android Studio, and a Java 21+ runtime technically works), but JDK 25 is what the installer provisions and what we test against. A Java older than 21 fails at startup with `UnsupportedClassVersionError ... class file version 65.0`. Install e.g. [Amazon Corretto 25](https://aws.amazon.com/corretto/) or [Eclipse Temurin 25](https://adoptium.net/), and point `JAVA_HOME` at it if your default `java` is older.
 
 ### One-time setup (from a checkout of this repo)
 
@@ -215,7 +215,7 @@ See the full [Configuration Documentation](https://mcp-steroid.jonnyzzz.com/docs
 
 ## Architecture
 
-- **Technology:** Kotlin 2.3.20 on Java 25
+- **Technology:** Kotlin 2.3.20 on Java 25 (Java 21 bytecode target — runs in JBR-21 IDEs like Android Studio)
 - **HTTP Server:** Ktor 3.1.0 (Streamable HTTP + SSE)
 - **Protocol:** Model Context Protocol (MCP)
 - **Default Port:** 6315

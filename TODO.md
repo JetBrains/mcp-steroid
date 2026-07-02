@@ -1,7 +1,5 @@
 # TODO
 
-- [x] Fix `steroid_open_project` to trust a project path before opening it and cover the no-modal path with an integration test.
-- [x] Agent-driven backend management: evaluated new MCP tool vs CLI passthrough vs hybrid (judge panel). **Decision: no new MCP tool** — agents manage backends via the existing `devrig backend …` CLI (fails the PHILOSOPHY 3-gate for a new tool; the CLI already does it). Shipped `mcp-steroid://open-project/managing-backends` recipe + aligned `open_project` to prefer a running devrig-managed backend (`DevrigProjectRoutingService.openProjectTargetIde()`).
 - [ ] Backend management follow-ups (deferred, surfaced during the design):
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).
   - Consider enriching `backend --json` / `backend download --json` with release date + download channel so agents can reason about staleness; consider exposing `IdeProduct` metadata (license tier, launcher) for richer IDE choice.
@@ -34,16 +32,6 @@
   `KtOperationReference`-style refs / restrict the sample to Java files). Non-fatal today (logged, never
   thrown), but the signal is noise for Kotlin projects. Found validating #200's settle on
   GradleCompileTest (2026-07-02).
-
-- [x] **`waitForMcpReady` should fail fast on a dead container (quorum follow-up to PR #187, the typed-retry
-  rework)**: the 300s startup health-check treats a *dead/missing* container the same as "server still
-  starting" — `docker exec … curl` **exits non-zero (125)** rather than throwing, so it is retried to the
-  300s deadline instead of surfacing at once as a terminal `McpRequestFailedError`. Pre-existing (not a
-  regression); PR #187 closed every *other* poll-reachable terminal path (`mcpExecuteCode`'s 1-hour poll,
-  `waitForIdeWindow`, and the throw-path of this health-check). The proper fix needs a real container/IDE
-  liveness signal — thread the IDE `RunningContainerProcess` handle into `waitForMcpReady` and throw
-  `McpRequestFailedError` when it is not `isRunning()` — NOT fragile docker exit-code magic (125/126/127 vs
-  curl 7/28). Flagged by codex in round 7 of the adversarial `run-agent.sh` quorum (claude approved all 7).
 
 - [ ] **`install --check` vs the literal Tenet-3 reading (review follow-up to #86)**: `--check` itself
   is read-only, but `runsTool()` in `npx-kt/.../Main.kt` returns true for `DevrigCommandInstall`, so the
