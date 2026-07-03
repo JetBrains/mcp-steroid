@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.jonnyzzz.mcpSteroid.IdeInfo
@@ -44,7 +43,7 @@ suspend fun describeSelfBackend(): SelfBackendDescription {
     val pid = ProcessHandle.current().pid()
     val selfBackendName = backendNameForMarker(pid = pid, build = ide.build)
 
-    val openProjects = readAction {
+    val openProjects = run { // #214: no read action — must not park behind a pending write (wedges every tool)
         ProjectManager.getInstance().openProjects.toList()
     }
 

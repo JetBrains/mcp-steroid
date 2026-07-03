@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.server
 
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -25,7 +24,7 @@ class ProjectScopedToolHandler {
      */
     @Throws(ToolCallErrorException::class)
     suspend fun resolveProject(projectName: String): Project {
-        val (project, availableProjectNames) = readAction {
+        val (project, availableProjectNames) = run { // #214: no read action — must not park behind a pending write (wedges every tool)
             // (project_name, name, project) per open project — match by the OPAQUE project_name first,
             // then by the raw folder name ONLY when unambiguous (exactly one match), never first-match,
             // so two same-named projects (e.g. a checkout and its git worktree) can't silently collapse

@@ -3,7 +3,6 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.ide.GeneralSettings
 import com.intellij.ide.trustedProjects.TrustedProjects
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
@@ -34,7 +33,7 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
         }
 
         // Check if project is already open
-        val existingProject = readAction {
+        val existingProject = run { // #214: no read action — must not park behind a pending write (wedges every tool)
             ProjectManager.getInstance().openProjects.find { project ->
                 project.basePath?.let { Path.of(it).toAbsolutePath().normalize() == projectPath.normalize() } == true
             }

@@ -222,6 +222,100 @@ fun scoreChangeSignature(output: String, requiredOverrides: Set<String>): Change
     )
 }
 
+data class SafeDeleteScore(
+    /** The agent reported the method declaration itself was removed. */
+    val methodDeleted: Boolean,
+    /** Normalized paths from the agent's `MIGRATED: <file>[:<line>]` markers. */
+    val reportedMigrated: Set<String>,
+    /** Ground-truth usage files the agent did NOT report migrating — the blind-sweep misses. */
+    val missingMigrations: Set<String>,
+    /** Normalized paths from the agent's `CHANGED_FILE:` markers (the full reported diff). */
+    val changedFiles: Set<String>,
+    /** Changed PRODUCTION files outside the known set — "while I'm here" collateral edits. */
+    val collateralFiles: Set<String>,
+    /** The post-delete build result the agent reported (null if it never reported one). */
+    val buildGreen: Boolean?,
+    /** Method deleted AND every ground-truth usage site was reported migrated. */
+    val complete: Boolean,
+    /** A safe delete = complete AND the build stays green AND no collateral production edits. */
+    val safe: Boolean,
+)
+
+/**
+ * Score a SAFE DELETE of a method for completeness + safety + precision. With MCP the agent drives
+ * IntelliJ's `SafeDeleteProcessor` (or `ReferencesSearch` + guided edits) via `steroid_execute_code`:
+ * the IDE surfaces every BLOCKING USAGE up front, the agent migrates each one (inline the deprecated
+ * wrapper's trivial body / call the documented successor) and the deletion lands only when nothing
+ * references the method anymore. Without MCP, a shell sweep deletes blind and discovers the missed
+ * cross-module usage — or the forgotten import — only at compile time. Scored identically for both.
+ *
+ * Expected markers (the prompt asks the agent to compile after the delete and report):
+ *   METHOD_DELETED: yes
+ *   MIGRATED: <path/relative/to/repo/File.java>:<line>   (one line per migrated production usage)
+ *   CHANGED_FILE: <path>                                  (one line per file from `git diff --name-only`)
+ *   BUILD_AFTER_DELETE: SUCCESS | FAILURE
+ *
+ * Matching is markdown-normalized and suffix-based (absolute in-container paths and short relative
+ * spellings both count). Lines in `MIGRATED` markers are informational — the file is the evidence:
+ * an agent cannot name the exact usage files without finding them, which is what the experiment
+ * measures (a hallucinated "done" cannot list `integration/…/AuthUtil.java`). Changed files under
+ * `src/test` or `testsuite/` are NOT collateral — deleting a method legitimately ripples into tests,
+ * and the build verdict covers production sources only.
+ *
+ * @param requiredUsageFiles  hand-derived ground truth: every production file with a usage of the
+ *                            method that must be migrated.
+ * @param allowedChangedFiles the full set of files the task is allowed to touch (declaration file +
+ *                            usage files); any other changed production file is collateral.
+ */
+fun scoreSafeDelete(
+    output: String,
+    requiredUsageFiles: Set<String>,
+    allowedChangedFiles: Set<String>,
+): SafeDeleteScore {
+    val methodDeleted = findMarkerValue(output, "METHOD_DELETED", "Method deleted")
+        ?.contains("yes", ignoreCase = true) == true
+
+    val migrated = Regex("""(?im)^\s*[*_`>#|:-]*\s*MIGRATED\s*[*_`]*\s*:\s*(.+)$""")
+        .findAll(output)
+        .map { normalizeReportedPath(it.groupValues[1]) }
+        .filter { it.isNotEmpty() }
+        .toSet()
+    val missing = requiredUsageFiles.filterNot { truth ->
+        migrated.any { pathsReferToSameFile(it, truth) }
+    }.toSet()
+
+    val changed = Regex("""(?im)^\s*[*_`>#|:-]*\s*CHANGED_FILE\s*[*_`]*\s*:\s*(.+)$""")
+        .findAll(output)
+        .map { normalizeReportedPath(it.groupValues[1].replace(Regex("""^\s*[MADRCU?!]{1,2}\s+"""), "")) }
+        .filter { it.isNotEmpty() }
+        .toSet()
+    val collateral = changed.filterNot { file ->
+        val isTestFile = file.contains("/src/test/") || file.startsWith("testsuite/") || file.contains("/testsuite/")
+        isTestFile || allowedChangedFiles.any { pathsReferToSameFile(file, it) }
+    }.toSet()
+
+    val build = findMarkerValue(output, "BUILD_AFTER_DELETE", "Build after delete")
+    val buildGreen = build?.let {
+        when {
+            it.contains("SUCCESS", ignoreCase = true) || it.equals("pass", ignoreCase = true) || it.equals("green", ignoreCase = true) -> true
+            it.contains("FAIL", ignoreCase = true) || it.contains("error", ignoreCase = true) || it.contains("broke", ignoreCase = true) -> false
+            else -> null
+        }
+    }
+
+    val complete = methodDeleted && missing.isEmpty()
+    return SafeDeleteScore(
+        methodDeleted = methodDeleted,
+        reportedMigrated = migrated,
+        missingMigrations = missing,
+        changedFiles = changed,
+        collateralFiles = collateral,
+        buildGreen = buildGreen,
+        complete = complete,
+        safe = complete && buildGreen == true && collateral.isEmpty(),
+    )
+}
+
 data class InspectionScore(
     /** The agent's self-reported `ISSUES_FOUND:` count (informational only — never trusted for the verdict). */
     val issuesFound: Int?,
@@ -297,6 +391,107 @@ fun scoreInspections(output: String, expected: Map<String, Set<Int>>, minMatches
         matchedLines = matched,
         matchedCount = matchedCount,
         detected = matchedCount >= minMatches && reportedCount <= 3 * expectedCount,
+    )
+}
+
+data class CompileTriageScore(
+    /** The agent's self-reported `ERRORS_FOUND:` count (informational only — never trusted for the verdict). */
+    val errorsFound: Int?,
+    /** `file simple name → line numbers` parsed from the agent's `FIXED: <path>:<line>` markers. */
+    val reportedFixes: Map<String, Set<Int>>,
+    /** Total number of reported `file:line` fix pairs. */
+    val reportedCount: Int,
+    /** Seeded `file:line` sites the agent actually fixed (±1 line tolerance, each consumed once). */
+    val matchedSites: Map<String, Set<Int>>,
+    val matchedCount: Int,
+    /** Seeded sites the agent did NOT report fixing. */
+    val missingSites: Map<String, Set<Int>>,
+    /** The post-fix bounded-build result the agent reported (null if it never reported one). */
+    val buildGreen: Boolean?,
+    /** Every seeded site was fixed (regardless of build state / spam). */
+    val allSitesFixed: Boolean,
+    /** All seeded sites fixed AND build green AND no shotgun spam — the full win. */
+    val safe: Boolean,
+)
+
+/**
+ * Score a COMPILE-ERROR TRIAGE (time-to-green) run against the KNOWN seeded breakage: a patch applied
+ * at IDE start plants deterministic single-line compile errors across modules, and the agent must make
+ * the project compile again. With MCP the IDE's red-code analysis lists every error with resolved
+ * types instantly (all modules at once); without MCP the agent pays a multi-minute `mvn` cycle per
+ * iteration — and Maven stops at the first failing module, hiding the downstream errors entirely.
+ *
+ * The verdict is evidence-based, NOT self-report-based (the lesson from [scoreInspections], CI builds
+ * 991971406/991971408, where a hallucinated count won):
+ *  - each reported `FIXED: <path>:<line>` is matched against [seededSites] by file simple name and
+ *    line (±1 tolerance; each seeded line consumes at most one reported line and vice versa) — the
+ *    agent must fix each error AT ITS SEEDED SITE, so papering over a symptom elsewhere (e.g. a cast
+ *    at the error line instead of restoring the declaration) does not count;
+ *  - `safe` additionally requires the reported bounded build to be SUCCESS and at most
+ *    `3 × |seeded|` total FIXED lines — carpet-editing the tree cannot win by luck.
+ *
+ * Expected markers (scored identically for both modes):
+ *   ERRORS_FOUND: <count>
+ *   FIXED: <path>:<line> — <what was wrong and the correct type>
+ *   BUILD_AFTER_FIX: SUCCESS | FAILURE
+ *
+ * @param seededSites ground truth: file simple name → the line numbers of the seeded edits.
+ */
+fun scoreCompileTriage(output: String, seededSites: Map<String, Set<Int>>): CompileTriageScore {
+    // Strip markdown code/bold marks so `path.java:112` and **path.java:112** parse the same.
+    // Underscores are NOT stripped — they are significant in marker names (ERRORS_FOUND) and paths.
+    val text = output.replace(Regex("[`*]"), "")
+    val count = findMarkerValue(text, "ERRORS_FOUND", "Errors found")
+        ?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+
+    // Every `FIXED:` marker line contributes one (file simple name, line) pair. The file-name
+    // pattern has no `/`, so it naturally captures the last path segment.
+    val reported = mutableMapOf<String, MutableList<Int>>()
+    Regex("""(?im)^\s*[-•>#\s]*FIXED\s*:\s*(.+)$""").findAll(text).forEach { fix ->
+        val m = Regex("""([\w$.-]+\.java)\s*:\s*(\d+)""").find(fix.groupValues[1]) ?: return@forEach
+        reported.getOrPut(m.groupValues[1]) { mutableListOf() }.add(m.groupValues[2].toInt())
+    }
+    val reportedCount = reported.values.sumOf { it.size }
+
+    // Greedy bipartite match per file: exact line first, then ±1; each reported line consumed once.
+    val matched = mutableMapOf<String, MutableSet<Int>>()
+    for ((file, seededLines) in seededSites) {
+        val available = reported[file]?.toMutableList() ?: continue
+        for (tolerance in 0..1) {
+            for (seededLine in seededLines.sorted()) {
+                if (seededLine in (matched[file] ?: emptySet<Int>())) continue
+                val hit = available.firstOrNull { kotlin.math.abs(it - seededLine) <= tolerance } ?: continue
+                available.remove(hit)
+                matched.getOrPut(file) { mutableSetOf() }.add(seededLine)
+            }
+        }
+    }
+    val matchedCount = matched.values.sumOf { it.size }
+    val seededCount = seededSites.values.sumOf { it.size }
+    val missing = seededSites
+        .mapValues { (file, lines) -> lines - (matched[file] ?: emptySet()) }
+        .filterValues { it.isNotEmpty() }
+
+    val build = findMarkerValue(text, "BUILD_AFTER_FIX", "Build after fix")
+    val buildGreen = build?.let {
+        when {
+            it.contains("SUCCESS", ignoreCase = true) || it.equals("pass", ignoreCase = true) || it.equals("green", ignoreCase = true) -> true
+            it.contains("FAIL", ignoreCase = true) || it.contains("error", ignoreCase = true) || it.contains("broke", ignoreCase = true) -> false
+            else -> null
+        }
+    }
+
+    val allSitesFixed = matchedCount == seededCount
+    return CompileTriageScore(
+        errorsFound = count,
+        reportedFixes = reported.mapValues { it.value.toSet() },
+        reportedCount = reportedCount,
+        matchedSites = matched.mapValues { it.value.toSet() },
+        matchedCount = matchedCount,
+        missingSites = missing,
+        buildGreen = buildGreen,
+        allSitesFixed = allSitesFixed,
+        safe = allSitesFixed && buildGreen == true && reportedCount <= 3 * seededCount,
     )
 }
 
@@ -377,6 +572,198 @@ private fun normalizeReportedPath(raw: String): String {
  */
 private fun pathsReferToSameFile(a: String, b: String): Boolean =
     a == b || a.endsWith("/$b") || b.endsWith("/$a")
+
+data class InteropUsagesScore(
+    /** The `USAGES_FOUND:` total the agent reported (null if it never reported one). */
+    val reportedCount: Int?,
+    /** Distinct (path, line) pairs parsed from `USAGE:` markers — non-source paths already dropped. */
+    val reportedPairCount: Int,
+    /** Ground-truth required usages the agent DID report (ground-truth path → matched lines). */
+    val foundRequired: Map<String, Set<Int>>,
+    /** Ground-truth required usages the agent FAILED to report — the cross-language ones grep misses. */
+    val missedRequired: Map<String, Set<Int>>,
+    /** Reported `path:line` pairs that are neither required nor optional — e.g. same-named locals. */
+    val falsePositives: Set<String>,
+    /** True when EVERY required usage was reported (within the ±1 line tolerance). */
+    val complete: Boolean,
+    /** [complete] AND no false positives — the resolve-exact answer. */
+    val exact: Boolean,
+)
+
+/**
+ * Score a "enumerate EVERY usage of a symbol across BOTH languages" answer against a hand-derived
+ * `file → lines` ground truth (pinned revision, so lines are stable). The scenario this scores:
+ * a Kotlin `val requestLine` consumed from Java as the generated getter `getRequestLine()` —
+ * a case-sensitive search for the declared name finds ZERO Java call sites, while a loose search
+ * for the identifier over-matches same-named LOCAL VARIABLES that are not property usages at all.
+ * Resolve-based find-usages (`ReferencesSearch` on the property) answers this exactly; the scorer
+ * treats both failure modes separately: [InteropUsagesScore.missedRequired] (under-match) and
+ * [InteropUsagesScore.falsePositives] (over-match).
+ *
+ * Expected markers (mode-independent — with-MCP and shell runs are scored identically):
+ *   USAGES_FOUND: <total count>
+ *   USAGE: <path/relative/to/repo>:<line>      (one line per usage)
+ *
+ * Matching rules:
+ *  - only `.java` / `.kt` paths count; anything else (README snippets, `.api` dumps) is ignored,
+ *  - paths are markdown-normalized and suffix-matched, so absolute in-container spellings and
+ *    shorter-but-unambiguous relative spellings both count,
+ *  - lines match with ±1 tolerance (multi-line expressions), exact matches claimed first, and each
+ *    reported line satisfies at most one ground-truth line (and vice versa),
+ *  - [optional] usages (e.g. reads inside the declaring file, the declaration line itself) are
+ *    never required and never counted as false positives — agents legitimately disagree on them.
+ */
+fun scoreInteropUsages(
+    output: String,
+    required: Map<String, Set<Int>>,
+    optional: Map<String, Set<Int>> = emptyMap(),
+): InteropUsagesScore {
+    val reportedCount = findMarkerValue(output, "USAGES_FOUND", "Usages found")
+        ?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+
+    // Every `USAGE:` marker line contributes one (normalized path, line) pair. `USAGE` must be
+    // followed by the separator, so the `USAGES_FOUND:` count line can never match.
+    val usageLine = Regex("""(?im)^\s*[*_`>#|:\s-]*USAGE\s*[*_`]*\s*:\s*(.+)$""")
+    val pathAndLine = Regex("""([^\s:`*"']+\.(?:java|kt))\s*:\s*(\d+)""")
+    val reportedPairs: Set<Pair<String, Int>> = usageLine.findAll(output)
+        .mapNotNull { usage ->
+            val m = pathAndLine.find(usage.groupValues[1]) ?: return@mapNotNull null
+            normalizeReportedPath(m.groupValues[1]) to m.groupValues[2].toInt()
+        }
+        .filter { it.first.isNotEmpty() }
+        .toSet()
+
+    // Group the reported lines under the ground-truth file they refer to (suffix path matching).
+    // A reported pair may sit in `remaining` for at most one ground-truth file — files in the
+    // ground truth have distinct suffix-disjoint paths.
+    fun matchAgainst(truth: Map<String, Set<Int>>, pool: MutableSet<Pair<String, Int>>): Map<String, Set<Int>> {
+        val matched = mutableMapOf<String, MutableSet<Int>>()
+        for ((truthFile, truthLines) in truth) {
+            val candidates = pool.filter { pathsReferToSameFile(it.first, truthFile) }.toMutableList()
+            for (tolerance in 0..1) {
+                for (truthLine in truthLines.sorted()) {
+                    if (truthLine in (matched[truthFile] ?: emptySet<Int>())) continue
+                    val hit = candidates.firstOrNull { kotlin.math.abs(it.second - truthLine) <= tolerance }
+                        ?: continue
+                    candidates.remove(hit)
+                    pool.remove(hit)
+                    matched.getOrPut(truthFile) { mutableSetOf() }.add(truthLine)
+                }
+            }
+        }
+        return matched
+    }
+
+    val pool = reportedPairs.toMutableSet()
+    val foundRequired = matchAgainst(required, pool)
+    matchAgainst(optional, pool) // consume optional hits so they are not false positives
+
+    val missedRequired = required.mapNotNull { (file, lines) ->
+        val missing = lines - (foundRequired[file] ?: emptySet())
+        if (missing.isEmpty()) null else file to missing
+    }.toMap()
+
+    val falsePositives = pool.map { "${it.first}:${it.second}" }.toSet()
+    val complete = missedRequired.isEmpty()
+
+    return InteropUsagesScore(
+        reportedCount = reportedCount,
+        reportedPairCount = reportedPairs.size,
+        foundRequired = foundRequired,
+        missedRequired = missedRequired,
+        falsePositives = falsePositives,
+        complete = complete,
+        exact = complete && falsePositives.isEmpty(),
+    )
+}
+
+data class MoveClassScore(
+    /** The class file exists at the new package AND is gone from the old one — HARNESS-measured. */
+    val moveDone: Boolean,
+    /** Normalized (deduplicated) file paths extracted from the agent's `UPDATED:` lines. */
+    val reportedUpdatedFiles: Set<String>,
+    /** Ground-truth reference sites the agent did NOT report updating — the manual-sweep misses. */
+    val missingUpdatedFiles: Set<String>,
+    /** The post-move build result the agent reported (null if it never reported one). */
+    val buildGreen: Boolean?,
+    /** Occurrences of the OLD fully-qualified name left in the tree — HARNESS-measured grep count. */
+    val oldFqnResidueCount: Int?,
+    /** True when the harness grep found ZERO old-FQN occurrences (null count = not clean). */
+    val residueClean: Boolean,
+    /** Move performed AND every ground-truth reference site was reported updated. */
+    val complete: Boolean,
+    /** A safe move = complete AND build green AND zero old-FQN residue. */
+    val safe: Boolean,
+)
+
+/**
+ * Score a project-wide MOVE CLASS (between packages) for completeness + safety. With MCP the agent
+ * drives IntelliJ's `MoveClassesOrPackagesProcessor` (PSI): the class file moves, its package
+ * declaration changes, and every import, FQN reference, javadoc link and (with text-occurrence
+ * search) non-Java FQN string is rewritten atomically. Without MCP a grep-driven sweep has two
+ * blind spots: same-package usages carry NO import line to rewrite (they need a NEW import added
+ * or the build breaks), and FQN strings hide in resource/script/doc files (the build stays green
+ * but the runtime reference dangles). Scored identically for both modes.
+ *
+ * Evidence-based by construction — the three load-bearing inputs are measured by the test harness
+ * (identically for both legs), NOT self-reported:
+ *  - [classAtNewPath] / [classAtOldPath]: container file-existence checks — a `MOVE_DONE: yes`
+ *    claim with the file still at the old path (copy, not move) scores false;
+ *  - [oldFqnResidueCount]: a project-wide grep for the old FQN run by the harness — the objective
+ *    residue check; any count other than exactly 0 (including a failed check = null) is unclean.
+ *
+ * Only the per-file list and the build claim come from the agent's marker output:
+ *   MOVE_DONE: yes
+ *   UPDATED: <path/relative/to/repo/File.java>       (one line per updated file)
+ *   BUILD_AFTER_MOVE: SUCCESS | FAILURE
+ *
+ * Path matching is markdown-normalized and suffix-based (see [pathsReferToSameFile]), so absolute
+ * in-container paths and repo-relative spellings both count.
+ *
+ * @param requiredUpdatedFiles ground-truth reference-site paths derived by hand from the pinned
+ *                             project revision — every one must appear among the `UPDATED:` lines.
+ */
+fun scoreMoveClass(
+    output: String,
+    requiredUpdatedFiles: Set<String>,
+    classAtNewPath: Boolean?,
+    classAtOldPath: Boolean?,
+    oldFqnResidueCount: Int?,
+): MoveClassScore {
+    // `UPDATED\b` keeps `UPDATED_COUNT:` (same prefix) from contributing a fake path.
+    val updatedLine = Regex("""(?im)^\s*[*_`>#|:-]*\s*UPDATED\b\s*[*_`]*\s*:\s*(.+)$""")
+    val reported = updatedLine.findAll(output)
+        .map { normalizeReportedPath(it.groupValues[1]) }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
+    val missing = requiredUpdatedFiles.filterNot { truth ->
+        reported.any { pathsReferToSameFile(it, truth) }
+    }.toSet()
+
+    val build = findMarkerValue(output, "BUILD_AFTER_MOVE", "Build after move")
+    val buildGreen = build?.let {
+        when {
+            it.contains("SUCCESS", ignoreCase = true) || it.equals("pass", ignoreCase = true) || it.equals("green", ignoreCase = true) -> true
+            it.contains("FAIL", ignoreCase = true) || it.contains("error", ignoreCase = true) || it.contains("broke", ignoreCase = true) -> false
+            else -> null
+        }
+    }
+
+    val moveDone = classAtNewPath == true && classAtOldPath == false
+    val residueClean = oldFqnResidueCount == 0
+    val complete = moveDone && missing.isEmpty()
+    return MoveClassScore(
+        moveDone = moveDone,
+        reportedUpdatedFiles = reported,
+        missingUpdatedFiles = missing,
+        buildGreen = buildGreen,
+        oldFqnResidueCount = oldFqnResidueCount,
+        residueClean = residueClean,
+        complete = complete,
+        safe = complete && buildGreen == true && residueClean,
+    )
+}
 
 data class RootCauseScore(
     val mentionsIgnoredReturn: Boolean,
