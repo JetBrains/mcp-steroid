@@ -265,6 +265,15 @@ params       // Original tool parameters (JsonElement)
 disposable   // For resource cleanup
 isDisposed   // Check if context is disposed
 
+// File lookup helpers:
+// findProjectFile(path) accepts project-relative AND absolute paths;
+// findFile(path) takes absolute paths. Called at the script top level
+// (outside readAction/writeAction) they ALWAYS refresh the file from disk —
+// externally created/modified/deleted files are seen correctly. Inside a
+// read/write action they are snapshot-only. Prefer
+// `?: error("not found: $path")` over `!!` so a miss names the path.
+val vf = findProjectFile("src/Main.kt") ?: error("not found: src/Main.kt")
+
 // Output methods:
 println("Values", "separated", "by spaces")
 // Pretty-print as JSON

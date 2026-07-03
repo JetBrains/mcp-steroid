@@ -50,6 +50,84 @@ fun scoreTypeHierarchy(output: String, required: Set<String>, minTotal: Int): Ty
     )
 }
 
+data class CallHierarchyScore(
+    /** Endpoints the agent reported (normalized `pkg.Class.method` strings from `ENDPOINT:` markers). */
+    val reported: Set<String>,
+    /** Required endpoints the agent FAILED to report — the interface-dispatch / DI-lookup ones grep misses. */
+    val missingRequired: Set<String>,
+    val reportedCount: Int,
+    /** True when every required endpoint was reported AND at least [minTotal] endpoints were listed. */
+    val complete: Boolean,
+)
+
+/**
+ * Score a caller-hierarchy (endpoint reachability) answer for completeness — the CALLERS dual of
+ * [scoreTypeHierarchy]. The question is "which REST endpoints can transitively reach method X?"; the
+ * required endpoints are the ones whose call chain crosses an interface dispatch, a lambda, or a DI
+ * provider lookup — links `grep` cannot follow but the IDE's caller hierarchy walks exactly.
+ *
+ * @param output   the agent's answer text (markdown tolerated — backticks/emphasis are stripped first,
+ *                 and `#`, `.`, `$`, `::` are all accepted as class/method separators).
+ * @param required each entry is one required endpoint given as a set of ACCEPTABLE SPELLINGS
+ *                 (`pkg.Class#method`) — agents legitimately name a nested JAX-RS resource by its outer
+ *                 class, the nested class, or an inheriting subclass. An endpoint counts as found when
+ *                 any spelling's simple class name appears ADJACENT to its method name (separators only
+ *                 in between); a class mentioned in prose without its method does not count.
+ * @param minTotal minimum number of distinct endpoints expected (guards against a near-empty answer).
+ */
+fun scoreCallHierarchy(output: String, required: List<Set<String>>, minTotal: Int): CallHierarchyScore {
+    // Strip markdown emphasis/code marks so `Class.method()` and **Class#method** match plain patterns.
+    val text = output.replace(Regex("[`*_]"), "")
+
+    // Reported endpoints: prefer explicit `ENDPOINT: <class-and-method>` markers; if the agent used a
+    // different layout, fall back to every `Class.method` / `Class#method`-shaped token in the answer.
+    val marked = Regex("""(?im)^\s*[>#\-]*\s*ENDPOINT\s*:\s*(\S.*)$""")
+        .findAll(text).map { normalizeEndpointSpec(it.groupValues[1]) }.filter { it.isNotEmpty() }.toSet()
+    val reported = marked.ifEmpty {
+        Regex("""\b[A-Z]\w*(?:\s*[.#$]\s*|\s*::\s*)[a-z]\w*\b""")
+            .findAll(text).map { normalizeEndpointSpec(it.value) }.toSet()
+    }
+
+    val missing = required
+        .filter { alternatives -> alternatives.none { spec -> endpointMentioned(text, spec) } }
+        .map { it.first() }
+        .toSet()
+
+    return CallHierarchyScore(
+        reported = reported,
+        missingRequired = missing,
+        reportedCount = reported.size,
+        complete = missing.isEmpty() && reported.size >= minTotal,
+    )
+}
+
+/** Canonicalize one endpoint mention: unify separators to `.`, drop `()`/whitespace, lowercase. */
+private fun normalizeEndpointSpec(raw: String): String = raw
+    .replace("::", ".").replace('#', '.').replace('$', '.')
+    .replace(Regex("""\(\s*\)"""), "")
+    .replace(Regex("""\s+"""), "")
+    .trim('.', ',', ';', ':', '-')
+    .lowercase()
+
+/**
+ * True when [spec] (`pkg.Outer.Inner#method`) is mentioned in [text]: any of its simple class names must
+ * appear with the method name adjacent to it — only `.`/`#`/`$`/`::` separators (possibly through further
+ * nested-class identifiers) in between. Prose like "looked at TokenEndpoint but found nothing" does NOT
+ * match because there is no separator chain between the class and the method name.
+ */
+private fun endpointMentioned(text: String, spec: String): Boolean {
+    val method = spec.substringAfterLast('#').trim()
+    val classNames = spec.substringBeforeLast('#')
+        .split('.', '$').filter { it.firstOrNull()?.isUpperCase() == true }
+    if (method.isEmpty() || classNames.isEmpty()) return false
+    return classNames.any { cls ->
+        Regex(
+            """\b${Regex.escape(cls)}(?:\s*(?:[.#$]|::)\s*[A-Za-z_]\w*)*\s*(?:[.#$]|::)\s*${Regex.escape(method)}\b""",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(text)
+    }
+}
+
 data class RenameSafetyScore(
     val renameDone: Boolean,
     /** The post-rename build/compile result the agent reported (null if it never reported one). */
@@ -80,39 +158,225 @@ fun scoreRenameSafety(output: String): RenameSafetyScore {
     return RenameSafetyScore(renameDone = renameDone, buildGreen = buildGreen, safe = renameDone && buildGreen == true)
 }
 
+data class ChangeSignatureScore(
+    /** The agent reported the interface method's signature itself was changed. */
+    val signatureChanged: Boolean,
+    /** FQNs the agent reported as updated overrides (from `OVERRIDE_UPDATED:` markers, else any FQN). */
+    val reportedOverrides: Set<String>,
+    /** Ground-truth overrides the agent did NOT report updating — the manual-sweep misses. */
+    val missingOverrides: Set<String>,
+    /** The post-change build result the agent reported (null if it never reported one). */
+    val buildGreen: Boolean?,
+    /** Signature changed AND every ground-truth override was reported updated. */
+    val complete: Boolean,
+    /** A safe change-signature = complete AND the project still compiles afterwards. */
+    val safe: Boolean,
+)
+
+/**
+ * Score a project-wide CHANGE SIGNATURE for completeness + safety. With MCP the agent drives IntelliJ's
+ * `ChangeSignatureProcessor` (PSI): the interface method, every override — abstract bases, `default`
+ * methods in sub-interfaces, anonymous classes — and every call site are updated atomically. Without MCP
+ * a shell/editor sweep typically misses the non-obvious overrides or breaks call sites. Scored
+ * identically for both modes.
+ *
+ * Expected markers (the prompt asks the agent to compile after the change and report):
+ *   SIGNATURE_CHANGED: yes
+ *   OVERRIDE_UPDATED: <fully.qualified.ClassName>   (one line per updated override)
+ *   BUILD_AFTER_CHANGE: SUCCESS | FAILURE
+ *
+ * @param requiredOverrides ground-truth override FQNs derived from the project source — every one must
+ *                          be reported (exact FQN, or same simple name under a nearby package).
+ */
+fun scoreChangeSignature(output: String, requiredOverrides: Set<String>): ChangeSignatureScore {
+    val signatureChanged = findMarkerValue(output, "SIGNATURE_CHANGED", "Signature changed")
+        ?.contains("yes", ignoreCase = true) == true
+
+    // Prefer explicit `OVERRIDE_UPDATED: <fqn>` markers (tolerating markdown wrapping and backticked
+    // FQNs); if the agent used a different layout, fall back to every FQN in the answer body.
+    val marked = Regex("""(?im)^\s*[*_`>#-]*\s*OVERRIDE_UPDATED\s*[*_`>#-]*\s*:\s*[*_`]*([\w.$]+)""")
+        .findAll(output).map { it.groupValues[1].trim().trim('.') }.toSet()
+    val reported = marked.ifEmpty { FQN.findAll(output).map { it.groupValues[1] }.toSet() }
+
+    val missing = requiredOverrides.filterNot { req ->
+        req in reported || reported.any { it.endsWith(".${req.substringAfterLast('.')}") }
+    }.toSet()
+
+    val build = findMarkerValue(output, "BUILD_AFTER_CHANGE", "Build after change")
+    val buildGreen = build?.let {
+        when {
+            it.contains("SUCCESS", ignoreCase = true) || it.equals("pass", ignoreCase = true) || it.equals("green", ignoreCase = true) -> true
+            it.contains("FAIL", ignoreCase = true) || it.contains("error", ignoreCase = true) || it.contains("broke", ignoreCase = true) -> false
+            else -> null
+        }
+    }
+
+    val complete = signatureChanged && missing.isEmpty()
+    return ChangeSignatureScore(
+        signatureChanged = signatureChanged,
+        reportedOverrides = reported,
+        missingOverrides = missing,
+        buildGreen = buildGreen,
+        complete = complete,
+        safe = complete && buildGreen == true,
+    )
+}
+
 data class InspectionScore(
+    /** The agent's self-reported `ISSUES_FOUND:` count (informational only — never trusted for the verdict). */
     val issuesFound: Int?,
-    val mentionsRedundantCast: Boolean,
-    val mentionsTargetFile: Boolean,
-    /** True when the agent detected a meaningful number of the (semantic) redundant-cast issues. */
+    /** `file simple name → line numbers` parsed from the agent's `ISSUE: <path>:<line>` markers. */
+    val reportedLines: Map<String, Set<Int>>,
+    /** Total number of reported `file:line` pairs. */
+    val reportedCount: Int,
+    /** Ground-truth `file:line` pairs the agent actually hit (±1 line tolerance, each consumed once). */
+    val matchedLines: Map<String, Set<Int>>,
+    val matchedCount: Int,
+    /** True when enough ground-truth pairs were hit AND the answer is not a shotgun spam of cast lines. */
     val detected: Boolean,
 )
 
 /**
- * Score an "run IDE inspections + report issues" answer. The target is the redundant casts after
- * `instanceof` in Keycloak's `ValidatorConfig.java`. With MCP the agent runs IntelliJ's inspection
- * (semantic type-narrowing → finds them exactly); grep/shell cannot determine a cast is redundant.
+ * Score a "run IDE inspections + report issues" answer against a known ground truth of `file:line`
+ * pairs (for the Keycloak scenario: the genuinely redundant casts found by `javac -Xlint:cast` on
+ * the pinned 26.6.4 tag). With MCP the agent runs IntelliJ's RedundantCast inspection (type
+ * inference → exact findings); grep sees cast syntax but cannot determine redundancy.
+ *
+ * The verdict is evidence-based, NOT self-report-based: CI builds 991971406/991971408 showed the
+ * old count-only scorer rewarding a hallucinated "ISSUES_FOUND: 17" (produced with zero tool calls)
+ * and rejecting a truthful "ISSUES_FOUND: 0". Now:
+ *  - each reported `ISSUE: <path>:<line>` is matched against [expected] by file simple name and
+ *    line (±1 tolerance for multi-line expressions; each expected line consumes at most one
+ *    reported line and vice versa);
+ *  - `detected` requires at least [minMatches] true positives AND at most `3 × |expected|` total
+ *    reported pairs — listing every cast in every candidate file cannot win by luck.
  *
  * Expected markers:
  *   ISSUES_FOUND: <count>
- *   ISSUE: <description>            (the redundant-cast lines; ideally mentioning the file)
+ *   ISSUE: <path>:<line> — <description>
  *
- * @param minIssues the lower bound of redundant casts that must be reported to count as detected.
+ * @param expected ground truth: file simple name → the line numbers of the real issues.
+ * @param minMatches how many ground-truth pairs must be hit to count as detected.
  */
-fun scoreInspections(output: String, minIssues: Int, targetFile: String): InspectionScore {
-    val count = findMarkerValue(output, "ISSUES_FOUND", "Issues found")
+fun scoreInspections(output: String, expected: Map<String, Set<Int>>, minMatches: Int): InspectionScore {
+    // Strip markdown code/bold marks so `path.java:112` and **path.java:112** parse the same.
+    // Underscores are NOT stripped — they are significant in marker names (ISSUES_FOUND) and paths.
+    val text = output.replace(Regex("[`*]"), "")
+    val count = findMarkerValue(text, "ISSUES_FOUND", "Issues found")
         ?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
-    val mentionsCast = output.contains("redundant cast", ignoreCase = true) ||
-        output.contains("redundant type cast", ignoreCase = true) ||
-        output.contains("unnecessary cast", ignoreCase = true)
-    val mentionsFile = output.contains(targetFile, ignoreCase = true)
+
+    // Every `ISSUE:` marker line contributes one (file simple name, line) pair. The file-name
+    // pattern has no `/`, so it naturally captures the last path segment.
+    val reported = mutableMapOf<String, MutableList<Int>>()
+    Regex("""(?im)^\s*[-•>#\s]*ISSUE\s*:\s*(.+)$""").findAll(text).forEach { issue ->
+        val m = Regex("""([\w$.-]+\.java)\s*:\s*(\d+)""").find(issue.groupValues[1]) ?: return@forEach
+        reported.getOrPut(m.groupValues[1]) { mutableListOf() }.add(m.groupValues[2].toInt())
+    }
+    val reportedCount = reported.values.sumOf { it.size }
+
+    // Greedy bipartite match per file: exact line first, then ±1; each reported line consumed once.
+    val matched = mutableMapOf<String, MutableSet<Int>>()
+    for ((file, expectedLines) in expected) {
+        val available = reported[file]?.toMutableList() ?: continue
+        for (tolerance in 0..1) {
+            for (expectedLine in expectedLines.sorted()) {
+                if (expectedLine in (matched[file] ?: emptySet<Int>())) continue
+                val hit = available.firstOrNull { kotlin.math.abs(it - expectedLine) <= tolerance } ?: continue
+                available.remove(hit)
+                matched.getOrPut(file) { mutableSetOf() }.add(expectedLine)
+            }
+        }
+    }
+    val matchedCount = matched.values.sumOf { it.size }
+    val expectedCount = expected.values.sumOf { it.size }
+
     return InspectionScore(
         issuesFound = count,
-        mentionsRedundantCast = mentionsCast,
-        mentionsTargetFile = mentionsFile,
-        detected = mentionsCast && mentionsFile && (count ?: 0) >= minIssues,
+        reportedLines = reported.mapValues { it.value.toSet() },
+        reportedCount = reportedCount,
+        matchedLines = matched,
+        matchedCount = matchedCount,
+        detected = matchedCount >= minMatches && reportedCount <= 3 * expectedCount,
     )
 }
+
+data class SsrOptionalGetScore(
+    /** The OPTIONAL_GET_MATCHES total the agent reported (null if it never reported one). */
+    val reportedCount: Int?,
+    /** Normalized (deduplicated) file paths extracted from the agent's `MATCH:` lines. */
+    val reportedFiles: Set<String>,
+    /** Ground-truth files the agent DID report (keyed by the ground-truth spelling). */
+    val foundFiles: Set<String>,
+    /** Ground-truth files the agent FAILED to report — e.g. chained `findFirst().get()` grep can't type. */
+    val missedFiles: Set<String>,
+    /** Reported files with NO true Optional.get() — e.g. ByteBuffer/AtomicLong/Future `.get()` over-matches. */
+    val falsePositiveFiles: Set<String>,
+    /** True when every ground-truth file was reported AND nothing extra was — the SSR-exact answer. */
+    val exact: Boolean,
+)
+
+/**
+ * Score an "audit every `Optional.get()` callsite" answer against a known ground-truth file list
+ * (derived by hand from the audited repo at the revision the experiment pins). SSR with an
+ * `exprtype(java.util.Optional…)` constraint answers this exactly; a text search over `.get()` both
+ * over-matches (dozens of other no-arg `get()` receivers: Atomic*, ThreadLocal, Supplier, Future,
+ * WeakReference, ByteBuffer, …) and under-matches (chained receivers like `stream.findFirst().get()`
+ * whose Optional type only exists after resolution).
+ *
+ * Scored at FILE granularity: line numbers drift with formatting and agents report them
+ * inconsistently, but the file set separates the two failure modes cleanly. Expected markers:
+ *   OPTIONAL_GET_MATCHES: <total count>
+ *   MATCH: <path/relative/to/repo/File.java>:<line>     (one line per callsite)
+ *
+ * Path matching is markdown-normalized and suffix-based, so absolute in-container paths
+ * (`/home/agent/project/core/src/…`) and shorter-but-unambiguous relative spellings both count.
+ */
+fun scoreSsrOptionalGet(output: String, groundTruthFiles: Set<String>): SsrOptionalGetScore {
+    val reportedCount = findMarkerValue(output, "OPTIONAL_GET_MATCHES", "Optional get matches")
+        ?.let { Regex("""\d+""").find(it)?.value?.toIntOrNull() }
+
+    val matchLine = Regex("""(?im)^\s*[*_`>#|:-]*\s*MATCH\s*[*_`]*\s*:\s*(.+)$""")
+    val reportedFiles = matchLine.findAll(output)
+        .map { normalizeReportedPath(it.groupValues[1]) }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
+    val found = groundTruthFiles.filter { truth ->
+        reportedFiles.any { pathsReferToSameFile(it, truth) }
+    }.toSet()
+    val falsePositives = reportedFiles.filterNot { reported ->
+        groundTruthFiles.any { pathsReferToSameFile(reported, it) }
+    }.toSet()
+    val missed = groundTruthFiles - found
+
+    return SsrOptionalGetScore(
+        reportedCount = reportedCount,
+        reportedFiles = reportedFiles,
+        foundFiles = found,
+        missedFiles = missed,
+        falsePositiveFiles = falsePositives,
+        exact = missed.isEmpty() && falsePositives.isEmpty(),
+    )
+}
+
+/** Strip markdown/quoting, unify separators, drop the `:<line>` suffix — keep just the path. */
+private fun normalizeReportedPath(raw: String): String {
+    var p = raw.trim().trim('`', '*', '_', '"', '\'', '|')
+    p = p.replace('\\', '/')
+    // Drop a trailing :<line> or :<line>:<col> suffix (only numeric suffixes are stripped).
+    p = p.replace(Regex("""(:\d+)+\s*$"""), "")
+    p = p.trim().trim('`', '*', '_', '"', '\'')
+    p = p.removePrefix("./")
+    return p.trim('/')
+}
+
+/**
+ * True when one normalized path is a whole-component suffix of the other. Handles the agent
+ * reporting absolute in-container paths (longer than ground truth) or short relative spellings
+ * (shorter than ground truth, e.g. starting below the module root).
+ */
+private fun pathsReferToSameFile(a: String, b: String): Boolean =
+    a == b || a.endsWith("/$b") || b.endsWith("/$a")
 
 data class RootCauseScore(
     val mentionsIgnoredReturn: Boolean,

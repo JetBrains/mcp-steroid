@@ -426,21 +426,31 @@ interface McpScriptContext {
     // ============================================================
 
     /**
-     * Find a VirtualFile by an absolute path.
-     * Returns null if the file doesn't exist.
+     * Find a VirtualFile by an absolute path (local file system).
+     * Returns null if the file doesn't exist on disk.
+     *
+     * Called outside read/write actions, the lookup ALWAYS refreshes the file from
+     * disk first — externally created, modified, or deleted files are seen correctly
+     * even when the file watcher missed them. Inside a read/write action the helper
+     * is snapshot-only (synchronous refresh there would deadlock), so prefer calling
+     * it at the top level of the script when content freshness matters.
+     * The refresh is per-file and shallow: for a directory it validates the directory
+     * itself, not its unloaded children. After many external writes, batch the writes
+     * and look files up once rather than alternating write → findFile per file.
+     * Files with unsaved in-memory Documents are returned as-is (the unsaved Document
+     * is the newest content; refreshing would trigger the memory-vs-disk conflict).
      *
      * ```kotlin
-     * val vf = findFile("/path/to/file.kt")
-     * if (vf != null) {
-     *     val content = String(vf.contentsToByteArray())
-     * }
+     * val vf = findFile("/path/to/file.kt") ?: error("not found: /path/to/file.kt")
+     * val content = String(vf.contentsToByteArray(), vf.charset)
      * ```
      */
     fun findFile(absolutePath: String): VirtualFile?
 
     /**
      * Find a PsiFile by an absolute path.
-     * Requires a read action context or uses one internally.
+     * Same lookup semantics as [findFile] (always-refresh outside read/write actions),
+     * then PSI resolution inside a read action.
      * Returns null if the file doesn't exist or can't be parsed.
      *
      * ```kotlin
@@ -451,11 +461,15 @@ interface McpScriptContext {
     suspend fun findPsiFile(absolutePath: String): PsiFile?
 
     /**
-     * Find a VirtualFile relative to the project base path.
+     * Find a VirtualFile by a path relative to the project base path.
+     * Absolute paths are also accepted and resolved as-is (like [findFile]).
+     * Same refresh semantics as [findFile]: always refreshes from disk outside
+     * read/write actions; snapshot-only inside.
      * Returns null if the file doesn't exist.
      *
      * ```kotlin
      * val vf = findProjectFile("src/main/kotlin/MyClass.kt")
+     *     ?: error("not found: src/main/kotlin/MyClass.kt")
      * ```
      */
     fun findProjectFile(relativePath: String): VirtualFile?
@@ -468,12 +482,19 @@ interface McpScriptContext {
      * - src/main/starstar-slash-Demo-star.kt for demo classes
      * - star.md for markdown files in root
      *
+     * Iterates the VFS snapshot of the project root — this is NOT a per-path refresh
+     * helper; for externally created files refresh first (or use [findFile] /
+     * [findProjectFile], which refresh their single path).
+     *
      * Returns files sorted by absolute path for deterministic results.
      */
     suspend fun findProjectFiles(globPattern: String): List<VirtualFile>
 
     /**
-     * Find a PsiFile relative to the project base path.
+     * Find a PsiFile by a path relative to the project base path.
+     * Absolute paths are also accepted (delegates to [findProjectFile], inheriting
+     * its always-refresh-outside-actions semantics), then PSI resolution inside a
+     * read action.
      * Returns null if the file doesn't exist or can't be parsed.
      *
      * ```kotlin
@@ -481,40 +502,4 @@ interface McpScriptContext {
      * ```
      */
     suspend fun findProjectPsiFile(relativePath: String): PsiFile?
-
-    // ============================================================
-    // Multi-Site Literal Patch
-    // ============================================================
-
-    /**
-     * Apply N literal-text substitutions across one or more files as a single
-     * atomic, undoable command. This is the idiomatic replacement for a chain
-     * of native `Edit(old, new)` tool calls — you ship only the data, the
-     * plugin owns the threading and validation.
-     *
-     * Pre-flight (read action) verifies every `oldString` occurs exactly once
-     * in its file; if any hunk is missing or non-unique, an
-     * [ApplyPatchException] is thrown BEFORE any edit lands.
-     *
-     * Apply (write action + one `CommandProcessor.executeCommand`) runs every
-     * hunk as one undo step. Multi-hunk edits in the same file are applied in
-     * descending offset order automatically.
-     *
-     * The returned [ApplyPatchResult] carries per-hunk `path:line:column` info
-     * for auditing; calling `println(result)` emits a human-readable summary.
-     *
-     * ```kotlin
-     * val result = applyPatch {
-     *     hunk("/abs/A.java", "old1", "new1")
-     *     hunk("/abs/A.java", "old2", "new2")
-     *     hunk("/abs/B.java", "oldX", "newX")
-     * }
-     * println(result)
-     * // apply-patch: 3 hunks across 2 file(s) applied atomically.
-     * //   [#0] /abs/A.java:17:5 (12→18 chars)
-     * //   [#1] /abs/A.java:42:9 (5→9 chars)
-     * //   [#2] /abs/B.java:88:13 (7→5 chars)
-     * ```
-     */
-    suspend fun applyPatch(block: ApplyPatchBuilder.() -> Unit): ApplyPatchResult
 }
