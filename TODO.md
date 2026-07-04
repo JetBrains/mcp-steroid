@@ -1,10 +1,12 @@
 # TODO
 
-- [ ] **runInspectionsDirectly follow-ups (#69 ask 1, deferred)**: a `PsiFile`-accepting overload
-  (and any richer per-file batch surface) is a `McpScriptContext` surface growth — gated by
-  PHILOSOPHY Tenet 3 / the 3-reviewer consensus, same as the explicit-`Project` overload (#94).
-  The 2026-06 hardening shipped per-tool crash isolation (#93) + per-file PSI-invalid tolerance and
-  the additive `InspectionRunResult.failedTools` section without touching the argument list.
+- [ ] **runInspectionsDirectly follow-ups (#69 ask 1)** — deliberately deferred, not work-in-progress.
+  - *Deferred:* a `PsiFile`-accepting overload (and any richer per-file batch surface). It is a
+    `McpScriptContext` surface growth — gated by PHILOSOPHY Tenet 3 / the 3-reviewer consensus, same
+    as the explicit-`Project` overload (#94). Revisit only if that gate is cleared.
+  - *Already shipped (2026-06, NOT part of this item):* per-tool crash isolation (#93), per-file
+    PSI-invalid tolerance, and the additive `InspectionRunResult.failedTools` section — all without
+    touching the argument list.
 
 - [ ] Backend management follow-ups (deferred, surfaced during the design):
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).

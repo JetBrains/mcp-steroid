@@ -27,7 +27,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.plugins.gradle.service.execution.GradleExternalTaskConfigurationType
 import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration
-import java.util.Collections
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 
 val gradleTestTaskPath = ":ij-plugin:test" // TODO: subproject test task
@@ -83,8 +83,11 @@ fun summarize(root: SMTestProxy.SMRootTestProxy): TestSummary {
     )
 }
 
-val startedRoots = Collections.synchronizedList(mutableListOf<SMTestProxy.SMRootTestProxy>())
-val finishedRoots = Collections.synchronizedList(mutableListOf<SMTestProxy.SMRootTestProxy>())
+// CopyOnWriteArrayList: the TEST_STATUS listener adds from the IDE test thread while the suspend
+// body below scans with firstOrNull — both are individually thread-safe on COW, so no external
+// lock is needed (add() is atomic; iteration sees a stable snapshot and never throws CME).
+val startedRoots = CopyOnWriteArrayList<SMTestProxy.SMRootTestProxy>()
+val finishedRoots = CopyOnWriteArrayList<SMTestProxy.SMRootTestProxy>()
 val targetProcessHandler = AtomicReference<com.intellij.execution.process.ProcessHandler?>()
 val targetRoot = AtomicReference<SMTestProxy.SMRootTestProxy?>()
 val matchingSummary = AtomicReference<TestSummary?>()
@@ -208,14 +211,12 @@ try {
     }
 
     targetProcessHandler.set(handler)
-    synchronized(startedRoots) {
-        startedRoots.firstOrNull(::isTargetRoot)?.let { targetRoot.compareAndSet(null, it) }
-    }
-    synchronized(finishedRoots) {
-        finishedRoots.firstOrNull(::isTargetRoot)?.let { root ->
-            targetRoot.compareAndSet(null, root)
-            matchingSummary.compareAndSet(null, summarize(root))
-        }
+    // Catch up on any root that started/finished before the handler was known. No lock: the lists
+    // are CopyOnWriteArrayList, so firstOrNull scans a stable snapshot even under concurrent adds.
+    startedRoots.firstOrNull(::isTargetRoot)?.let { targetRoot.compareAndSet(null, it) }
+    finishedRoots.firstOrNull(::isTargetRoot)?.let { root ->
+        targetRoot.compareAndSet(null, root)
+        matchingSummary.compareAndSet(null, summarize(root))
     }
 
     handler.addProcessListener(
