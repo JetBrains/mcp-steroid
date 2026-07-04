@@ -266,7 +266,11 @@ abstract class KtBlockCompilationTestBase {
             val ijSourcesDir = System.getProperty("mcp.steroid.ij.sources")
                 ?: error("Missing system property 'mcp.steroid.ij.sources'")
             val executionDir = Path.of(ijSourcesDir, "com", "jonnyzzz", "mcpSteroid", "execution")
-            listOf("McpScriptContext.kt", "McpScriptBuilder.kt").map { fileName ->
+            // InspectionCrashIsolation.kt defines InspectionRunResult / FailedInspection, the
+            // return type of McpScriptContext.runInspectionsDirectly — supplied to kotlinc so
+            // fenced-block scripts using runInspectionsDirectly compile. (ApplyPatch.kt was
+            // removed on main, #206.)
+            listOf("McpScriptContext.kt", "McpScriptBuilder.kt", "InspectionCrashIsolation.kt").map { fileName ->
                 val file = executionDir.resolve(fileName)
                 require(file.isRegularFile()) { "ij-plugin source file not found: $file" }
                 file

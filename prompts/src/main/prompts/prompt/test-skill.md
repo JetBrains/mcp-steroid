@@ -23,6 +23,11 @@ Use IntelliJ test execution APIs from `steroid_execute_code` to run tests and in
 3) Execute a test configuration (example: `mcp-steroid://test/run-tests`).
 4) Navigate test tree and check individual test status (example: `mcp-steroid://test/tree-navigation`).
 
+**One-call Gradle test class verification (IDEA-family):**
+Use `mcp-steroid://test/run-test-class-structured` when an agent needs one bounded
+`steroid_execute_code` call that launches a Gradle-backed JVM test class, waits for
+completion, collects typed SM test-runner events, and prints structured JSON.
+
 ## Stateful steroid_execute_code workflow
 
 `steroid_execute_code` is stateful. Split test execution into multiple short calls:
