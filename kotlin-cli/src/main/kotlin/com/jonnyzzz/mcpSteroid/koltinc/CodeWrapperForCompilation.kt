@@ -22,16 +22,12 @@ object CodeWrapperForCompilation {
         "import com.intellij.openapi.fileEditor.*",
         "import com.intellij.openapi.command.*",
         "import com.intellij.psi.*",
+        "import com.intellij.psi.search.*",
+        "import com.intellij.psi.search.searches.*",
+        "import com.intellij.psi.util.*",
         "import kotlinx.coroutines.*",
         "import kotlin.time.Duration.Companion.seconds",
         "import kotlin.time.Duration.Companion.minutes",
-        // Expose ApplyPatchBuilder / ApplyPatchResult / ApplyPatchException so that
-        // fenced-block examples in `ide/apply-patch.md` and user scripts can use
-        // the DSL classes by short name — e.g. `catch (e: ApplyPatchException)`
-        // without a fully-qualified name.
-        "import com.jonnyzzz.mcpSteroid.execution.ApplyPatchBuilder",
-        "import com.jonnyzzz.mcpSteroid.execution.ApplyPatchException",
-        "import com.jonnyzzz.mcpSteroid.execution.ApplyPatchResult",
     )
 
     const val DEFAULT_SCRIPT_CONTEXT_FQN = "com.jonnyzzz.mcpSteroid.execution.McpScriptContext"
@@ -129,61 +125,64 @@ object CodeWrapperForCompilation {
         val importLines = extracted.importLines
         val otherLines = extracted.otherLines
 
-        val wrappedCode = buildString {
-            append(defaultImports.joinToString(separator = "\n", postfix = "\n"))
-            appendLine()
-            appendLine("//imports from the submitted code")
-            importLines.forEach { appendLine(it) }
-            appendLine()
-            appendLine("class $clazzName {")
-            appendLine("  inline fun $scriptContextFqn.execute(ƒ: $scriptContextFqn.() -> Unit) = ƒ()")
-            appendLine("  fun $methodName(builder : $scriptBuilderFqn) { ")
-            appendLine("    builder.$addBlockName { ${methodName}_code() }")
-            appendLine("  }")
-            appendLine("  suspend fun $scriptContextFqn.${methodName}_code() {")
-            appendLine("    //the rest of submitted code")
-            otherLines.forEach { append("    ").appendLine(it) }
-            appendLine("  }")
-            appendLine("}")
-            append("\n")
-        }
-
-        // Build the line mapping from wrapped line numbers to original user line numbers.
-        //
-        // The wrapped code layout (1-based line numbers):
-        //   Lines 1..12:          defaultImports (12 lines via joinToString with \n separator + \n postfix)
-        //   Line 13:              empty (appendLine())
-        //   Line 14:              "//imports from the submitted code"
-        //   Lines 15..14+N:       user imports (N = importLines.size)
-        //   Line 15+N:            empty (appendLine())
-        //   Line 16+N:            "class $clazzName {"
-        //   Line 17+N:            "  inline fun ..."
-        //   Line 18+N:            "  fun $methodName..."
-        //   Line 19+N:            "    builder.$addBlockName..."
-        //   Line 20+N:            "  }"
-        //   Line 21+N:            "  suspend fun ..."
-        //   Line 22+N:            "    //the rest of submitted code"
-        //   Lines 23+N..22+N+M:   user code lines (M = otherLines.size)
-        //   Line 23+N+M:          "  }"
-        //   Line 24+N+M:          "}"
-        //   Line 25+N+M:          empty (trailing \n)
-        val n = importLines.size
+        // Build the wrapped code AND its line mapping in lock-step: every line goes through
+        // [WrappedLineEmitter.emit], which appends it and advances the wrapped-line counter
+        // together. This is drift-proof — earlier the offsets were hardcoded (12 default
+        // imports → user code at line 23+N), so growing [defaultImports] silently shifted every
+        // user line and broke remapping (compiler errors then pointed at the generated line,
+        // not the submitted one). Because the counter can only move inside emit(), the mapping
+        // can never drift from the generated layout. Never reintroduce magic offsets here.
         val mapping = mutableMapOf<Int, Int>()
-
-        // Map user import lines
-        for (i in extracted.importLineNumbers.indices) {
-            val wrappedLine = 15 + i
-            mapping[wrappedLine] = extracted.importLineNumbers[i]
-        }
-
-        // Map user code lines (non-import)
-        for (i in extracted.otherLineNumbers.indices) {
-            val wrappedLine = 23 + n + i
-            mapping[wrappedLine] = extracted.otherLineNumbers[i]
+        val wrappedCode = buildString {
+            val out = WrappedLineEmitter(this)
+            defaultImports.forEach { out.emit(it) }
+            out.emit()
+            out.emit("//imports from the submitted code")
+            importLines.forEachIndexed { i, line ->
+                out.emit(line)
+                mapping[out.line] = extracted.importLineNumbers[i]
+            }
+            out.emit()
+            out.emit("class $clazzName {")
+            out.emit("  inline fun $scriptContextFqn.execute(ƒ: $scriptContextFqn.() -> Unit) = ƒ()")
+            out.emit("  fun $methodName(builder : $scriptBuilderFqn) { ")
+            out.emit("    builder.$addBlockName { ${methodName}_code() }")
+            out.emit("  }")
+            out.emit("  suspend fun $scriptContextFqn.${methodName}_code() {")
+            out.emit("    //the rest of submitted code")
+            otherLines.forEachIndexed { i, line ->
+                out.emit("    $line")
+                mapping[out.line] = extracted.otherLineNumbers[i]
+            }
+            out.emit("  }")
+            out.emit("}")
+            append("\n")
         }
 
         val lineMapping = LineMapping(mapping)
 
         return WrapResult(classFqn = clazzName, methodName = methodName, code = wrappedCode, lineMapping = lineMapping)
+    }
+
+    /**
+     * Single choke point for emitting wrapped-code lines. Appending and advancing the
+     * wrapped-line counter happen together in [emit], so the line mapping built in [wrap]
+     * cannot drift from the generated layout (the bug this design replaced used hardcoded
+     * offsets keyed off the default-import count).
+     *
+     * [emit] rejects any text containing a newline: `appendLine` would then write more than
+     * one physical line while the counter advances by one, silently desyncing every later
+     * mapping entry — exactly the failure mode we are guarding against.
+     */
+    private class WrappedLineEmitter(private val sb: StringBuilder) {
+        /** 1-based number of the last emitted line. */
+        var line: Int = 0
+            private set
+
+        fun emit(text: String = "") {
+            require('\n' !in text) { "emit() writes exactly one line; embedded newline would desync the line counter: <$text>" }
+            sb.appendLine(text)
+            line++
+        }
     }
 }

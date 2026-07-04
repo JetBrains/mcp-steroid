@@ -106,6 +106,23 @@ class BinLauncherTest {
 
     @DisabledOnOs(OS.WINDOWS)
     @Test
+    fun `ensureBinLauncherCore registers the EXPLICIT install-script + jdk (devrig install devrig)`(@TempDir tmp: Path) {
+        val userHome = tmp.resolve("home")
+        val home = HomePaths(userHome.resolve(".mcp-steroid"))
+        // The install-tree launcher carries the version+hash dir the script computed — NOT devrig-<version>.
+        val installScript = tmp.resolve("binaries/devrig-0.100-abc1234/bin/devrig")
+        val jdkHome = tmp.resolve("binaries/jdk-0.100-deadbeef/jdk")
+
+        ensureBinLauncherCore(home, isWin = false, ownBin = installScript, jdkHome = jdkHome, userHome = userHome, pathDirs = emptyList())
+
+        val launcher = home.binDir.resolve("devrig")
+        assertTrue(Files.isExecutable(launcher), "launcher should be written + executable")
+        // The wrapper pins the PASSED jdk + execs the PASSED install-script (the eugene-x220 path bug fix).
+        assertEquals(renderPosixLauncher(installScript, jdkHome), launcher.readText())
+    }
+
+    @DisabledOnOs(OS.WINDOWS)
+    @Test
     fun `rewriting is idempotent - second start leaves identical bytes`(@TempDir tmp: Path) {
         val userHome = tmp.resolve("home")
         val home = HomePaths(userHome.resolve(".mcp-steroid"))

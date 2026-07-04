@@ -1,11 +1,11 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeDiscoveryService
-import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorService
+import com.jonnyzzz.mcpSteroid.devrig.monitor.IdePidDiscoveryService
+import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeProjectMonitorService
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IntelliJPortDiscovery
+import com.jonnyzzz.mcpSteroid.devrig.server.DevrigBackendService
 import com.jonnyzzz.mcpSteroid.devrig.server.DevrigProjectRoutingService
 import com.jonnyzzz.mcpSteroid.server.NPX_STREAM_IDLE_TIMEOUT_MILLIS
-import com.jonnyzzz.mcpSteroid.server.NpxStreamClientInfo
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -13,7 +13,6 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.HttpTimeoutConfig
 import java.io.InputStream
 import java.io.PrintStream
-import java.util.UUID
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,58 +70,52 @@ class DevrigServices(
         httpClient
     }
 
-    val ideDiscovery: IdeDiscoveryService by lazy {
-        IdeDiscoveryService(
+    val ideDiscovery: IdePidDiscoveryService by lazy {
+        IdePidDiscoveryService(
             markersDir = homePaths.markersDir,
             allowHosts = listOf("localhost", "127.0.0.1", "host.docker.internal"),
         )
     }
 
-    val ideMonitor: IdeMonitorService by lazy {
-        IdeMonitorService(
+    val ideMonitor: IdeProjectMonitorService by lazy {
+        IdeProjectMonitorService(
             httpClient = mcpHttpClient,
             discovery = ideDiscovery,
-            clientInfo = clientInfo,
         )
     }
 
     val projectRouting: DevrigProjectRoutingService by lazy {
         DevrigProjectRoutingService(
-            stateProvider = { ideMonitor.states.value },
-            // open_project prefers a running devrig-managed backend (the agent's own IDE) over an
-            // unrelated user IDE. list() is a quick local dir scan; only invoked on open_project.
-            managedRunningPids = { backendManager.list().mapNotNull { it.runningPid }.toSet() },
+            stateProvider = { ideMonitor.stateSnapshot() },
         )
-    }
-
-    /**
-     * MCP-mode [BackendInventory] for the devrig tool handlers: marker rows from the monitor's cached
-     * state (no per-call snapshot re-fetch), managed rows from [backendManager], plus a bounded port
-     * scan. The CLI path builds its own CLI-mode inventory via [collectBackendRows].
-     */
-    val backendInventory: BackendInventory by lazy {
-        monitorBackendInventory(this)
     }
 
     val portDiscovery: IntelliJPortDiscovery by lazy {
-        val discovery = IntelliJPortDiscovery(httpClient = commandHttpClient)
-        lifetime.registerCleanupAction { discovery.close() }
-        discovery
-    }
-
-    val clientInfo: NpxStreamClientInfo by lazy {
-        NpxStreamClientInfo(
-            client = "devrig",
-            clientPid = ProcessHandle.current().pid(),
-            clientVersion = DevrigVersionMetadata.getDevrigVersion(),
-            clientInstanceId = "devrig-${UUID.randomUUID()}",
-            platform = System.getProperty("os.name"),
-            arch = System.getProperty("os.arch"),
-        )
+        IntelliJPortDiscovery(httpClient = commandHttpClient)
     }
 
     val beacon by lazy {
         DevrigBeacon(homePaths, lifetime)
     }
+
+    val devrigBackendService: DevrigBackendService by lazy {
+        DevrigBackendService(
+            stateProvider = { ideDiscovery.stateSnapshot() },
+            installedProvider = { installedBackends() },
+            starter = { backendManager.start(parseBackendId(it.id)) },
+            runningManagedIdsProvider = { runningManagedIds() },
+        )
+    }
+
+    /**
+     * Returns the set of managed backend IDs that currently have a live pid file (RUNNING state).
+     * Used by both [devrigBackendService] and [runBackendCommand] so the exclusion logic stays
+     * consistent across the service path and the CLI render path.
+     */
+    fun runningManagedIds(): Set<String> =
+        backendManager.list()
+            .filter { it.state == ManagedBackendState.RUNNING }
+            .map { it.id }
+            .toSet()
 
 }

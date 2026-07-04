@@ -114,8 +114,12 @@ abstract class KtBlockCompilationTestBase {
         // kotlinc version for compiler identity
         val kotlincVersion = readKotlincVersion()
 
-        // Relative classpath paths (relative to IDE home) — avoids machine-specific absolute paths in hash
-        val relativeClasspath = classpath.map { homePath.relativize(it).toString() }
+        // Relative classpath paths (relative to IDE home) — avoids machine-specific absolute paths in hash.
+        // Extra classpath entries (e.g. project JARs in Gradle cache) may be on a different drive on
+        // Windows; for those, fall back to the absolute path string so the hash stays stable on this machine.
+        val relativeClasspath = classpath.map { entry ->
+            if (entry.root == homePath.root) homePath.relativize(entry).toString() else entry.toString()
+        }
 
         // Check compilation cache
         val cacheDir = cacheDir()
@@ -241,10 +245,10 @@ abstract class KtBlockCompilationTestBase {
 
         /**
          * Extra binary classpath entries the per-block kotlinc subprocess needs
-         * because the inlined ij-plugin sources reference classes that live in
-         * sibling project modules — not in any IDE-bundled jar. Today the only
-         * such reference is `ApplyPatchHunk` in `:mcp-steroid-server` (imported
-         * from `ApplyPatch.kt`, which the test inlines). Populated by Gradle:
+         * because the inlined ij-plugin sources may reference classes that live
+         * in sibling project modules — not in any IDE-bundled jar. (Historically
+         * `ApplyPatchHunk` via the since-removed `ApplyPatch.kt`, #206; kept as
+         * plumbing for future cases.) Populated by Gradle:
          * see `prompts/build.gradle.kts` → `ktblockExtraClasspath` configuration
          * and the `mcp.steroid.extra.classpath` system property in
          * `tasks.test.doFirst`. Empty if the property is unset, which keeps
@@ -262,12 +266,11 @@ abstract class KtBlockCompilationTestBase {
             val ijSourcesDir = System.getProperty("mcp.steroid.ij.sources")
                 ?: error("Missing system property 'mcp.steroid.ij.sources'")
             val executionDir = Path.of(ijSourcesDir, "com", "jonnyzzz", "mcpSteroid", "execution")
-            // ApplyPatch.kt defines ApplyPatchBuilder / ApplyPatchResult / ApplyPatchException,
-            // which McpScriptContext.kt references at its `applyPatch { }` extension — must be
-            // supplied to kotlinc alongside so fenced-block scripts that use the DSL compile.
             // InspectionCrashIsolation.kt defines InspectionRunResult / FailedInspection, the
-            // return type of McpScriptContext.runInspectionsDirectly — same reason.
-            listOf("McpScriptContext.kt", "McpScriptBuilder.kt", "ApplyPatch.kt", "InspectionCrashIsolation.kt").map { fileName ->
+            // return type of McpScriptContext.runInspectionsDirectly — supplied to kotlinc so
+            // fenced-block scripts using runInspectionsDirectly compile. (ApplyPatch.kt was
+            // removed on main, #206.)
+            listOf("McpScriptContext.kt", "McpScriptBuilder.kt", "InspectionCrashIsolation.kt").map { fileName ->
                 val file = executionDir.resolve(fileName)
                 require(file.isRegularFile()) { "ij-plugin source file not found: $file" }
                 file
@@ -280,7 +283,9 @@ abstract class KtBlockCompilationTestBase {
             val kotlincHome = System.getProperty("mcp.steroid.kotlinc.home")
                 ?: error("Missing system property 'mcp.steroid.kotlinc.home'")
             val kotlincDir = File(kotlincHome, "kotlinc")
-            val bin = File(kotlincDir, "bin/kotlinc")
+            val isWindows = System.getProperty("os.name", "").lowercase().startsWith("windows")
+            val binName = if (isWindows) "kotlinc.bat" else "kotlinc"
+            val bin = File(kotlincDir, "bin/$binName")
             require(bin.isFile) { "kotlinc binary not found at: $bin" }
             return bin
         }

@@ -5,33 +5,49 @@ MCP tool description for the steroid_execute_code tool.
 ###_NO_AUTO_TOC_###
 Execute Kotlin code directly in IntelliJ's runtime with full API access — builds, tests, refactoring, inspections, debugging, navigation.
 
-## 🛑 STOP before the 2nd native `Edit` — use the `applyPatch { }` DSL
+## Multi-site edits: one script, one write action
 
-If you are about to make similar edits across **two or more files** (same pattern, different paths), **do not chain `Edit` calls**. Wrap them in a single `steroid_execute_code` call that uses the script-context `applyPatch { hunk(...); hunk(...) }` DSL:
+For similar edits across **two or more files** (same pattern, different paths), do them in ONE
+`steroid_execute_code` call — read, replace, save each file, all writes inside a single
+`writeAction { }`:
 
 ```kotlin
-applyPatch {
-    hunk(filePath = "/abs/path/A.java", oldString = "oldA", newString = "newA")
-    hunk(filePath = "/abs/path/B.java", oldString = "oldB", newString = "newB")
+val edits = listOf(
+    Triple("/abs/path/A.java", "oldA", "newA"),
+    Triple("/abs/path/A.java", "oldA2", "newA2"),  // same-file edits are folded, in order
+    Triple("/abs/path/B.java", "oldB", "newB"),
+)
+val resolved = edits.groupBy { it.first }.map { (path, fileEdits) ->
+    val vf = findProjectFile(path) ?: error("not found: $path")
+    var content = String(vf.contentsToByteArray(), vf.charset)
+    for ((_, old, new) in fileEdits) {   // each edit sees the previous one's result
+        val occurrences = content.split(old).size - 1
+        check(occurrences == 1) { "$path: anchor occurs $occurrences times — expand it with surrounding context" }
+        content = content.replace(old, new)
+    }
+    vf to content
 }
+writeAction { resolved.forEach { (vf, updated) -> VfsUtil.saveText(vf, updated) } }
+println("edited: " + resolved.joinToString { it.first.path })
 ```
 
-Pre-flight validates every `old_string` is present exactly once before any edit lands; all hunks land as a single undoable IDE command; PSI is committed in-place; the editing guard inlined into `steroid_execute_code` schedules a VFS refresh AFTER the script returns. Native `Edit` chains bypass the VFS, leave PSI stale, and cost one tool call per site. See `mcp-steroid://ide/apply-patch` for the full recipe.
+The pre-check loop validates every match before any write lands; `VfsUtil.saveText` keeps
+VFS + PSI consistent; native `Edit` chains bypass the VFS and cost one tool call per site.
 
-Keep `old_string` to the shortest unique signature (30–60 chars usually — no need for the full 300-char safety block).
-
-**Heuristic**: before the 2nd `Edit` in the same task, stop and ask: "Am I applying the same or similar change to 2+ sites?" If yes, batch into one `applyPatch { }` call inside `steroid_execute_code`.
+Escape hatch for COMPLEX changes only (an existing unified diff, or drifted files where
+literal anchors keep failing): the IDE's tolerance-matching patch engine — fetch
+`mcp-steroid://ide/apply-unified-diff`. This recipe stays primary.
 
 ## Decision tree — pick the IDE path before reaching for a native tool
 
 | Task shape | One-line IDE call |
 |---|---|
-| **Two or more literal-text edits, same or different files** | `steroid_execute_code` with the `applyPatch { }` DSL — atomic undo, pre-flight validation, PSI commit, VFS refreshed after the script. See `mcp-steroid://ide/apply-patch`. |
-| **One literal-text edit, single file** | `val vf = findProjectFile(p)!!; writeAction { VfsUtil.saveText(vf, String(vf.contentsToByteArray(), vf.charset).replace(OLD, NEW)) }` |
+| **Two or more literal-text edits, same or different files** | one `steroid_execute_code` script: read + `replace` each file, pre-check every match, then save all inside a single `writeAction { }` (see "Multi-site edits" above) |
+| **One literal-text edit, single file** | `val vf = findProjectFile(p) ?: error("not found: $p"); writeAction { VfsUtil.saveText(vf, String(vf.contentsToByteArray(), vf.charset).replace(OLD, NEW)) }` |
 | **Find files by extension** | `readAction { FilenameIndex.getAllFilesByExt(project, "java", projectScope()) }` — not `Bash find … -name "*.java"` |
 | **Find files by exact name** | `readAction { FilenameIndex.getVirtualFilesByName("UserService.java", projectScope()) }` |
 | **Find all references to a symbol** | `readAction { ReferencesSearch.search(psiElement, projectScope()).findAll() }` — type-aware; Grep over source text is a fallback |
-| **Read file content (any size)** | `String(findProjectFile(p)!!.contentsToByteArray(), charset)` — stays inside the IDE; the next semantic query sees what you read |
+| **Read file content (any size)** | `String((findProjectFile(p) ?: error("not found: $p")).contentsToByteArray(), charset)` — accepts relative or absolute paths, always re-reads from disk when called at the script top level; the next semantic query sees what you read |
 | **Grep content inside project files** | `readAction { FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> Regex(pat).findAll(String(vf.contentsToByteArray(), vf.charset)) … } }` in ONE call |
 | **Run Maven / Gradle tests** | IDE runner — see `mcp-steroid://skill/execute-code-maven` and `mcp-steroid://skill/execute-code-gradle`; Bash is only for shell-level final verification or IDE-runner fallback |
 | **IDE build aborted (`errors=false, aborted=true`)** | Fetch `mcp-steroid://skill/execute-code-gradle` or `mcp-steroid://skill/execute-code-maven` and run the matching sync pattern before Bash fallback. |
@@ -198,11 +214,12 @@ For deeper patterns (SMTRunner listeners that block until tests finish + emit st
 - `Read access is allowed from inside read-action only` → wrap in `readAction { }`
 
 **File discovery**: `readAction { FilenameIndex.getAllFilesByExt(project, ext, projectScope()) }` or `readAction { FilenameIndex.getVirtualFilesByName(name, projectScope()) }` inside `steroid_execute_code` — O(1) indexed lookup over the same VFS your next write will touch. The `readAction { }` wrap is mandatory; without it the call throws `Read access is allowed from inside read-action only` and the script aborts.
-**File reading**: `String(findProjectFile(relPath)!!.contentsToByteArray(), charset)` inside `steroid_execute_code` — single call, stays inside the IDE so PSI is consistent if you read the same file again later. The native `Read` tool is a valid alternative but imposes the Read-before-Edit contract only it tracks; staying inside `steroid_execute_code` avoids that coupling entirely.
+**File reading**: `String((findProjectFile(path) ?: error("not found: $path")).contentsToByteArray(), charset)` inside `steroid_execute_code` — `findProjectFile` accepts project-relative AND absolute paths, and (outside `readAction`/`writeAction`) always refreshes the file from disk before returning, so externally created or modified files are seen correctly. Prefer `?: error(...)` over `!!` so a missing file fails with the path in the message. Single call, stays inside the IDE so PSI is consistent if you read the same file again later. The native `Read` tool is a valid alternative but imposes the Read-before-Edit contract only it tracks; staying inside `steroid_execute_code` avoids that coupling entirely.
 **In-place file editing (ANY size, 1–1000+ lines)**: use steroid_execute_code — do NOT use the native `Edit` tool. The native `Edit` writes to disk bypassing IntelliJ, leaving VFS + PSI stale; every following semantic query sees the old content until you force a refresh. The IDE-side recipe below is ~5 lines of real code, same payload shape as `Edit(old, new)`, reads+writes inside one call, and the VFS auto-refreshes so PSI stays consistent:
 
 ```kotlin
-val vf = findProjectFile("src/main/java/com/example/MyClass.java")!!
+val path = "src/main/java/com/example/MyClass.java"   // relative or absolute both work
+val vf = findProjectFile(path) ?: error("not found: $path")
 val content = String(vf.contentsToByteArray(), vf.charset)  // read
 val updated = content.replace("OLD_STRING", "NEW_STRING")
 check(updated != content) { "no match for OLD_STRING — verify with Grep first" }
@@ -211,7 +228,7 @@ writeAction { VfsUtil.saveText(vf, updated) }               // write + VFS refre
 
 For exactly-one-occurrence replace: `.replace(OLD, NEW).also { check(… == 1 occurrence) }`. For regex: `Regex(pattern).replace(content, replacement)`. Do NOT pre-Read the file via the native tool before using this recipe — the `vf.contentsToByteArray()` read already covers that.
 
-**Two or more edits in one or more files**: wrap them in one `steroid_execute_code` call that uses the `applyPatch { }` DSL. It applies N literal-text substitutions as one undoable command with all-or-nothing pre-flight validation and PSI commit. Read `mcp-steroid://ide/apply-patch` for the full recipe.
+**Two or more edits in one or more files**: do them in one `steroid_execute_code` script — pre-check every match, then save all files inside a single `writeAction { }` (see "Multi-site edits" at the top of this description).
 
 **VFS refresh before and after every call.** MCP Steroid schedules two refreshes for you:
 - **Before** kotlinc compiles your script, the plugin **awaits** a `VfsUtil.markDirtyAndRefresh` on the project root so the compiler sees every on-disk change made by a peer process or the previous call. Blocking, capped at 30 s.

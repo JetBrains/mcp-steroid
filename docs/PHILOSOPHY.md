@@ -46,13 +46,14 @@ A new tool may be added only when **all** of these are true:
 
 Anything short of that — propose a recipe instead.
 
-**Worked example — `steroid_apply_patch` removed.** A dedicated patch tool
-duplicated what `steroid_execute_code` + the in-script `applyPatch { }` DSL
-+ `mcp-steroid://ide/apply-patch` already deliver: data-only multi-site
-edits, atomicity, VFS refresh. The tool added schema surface and a forked
-recipe corpus without enabling anything the recipe couldn't. Removing it
-is what Tenet 1 looks like in practice — unlock IDE depth rather than
-optimize a generic edit path.
+**Worked example — apply-patch removed, twice.** A dedicated
+`steroid_apply_patch` tool duplicated what `steroid_execute_code` already
+delivers and was removed (May 2026). The in-script `applyPatch { }` DSL
+survived it — until full-scale eval data showed its exact-match resolution
+failed 64% of real calls, and it was removed too (#206, July 2026); a
+tolerance-matching successor is backlogged as #208. Both removals are what
+Tenet 1 looks like in practice — unlock IDE depth rather than keep an
+attractive-but-unreliable generic edit path.
 
 ## Tenet 2 — power lives in prompts and direct IntelliJ API usage
 
@@ -143,7 +144,7 @@ Concretely:
 exposed to scripts running inside `steroid_execute_code` (see
 `ij-plugin/src/main/kotlin/com/jonnyzzz/mcpSteroid/execution/McpScriptContext.kt`
 for the current surface — `project`, `disposable`, `printJson(...)`,
-`progress(...)`, `applyPatch { }`, `findProjectFile(...)`, `projectScope()`,
+`progress(...)`, `findProjectFile(...)`, `projectScope()`,
 the inspection / highlighting helpers, etc.) exist because the
 IntelliJ API genuinely could not cover the case at the time. They are
 not the default extension point; the IntelliJ API is. The surface is
@@ -160,14 +161,13 @@ preference.
 3. The new method must teach an idiom that's reusable across many tasks,
    not specialised to one DPAIA scenario.
 
-**`applyPatch { }` is the canonical example of how we earn a script-context
-method.** The DSL lives on `McpScriptContext` because composing
-multi-site literal edits with surrounding IntelliJ API work (PSI walk →
-patch → inspections in one read/write cycle) is genuinely worth the
-surface. Production guidance routes agents to the
-`mcp-steroid://ide/apply-patch` recipe inside `steroid_execute_code` —
-there is no dedicated MCP tool wrapping it. New context methods must
-clear the same bar.
+**`applyPatch { }` is the cautionary example of this bar.** The DSL earned
+its `McpScriptContext` seat for atomic multi-site edits — and lost it when
+eval data showed 64% of real calls failed on exact-match resolution
+(removed in #206; tolerance-matching successor tracked in #208). Earning
+the surface is necessary but not sufficient: a method must also prove
+agents can use it reliably at scale. New context methods must clear both
+bars.
 
 ## Tenet 5 — the devrig↔plugin WIRE is additive-only (the devrig-computed output is not)
 
@@ -189,10 +189,23 @@ Every change to one of those shapes is **additive and optional**:
 - Never remove, rename, or retype an existing field. Enums must degrade
   on an unknown value, not throw.
 
+**One-release waiver — startable-backends (2026-06-22).** The additive-
+only constraint was **deliberately waived for the startable-backends
+change**. devrig and the plugin shipped together in that release, so DTO
+fields, marker fields, and tool-response shapes were reshaped and removed
+outright (no deprecation shims). Specifically: `BackendInfo` and
+`ListedBackendInfo` were deleted; `backends[]` was removed from
+`ListProjectsResponse` and `ListWindowsResponse` (which now carry only
+`projects` / `windows` + `backgroundTasks`); the CLI `backend --json`
+shape changed from one `backends[]` to three explicit arrays
+(`mcpSteroidBackends[]`, `otherIdes[]`, `startableBackends[]`). This
+waiver is a one-time exception, not a precedent — the principle stays in
+force for all future changes. See `docs/startable-backends-design.md`.
+
 **The devrig-computed MCP/CLI output is devrig-owned and outside this
 contract — free to reshape.** `steroid_list_projects` results
-(`ListProjectsResponse`, `BackendInfo`, `ListedProject`) and the devrig
-CLI `backend`/`project --json` output are built by devrig from its own
+(`ListProjectsResponse`, `ListedProject`) and the devrig CLI
+`backend`/`project --json` output are built by devrig from its own
 routing snapshot and returned to one freshly-attached agent or user —
 devrig **never fetches** the IDE's `steroid_list_projects`, so these
 types never cross the wire. They may be renamed, restructured, or
@@ -205,17 +218,16 @@ re-keyed at will; only the wire above is frozen.
   `steroid_open_project` bridge call stayed byte-identical while the
   agent gained backend selection. `backend_name` is resolved locally,
   never forwarded.
-- Because the per-project backend reference now lives on the
-  devrig-owned `ListedProject` (not on the wire), the wire `ProjectInfo`
-  was **reverted to pristine `{name, path}`**. `ProjectsStreamService`
-  only ever builds `ProjectInfo(name, path)`, so this reversion changes
-  **zero emitted bytes** on `/projects/stream`.
+- Because the per-project backend reference lives on the devrig-owned
+  `ListedProject` (not on the wire), the wire `ProjectInfo` stays
+  pristine `{name, path}`. `ProjectsStreamService` only ever builds
+  `ProjectInfo(name, path)`, so no backend reference ever crosses the
+  wire.
 - Every wire change ships with a cross-version compatibility test (the
   wire-pristineness guard `WirePristinenessTest` asserts the wire never
-  serializes the devrig-only `backend_name`/`project_name`/`BackendInfo`/
-  `ListedProject` keys; `DevrigToolBridgeClientTest` pins the forwarded
-  params) and a one-line entry in the `ij-plugin/CLAUDE.md` wire-contract
-  table.
+  serializes the devrig-only `backend_name`/`project_name`/`ListedProject`
+  keys; `DevrigToolBridgeClientTest` pins the forwarded params) and a
+  one-line entry in the `ij-plugin/CLAUDE.md` wire-contract table.
 
 **Why:** the protocol is the one thing two independently-versioned
 binaries share; a breaking change there strands every mismatched pair.

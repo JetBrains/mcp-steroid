@@ -3,7 +3,6 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.intellij.ide.GeneralSettings
 import com.intellij.ide.trustedProjects.TrustedProjects
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
@@ -11,6 +10,7 @@ import com.intellij.openapi.project.ProjectManager.getInstance
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.builder
+import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
@@ -19,7 +19,10 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
     private val logger = thisLogger()
 
 
-    override suspend fun handleOpenProject(openProjectParams: OpenProjectParams): ToolCallResult {
+    override suspend fun handleOpenProject(
+        openProjectParams: OpenProjectParams,
+        callProgress: McpProgressReporter,
+    ): ToolCallResult {
         val projectPath = Path.of(openProjectParams.projectPath).toAbsolutePath()
 
         // backend_name is a devrig-only routing hint. A direct in-IDE connection serves exactly one
@@ -30,7 +33,7 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
         }
 
         // Check if project is already open
-        val existingProject = readAction {
+        val existingProject = run { // #214: no read action — must not park behind a pending write (wedges every tool)
             ProjectManager.getInstance().openProjects.find { project ->
                 project.basePath?.let { Path.of(it).toAbsolutePath().normalize() == projectPath.normalize() } == true
             }

@@ -705,7 +705,14 @@ class IdeExamplesExecutionTest : BasePlatformTestCase() {
     }
 
     fun testInspectAndFixExampleExecutes(): Unit = timeoutRunBlocking(60.seconds) {
-        myFixture.enableInspections(RedundantCastInspection())
+        // SpellCheckingInspection (the recipe default) is not bundled in this test IDE.
+        // RedundantCast ships with com.intellij.java and matches the (String) null cast in
+        // InspectionSample.java, so it exercises the same inspect-and-fix flow. Register it in
+        // the fixture's current profile so the recipe's by-short-name profile lookup resolves it.
+        WriteAction.runAndWait<RuntimeException> {
+            myFixture.enableInspections(RedundantCastInspection())
+        }
+
         val raw = index.inspectAndFixMd.ktBlock000.readPrompt()
         val code = configureExample(
             raw,

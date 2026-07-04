@@ -1,5 +1,15 @@
 # `steroid_apply_patch` API audit vs standard agent edit tools
 
+> **Status (2026-07-03):** the in-script `applyPatch { }` DSL analyzed below is **removed from
+> the product** ([#206](https://github.com/jonnyzzz/mcp-steroid/issues/206)) after run-3 eval
+> data showed a 64% call failure rate. The efficient successor (tolerance-ladder matching, see
+> the `GenericPatchApplier` section) is backlogged as
+> [#208](https://github.com/jonnyzzz/mcp-steroid/issues/208). Last main revision with the DSL
+> present: [`97363152`](https://github.com/jonnyzzz/mcp-steroid/commit/97363152153f6e6c3077e6ca2265a8aef5f4e2c2).
+> This document stays as the design record for #208. Interim: the platform engine is already
+> reachable today via the `mcp-steroid://ide/apply-unified-diff` recipe (an escape hatch for
+> complex changes / existing diffs — the read-replace-save script remains the primary flow).
+
 Cross-referencing our tool's input shape and semantics against the
 built-in file-mutation tools of the major AI coding CLIs. Evidence
 sources: tool-use NDJSON from the DPAIA autoresearch runs (real Claude
@@ -53,6 +63,84 @@ Codex + OpenCode `apply_patch` both accept an opaque V4A-style envelope as a str
 
 Our JSON-native choice avoids a parser entirely. Against Claude's `Edit` + `MultiEdit`, it's the natural multi-file generalisation.
 
+## How the IntelliJ platform itself applies patches — `GenericPatchApplier` comparison
+
+The IDE ships its own patch engine, used by VCS **Apply Patch**, shelf/unshelve, and stash: 
+`GenericPatchApplier` (`platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/apply/GenericPatchApplier.java`,
+~1,400 lines), driven from `ApplyTextFilePatch`. It solves the same problem as our DSL — apply
+text edits to a file that may have drifted — with the opposite design at almost every decision
+point.
+
+### Input model
+
+The platform consumes **unified-diff hunks** (`PatchHunk` → `SplitHunk`): context lines around
+the change, added/removed lines, and expected line numbers. Ours consumes **literal
+`old_string`/`new_string` pairs** with no context lines and no positions. The platform's model
+carries redundancy the matcher can exploit; ours carries exactly one anchor that must match
+byte-for-byte.
+
+### Matching: a 4-step tolerance ladder vs one exact `indexOf`
+
+`GenericPatchApplier.execute()` walks a ladder (`GenericPatchApplier.java:179-236`):
+
+1. **Exact match with full context** at the expected position.
+2. **Exact hunk body, reduced/without context** — searches up to `ourMaxWalk = 1000` lines away
+   from the expected position (`testForPartialContextMatch` + `ExactMatchSolver`).
+3. **"Variable place" match** — insert/delete complemented, still exact-body, position-free.
+4. Optionally `trySolveSomehow()` (`:363-393`): `LongTryMismatchSolver` **tolerates mismatching
+   lines inside the hunk body**, trims identical tails, pads short hunks — genuine fuzzy
+   application as a last resort.
+
+Whatever still fails lands in a `myNotBound` list and surfaces as **PARTIAL** in the
+interactive VCS flow (note: the batch entry point `GenericPatchApplier.apply` instead returns
+`null` when `execute()` fails — callers like `ApplyTextFilePatch` map that to FAILURE). Our DSL does step 0 only: `document.text.indexOf(old_string)` must succeed and be unique
+(`ApplyPatch.kt:156-168`); any miss rejects the whole patch.
+
+There is also a strict platform variant — `PlainSimplePatchApplier` (`@ApiStatus.Internal`),
+line-number-based and all-or-nothing (`null` on any mismatch) — which shows the platform
+deliberately keeps *both* postures and picks per use-case.
+
+### Status model and idempotency
+
+The platform returns `SUCCESS / PARTIAL / ALREADY_APPLIED / SKIP / FAILURE / ABORT`
+(`ApplyPatchStatus.java`). **`ALREADY_APPLIED` is detected** — a hunk whose *after* state is
+already in the file is recognized and skipped, so re-applying a patch is idempotent. Our DSL has
+no equivalent: an already-applied hunk simply fails "old_string not found" (the closest-candidate
+diagnostics are the agent's only clue).
+
+### Failure handling: interactive merge vs structured error
+
+On PARTIAL/FAILURE the platform does not give up — `ApplyTextFilePatch` hands the leftovers to a
+**three-way merge UI** with base-revision texts (`getMergeData()` →
+`ApplyPatchForBaseRevisionTexts`), letting a human resolve what the matcher couldn't. Our
+agent-facing equivalent is the structured error message (hunk index, path, closest-candidate
+lines). The platform also wraps its own engine in `catch (Throwable)` with a fallback state
+("GenericPatchApplier is buggy, limit AIOOB impact on user") — degrade, never crash.
+
+Bonus capability we lack entirely: `weightContextMatch(maxWalk, maxPartsToCheck)` scores how
+well a patch fits a given base text — the platform uses it to *choose the best base revision*
+before applying (shelf/unshelve).
+
+### What this means for us (run-3 evidence)
+
+At eval scale our exact-match posture failed **56 of 87 DSL invocations (64 %)** — 52 of them
+"old_string not found", i.e. precisely the drift class the platform ladder was built to absorb
+(steps 2–4 exist because exact-match-at-position fails in practice). Two caveats before reusing
+the platform engine directly:
+
+- `GenericPatchApplier` lives in an `impl` package (no `@ApiStatus` marking, but not a stable
+  API surface either) — per this repo's public-stable-API rule, prefer **borrowing the ladder
+  design** (exact → context-relaxed → position-relaxed → fuzzy-with-report) over linking the
+  class, unless its stability is confirmed.
+- The platform's PARTIAL model conflicts with our atomicity guarantee (the strongest surveyed,
+  see above). The ladder can be adopted *inside* the all-or-nothing pre-flight: resolve every
+  hunk with tolerance, but still land all-or-nothing in one `WriteCommandAction`, and report
+  per-hunk match quality (exact / moved / fuzzy) in the result.
+
+Cross-reference: OpenCode's `edit` faces the same literal-pair problem and answers it the same
+way the platform does — a 9-strategy fuzzy `Replacer` pipeline (see the comparison table above).
+We are the only surveyed implementation with **zero** tolerance between "byte-exact" and "fail".
+
 ## Recommendations
 
 1. ~~Consider renaming `hunks[].path` → `hunks[].file_path` to match Claude's canonical naming.~~ **Applied in this commit.** Every hunk's file identifier is now `file_path`, matching Claude Code `Edit` exactly.
@@ -61,6 +149,11 @@ Our JSON-native choice avoids a parser entirely. Against Claude's `Edit` + `Mult
 4. **Keep** `project_name`, `task_id`, `reason` — they're justified by MCP semantics.
 5. **Do NOT add** `add`/`delete`/`move` ops to this tool — they belong to a separate tool (or to `steroid_execute_code` VFS APIs).
 6. **Keep** the pre-flight-then-single-WriteCommandAction atomicity. Our guarantee is strictly stronger than every other tool surveyed.
+7. **Adopt a tolerance ladder inside the pre-flight** (from the `GenericPatchApplier` comparison
+   above): exact match first, then whitespace-normalized, then closest-match-with-diff in the
+   error. Run-3 eval data (56/87 DSL calls failed, 52 on exact-match misses) shows the
+   zero-tolerance posture is the tool's dominant failure mode. Do not adopt the platform's
+   PARTIAL semantics — keep all-or-nothing, add tolerance only to hunk *resolution*.
 
 ## Sources
 
@@ -69,3 +162,5 @@ Our JSON-native choice avoids a parser entirely. Against Claude's `Edit` + `Mult
 - OpenCode source: `~/Work/opencode-sst/packages/opencode/src/tool/edit.ts` (lines 35-45, 192-196, 673-710), `apply_patch.ts:41-252`.
 - Pi Coding Agent: `https://mariozechner.at/posts/2025-11-30-pi-coding-agent/`.
 - Anthropic Text-Editor tool: `https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool.md`.
+- IntelliJ platform patch engine: `~/Work/intellij/community` — `platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/apply/GenericPatchApplier.java` (execute ladder :179-236, trySolveSomehow :363-393, weightContextMatch :160), `ApplyTextFilePatch.java:40-62` (merge fallback), `PlainSimplePatchApplier.java` (strict variant), `ApplyPatchStatus.java:16` (status model).
+- Run-3 eval failure data: private `mcp-steroid-logs` repo, `2026-06-29/REVIEW.md` (2026-07-02 addendum).

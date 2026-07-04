@@ -55,6 +55,8 @@ When changing files across multiple sub-folders, read the guides for each.
 | `test-experiments/` | [test-experiments/CLAUDE.md](test-experiments/CLAUDE.md) | DPAIA arena suite, debugger demos, prompt-quality comparisons, IMPROVEMENTS.md harness |
 | `docs/` | [docs/CLAUDE.md](docs/CLAUDE.md) | Autoresearch / prompt-optimization working notes, DPAIA history |
 | `website/` | [website/CLAUDE.md](website/CLAUDE.md) | Hugo site sources, GitHub Pages deployment |
+| `installer-gen/` | [installer-gen/CLAUDE.md](installer-gen/CLAUDE.md) | Build-tooling: computed JDK data model (Corretto/Azul, PGP-verified, pinned fingerprints), on-disk download cache, install.sh/install.ps1 generation |
+| `website-gen/` | [website-gen/CLAUDE.md](website-gen/CLAUDE.md) | Build-tooling generator: version.json + updatePlugins.xml (depends on `:installer-gen` for shared HTTP) |
 
 ## MUST DO
 
@@ -72,6 +74,11 @@ When changing files across multiple sub-folders, read the guides for each.
 
 - **`runCatching{}.onFailure{}`** — use `try { } catch (e: Exception) { }` instead. Other `runCatching` uses
   (`.getOrNull()`, `.getOrDefault()`) are fine.
+- **The `internal` visibility modifier.** Prefer plain public (no modifier). Don't add `internal` to
+  declarations — including test-visible helpers.
+- **Returning a `(value, errorFlag)` pair/tuple from a call that can fail.** Return the value (or a domain
+  value object) and signal failure by throwing or returning `null` — not `Pair<Result, Boolean>` where the
+  boolean is an error/isError flag.
 - **Empty `catch` / `catch (_: Exception) {}`.** Fail fast and log: every catch must rethrow, log via
   `System.err.println` / `logger.error`, or both. Silent failure hides root causes.
 - **`run-agent.sh` references in production code or tests.** It is a manual dev/peer-review tool only.
@@ -171,7 +178,13 @@ IDE via Kotlin code execution.
 
 ## Technology Stack
 
-Gradle 9.5.1 / Kotlin 2.3.20 / Java 25 / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
+Gradle 9.5.1 / Kotlin 2.3.20 / Java 25 toolchain / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
+
+**Bytecode targets Java 21** (class-file v65) while the toolchain stays JDK 25: Android Studio 2026.1
+bundles JBR 21 (IDEA bundles JBR 25), so the plugin must load on both. Set via the root `subprojects {}`
+convention (`jvmTarget=21` + `-Xjdk-release=21` + `options.release=21`); enforced by
+`verifyClassFileVersions` on the plugin/devrig distributions; regression-gated by
+`AndroidStudioRuntimeCompatTest`. See issue #157.
 
 The Gradle Daemon is pinned to **JDK 25** via `gradle/gradle-daemon-jvm.properties`
 (matches IDEA 2026.1's bundled JBR — see `docs/262-EAP-PLAN.md`). The
@@ -210,6 +223,14 @@ generate→edit→regenerate→commit workflow. The TC VCS root pulls from `jb`,
 **GitHub Actions** (`.github/workflows/`): builds the publishable plugin ZIP and deploys the website to
 GitHub Pages. Plugin tests are intentionally NOT mirrored — full coverage stays on TC (3–5× faster
 internal agents). Trigger PR builds via `workflow_dispatch` on the PR's head branch.
+
+**Website deploys from the `website` branch, NOT `main`.** GitHub Pages builds on a push to the
+long-lived **`website`** branch (`github-pages.yml`). `website` tracks `main` (advance via
+`git merge main → website`, normally often) but can deliberately lag it so website changes that depend
+on an **unreleased** devrig binary — e.g. a new `install.sh`/`install.ps1` CLI contract — stay off the
+live site until a matching GitHub release exists. The release process advances `website` AFTER
+publishing the release (`release/release-instructions.md` → "Stage 7c"). `website` is **origin-only**
+(never synced to `jb`, which runs TeamCity only). A push to `main` no longer deploys the website.
 
 ## Git Remotes: `origin` vs `jb`
 

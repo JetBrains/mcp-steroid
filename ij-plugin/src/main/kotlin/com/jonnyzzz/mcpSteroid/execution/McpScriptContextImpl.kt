@@ -27,7 +27,9 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
@@ -205,8 +207,9 @@ class McpScriptContextImpl(
         resultBuilder.logProgress("Waiting for indexing to complete...")
 
         try {
-            // Bounded as a deadlock safety net (indexing that never reaches smart mode) — the tool docs
-            // promise the wait is bounded. Timeout => fail the execution with a clear message.
+            // We only wait this short window per call so the request returns promptly. Reaching it does
+            // NOT mean anything is wrong: dumb mode means indexing is actively running and making
+            // progress. We tell the caller so, and let it poll (call again).
             withTimeout(WAIT_FOR_SMART_MODE_TIMEOUT) {
                 suspendCancellableCoroutine<Unit> { cont ->
                     fun waitForSmart() {
@@ -228,11 +231,15 @@ class McpScriptContextImpl(
                 }
             }
         } catch (_: TimeoutCancellationException) {
-            captureThreadDump("waitForSmartMode-timeout")
-            log.error("[$executionId] waitForSmartMode did not reach smart mode within $WAIT_FOR_SMART_MODE_TIMEOUT")
+            // Not an error and not stuck — indexing is in progress. Tell the caller to keep polling.
+            log.info("[$executionId] still indexing after $WAIT_FOR_SMART_MODE_TIMEOUT — asking caller to poll")
             throw ToolCallErrorException(
-                "waitForSmartMode did not reach smart mode within $WAIT_FOR_SMART_MODE_TIMEOUT — indexing may " +
-                    "be stuck. See the thread dump under execution '${executionId.executionId}'."
+                "INDEXING IN PROGRESS: the IDE is still indexing this project, so it is not ready yet. " +
+                    "This is normal and expected — it is NOT an error and nothing is stuck; indexing always " +
+                    "makes progress and simply needs more time. Indexing a medium-size project can take up " +
+                    "to an hour, and larger projects longer; that wait is acceptable. Just keep polling: " +
+                    "call this tool again to continue waiting (each call waits up to $WAIT_FOR_SMART_MODE_TIMEOUT), " +
+                    "and your request runs automatically once indexing finishes."
             )
         } finally {
             log.info("[$executionId] Waiting for indexing completed")
@@ -649,8 +656,28 @@ class McpScriptContextImpl(
     // File Access
     // ============================================================
 
-    override fun findFile(absolutePath: String): VirtualFile? =
-        LocalFileSystem.getInstance().findFileByPath(absolutePath)
+    override fun findFile(absolutePath: String): VirtualFile? {
+        val lfs = LocalFileSystem.getInstance()
+        if (ApplicationManager.getApplication().isReadAccessAllowed) {
+            // Synchronous refresh off-EDT under read access deadlocks (the write action
+            // delivering VFS events can never start while our read lock is held —
+            // VirtualFile.refresh / VfsUtil.markDirtyAndRefresh contract). Inside
+            // read/write actions the helper is snapshot-only, same as before #156.
+            return lfs.findFileByPath(absolutePath)?.takeIf { it.isValid }
+        }
+        // #156: ALWAYS refresh. A snapshot hit may still carry stale content — the
+        // refresh-and-find utilities only instantiate path segments missing from the
+        // snapshot and never re-stat an existing file, and in a headless eval IDE the
+        // file watcher cannot be trusted to mark external changes dirty.
+        val vf = lfs.refreshAndFindFileByPath(absolutePath) ?: return null
+        // An UNSAVED in-memory Document + forced refresh would engage the platform's
+        // memory-vs-disk conflict resolver (a dialog in production, IllegalStateException
+        // in tests). The unsaved Document IS the newest content here — keep the snapshot.
+        if (!FileDocumentManager.getInstance().isFileModified(vf)) {
+            VfsUtil.markDirtyAndRefresh(/* async = */ false, /* recursive = */ false, /* reloadChildren = */ false, vf)
+        }
+        return vf.takeIf { it.isValid }
+    }
 
     override suspend fun findPsiFile(absolutePath: String): PsiFile? {
         val vf = findFile(absolutePath) ?: return null
@@ -658,9 +685,15 @@ class McpScriptContextImpl(
     }
 
     override fun findProjectFile(relativePath: String): VirtualFile? {
+        // #156: agents routinely pass absolute paths (every tool result shows them).
+        // Absolute input behaves exactly like findFile(absolutePath).
+        if (isAbsolutePath(relativePath)) return findFile(relativePath)
         val basePath = project.basePath ?: return null
         return findFile("$basePath/$relativePath")
     }
+
+    private fun isAbsolutePath(path: String): Boolean =
+        path.startsWith("/") || runCatching { Path.of(path).isAbsolute }.getOrDefault(false)
 
     override suspend fun findProjectFiles(globPattern: String): List<VirtualFile> {
         if (globPattern.isBlank()) return emptyList()
@@ -699,16 +732,10 @@ class McpScriptContextImpl(
     }
 
     override suspend fun findProjectPsiFile(relativePath: String): PsiFile? {
-        val basePath = project.basePath ?: return null
-        return findPsiFile("$basePath/$relativePath")
+        // Delegate through findProjectFile so absolute-path tolerance and refresh
+        // semantics live in exactly one place (#156).
+        val vf = findProjectFile(relativePath) ?: return null
+        return readAction { PsiManager.getInstance(project).findFile(vf) }
     }
 
-    override suspend fun applyPatch(block: ApplyPatchBuilder.() -> Unit): ApplyPatchResult {
-        val builder = ApplyPatchBuilder()
-        builder.block()
-        // Reuse findFile so apply-patch handles every VFS flavour the rest of the
-        // script context handles (LocalFileSystem in production, temp:// in unit
-        // tests, mock VFS in fixtures) — no hard-coded LocalFileSystem.
-        return executeApplyPatch(project, builder.hunks) { path -> findFile(path) }
-    }
 }

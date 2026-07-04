@@ -7,7 +7,6 @@ import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerVolume
 import com.jonnyzzz.mcpSteroid.testHelper.docker.StartContainerRequest
 import com.jonnyzzz.mcpSteroid.testHelper.docker.mapGuestPortToHostPort
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startDockerContainerAndDispose
-import com.sun.tools.javac.tree.TreeInfo.args
 import java.io.File
 
 fun IntelliJContainer.Companion.create(lifetime: CloseableStack, opts: IntelliJContainerOpts): IntelliJContainer = opts.run {
@@ -37,6 +36,10 @@ fun IntelliJContainer.Companion.create(lifetime: CloseableStack, opts: IntelliJC
     val volumes = buildList {
         add(ContainerVolume(runDir, containerMountedPath, "rw"))
         add(ContainerVolume(IdeTestFolders.repoCacheDir, "/repo-cache", "ro"))
+        // Persist the container's Maven (~/.m2) + Gradle (~/.gradle) caches to the host so library jars and
+        // their sources/javadoc are downloaded once and reused across runs (always-on source download makes
+        // the cold import expensive — this keeps re-runs warm).
+        addAll(IdeTestFolders.dependencyCacheVolumes())
 
         addAll(setupHostMappings.volumes)
     }
@@ -148,7 +151,7 @@ fun IntelliJContainer.Companion.create(lifetime: CloseableStack, opts: IntelliJC
     require(ijProcess.isRunning()) { "${ideProduct.displayName} process finished" }
 
     // Wait for MCP server readiness
-    val mcpSteroidDriver = McpSteroidDriver(container, ijDriver)
+    val mcpSteroidDriver = McpSteroidDriver(container, ijDriver, ijProcess)
     console.writeInfo("Waiting for MCP Steroid server...")
     mcpSteroidDriver.waitForMcpReady()
 

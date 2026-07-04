@@ -63,6 +63,21 @@ enum class IdeProduct(
         displayName = "CLion",
         jetbrainsProductCode = "CL",
         hasJavaSdk = false,
+    ),
+
+    /**
+     * Android Studio (Google) — an IntelliJ-platform IDE with a different plugin/SDK surface. Reuses the
+     * base `ide-agent` image (no dedicated Android Studio image is built yet), so support is exploratory:
+     * the `studio` launcher and the bundled Android/Java plugins differ from IDEA, and the MCP Steroid
+     * plugin is not guaranteed compatible. Used by experiments allowed to fail.
+     */
+    AndroidStudio(
+        id = "android-studio",
+        dockerImageBase = "ide-agent",
+        launcherExecutable = "studio",
+        displayName = "Android Studio",
+        jetbrainsProductCode = "AI",
+        hasJavaSdk = true,
     );
 
     companion object {
@@ -73,7 +88,8 @@ enum class IdeProduct(
             "webstorm", "ws" -> WebStorm
             "rider", "rd", "dotnet" -> Rider
             "clion", "cl", "cpp", "c++" -> CLion
-            else -> error("Unsupported test.integration.ide.product='$rawValue'. Use one of: idea, pycharm, goland, webstorm, rider, clion.")
+            "androidstudio", "android-studio", "android", "as", "ai" -> AndroidStudio
+            else -> error("Unsupported test.integration.ide.product='$rawValue'. Use one of: idea, pycharm, goland, webstorm, rider, clion, android-studio.")
         }
     }
 }

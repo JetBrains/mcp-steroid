@@ -1,0 +1,25 @@
+[14:16:48] :		 [:test-experiments:test]     [ARENA] Loaded 154 test cases
+[14:16:48] :		 [:test-experiments:test]     [ARENA] Creating container for [claude+mcp] dpaia__spring__petclinic-27 ...
+[14:33:24] :		 [:test-experiments:test]     [ARENA] ════════════════════════════════════════
+[14:33:24] :		 [:test-experiments:test]     [ARENA] claude+mcp — dpaia__spring__petclinic-27
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Claimed fix:    true
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Used MCP:       true
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Exit code:      0
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Agent time:     521s
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Tokens in/out:  812345/45678
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Cost:           $3.21
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Turns:          47
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Tests:          96 run, 0 fail, BUILD FAILURE
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   exec_code:      1
+[14:33:24] :		 [:test-experiments:test]     [ARENA]   Summary:        Created PetRepository, VisitRepository, OwnerRestController, PetRestController, and VisitRestController to expose REST CRUD under /api. All 38 FAIL_TO_PASS tests pass; full suite 96 tests run with 0 failures (2 Postgres Docker infrastructure errors unrelated to changes).
+[14:33:24] :		 [:test-experiments:test]     [ARENA] ════════════════════════════════════════
+[14:51:57] :		 [:test-experiments:test]     [ARENA] ════════════════════════════════════════
+[14:51:57] :		 [:test-experiments:test]     [ARENA] claude+none — dpaia__spring__petclinic-27
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   Claimed fix:    true
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   Used MCP:       false
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   Exit code:      0
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   Agent time:     711s
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   Tests:          94 run, 0 fail, BUILD SUCCESS
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   exec_code:      0
+[14:51:57] :		 [:test-experiments:test]     [ARENA]   Summary:        Created PetRepository, VisitRepository, OwnerRestController, PetRestController, and VisitRestController to provide REST CRUD endpoints under /api for owners, pets, and visits. All 38 target tests pass and the full suite (94 tests, excluding pre-existing PostgresIntegrationTests Docker Compose failure) shows BUILD SUCCESS.
+[14:51:57] :		 [:test-experiments:test]     [ARENA] ════════════════════════════════════════

@@ -113,6 +113,57 @@ class PidMarkerTest {
     }
 
     @Test
+    fun `pluginPath roundtrips on McpSteroidServerInfo when present`() {
+        val withPluginPath = samplePidMarker().copy(
+            mcpSteroidServer = McpSteroidServerInfo(
+                mcpUrl = "http://localhost:64531/mcp",
+                headers = mapOf("Authorization" to "Bearer deadbeefcafebabe"),
+                pluginPath = "/opt/idea/plugins/mcp-steroid",
+            )
+        )
+        val text = PidMarkerJson.encode(withPluginPath)
+        val decoded = PidMarkerJson.decode(text)
+        assertEquals(withPluginPath, decoded)
+        assertEquals("/opt/idea/plugins/mcp-steroid", decoded.mcpSteroidServer?.pluginPath)
+        assertTrue(text.contains("\"pluginPath\": \"/opt/idea/plugins/mcp-steroid\""), "pluginPath missing from JSON: $text")
+    }
+
+    @Test
+    fun `pluginPath on McpSteroidServerInfo decodes as null when absent (older plugin compat)`() {
+        val jsonWithoutPluginPath = """
+            {
+              "schema": 1,
+              "pid": 12345,
+              "mcpSteroidServer": {
+                "mcpUrl": "http://localhost:64531/mcp",
+                "headers": {"Authorization": "Bearer t"}
+              },
+              "ide": {"name":"IntelliJ IDEA","version":"2025.3.3","build":"IU-253.1.1"},
+              "plugin": {"id":"x","name":"y","version":"z"},
+              "createdAt": "2026-05-10T12:34:56Z"
+            }
+        """.trimIndent()
+        val decoded = PidMarkerJson.decode(jsonWithoutPluginPath)
+        assertNull(decoded.mcpSteroidServer?.pluginPath)
+    }
+
+    @Test
+    fun `ideHome is optional and decodes when present and absent`() {
+        val withHome = PidMarkerJson.decode(
+            """{"schema":1,"pid":7,"ide":{"name":"X","version":"1","build":"IU-1"},
+               "plugin":{"id":"p","name":"P","version":"v"},"createdAt":"t",
+               "ideHome":"/opt/idea"}""".trimIndent()
+        )
+        assertEquals("/opt/idea", withHome.ideHome)
+
+        val withoutHome = PidMarkerJson.decode(
+            """{"schema":1,"pid":7,"ide":{"name":"X","version":"1","build":"IU-1"},
+               "plugin":{"id":"p","name":"P","version":"v"},"createdAt":"t"}""".trimIndent()
+        )
+        assertNull(withoutHome.ideHome)
+    }
+
+    @Test
     fun `file name parsing accepts the canonical pid layout`() {
         assertEquals("12345.mcp-steroid", PidMarker.markerFileNameFor(12345))
         assertEquals(12345L, PidMarker.pidFromFileName("12345.mcp-steroid"))

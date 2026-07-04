@@ -70,7 +70,7 @@ fun PromptGenerationContext.generatePromptClazzTest(
         .addAnnotation(junitTestAnnotation)
         .returns(Unit::class)
         .addCode(buildCodeBlock {
-            add("val content = %T(%S).readText().replace(%S, %S)\n", File::class.asClassName(), clazz.src.absolutePath, "\r\n", "\n")
+            add("val content = %T(%S).readText().replace(\"\\r\\n\", \"\\n\")\n", File::class.asClassName(), clazz.src.absolutePath)
             add("%T.assertEquals(content, %T().readPrompt())", junitAssertions, clazz.clazzName)
         })
         .build()

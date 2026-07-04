@@ -33,7 +33,7 @@ class LauncherResolver(
         }
         val bundleRoot = bundleDir.normalize()
         val launcherAbsolutePath = resolveLauncherPath(bundleRoot, productInfoPath, launch.launcherPath)
-        val launcherPath = bundleRoot.relativize(launcherAbsolutePath).toString()
+        val launcherPath = bundleRoot.relativize(launcherAbsolutePath).toString().replace('\\', '/')
         return LauncherResolution(
             launcherPath = launcherPath,
             launcherAbsolutePath = launcherAbsolutePath,

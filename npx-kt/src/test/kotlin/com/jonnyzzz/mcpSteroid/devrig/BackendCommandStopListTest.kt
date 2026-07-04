@@ -66,7 +66,7 @@ class BackendCommandStopListTest {
     private fun renderStopText(rows: List<RunningBackendListRow>): String {
         val buf = ByteArrayOutputStream()
         renderBackendStopListText(rows, PrintStream(buf, true, Charsets.UTF_8))
-        return buf.toString(Charsets.UTF_8)
+        return buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
     }
 
     private fun renderStopJson(rows: List<RunningBackendListRow>) = Json.parseToJsonElement(

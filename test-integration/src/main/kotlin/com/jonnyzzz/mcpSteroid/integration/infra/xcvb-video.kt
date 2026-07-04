@@ -136,13 +136,9 @@ class XcvbVideoDriver(
         // Copy the finalized video from the container-local path to the mounted volume.
         // Using cp (open-write-close) instead of letting ffmpeg write directly to the
         // mount avoids the virtiofs stale-data issue.
-        val rsyncAndSyncScript = buildString {
-            appendLine(rsyncCommand())
-            appendLine("sync")
-        }
         driver.startProcessInContainer {
             this
-                .args("bash", "-c", rsyncAndSyncScript)
+                .args("bash", "-c", "${rsyncCommand()} && sync")
                 .timeoutSeconds(30)
                 .quietly()
                 .description("rsync video and sync")

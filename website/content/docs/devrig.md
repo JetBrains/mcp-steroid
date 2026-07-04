@@ -78,9 +78,11 @@ selected agent.
 
 ### `devrig backend [--json]`
 
-Lists discovered backends (with versions) and the projects each one has open.
-`--json` emits a single machine-readable object on stdout (pipe through `jq`);
-the default is human-readable text.
+Lists discovered backends (with versions), grouped as MCP Steroid backends,
+other/incompatible IDEs, and installed-but-not-running (startable) backends.
+Per-backend open projects are listed by `devrig project`. `--json` emits a
+single machine-readable object on stdout (pipe through `jq`); the default is
+human-readable text.
 
 ### `devrig project [--json]`
 
@@ -142,23 +144,23 @@ manual setup:
 # 1. Register devrig with your agent (once)
 devrig install claude
 
-# 2. Download a managed IntelliJ IDEA Community backend
+# 2. Download a managed IntelliJ IDEA Community backend (if not yet installed)
 devrig backend download idea-community
-
-# 3. Start it in detached mode — prints pid, log, and config paths
-devrig backend start idea-community
-
-# 4. Confirm it's discoverable and see its open projects
-devrig backend
 ```
 
-Once the backend is running, your agent's MCP Steroid tools (for example
-`steroid_list_projects`) are routed to it through devrig's `mcp` stdio server.
-Stop the backend when you're done:
+Once downloaded, the agent can open a project immediately — `steroid_open_project`
+detects the installed (not-yet-running) backend as a startable candidate, **starts
+it automatically** (blocking until reachable), and opens the project in a single
+call. No separate `devrig backend start` step is needed.
+
+To stop the backend when done:
 
 ```bash
 devrig backend stop idea-community
 ```
+
+`devrig backend start <id>` / `devrig backend stop <id>` still exist for
+explicit lifecycle control when you prefer it.
 
 ## Next Steps
 

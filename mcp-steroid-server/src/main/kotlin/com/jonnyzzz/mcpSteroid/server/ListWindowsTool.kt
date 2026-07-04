@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
  */
 class ListWindowsToolSpec(val handler: () -> ListWindowsToolHandler) : McpToolBase() {
     override val name = "steroid_list_windows"
-    override val description = "List open IDE windows and their associated projects. Use this to choose project_name for screenshot/input tools in multi-window setups."
+    override val description = "List open IDE windows and their background tasks, with per-window readiness (modal/indexing/initialized) and a `window_id` for screenshot/input targeting in multi-window setups. Each window and background-task entry references its project by `project_name` — the single routing key for the project-scoped tools; look up that project's human-readable `name` and `path` via steroid_list_projects by the key (they are not duplicated here). `project_name` is null for windows not tied to a project."
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
         val response = handler().collectListWindowsResponse()
@@ -31,18 +31,12 @@ interface ListWindowsToolHandler {
 /**
  * MCP-only output of `steroid_list_windows` — never crosses the devrig<->IDE wire. There is no
  * top-level `ide`/`plugin`/`pid` header: the responding server's identity lives in the MCP server
- * info, and per-entry attribution happens via `backend_name` against [backends].
+ * info, and per-entry attribution happens via `backend_name` on each window/task entry.
  */
 @Serializable
 data class ListWindowsResponse(
     val windows: List<ListedWindow>,
     val backgroundTasks: List<ListedBackgroundTask>,
-    /**
-     * Backends reachable through this connection. On a direct in-IDE connection exactly one entry (this
-     * IDE); on devrig one entry per discovered backend. Each window/background-task entry references its
-     * owning backend via `backend_name`.
-     */
-    val backends: List<BackendInfo> = emptyList(),
 )
 
 /**
@@ -51,6 +45,12 @@ data class ListWindowsResponse(
  */
 @Serializable
 data class ListedWindow(
+    /**
+     * The window's project routing KEY — the opaque, within-IDE-unique id you pass to the project-scoped
+     * tools (`steroid_execute_code`, `steroid_take_screenshot`, `steroid_input`, …). The SAME `project_name`
+     * `steroid_list_projects` reports; look up the project's `name`/`path` there by this key. Null for
+     * windows not tied to a project. Treat it as opaque.
+     */
     val projectName: String?,
     val projectPath: String?,
     val title: String?,
@@ -64,12 +64,12 @@ data class ListedWindow(
     val indexingInProgress: Boolean? = null,
     /** True if the project has been fully initialized */
     val projectInitialized: Boolean? = null,
-    /** Owning backend's [BackendInfo.backendName]; null only when unknown. */
+    /** Owning backend's backend_name; null only when unknown. */
     @SerialName("backend_name") val backendName: String? = null,
 )
 
 /** Maps the wire [WindowInfo] to the MCP-only [ListedWindow], binding it to [backendName]. */
-fun WindowInfo.listed(backendName: String?): ListedWindow = ListedWindow(
+fun WindowInfo.listed(projectName: String?, backendName: String?): ListedWindow = ListedWindow(
     projectName = projectName,
     projectPath = projectPath,
     title = title,
@@ -102,14 +102,18 @@ data class ListedBackgroundTask(
     val isIndeterminate: Boolean,
     /** True if the task can be canceled */
     val isCancellable: Boolean,
-    /** Project name this task belongs to (if known) */
+    /**
+     * The routing KEY of the project this task belongs to — the same opaque id `steroid_list_projects`
+     * reports as `project_name` (look up the project's `name`/`path` there). Null if the task isn't tied
+     * to a known open project.
+     */
     val projectName: String?,
-    /** Owning backend's [BackendInfo.backendName]; null only when unknown. */
+    /** Owning backend's backend_name; null only when unknown. */
     @SerialName("backend_name") val backendName: String? = null,
 )
 
 /** Maps the wire [ProgressTaskInfo] to the MCP-only [ListedBackgroundTask], binding it to [backendName]. */
-fun ProgressTaskInfo.listed(backendName: String?): ListedBackgroundTask = ListedBackgroundTask(
+fun ProgressTaskInfo.listed(projectName: String?, backendName: String?): ListedBackgroundTask = ListedBackgroundTask(
     title = title,
     text = text,
     text2 = text2,
@@ -168,6 +172,9 @@ data class ProgressTaskInfo(
     val isIndeterminate: Boolean,
     /** True if the task can be canceled */
     val isCancellable: Boolean,
-    /** Project name this task belongs to (if known) */
+    /**
+     * Within-IDE-unique project routing key this task belongs to — the same `project_name`
+     * `steroid_list_projects` reports; null if the task isn't tied to a known open project.
+     */
     val projectName: String?
 )

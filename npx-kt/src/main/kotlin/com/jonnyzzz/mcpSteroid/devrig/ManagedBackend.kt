@@ -450,6 +450,11 @@ class BackendManager(
         require(Files.isExecutable(launcher)) { "Launcher is not executable: $launcher" }
 
         writeBackendVmOptions(homePaths, resolved.id, descriptor.bundleDirName)
+        // Re-provision the current bundled plugin before launch so a backend downloaded by an older
+        // devrig boots with THIS devrig's plugin (writes ideHome → becomes reachable). Only reached when
+        // the backend is not already running (the pid-file checks above early-return otherwise), so the
+        // plugin dir is never rewritten under a live IDE.
+        deployMcpSteroidPlugin(resolved.id)
         val cacheDir = homePaths.cacheDir(resolved.id)
         val logDir = cacheDir.resolve("logs")
         listOf("config", "system", "logs", "plugins").forEach { Files.createDirectories(cacheDir.resolve(it)) }
@@ -908,9 +913,18 @@ private fun spawnDetachedOnWindows(
     val pidFile = Files.createTempFile("devrig-spawn-", ".pid")
     val errFile = Files.createTempFile("devrig-spawn-", ".err")
     try {
+        val launcherExt = launcher.fileName.toString().substringAfterLast('.', "").lowercase()
+        val isBatchScript = launcherExt == "bat" || launcherExt == "cmd"
         val script = buildString {
-            // Quote the launcher path so paths containing spaces parse correctly.
-            append("\$cmd = '\"' + '").append(psQuote(launcher.toString())).append("' + '\"'; ")
+            // Win32_Process.Create (which wraps CreateProcess) cannot execute .bat/.cmd scripts
+            // directly — they require the cmd.exe interpreter. Wrap with cmd.exe /c so the batch
+            // file path is still visible in the process's command-line arguments, which lets
+            // processCommandIsUnderBackendsDir() recognise the process for stop/list tracking.
+            if (isBatchScript) {
+                append("\$cmd = 'cmd.exe /c \"' + '").append(psQuote(launcher.toString())).append("' + '\"'; ")
+            } else {
+                append("\$cmd = '\"' + '").append(psQuote(launcher.toString())).append("' + '\"'; ")
+            }
             if (environment.isEmpty()) {
                 append("\$startup = \$null; ")
             } else {

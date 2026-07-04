@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.copyToContainer
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
+import com.jonnyzzz.mcpSteroid.testHelper.docker.writeFileInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.git.BareRepoCache
 import com.jonnyzzz.mcpSteroid.testHelper.git.GitDriver
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
@@ -128,11 +129,76 @@ sealed class IntelliJProject{
     )
 
     object BroadleafCommerceProject : ProjectFromRemoteGit("https://github.com/BroadleafCommerce/BroadleafCommerce.git")
-    object KeycloakProject : ProjectFromRemoteGit("https://github.com/keycloak/keycloak.git")
+    object KeycloakProject : ProjectFromRemoteGit(
+        "https://github.com/keycloak/keycloak.git",
+        // Pin a stable release tag. `main` is the 999.0.0-SNAPSHOT dev placeholder, whose internal reactor
+        // build plugins (keycloak-guides-maven-plugin, db-compatibility-verifier-maven-plugin, …) resolve
+        // from nowhere and fail the Maven import. Per docs/building.md the build needs JDK 17/21/25 — our
+        // jdkVersion "21" matches.
+        gitRef = "26.6.4",
+    )
     object KillBillProject : ProjectFromRemoteGit("https://github.com/killbill/killbill.git")
     object ThingsBoardProject : ProjectFromRemoteGit("https://github.com/thingsboard/thingsboard.git")
     object YouTrackDbProject : ProjectFromRemoteGit("https://github.com/JetBrains/youtrackdb.git")
+
+    /**
+     * [YouTrackDbProject] pinned to a fixed revision (a published snapshot tag). Used by experiments
+     * whose scoring compares the agent's answer against a hand-derived ground truth (e.g. the
+     * structural-search Optional.get() audit in `StructuralSearchYoutrackdbTest`) — the unpinned
+     * default-branch clone would silently invalidate that ground truth on every upstream push.
+     * When bumping this tag, re-derive every dependent ground-truth list at the new revision.
+     */
+    object YouTrackDbPinnedProject : ProjectFromRemoteGit(
+        "https://github.com/JetBrains/youtrackdb.git",
+        // == commit 44cf982894c37a62aba3319b5024f76f6ccae97c
+        gitRef = "0.5.0-20260428.132443-44cf982-SNAPSHOT",
+    )
     object IntelliJPlatformGradlePluginProject : ProjectFromRemoteGit("https://github.com/JetBrains/intellij-platform-gradle-plugin.git")
+
+    /**
+     * OkHttp pinned to the 4.12.0 release tag — the Kotlin↔Java cross-language find-usages
+     * experiment (`InteropFindUsagesTest`). Chosen because it is genuinely mixed: the library is
+     * Kotlin, but a large legacy Java test suite consumes Kotlin `val`s through their generated
+     * getters (e.g. `RecordedRequest.requestLine` → `getRequestLine()` at 58 Java call sites),
+     * so the experiment's ground truth depends on this exact revision. When bumping the tag,
+     * re-derive every dependent ground-truth list.
+     *
+     * The pinned Gradle 7.5 wrapper refuses to run on JDK 19+ ("Unsupported class file major
+     * version"), hence jdkVersion 17 (temurin-17 is preinstalled in the ide-agent image); the
+     * import flow propagates it to gradleJvm. `settings.gradle` only includes the Android module
+     * when ANDROID_SDK_ROOT is set, so a plain IntelliJ Gradle import works.
+     */
+    object OkHttpPinnedProject : ProjectFromRemoteGit(
+        "https://github.com/square/okhttp.git",
+        gitRef = "parent-4.12.0",
+    ) {
+        override val jdkVersion: String = "17"
+        override val openFileOnStart: String = "mockwebserver/src/main/kotlin/okhttp3/mockwebserver/RecordedRequest.kt"
+    }
+
+    /**
+     * github.com/jonnyzzz/x11k — a single-module Kotlin/JVM headless X11 server (~97k LOC, Gradle
+     * 9.6, Kotlin 2.4.0, `jvmToolchain(25)`, JUnit Jupiter + kotlin-test), pinned to a fixed
+     * commit because every x11k experiment scores against ground truth derived AT this revision
+     * (kotlinc `extraWarnings` sites, `XSyncProtocolTest.kt` call-site line numbers, `X11State.kt`
+     * line counts). The repo's Docker-based tests (Xvfb parity, IntelliJ smoke) need
+     * docker-in-docker and are NOT exercised — experiments build/test only the in-process suites.
+     * When bumping the pin, re-derive every dependent ground-truth list at the new commit.
+     */
+    object X11kPinnedProject : ProjectFromRemoteGit(
+        "https://github.com/jonnyzzz/x11k.git",
+        // main @ 2026-07-03
+        gitRef = "cfdf1f7d171df2581b63f7dfe675c343f6c86882",
+    ) {
+        // build.gradle.kts pins jvmToolchain(25) + JvmTarget.JVM_25; the container ships temurin-25.
+        override val jdkVersion: String = "25"
+        override val buildSystems: Set<ProjectBuildSystem> =
+            setOf(ProjectBuildSystem(BuildSystem.GRADLE, "settings.gradle.kts"))
+        override val openFileOnStart: String = "README.md"
+    }
+
+    /** A real Android (Gradle) project, used to exercise Android Studio. Google's official base template. */
+    object AndroidSampleProject : ProjectFromRemoteGit("https://github.com/android/architecture-templates.git")
 
     open class ProjectFromRepository protected constructor(
         val projectName: String,
@@ -183,7 +249,16 @@ sealed class IntelliJProject{
         }
     }
 
-    open class ProjectFromRemoteGit protected constructor(val repoUrl: String) : IntelliJProject() {
+    open class ProjectFromRemoteGit protected constructor(
+        val repoUrl: String,
+        /**
+         * Optional branch/tag to check out after cloning. Null = the repo's default branch. Pin a stable
+         * release tag for projects whose default branch (`main`) uses a dev-placeholder version that breaks
+         * the build — e.g. Keycloak `main` is `999.0.0-SNAPSHOT`, whose internal reactor plugins resolve
+         * from nowhere and fail the Maven import.
+         */
+        val gitRef: String? = null,
+    ) : IntelliJProject() {
         override fun getRepoUrlForCache(): String = repoUrl
 
         override fun IntelliJProjectDriver.deploy() {
@@ -201,6 +276,11 @@ sealed class IntelliJProject{
             if (!clonedFromCache) {
                 console.writeInfo("Cache miss for $ownerAndRepo — cloning from $repoUrl ...")
                 git.clone(repoUrl, guestProjectDir)
+            }
+
+            if (gitRef != null) {
+                console.writeInfo("Checking out $ownerAndRepo @ $gitRef ...")
+                git.checkout(guestProjectDir, gitRef)
             }
         }
     }
@@ -281,23 +361,8 @@ sealed class IntelliJProject{
                       </component>
                     </project>
                 """.trimIndent()
-                val script = """
-                    set -euo pipefail
-                    mkdir -p "$ideaDir"
-                    cat > "$ideaDir/misc.xml" << 'XMLEOF'
-$miscXml
-XMLEOF
-                    cat > "$ideaDir/modules.xml" << 'XMLEOF'
-$modulesXml
-XMLEOF
-                """.trimIndent()
-                container.startProcessInContainer {
-                    this
-                        .args("bash", "-c", script)
-                        .timeoutSeconds(15)
-                        .description("Pre-create .idea/ Maven config for $displayName")
-                        .quietly()
-                }.awaitForProcessFinish().assertExitCode(0, "Failed to create .idea/ for $displayName")
+                container.writeFileInContainer("$ideaDir/misc.xml", miscXml)
+                container.writeFileInContainer("$ideaDir/modules.xml", modulesXml)
             }
 
             console.writeSuccess("$displayName ready")

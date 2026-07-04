@@ -29,6 +29,21 @@ PATH. The mcp-steroid Java binary + a matching Amazon Corretto JDK are
 cached under `~/.mcp-steroid/binaries/`. After install, **zero network
 calls** unless `devrig upgrade` is run or a cache directory is missing.
 
+> **Implementation note (PR #117/#124):** the install script no longer writes
+> `bin/devrig` itself (the "bootstrap mode → write the script's own bytes →
+> bin/devrig" step below is stale on this point). After unpack it delegates to
+> the register-only subcommand `devrig install devrig --install-script=<launcher>
+> --jdk-home=<jdk>`; the **devrig binary owns the wrapper + PATH** (atomic
+> self-heal on every start, gated by `DEVRIG_BIN_NO_AUTO_REGISTER`). Motto: the
+> install script passes ALL non-trivial params to the binary — no env-derived
+> magic.
+>
+> **Windows PATH:** the launcher only CHECKS user-PATH membership at startup
+> (pure Java can't persist user PATH; no PowerShell on the start/MCP hot path)
+> and prints a one-time manual hint if absent. Persisting the entry is done via
+> the **HKCU user-PATH registry** on the install/register path only. Agents
+> always launch the wrapper by ABSOLUTE path, so MCP works regardless of PATH.
+
 ## Filesystem layout
 
 ```
@@ -260,6 +275,8 @@ See git history of this file for the full snippets.)
 | Var | Behavior |
 |---|---|
 | `DEVRIG_JDK_HOME` | If set, skip JDK download; set JAVA_HOME to this path |
+| `DEVRIG_JAVA_HOME` | Set by the launcher to pin the JDK devrig runs under (its supported runtime). Distinct from `DEVRIG_JDK_HOME` (download opt-out). |
+| `DEVRIG_BIN_NO_AUTO_REGISTER` | Gates the on-every-start launcher self-heal + register. `yes/true/1/on` = OFF; `no/false/0/off` = ON. Unset default = ON for release, **OFF for SNAPSHOT/dev/test** builds (so a dev build never clobbers the real launcher). |
 | `DEVRIG_OS` | Override platform-detect (testing only) |
 | `DEVRIG_CPU` | Override architecture-detect |
 | `DEVRIG_DEBUG_NO_EXEC=1` | Stop after cache resolution, print resolved exec path to stderr, exit 45 |

@@ -19,6 +19,11 @@ sealed class IdeDistribution {
     data class Latest(
         override val product: IdeProduct = IdeProduct.IntelliJIdea,
         val channel: IdeChannel = IdeChannel.STABLE,
+        /**
+         * Optional version filter passed to the resolver — e.g. `"2026.1"` picks the latest 2026.1.x
+         * (platform 261) build on the channel. Null means "newest on the channel".
+         */
+        val version: String? = null,
     ) : IdeDistribution()
 
     data class FromUrl(
@@ -58,6 +63,7 @@ private fun IdeDistribution.toDownloaderDistribution(): DownloaderDistribution {
         is IdeDistribution.Latest -> DownloaderDistribution.Latest(
             product = product.toDownloaderProduct(),
             channel = channel.toDownloaderChannel(),
+            version = version,
         )
     }
 }
@@ -69,6 +75,7 @@ private fun IdeProduct.toDownloaderProduct(): DownloaderProduct = when (this) {
     IdeProduct.WebStorm -> DownloaderProduct.WebStorm
     IdeProduct.Rider -> DownloaderProduct.Rider
     IdeProduct.CLion -> DownloaderProduct.CLion
+    IdeProduct.AndroidStudio -> DownloaderProduct.AndroidStudio
 }
 
 private fun IdeChannel.toDownloaderChannel(): DownloaderChannel = when (this) {

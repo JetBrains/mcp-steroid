@@ -21,9 +21,19 @@ val agentOutputFilterDist by configurations.creating {
     isCanBeResolved = true
 }
 
+// Resolvable configuration to get the Kotlin devrig CLI distribution zip from :npx-kt.
+val devrigPackageDist by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "devrig-package"))
+    }
+}
+
 dependencies {
     pluginZip(project(":ij-plugin"))
     agentOutputFilterDist(project(path = ":agent-output-filter", configuration = "executableDistribution"))
+    devrigPackageDist(project(":npx-kt"))
 
     // Shared infrastructure (containers, MCP client, drivers) lives in :test-integration's main source set.
     testImplementation(project(":test-integration"))
@@ -68,7 +78,7 @@ fun Test.configureExperimentalTest() {
         .filterKeys { it.toString().startsWith("arena.test.") }
         .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
 
-    dependsOn(pluginZip, agentOutputFilterDist)
+    dependsOn(pluginZip, agentOutputFilterDist, devrigPackageDist)
     doFirst {
         delete(layout.buildDirectory.dir("test-results/${this@configureExperimentalTest.name}/binary"))
         val testOutDir = layout.buildDirectory
@@ -79,9 +89,11 @@ fun Test.configureExperimentalTest() {
         require(resolvedPluginZip.isFile) { "Plugin ZIP not found: ${resolvedPluginZip.absolutePath}" }
 
         systemProperty("test.integration.plugin.zip", resolvedPluginZip.absolutePath)
+        // Root-shared (same convention as test.integration.dependency.cache.dir): the integration and
+        // experiments suites reuse ONE IDE-archive cache instead of downloading per module.
         systemProperty(
             "test.integration.ide.download.dir",
-            layout.buildDirectory.dir("ide-download").get().asFile.absolutePath,
+            rootProject.layout.buildDirectory.dir("ide-download").get().asFile.absolutePath,
         )
         require(sharedDockerDir.isDirectory) {
             "Shared docker dir not found: ${sharedDockerDir.absolutePath}"
@@ -93,8 +105,19 @@ fun Test.configureExperimentalTest() {
             agentOutputFilterDist.singleFile.absolutePath,
         )
         systemProperty(
+            "test.integration.devrig.package.zip",
+            devrigPackageDist.singleFile.absolutePath,
+        )
+        systemProperty(
             "test.integration.repo.cache.dir",
             layout.buildDirectory.dir("repo-cache").get().asFile.absolutePath,
+        )
+        // Persisted container Maven (~/.m2) + Gradle (~/.gradle) caches, shared (root build dir) with
+        // :test-integration — the two suites never run concurrently — so deps + sources download once and
+        // are reused across runs. See IdeTestFolders.dependencyCacheVolumes.
+        systemProperty(
+            "test.integration.dependency.cache.dir",
+            rootProject.layout.buildDirectory.dir("test-dependency-cache").get().asFile.absolutePath,
         )
 
         // Build-compatibility test: persistent caches so IDE downloads and Gradle state survive across runs

@@ -10,6 +10,8 @@ import com.jonnyzzz.mcpSteroid.ideDownloader.IdeProduct
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +22,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@DisabledOnOs(OS.WINDOWS)
 class BackendManagerStartStopTest {
 
     @Test
@@ -31,6 +34,7 @@ class BackendManagerStartStopTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
         )
 
@@ -61,6 +65,7 @@ class BackendManagerStartStopTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
             stopGracePeriodMillis = 0L,
         )
@@ -78,7 +83,11 @@ class BackendManagerStartStopTest {
     fun `stop treats a missing pid file as successful not running`(
         @TempDir tempDir: Path,
     ) = kotlinx.coroutines.runBlocking {
-        val manager = BackendManager(HomePaths(tempDir.resolve("home")), downloader = StaticDownloader)
+        val manager = BackendManager(
+            homePaths = HomePaths(tempDir.resolve("home")),
+            downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
+        )
 
         val stopped = manager.stop(parseBackendId("idea-community-2025.3.3"))
 
@@ -98,6 +107,7 @@ class BackendManagerStartStopTest {
             val manager = BackendManager(
                 homePaths = homePaths,
                 downloader = StaticDownloader,
+                bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
                 ideUserHome = tempDir.resolve("user-home"),
             )
 
@@ -148,6 +158,7 @@ class BackendManagerStartStopTest {
             val manager = BackendManager(
                 homePaths = homePaths,
                 downloader = StaticDownloader,
+                bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
                 ideUserHome = userHome,
             )
 
@@ -171,6 +182,7 @@ class BackendManagerStartStopTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = ThrowingDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
         )
 
@@ -193,6 +205,7 @@ class BackendManagerStartStopTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = ThrowingDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
         )
         val started = manager.start(parseBackendId("idea-community-2025.2.6.2"))
@@ -214,6 +227,7 @@ class BackendManagerStartStopTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = tempDir.resolve("user-home"),
         )
 
@@ -244,6 +258,7 @@ class BackendManagerStartStopTest {
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "test")),
             ideUserHome = userHome,
         )
 
@@ -274,6 +289,75 @@ class BackendManagerStartStopTest {
             manager.stop(parseBackendId("idea-community-2025.3.3"))
         }
         assertFalse(ProcessHandle.of(started.pid).map { it.isAlive }.orElse(false))
+    }
+
+    @Test
+    fun `start re-provisions the current bundled plugin before launching`(
+        @TempDir tempDir: Path,
+    ) = kotlinx.coroutines.runBlocking {
+        val homePaths = HomePaths(tempDir.resolve("home"))
+        installStubBackend(homePaths, launcherBody = gracefulLauncher())
+
+        // Seed a stale old plugin to verify that start replaces it with the current one.
+        val pluginDir = homePaths.cacheDir("idea-community-2025.3.3").resolve("plugins/mcp-steroid")
+        Files.createDirectories(pluginDir.resolve("lib"))
+        Files.writeString(pluginDir.resolve("lib/plugin.txt"), "old")
+        Files.writeString(pluginDir.resolve("stale.txt"), "stale")
+
+        val manager = BackendManager(
+            homePaths = homePaths,
+            downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "current")),
+            ideUserHome = tempDir.resolve("user-home"),
+        )
+
+        val started = manager.start(parseBackendId("idea-community-2025.3.3"))
+        assertTrue(started.pid > 0)
+        try {
+            assertEquals(
+                "current",
+                Files.readString(pluginDir.resolve("lib/plugin.txt")),
+                "start must re-deploy the current bundled plugin, overwriting the stale one",
+            )
+            assertFalse(pluginDir.resolve("stale.txt").exists(), "start must remove stale plugin files before redeploying")
+        } finally {
+            manager.stop(parseBackendId("idea-community-2025.3.3"))
+        }
+    }
+
+    @Test
+    fun `start on an already-running backend does not re-provision the plugin`(
+        @TempDir tempDir: Path,
+    ) = kotlinx.coroutines.runBlocking {
+        val homePaths = HomePaths(tempDir.resolve("home"))
+        installStubBackend(homePaths, launcherBody = gracefulLauncher())
+        val firstManager = BackendManager(
+            homePaths = homePaths,
+            downloader = StaticDownloader,
+            bundledPluginResolver = FixedBundledPluginResolver(bundledPluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"), "v1")),
+            ideUserHome = tempDir.resolve("user-home"),
+        )
+
+        val firstStart = firstManager.start(parseBackendId("idea-community-2025.3.3"))
+        assertTrue(firstStart.pid > 0)
+        assertFalse(firstStart.alreadyRunning)
+        try {
+            // Build a second manager with a resolver that must NOT be called:
+            // if deployMcpSteroidPlugin runs for an already-running backend the test will fail.
+            val secondManager = BackendManager(
+                homePaths = homePaths,
+                downloader = StaticDownloader,
+                bundledPluginResolver = ThrowingBundledPluginResolver,
+                ideUserHome = tempDir.resolve("user-home"),
+            )
+
+            val secondStart = secondManager.start(parseBackendId("idea-community-2025.3.3"))
+
+            assertTrue(secondStart.alreadyRunning, "second start must report alreadyRunning=true")
+            assertEquals(firstStart.pid, secondStart.pid, "pid must be the same running process")
+        } finally {
+            firstManager.stop(parseBackendId("idea-community-2025.3.3"))
+        }
     }
 
     private fun installStubBackend(
@@ -366,5 +450,10 @@ class BackendManagerStartStopTest {
             resolution: BackendDownloadResolution,
             targetDir: Path,
         ): BackendDownloadArtifact = error("downloadAndUnpack should not be called by start/stop tests")
+    }
+
+    private object ThrowingBundledPluginResolver : BundledPluginResolver {
+        override fun resolveBundledPluginZip(): Path =
+            error("re-provision must not run for an already-running backend")
     }
 }

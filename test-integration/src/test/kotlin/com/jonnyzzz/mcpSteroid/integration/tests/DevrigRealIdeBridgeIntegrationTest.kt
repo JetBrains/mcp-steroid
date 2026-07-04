@@ -161,8 +161,8 @@ class DevrigRealIdeBridgeIntegrationTest {
             if (projects.isNotEmpty()) {
                 val project = projects.singleOrNull()?.jsonObject
                     ?: error("Expected one devrig-discovered project, got ${projects.size}\n$diagnostics\n$projects")
-                return project["name"]?.jsonPrimitive?.contentOrNull
-                    ?: error("project missing name\n$diagnostics\n$project")
+                return project["project_name"]?.jsonPrimitive?.contentOrNull
+                    ?: error("project missing project_name\n$diagnostics\n$project")
             }
             Thread.sleep(250)
         }

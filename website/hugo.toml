@@ -17,6 +17,12 @@ languageCode = 'en-us'
 title = 'MCP Steroid - Reliable code changes for your AI Agent'
 disableKinds = ['taxonomy', 'term']
 
+# Two static roots, merged by Hugo: checked-in assets (static/) + the generator output
+# (build/generated-static/, written by `:website-gen:generateWebsite` — version.json, updatePlugins.xml,
+# install.sh, install.ps1, EULA, LICENSE). The build/ dir is gitignored, so generated files never land in
+# the tracked source tree and adding a new one needs no .gitignore edit.
+staticDir = ['static', 'build/generated-static']
+
 [markup]
   [markup.goldmark]
     [markup.goldmark.renderer]
@@ -59,7 +65,11 @@ disableKinds = ['taxonomy', 'term']
   githubIssuesUrl = "https://github.com/jonnyzzz/mcp-steroid/issues"
   youtubeChannel = "https://youtube.com/@jonnyzzz"
   # Version is read from ../VERSION file during build (see Makefile)
-  version = "0.100"
+  version = "0.101"
+
+[[params.whatsnew]]
+  date = "2026-06-24"
+  text = "v0.101 released — one-command devrig install (curl | sh / irm | iex) downloads devrig + a Java 25 runtime into ~/.mcp-steroid; startable managed backends, backend_name routing, opaque project_name, a devrig-first settings page"
 
 [[params.whatsnew]]
   date = "2026-06-02"

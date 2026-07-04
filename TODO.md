@@ -6,8 +6,6 @@
   The 2026-06 hardening shipped per-tool crash isolation (#93) + per-file PSI-invalid tolerance and
   the additive `InspectionRunResult.failedTools` section without touching the argument list.
 
-- [x] Fix `steroid_open_project` to trust a project path before opening it and cover the no-modal path with an integration test.
-- [x] Agent-driven backend management: evaluated new MCP tool vs CLI passthrough vs hybrid (judge panel). **Decision: no new MCP tool** — agents manage backends via the existing `devrig backend …` CLI (fails the PHILOSOPHY 3-gate for a new tool; the CLI already does it). Shipped `mcp-steroid://open-project/managing-backends` recipe + aligned `open_project` to prefer a running devrig-managed backend (`DevrigProjectRoutingService.openProjectTargetIde()`).
 - [ ] Backend management follow-ups (deferred, surfaced during the design):
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).
   - Consider enriching `backend --json` / `backend download --json` with release date + download channel so agents can reason about staleness; consider exposing `IdeProduct` metadata (license tier, launcher) for richer IDE choice.
@@ -31,6 +29,15 @@
 - [ ] **list_windows graceful degradation**: devrig's `steroid_list_windows` is all-or-nothing — one
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
+
+- [ ] **red-code reporter false-positives on Kotlin files**: `reportProjectRedCode` (PSI reference scan,
+  `mcp-steroid-import.kt`) reports Kotlin stdlib/operator references (`mutableMapOf`, `runCatching`,
+  `trim()`, `!!`, `=`) as UNRESOLVED — 95/646 on the stock Gradle test-project's `SsrRunCatchingDemo.kt`
+  while the project is actually green. Java-only Keycloak showed 1/25747, so the scan is sound for Java;
+  the Kotlin path needs K2-aware handling for operator/implicit references (or skip
+  `KtOperationReference`-style refs / restrict the sample to Java files). Non-fatal today (logged, never
+  thrown), but the signal is noise for Kotlin projects. Found validating #200's settle on
+  GradleCompileTest (2026-07-02).
 
 - [ ] **`install --check` vs the literal Tenet-3 reading (review follow-up to #86)**: `--check` itself
   is read-only, but `runsTool()` in `npx-kt/.../Main.kt` returns true for `DevrigCommandInstall`, so the

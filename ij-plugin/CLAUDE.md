@@ -192,11 +192,12 @@ If the gates pass, the wiring itself is two lines:
 
 Same gate applies to **adding methods on `McpScriptContext`** (Tenet 3 in
 PHILOSOPHY.md): the IntelliJ API is the extension point; context methods
-are last-resort. The `applyPatch { }` DSL on the context class is the
-canonical example — it earned its place because composing multi-site
-literal edits with surrounding PSI / inspections work in one read/write
-cycle is genuinely worth the surface. New context methods must clear
-the same bar.
+are last-resort. The removed `applyPatch { }` DSL is the cautionary
+example — it earned its place for atomic multi-site edits, then lost it
+when full-scale eval data showed 64% of real calls failed on exact-match
+resolution (#206; tolerance-matching successor tracked in #208). New
+context methods must clear both bars: justify the surface AND prove
+agents can use it reliably.
 
 ## IDE control via execute_code
 
@@ -357,11 +358,11 @@ rm -rf ij-plugin/build/idea-sandbox/                            # corrupted inde
 |---------|-------------|-----|
 | `PersistentEnumerator storage corrupted` | Corrupted index files | `rm -rf ij-plugin/build/idea-sandbox/` |
 | 500+ failures in <30s | Stale Gradle test cache | `./gradlew :ij-plugin:test --rerun-tasks` |
-| `KtCompilationTest` fails with `-Werror` | Deprecated API used in `.kt` section | Replace deprecated call (see repo-root `MEMORY.md`) |
+| `KtCompilationTest` fails with `-Werror` | Deprecated API used in `.kt` section | Replace the deprecated call with the non-deprecated API (no `@Suppress("DEPRECATION")` — see root `CLAUDE.md`) |
 | `KtBlocksCompilationTest` fails | Non-compilable code in ` ```kotlin ``` ` fence | Change fence to ` ```text ``` ` in `.md` |
 | `MarkdownArticleContractTest` fails | Title >80 chars, desc >200 chars, or bare code outside fences | Fix the article header/body |
 | `NoHardcodedMcpSteroidUriUsageTest` fails | Hardcoded `mcp-steroid://...` URI in production Kotlin | Replace with `XxxPromptArticle().uri` |
-| `:test-integration` hangs with `Blocking modal dialog detected` | Stale `test-integration/src/test/docker/test-project/.idea/` pins `project-jdk-name`/`gradleJvm` to a name not in `ProjectJdkTable` | Sanitize `.idea/` (gitignored) or add the name to `mcpRegisterJdks` aliases — see repo-root `MEMORY.md` |
+| `:test-integration` hangs with `Blocking modal dialog detected` | Stale `test-integration/src/test/docker/test-project/.idea/` pins `project-jdk-name`/`gradleJvm` to a name not in `ProjectJdkTable` | Sanitize `.idea/` (gitignored) or add the name to `mcpRegisterJdks` aliases — see `test-integration/AGENTS.md` ("Configuring the IDE") |
 | `:test-integration` hangs with `MODAL DIALOG DETECTED — Resolving SDKs…` during `ProjectTaskManager.build()` | Missing `-Dunknown.sdk.modal.jps=false` (gates `CompilerDriverUnknownSdkTracker.fixSdkSettings`) | Add to `test-integration/src/main/kotlin/com/jonnyzzz/mcpSteroid/integration/infra/intelliJ.kt` `generateVmOptions()` — see `test-integration/AGENTS.md` |
 | `unresolved reference 'JavaSdk'` in PyCharm/GoLand/WebStorm/Rider tests | Factory's early-JDK hook fires for IDEs without `com.intellij.java` on script classpath | Verify `IdeProduct.hasJavaSdk` is true only for `IntelliJIdea` (see `test-integration/AGENTS.md` → "Non-Java IDEs skip JDK setup") |
 | `ContentModuleClasspathTest` fails with "JAR(s) on filesystem but not in classpath" after IDE upgrade | New unloaded content module bundled (e.g. `tailwindcss.ruby.jar` in 2026.1.1) | Add JAR path to `UNLOADED_CONTENT_MODULES_IU_261` |
@@ -371,11 +372,21 @@ rm -rf ij-plugin/build/idea-sandbox/                            # corrupted inde
 - **ExecCodeParams**: `taskId`, `code`, `reason`, `timeout`, `rawParams`.
 - **ToolCallResult**: `content` (`List<ContentItem>`), `isError`. Use `ToolCallResult.builder()`.
 - **McpScriptContext**: in-script Kotlin runtime context (`project`, `disposable`, `printJson(...)`,
-  `progress(...)`, `applyPatch { }`, `findProjectFile(...)`, `projectScope()`, the inspection /
+  `progress(...)`, `findProjectFile(...)`, `projectScope()`, the inspection /
   highlighting helpers, etc.). See
   `ij-plugin/src/main/kotlin/com/jonnyzzz/mcpSteroid/execution/McpScriptContext.kt` for the
   current surface — not enumerated here on purpose, since growing the surface is gated by Tenet 3
   in `docs/PHILOSOPHY.md`.
+
+### Inspections from `steroid_execute_code`: only the per-file driver works
+
+`runInspectionsDirectly` (per-file `InspectionEngine.inspectEx`, the `mcp-steroid://ide/inspect-and-fix`
+recipe) is the ONLY inspection driver that runs from `steroid_execute_code`. The whole-project drivers do
+NOT: `InspectionEngine.runInspectionOnFile`, `DaemonCodeAnalyzerImpl.runMainPasses` (fails
+`assertUnderDaemonProgress()` — no `DaemonProgressIndicator`), and `MainPassesRunner.runMainPasses` (pumps
+the EDT internally while the suspend script holds resources that block forward progress — timed out at 240s
+on 3 small files). For full-project inspection coverage, use the IDE's **Code → Inspect Code…** UI, not a
+script.
 
 ## Configuration
 
@@ -432,17 +443,30 @@ per-project backend reference now lives on the devrig-owned, MCP-surface-only `L
 which never crosses the wire. `ProjectsStreamService` only ever builds `ProjectInfo(name, path)`, so the
 reversion changed zero emitted bytes.) A **wire-pristineness guard test** (`WirePristinenessTest`,
 `mcp-steroid-server`) asserts `NpxStreamEnvelope` (`/projects/stream`) and `NpxBridgeWindowsResponse`
-(`/windows`) never serialize the devrig-only `backend_name` / `project_name` / `BackendInfo` / `ListedProject`
-keys.
+(`/windows`) never serialize the devrig-only `backend_name` / `project_name` / `ListedProject`
+keys (`BackendInfo` and `ListedBackendInfo` were deleted in the startable-backends release).
 
 **MCP-surface-only, never wire-crossing:**
 - `OpenProjectParams.backendName: String? = null` is **MCP-surface only** and is **NOT forwarded** to the
   IDE bridge. devrig resolves it locally to a target IDE and POSTs the byte-identical `steroid_open_project`
   body (`project_path` / `trust_project` / `task_id` / `reason`). The non-forwarding invariant is pinned in
   `DevrigToolBridgeClientTest` (forwarded `arguments["backend_name"] == null`).
-- `ListProjectsResponse.backends` / `BackendInfo` / `ListedProject` are devrig-computed MCP/CLI output types
+- `ListProjectsResponse` / `ListWindowsResponse` / `ListedProject` are devrig-computed MCP/CLI output types
   (built from devrig's routing snapshot, never fetched from the IDE) — devrig-owned and outside the wire
-  contract. See PHILOSOPHY.md Tenet 5.
+  contract. Note: `BackendInfo` and `ListedBackendInfo` were **deleted** in the startable-backends release;
+  `backends[]` was **removed** from both response types (they now carry only `projects` / `windows` +
+  `backgroundTasks`). The one-release additive-only waiver that permitted this is recorded in
+  `docs/PHILOSOPHY.md` Tenet 5 and `docs/startable-backends-design.md`.
+
+**`PidMarker` fields added in the startable-backends release (additive, nullable):**
+- `PidMarker.ideHome: String? = null` — the IDE install home (`PathManager.getHomePath()`), written by
+  `ServerUrlWriter`. It is devrig's **cross-process identity**: it correlates a running IDE to its managed
+  install (path-normalized on both sides) and replaces the old process/pid-file scanning. Its **presence
+  also signals plugin compatibility** — a running marker without `ideHome` means an old/incompatible plugin,
+  shown in the "Other IDEs" group and never offered as an `open_project` candidate.
+- `McpSteroidServerInfo.pluginPath: String? = null` — the mcp-steroid plugin install folder (from
+  `PluginDescriptorProvider`). Plumbing for the deferred "update plugin before run" step (Finding A,
+  `TASKS.md` #12); no logic reads it yet.
 
 Deferred (revisit with a baseline release): (a) a cross-version test (devrig HEAD ↔ an older plugin build);
 (b) giving devrig its **own** copy of the marker/bridge DTOs so the two version independently and only the

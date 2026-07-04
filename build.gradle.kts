@@ -117,6 +117,24 @@ extra["releaseNotesText"] = releaseNotesText
 subprojects {
     group = rootProject.group
     version = rootProject.version
+
+    // Bytecode target floor: compile every module to JVM 21 (class-file major 65) even though the
+    // toolchain and Gradle daemon stay on JDK 25. The shipped plugin and devrig must load on the OLDEST
+    // JBR they target — Android Studio on platform 261 bundles JBR 21 (major 65), while IntelliJ IDEA
+    // 2026.1 bundles JBR 25 (major 69), so a JDK-25-targeted class throws UnsupportedClassVersionError in
+    // Android Studio. `jvmTarget = 21` sets the emitted bytecode version; `-Xjdk-release=21` additionally
+    // clamps the visible JDK API to 21 so a 22..25-only method can't slip in and NoSuchMethodError at
+    // runtime on JBR 21. `configureEach` runs after the per-module `jvmToolchain(25)`, so it reliably
+    // overrides the toolchain's default target. Enforced on the artifacts by `verifyClassFileVersions`.
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+            freeCompilerArgs.add("-Xjdk-release=21")
+        }
+    }
+    tasks.withType<JavaCompile>().configureEach {
+        options.release.set(21)
+    }
 }
 
 allprojects {
@@ -278,6 +296,21 @@ val ciBuildPluginTests by tasks.registering {
             "${missingCore.joinToString { ":$it" }}. Either add them to settings.gradle.kts " +
             "or drop them from pluginCoreSubprojects."
     }
+
+    // :installer-gen + :website-gen are build-tooling (JDK detection, install-script generation, website
+    // artifacts; no IntelliJ deps), so they are not "plugin core". But :installer-gen's on-disk Cache
+    // exercises atomic file moves / path handling that genuinely benefit from the per-OS matrix, so they
+    // ride this aggregator (swept in by auto-discovery — neither is in an exclusion set) rather than
+    // getting a dedicated config. Assert it explicitly so a future refactor of the exclusion sets cannot
+    // silently drop their :test from CI. (The Docker installerIntegrationTest is a separate source set,
+    // NOT swept in here.)
+    listOf(":installer-gen:test", ":website-gen:test").forEach { required ->
+        require(required in testTaskPaths) {
+            "ciBuildPluginTests no longer includes $required. If that module was intentionally excluded, " +
+                "give it dedicated CI coverage; otherwise keep it out of nonPluginTestSubprojects."
+        }
+    }
+
     dependsOn(testTaskPaths)
 
     dependsOn("ij-plugin:verifyPlugin")
@@ -329,6 +362,7 @@ val ciBuildPromptsTests by tasks.registering {
  */
 val ciIntegrationTestTaskPaths = listOf(
     ":test-helper:test",
+    ":installer-gen:installerIntegrationTest", // Docker (nginx + ubuntu), light — runs the generated install.sh
     ":ij-plugin:integrationTest",
     ":test-integration:test",
 )
@@ -398,7 +432,7 @@ val ciDevrigTests by tasks.registering {
  * instead of a green build that compiled nothing.
  */
 val compileAllClasses by tasks.registering {
-    group = "build"
+    group = "ci"
     description = "Compile every source set (classes / testClasses / extra source sets) across all modules — no tests, no packaging."
 }
 

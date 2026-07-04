@@ -1,7 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.testHelper.docker
 
-import com.jonnyzzz.mcpSteroid.testHelper.process.RunProcessRequest
+import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.startProcess
 
@@ -21,22 +21,31 @@ data class ContainerPort(
 /**
  * Query the host port mapped to a container port.
  * Docker output format: "0.0.0.0:52134" or "[::]:52134"
+ *
+ * Retries up to 5 times with 500 ms delay — on Windows Docker Desktop the
+ * port mapping may not be immediately queryable right after container start.
  */
 fun ContainerDriver.mapGuestPortToHostPort(containerPort: ContainerPort): Int {
-    val result = newRunOnHost()
-        .command("docker", "port", containerId, "${containerPort.containerPort}/tcp")
-        .description("Query host port for $containerPort")
-        .timeoutSeconds(5)
-        .quietly()
-        .startProcess()
-        .assertExitCode(0) { "Failed to map container port $containerPort for $containerIdForLog" }
+    var lastResult: ProcessResult? = null
+    repeat(5) { attempt ->
+        if (attempt > 0) Thread.sleep(500)
 
-    val mappedPort = parseMappedPortOutput(result.stdout)
-    if (result.exitCode == 0 && mappedPort != null) {
-        return mappedPort
+        val result = newRunOnHost()
+            .command("docker", "port", containerId, "${containerPort.containerPort}/tcp")
+            .description("Query host port for $containerPort")
+            .timeoutSeconds(5)
+            .quietly()
+            .startProcess()
+            .awaitForProcessFinish()
+
+        lastResult = result
+        if (result.exitCode == 0) {
+            val port = parseMappedPortOutput(result.stdout)
+            if (port != null) return port
+        }
     }
 
-    error("Failed to query mapped port for container $containerIdForLog port $containerPort. $result")
+    error("Failed to map container port $containerPort for $containerIdForLog after 5 attempts. $lastResult")
 }
 
 internal fun parseMappedPortOutput(stdout: String): Int? {

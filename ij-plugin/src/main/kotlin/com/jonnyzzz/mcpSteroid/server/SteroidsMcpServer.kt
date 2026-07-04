@@ -58,7 +58,7 @@ class SteroidsMcpServer(
             name = "mcp-steroid",
             version = pluginVersion,
         ),
-        instructions = McpSteroidInfoPrompt().readPrompt(),
+        instructions = buildServerInstructions(),
         capabilities = ServerCapabilities(
             tools = ToolsCapability(listChanged = true),
             // No Prompts/Resources capability is advertised: mcp-steroid:// articles
@@ -113,6 +113,10 @@ class SteroidsMcpServer(
             // For Docker testing, set mcp.steroid.server.host to "0.0.0.0"
             val bindHost = Registry.stringValue("mcp.steroid.server.host").takeIf { it.isNotBlank() } ?: "127.0.0.1"
 
+            // Record the IDE run mode before the bind attempt, so it lands in idea.log
+            // even if all ports are busy. Headless is unsupported (best-effort) — see #177.
+            logIdeRunMode()
+
             // Try to start on configured port, fall back to next ports if busy
             val actualPort = startServerOnAvailablePort(bindHost, configuredPort)
             if (actualPort > 0) {
@@ -122,6 +126,24 @@ class SteroidsMcpServer(
             }
         }
     }
+
+    /**
+     * Logs the detected IDE run mode (INFO, always) plus a WARN when the IDE is plain headless —
+     * an unsupported (best-effort) environment for MCP Steroid (see mcp-steroid#177).
+     * Detection and logging only; the server still starts in every mode.
+     */
+    private fun logIdeRunMode() {
+        val mode = detectIdeRunMode()
+        log.info(ideRunModeLogLine(mode))
+        headlessWarningFor(mode)?.let(log::warn)
+    }
+
+    /**
+     * Builds the MCP server instructions; when the IDE is plain headless, a one-line notice is
+     * appended so the connected agent knows the environment is unsupported (see mcp-steroid#177).
+     */
+    private fun buildServerInstructions(): String =
+        serverInstructionsFor(detectIdeRunMode(), McpSteroidInfoPrompt().readPrompt())
 
     /**
      * Tries to start the server on the given port. If the port is busy,

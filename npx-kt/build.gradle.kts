@@ -1,4 +1,6 @@
 import com.jonnyzzz.mcpSteroid.gradle.GenerateMetadataTask
+import com.jonnyzzz.mcpSteroid.gradle.VerifyClassFileVersionTask
+import com.jonnyzzz.mcpSteroid.gradle.configurePathingJarClasspath
 import org.gradle.api.attributes.Usage
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.SortedSet
@@ -102,6 +104,10 @@ application {
     mainClass.set("com.jonnyzzz.mcpSteroid.devrig.MainKt")
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
+
+// Use a pathing JAR for the launcher classpath so a deep content-addressed install path can't blow
+// cmd.exe's 8191-char limit on Windows ("input line too long"). Shared logic; same jar on every OS.
+configurePathingJarClasspath()
 
 tasks.jar {
     archiveBaseName.set("devrig")
@@ -455,18 +461,19 @@ val verifyBundledLibraries by tasks.registering {
 
         // Bundled Windows 7-Zip binaries live under a dedicated `7z/` folder
         // (NOT bin/ — see distZip comment about java.library.path). The +x bit
-        // on 7z.exe / 7z.dll is not pinned: POSIX build hosts may strip it for
-        // non-launcher files and Windows ignores it. Pre-strip `:X` from these
-        // two entries so the final expectedFiles set comparison tolerates either
-        // form. The launcher bit (bin/devrig, bin/devrig.bat) IS pinned.
-        val sevenZipBinaryEntries = sortedSetOf("7z/7z.exe", "7z/7z.dll")
-        sevenZipBinaryEntries.forEach { sentinel ->
+        // on 7z.exe / 7z.dll / License.txt is not pinned: POSIX build hosts
+        // may strip it for non-launcher files and Windows ignores it. Pre-strip
+        // `:X` from these entries so the final expectedFiles set comparison
+        // tolerates either form. The launcher bit (bin/devrig, bin/devrig.bat)
+        // IS pinned.
+        val sevenZipEntries = sortedSetOf("7z/7z.exe", "7z/7z.dll", "7z/License.txt")
+        sevenZipEntries.forEach { sentinel ->
             check(allFiles.any { it.removeSuffix(":X") == sentinel }) {
                 "7z/ subtree missing sentinel '$sentinel'"
             }
         }
         allFiles = allFiles.map { entry ->
-            if (entry.removeSuffix(":X") in sevenZipBinaryEntries) entry.removeSuffix(":X") else entry
+            if (entry.removeSuffix(":X") in sevenZipEntries) entry.removeSuffix(":X") else entry
         }.toSortedSet()
 
         val expectedFiles = sortedSetOf(
@@ -489,6 +496,10 @@ val verifyBundledLibraries by tasks.registering {
 
             // Internal jars (this project + sibling subprojects).
             "lib/devrig-$devrigVersion.jar",
+            // Pathing JAR (manifest Class-Path) the launcher's classpath points at. Spelled out
+            // literally — NOT via pathingJarFileName() — so this assert independently pins the name
+            // the production helper must produce (a bug in the helper can't corrupt both sides alike).
+            "lib/devrig-$devrigVersion-classpath.jar",
             "lib/ai-agents-$devrigVersion.jar",
             "lib/closeable-stack-$devrigVersion.jar",
             "lib/execution-storage-$devrigVersion.jar",
@@ -577,14 +588,29 @@ val verifyBundledLibraries by tasks.registering {
     }
 }
 
+// Class-file version guard (mirrors :ij-plugin's). devrig is shipped to end users and launched on a
+// Java 25 runtime today, but the build target is held at the same floor as the plugin so the two stay
+// uniform — and so a future "run devrig on the IDE's JBR" path can't regress. Scans the whole dist
+// recursively at any folder — devrig's own jars AND the bundled ij-plugin.zip (kotlinc included). The
+// 7-Zip binaries aren't .class/.jar/.zip and are ignored. `maxJavaFeature` is the single knob the
+// JDK-target change lowers to 21.
+val verifyClassFileVersions by tasks.registering(VerifyClassFileVersionTask::class) {
+    group = "verification"
+    description = "Verify devrig class files load on the oldest supported JBR (class-file version guard)"
+    archives.from(tasks.distZip)
+    maxJavaFeature.set(21)
+}
+
 tasks.test {
     dependsOn(verifyBundledLibraries)
 }
 
 tasks.distZip {
     finalizedBy(verifyBundledLibraries)
+    finalizedBy(verifyClassFileVersions)
 }
 
 tasks.named("check") {
     dependsOn(verifyBundledLibraries)
+    dependsOn(verifyClassFileVersions)
 }

@@ -55,8 +55,8 @@ class DevrigCommandOutputTest {
         System.setErr(originalErr)
     }
 
-    private fun stdout(): String = outBuf.toString(Charsets.UTF_8)
-    private fun stderr(): String = errBuf.toString(Charsets.UTF_8)
+    private fun stdout(): String = outBuf.toString(Charsets.UTF_8).replace("\r\n", "\n")
+    private fun stderr(): String = errBuf.toString(Charsets.UTF_8).replace("\r\n", "\n")
     private fun runCliForTest(command: DevrigCommand, vararg rawArgs: String): Int {
         val lifetime = CloseableStackHost()
         return try {

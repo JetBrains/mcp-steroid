@@ -69,6 +69,15 @@ class FindDuplicatesPromptTest {
         }
         console.writeInfo("Agent exited with code ${result.exitCode ?: "?"}")
 
+        // Parse the agent's actual exec_code submissions from the raw NDJSON ONCE, up front.
+        // `readAgentExecCodeBodies` returns the `code` field of every steroid_execute_code call
+        // across all three agent shapes (Claude / Codex / Gemini). Checks #2 and #3 both scan
+        // this — NOT the prose `combined` transcript. Gemini's output filter renders terse
+        // one-line tool summaries, so the recipe signal strings never reach `combined` even
+        // when Gemini ran the correct PSI exec_code; scanning the submitted Kotlin makes the
+        // recipe check work uniformly across agents.
+        val execCodeBodies = readAgentExecCodeBodies(agent)
+
         // 1) Agent actually ran steroid_execute_code (the IDE's scripted-automation entry point).
         console.writeInfo("Checking: steroid_execute_code usage evidence")
         assertUsedExecuteCodeEvidence(combined)
@@ -99,8 +108,14 @@ class FindDuplicatesPromptTest {
             "PsiMethod",
             "PsiTreeUtil.collectElementsOfType",
         )
-        val crossCheckHits = crossCheckSignals.filter { combined.contains(it) }
-        val primaryHits = primaryRecipeSignals.filter { combined.contains(it) }
+        // Scan the actual submitted Kotlin (NDJSON-parsed), not the prose `combined`. The prose
+        // transcript only carries these signals for Claude/Codex (their filter echoes the fetched
+        // article body); Gemini's filter renders one-line summaries, so the signals never reach
+        // `combined` even when Gemini ran the correct PSI exec_code. Joining the exec_code bodies
+        // makes this check read the same source as Check #3, uniformly across all agents.
+        val execCodeJoined = execCodeBodies.joinToString("\n")
+        val crossCheckHits = crossCheckSignals.filter { execCodeJoined.contains(it) }
+        val primaryHits = primaryRecipeSignals.filter { execCodeJoined.contains(it) }
         val featureHits = crossCheckHits + primaryHits
         check(featureHits.isNotEmpty()) {
             buildString {
@@ -112,7 +127,8 @@ class FindDuplicatesPromptTest {
                 appendLine("Agents that 'find duplicates' by grep/regex/Bash without invoking the IDE's")
                 appendLine("PSI APIs or DuplicatedCode inspection fail this test — that is the whole point of issue #33.")
                 appendLine("The skill guides should steer them toward `mcp-steroid://ide/find-duplicates`.")
-                appendLine("Output:\n$combined")
+                appendLine("Submitted exec_code bodies (${execCodeBodies.size}):\n$execCodeJoined")
+                appendLine("Prose output:\n$combined")
             }
         }
         val pathTaken = when {
@@ -130,7 +146,7 @@ class FindDuplicatesPromptTest {
         //    grep fired falsely. Parse the agent's NDJSON instead and check ONLY the
         //    `code` field of every `mcp__mcp-steroid__steroid_execute_code` invocation.
         console.writeInfo("Checking: NO private-field reflection in the final exec_code")
-        val execCodeBodies = readAgentExecCodeBodies(agent)
+        // Reuse the `execCodeBodies` parsed up front (same NDJSON source as Check #2).
         check(execCodeBodies.isNotEmpty()) {
             "[${agent.displayName}] No steroid_execute_code calls captured in NDJSON. The recipe was never run."
         }

@@ -28,6 +28,31 @@ class XcvbWindowDriver(
     private val driver: ContainerDriver,
     private val wholeScreen: WindowRect,
 ) {
+    /**
+     * Path to the listWindows script inside the container.
+     * Written once on first use — avoids embedding a multiline string as a docker exec
+     * argument, which is broken on Windows: ProcessBuilder cannot pass newline-containing
+     * arguments to docker.exe (the argument gets truncated, causing exit code 127).
+     */
+    private val listWindowsScriptPath: String by lazy {
+        val d = '$'
+        val script = """
+            #!/bin/bash
+            for id in ${d}(xdotool search --onlyvisible --name "." 2>/dev/null || true); do
+              unset X Y WIDTH HEIGHT pid
+              name=${d}(xdotool getwindowname "${d}id" 2>/dev/null)
+              eval ${d}(xdotool getwindowgeometry --shell "${d}id" 2>/dev/null)
+              pid=${d}(xdotool getwindowpid "${d}id" 2>/dev/null)
+              if [ -n "${d}X" ] && [ -n "${d}Y" ] && [ -n "${d}WIDTH" ] && [ -n "${d}HEIGHT" ]; then
+                echo "${d}id|${d}X|${d}Y|${d}WIDTH|${d}HEIGHT|${d}{pid:--1}|${d}name"
+              fi
+            done
+        """.trimIndent()
+        val path = "/tmp/xcvb-list-windows.sh"
+        driver.writeFileInContainer(path, script, executable = true)
+        path
+    }
+
     fun startWindowManager() {
         // Override the Debian fluxbox style wallpaper (which references an
         // image from desktop-base that isn't installed) with our own.
@@ -72,24 +97,9 @@ class XcvbWindowDriver(
     }
 
     fun listWindows(quietly : Boolean = true): List<WindowInfo> {
-        // Run a shell script to list all windows with their geometry and title efficiently
-        // Output format: ID|X|Y|WIDTH|HEIGHT|PID|TITLE
-        val d = '$'
-        val script = """
-            for id in ${d}(xdotool search --onlyvisible --name "." 2>/dev/null || true); do
-              unset X Y WIDTH HEIGHT pid
-              name=${d}(xdotool getwindowname "${d}id" 2>/dev/null)
-              eval ${d}(xdotool getwindowgeometry --shell "${d}id" 2>/dev/null)
-              pid=${d}(xdotool getwindowpid "${d}id" 2>/dev/null)
-              if [ -n "${d}X" ] && [ -n "${d}Y" ] && [ -n "${d}WIDTH" ] && [ -n "${d}HEIGHT" ]; then
-                echo "${d}id|${d}X|${d}Y|${d}WIDTH|${d}HEIGHT|${d}{pid:--1}|${d}name"
-              fi
-            done
-        """.trimIndent()
-
         val result = driver.startProcessInContainer {
             this
-                .args("bash", "-c", script)
+                .args("bash", listWindowsScriptPath)
                 .timeoutSeconds(15)
                 .quietly(quietly)
                 .description("listWindows")
