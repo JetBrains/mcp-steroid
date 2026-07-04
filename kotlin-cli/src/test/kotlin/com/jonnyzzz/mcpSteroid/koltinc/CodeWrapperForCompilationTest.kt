@@ -13,10 +13,15 @@ class CodeWrapperForCompilationTest {
      *
      * Deriving the wrapped line from the emitted code — instead of hardcoding an offset like
      * "user code starts at wrapped line 23+N" — is the whole point: those hardcoded offsets
-     * silently drifted when [CodeWrapperForCompilation.defaultImports] grew from 12 to 15 entries,
-     * so real compiler errors (at the true line) were no longer remapped while these tests, which
-     * fed the *stale* line numbers, kept passing. Searching the actual output makes the test track
+     * silently drifted as [CodeWrapperForCompilation.defaultImports] grew over time, so real
+     * compiler errors (at the true line) were no longer remapped while these tests, which fed
+     * the *stale* line numbers, kept passing. Searching the actual output makes the test track
      * reality and catch any future drift.
+     *
+     * [snippet] must match exactly one generated line. If it matched several (a too-short or
+     * boilerplate-colliding snippet), picking the first would let the test measure — and then
+     * "confirm" — the wrong line while still looking meaningful. Demanding a unique match turns
+     * that ambiguity into a loud failure instead of a silent false pass.
      */
     private fun assertRemaps(
         result: CodeWrapperForCompilation.WrapResult,
@@ -24,8 +29,13 @@ class CodeWrapperForCompilationTest {
         originalLine: Int,
         col: Int = 5,
     ) {
-        val wrappedLine = result.code.lines().indexOfFirst { it.contains(snippet) } + 1
-        assertTrue("snippet <$snippet> not found in generated code:\n${result.code}", wrappedLine > 0)
+        val matches = result.code.lines().withIndex().filter { it.value.contains(snippet) }
+        assertEquals(
+            "snippet <$snippet> must match exactly one generated line so the test can't silently " +
+                "measure the wrong one; matched ${matches.size}:\n${result.code}",
+            1, matches.size,
+        )
+        val wrappedLine = matches.single().index + 1
         assertEquals(
             "input.kt:$originalLine:$col: error: boom",
             result.lineMapping.remapCompilerOutput("input.kt:$wrappedLine:$col: error: boom"),
@@ -103,6 +113,41 @@ class CodeWrapperForCompilationTest {
         assertTrue(classLine > 0)
         val input = "input.kt:$classLine:1: error: some weird error"
         assertEquals(input, result.lineMapping.remapCompilerOutput(input))
+    }
+
+    @Test
+    fun `compiler error on a wrapper-added default import passes through unmapped`() {
+        // A default import is boilerplate the wrapper injects, not code the agent wrote, so it
+        // is deliberately absent from the mapping. If kotlinc ever flags one of those lines
+        // (e.g. an import stops resolving), remap has nothing to translate it to and must leave
+        // the reference untouched rather than point at some unrelated user line. This pins that
+        // documented behaviour — see review question "what if the error is in the import line
+        // which we just added". Changing how such errors are reported must update this test.
+        val code = "val x = 1"
+        val result = CodeWrapperForCompilation.wrap("Test", code)
+
+        val firstDefaultImport = CodeWrapperForCompilation.defaultImports.first()
+        val importLine = result.code.lines().indexOfFirst { it == firstDefaultImport } + 1
+        assertTrue("default import <$firstDefaultImport> not found in:\n${result.code}", importLine > 0)
+
+        val input = "input.kt:$importLine:8: error: unresolved reference"
+        assertEquals(input, result.lineMapping.remapCompilerOutput(input))
+    }
+
+    @Test
+    fun `user code line remaps correctly regardless of default-import count`() {
+        // The original bug was drift with the number of preamble lines: offsets computed for 12
+        // default imports broke once the list grew. Prepend a varying number of *user* imports —
+        // which shifts the user code down by exactly that many lines — and assert the error still
+        // remaps to the true source line for each count. A future offset-based regression would
+        // pass for one count and fail for the others.
+        for (extraImports in listOf(0, 1, 3, 12, 25)) {
+            val importBlock = (1..extraImports).joinToString("") { "import pkg.Type$it\n" }
+            val code = importBlock + "val bad: String = 123"
+
+            val result = CodeWrapperForCompilation.wrap("Test", code)
+            assertRemaps(result, "val bad: String = 123", originalLine = extraImports + 1, col = 19)
+        }
     }
 
     @Test
