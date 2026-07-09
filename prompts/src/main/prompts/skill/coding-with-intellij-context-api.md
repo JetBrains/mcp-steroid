@@ -239,14 +239,29 @@ if (buildFile != null) {
 
     // Inspections on a file (RECOMMENDED — works regardless of window focus):
     //   runInspectionsDirectly(file: VirtualFile, includeInfoSeverity: Boolean = false)
-    //     -> Map<inspectionShortName, List<ProblemDescriptor>>
+    //     -> InspectionRunResult
+    //        (Map<inspectionShortName, List<ProblemDescriptor>> + failedTools)
     // Runs every ENABLED inspection from the project's current profile against
     // `file` and returns the descriptor list per inspection. By default skips
     // INFO severity; pass `includeInfoSeverity = true` to include them.
-    val problems = runInspectionsDirectly(buildFile)
-    for ((tool, descs) in problems) {
-        println("$tool: ${descs.size} problems")
+    val result = runInspectionsDirectly(buildFile)
+    val findings = readAction {
+        result.entries.flatMap { (toolId, descriptors) ->
+            descriptors.map { descriptor ->
+                mapOf(
+                    "toolId" to toolId,
+                    "message" to descriptor.descriptionTemplate,
+                    "elementText" to (descriptor.psiElement?.text ?: "")
+                )
+            }
+        }
     }
+    val status = when {
+        result.failedTools.isNotEmpty() -> "check_failed"
+        findings.isNotEmpty() -> "findings"
+        else -> "clean"
+    }
+    printJson(mapOf("status" to status, "findings" to findings, "failedTools" to result.failedTools))
 
     // To target a SPECIFIC inspection (e.g. DuplicatedCode), do not use
     // runInspectionsDirectly — it runs the full enabled-set. Construct the
@@ -256,7 +271,9 @@ if (buildFile != null) {
 }
 ```
 
-> **`ProblemDescriptor` results carry a live PSI reference, not a snapshot.** Accessing `.text`, `.textRange`, `psiElement.containingFile`, etc. on a returned descriptor *outside a `readAction { }` / `smartReadAction { }`* throws `ReadAccessException`. Consume the descriptors inside the same read action, or re-enter one in your post-processing loop.
+> **A crashing inspection tool no longer aborts the sweep.** `runInspectionsDirectly` returns an additive result: it still behaves exactly like the `Map<inspectionShortName, List<ProblemDescriptor>>` shown above, and additionally exposes `result.failedTools` — the tools that crashed during the sweep, or a sweep-level failure such as passing a non-PSI `VirtualFile` (tool id + error message). Findings from the healthy tools survive a crashing tool, so check `failedTools` before declaring a file clean.
+
+> **Do not `printJson(result)` directly.** `ProblemDescriptor` results carry live PSI/VFS references, not a snapshot; Jackson can recurse deeply or hit read-lock problems. Snapshot the fields you need under `readAction { }`, then print a DTO with `status`, `findings`, and `failedTools` as shown above.
 
 ### Daemon Analysis & Highlights
 

@@ -101,13 +101,13 @@ class McpServerCore(
         // session consumes the response and we emit no reply. Otherwise it's a malformed
         // request (a request MUST have a method).
         if (methodElement == null) {
-            val routed = tryRouteServerResponse(rawId!!, json, session)
+            val routed = tryRouteServerResponse(rawId, json, session)
             if (routed) return null
             return encodeError(rawId, JsonRpcErrorCodes.INVALID_REQUEST, "Missing method")
         }
         // method present but not a string
         if (method == null) {
-            return encodeError(rawId!!, JsonRpcErrorCodes.INVALID_REQUEST,
+            return encodeError(rawId, JsonRpcErrorCodes.INVALID_REQUEST,
                 "Invalid Request: method must be a string")
         }
 
@@ -118,11 +118,11 @@ class McpServerCore(
         val params: JsonObject? = when {
             paramsElement == null || paramsElement is JsonNull -> null
             paramsElement is JsonObject -> paramsElement
-            else -> return encodeError(rawId!!, JsonRpcErrorCodes.INVALID_REQUEST,
+            else -> return encodeError(rawId, JsonRpcErrorCodes.INVALID_REQUEST,
                 "Invalid Request: params must be an object")
         }
 
-        return handleRequest(rawId!!, method, params, session)
+        return handleRequest(rawId, method, params, session)
     }
 
     /**

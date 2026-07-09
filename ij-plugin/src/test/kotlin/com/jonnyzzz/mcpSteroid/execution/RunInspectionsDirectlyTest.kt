@@ -1,10 +1,16 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.execution
 
+import com.intellij.codeInspection.LocalInspectionTool
+import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiElementVisitor
+import com.intellij.psi.PsiInvalidElementAccessException
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -166,9 +172,11 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         val code = $$"""
             val file = findFile("$$testFilePath") ?: error("File not found")
 
-            val problems = runInspectionsDirectly(file)
+            val problems: Map<String, List<com.intellij.codeInspection.ProblemDescriptor>> =
+                runInspectionsDirectly(file)
 
             // Verify the return type is Map<String, List<ProblemDescriptor>>
+            println("Legacy map assignment compiled")
             println("Result type: Map with ${problems.size} entries")
             problems.forEach { (key, value) ->
                 println("Key type: ${key::class.simpleName}, Value type: List of ${value.firstOrNull()?.let { it::class.simpleName } ?: "empty"}")
@@ -186,5 +194,241 @@ class RunInspectionsDirectlyTest : BasePlatformTestCase() {
         // Should execute without error
         assertFalse("Should execute without error. Output:\n$text", result.isError)
         assertTrue("Should report map structure", text.contains("Result type: Map"))
+        assertTrue("Legacy Map assignment should compile. Output:\n$text", text.contains("Legacy map assignment compiled"))
     }
+
+    // ============================================================
+    // Issue #93: per-tool crash isolation
+    // Issue #69: per-file PSI-invalid tolerance + additive return shape
+    // ============================================================
+
+    /**
+     * Suppress ONLY the expected logger.error lines produced by the per-tool crash isolation
+     * (the production code intentionally logs every failed tool via logger.error, which would
+     * otherwise fail the test through TestLogger).
+     */
+    private fun suppressExpectedInspectionCrashErrors(): com.intellij.openapi.application.AccessToken =
+        LoggedErrorProcessor.executeWith(object : LoggedErrorProcessor() {
+            override fun processError(
+                category: String,
+                message: String,
+                details: Array<String>,
+                t: Throwable?
+            ): Set<Action> =
+                if (message.contains("crashed while inspecting")) Action.NONE
+                else super.processError(category, message, details, t)
+        })
+
+    private fun crashIsolationScript(): String = $$"""
+        val file = findFile("$$testFilePath") ?: error("File not found")
+
+        val result = runInspectionsDirectly(file)
+
+        // The legacy Map surface must keep working unchanged (additive return shape):
+        println("TOTAL=${result.values.sumOf { it.size }}")
+        println("HEALTHY=${result["HealthyStubInspection"]?.size ?: 0}")
+
+        // New additive section: tools that crashed during the sweep.
+        println("FAILED_TOOLS=" + result.failedTools.joinToString(";") { it.toolId })
+        println("FAILED_ERRORS=" + result.failedTools.joinToString(";") { it.error })
+    """.trimIndent()
+
+    fun testCompletedInspectionSweepReportsNoFailedTools() {
+        myFixture.enableInspections(HealthyStubInspection())
+
+        timeoutRunBlocking(60.seconds) {
+            val manager = project.service<ExecutionManager>()
+
+            val result = manager.executeWithProgress(
+                testExecParams(crashIsolationScript(), taskId = "no-failed-tools-test", reason = "test completed inspection sweep"),
+                NoOpProgressReporter
+            )
+
+            val text = getTextContent(result)
+            println("Test output:\n$text")
+
+            assertFalse("A completed sweep must not fail. Output:\n$text", result.isError)
+            assertTrue("The healthy inspection should report one finding. Output:\n$text", text.contains("HEALTHY=1"))
+            assertTrue(
+                "A completed sweep must expose an empty failedTools section. Output:\n$text",
+                text.lineSequence().any { it == "FAILED_TOOLS=" }
+            )
+        }
+    }
+
+    fun testNonPsiVirtualFileReportsSweepFailure() {
+        timeoutRunBlocking(60.seconds) {
+            val manager = project.service<ExecutionManager>()
+
+            val code = $$"""
+                val directory = findFile(project.basePath ?: error("No base path")) ?: error("Project directory not found")
+
+                val result = runInspectionsDirectly(directory)
+
+                println("TOTAL=${result.values.sumOf { it.size }}")
+                println("FAILED_TOOLS=" + result.failedTools.joinToString(";") { it.toolId })
+                println("FAILED_ERRORS=" + result.failedTools.joinToString(";") { it.error })
+            """.trimIndent()
+
+            val result = manager.executeWithProgress(
+                testExecParams(code, taskId = "non-psi-virtual-file-test", reason = "test non-PSI VirtualFile sweep failure"),
+                NoOpProgressReporter
+            )
+
+            val text = getTextContent(result)
+            println("Test output:\n$text")
+
+            assertFalse("A non-PSI input must be reported in-band, not fail the script. Output:\n$text", result.isError)
+            assertTrue("The legacy findings map should stay empty for a non-PSI input. Output:\n$text", text.contains("TOTAL=0"))
+            assertTrue(
+                "A non-PSI input must not look clean; it must report a sweep failure. Output:\n$text",
+                text.contains("FAILED_TOOLS=${InspectionRunResult.SWEEP_FAILURE_ID}")
+            )
+            assertTrue("The failure should explain that no PSI file exists. Output:\n$text", text.contains("No PSI file"))
+        }
+    }
+
+    fun testEmptyInspectionFindingsDoNotHideFailedTools() {
+        // This is the dangerous shape from issue #69/#93: the legacy Map surface is empty,
+        // but that must not be interpreted as "clean" when the only applicable tool crashed.
+        myFixture.enableInspections(CrashingStubInspection())
+
+        suppressExpectedInspectionCrashErrors().use {
+            timeoutRunBlocking(60.seconds) {
+                val manager = project.service<ExecutionManager>()
+
+                val result = manager.executeWithProgress(
+                    testExecParams(crashIsolationScript(), taskId = "empty-findings-failed-tools-test", reason = "test empty findings with failed tool"),
+                    NoOpProgressReporter
+                )
+
+                val text = getTextContent(result)
+                println("Test output:\n$text")
+
+                assertFalse("A crashed inspection must be reported in-band, not fail the script. Output:\n$text", result.isError)
+                assertTrue("The legacy findings map should be empty for this repro. Output:\n$text", text.contains("TOTAL=0"))
+                assertTrue(
+                    "Empty findings must not hide the failed inspection. Output:\n$text",
+                    text.contains("FAILED_TOOLS=CrashingStubInspection")
+                )
+            }
+        }
+    }
+
+    fun testCrashingInspectionToolDoesNotAbortSweep() {
+        // One stub tool that always throws from its visitor (models GitHub issue #93 — the
+        // kotlinx-serialization K2 'Cannot compute containing PSI' crash), and one healthy
+        // stub tool that reliably reports exactly one problem.
+        myFixture.enableInspections(CrashingStubInspection(), HealthyStubInspection())
+
+        suppressExpectedInspectionCrashErrors().use {
+            timeoutRunBlocking(60.seconds) {
+                val manager = project.service<ExecutionManager>()
+
+                val result = manager.executeWithProgress(
+                    testExecParams(crashIsolationScript(), taskId = "crash-isolation-test", reason = "test per-tool crash isolation"),
+                    NoOpProgressReporter
+                )
+
+                val text = getTextContent(result)
+                println("Test output:\n$text")
+
+                assertFalse("A crashing tool must not fail the whole sweep. Output:\n$text", result.isError)
+                assertTrue(
+                    "The crashed tool must be reported in result.failedTools. Output:\n$text",
+                    text.contains("FAILED_TOOLS=") && text.contains("CrashingStubInspection")
+                )
+                assertTrue(
+                    "The crash message must be surfaced. Output:\n$text",
+                    text.contains("simulated inspection crash")
+                )
+                assertTrue(
+                    "Findings from healthy tools must be preserved. Output:\n$text",
+                    text.contains("HEALTHY=1")
+                )
+            }
+        }
+    }
+
+    fun testPsiInvalidElementAccessInOneToolDoesNotAbortSweep() {
+        // Models GitHub issue #69: a PsiInvalidElementAccessException raised while inspecting
+        // must not lose the results of the healthy tools in the same sweep.
+        //
+        // NOTE: a true mid-sweep whole-file PSI invalidation cannot be reproduced in this
+        // fixture — the sweep runs inside a read action, which excludes the concurrent write
+        // that would invalidate the PSI. The closest honest repro is a tool observing
+        // (and throwing) PsiInvalidElementAccessException mid-visit, which is also how the
+        // exception reaches InspectionEngine in the field (stale PSI cached inside a tool).
+        myFixture.enableInspections(PsiInvalidThrowingStubInspection(), HealthyStubInspection())
+
+        suppressExpectedInspectionCrashErrors().use {
+            timeoutRunBlocking(60.seconds) {
+                val manager = project.service<ExecutionManager>()
+
+                val result = manager.executeWithProgress(
+                    testExecParams(crashIsolationScript(), taskId = "psi-invalid-isolation-test", reason = "test PSI-invalid tolerance"),
+                    NoOpProgressReporter
+                )
+
+                val text = getTextContent(result)
+                println("Test output:\n$text")
+
+                assertFalse("A PSI-invalid crash in one tool must not fail the sweep. Output:\n$text", result.isError)
+                assertTrue(
+                    "The PSI-invalid tool must be reported in result.failedTools. Output:\n$text",
+                    text.contains("FAILED_TOOLS=") && text.contains("PsiInvalidThrowingStubInspection")
+                )
+                assertTrue(
+                    "Findings from healthy tools must be preserved. Output:\n$text",
+                    text.contains("HEALTHY=1")
+                )
+            }
+        }
+    }
+}
+
+/** Always throws from its visitor — models the issue #93 plugin-generated-PSI crash. */
+class CrashingStubInspection : LocalInspectionTool() {
+    override fun getShortName(): String = "CrashingStubInspection"
+    override fun getDisplayName(): String = "Crashing stub inspection (test)"
+    override fun getGroupDisplayName(): String = "MCP Steroid tests"
+
+    override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor =
+        object : PsiElementVisitor() {
+            override fun visitElement(element: PsiElement) {
+                throw IllegalStateException("simulated inspection crash (test stub)")
+            }
+        }
+}
+
+/** Throws PsiInvalidElementAccessException from its visitor — models the issue #69 case. */
+class PsiInvalidThrowingStubInspection : LocalInspectionTool() {
+    override fun getShortName(): String = "PsiInvalidThrowingStubInspection"
+    override fun getDisplayName(): String = "PSI-invalid throwing stub inspection (test)"
+    override fun getGroupDisplayName(): String = "MCP Steroid tests"
+
+    override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor =
+        object : PsiElementVisitor() {
+            override fun visitElement(element: PsiElement) {
+                throw PsiInvalidElementAccessException(element, "simulated invalid PSI access (test stub)")
+            }
+        }
+}
+
+/** Reliably reports exactly one problem per sweep — proves healthy-tool findings survive. */
+class HealthyStubInspection : LocalInspectionTool() {
+    override fun getShortName(): String = "HealthyStubInspection"
+    override fun getDisplayName(): String = "Healthy stub inspection (test)"
+    override fun getGroupDisplayName(): String = "MCP Steroid tests"
+
+    override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor =
+        object : PsiElementVisitor() {
+            private var reported = false
+            override fun visitElement(element: PsiElement) {
+                if (!reported) {
+                    reported = true
+                    holder.registerProblem(element, "healthy stub finding")
+                }
+            }
+        }
 }

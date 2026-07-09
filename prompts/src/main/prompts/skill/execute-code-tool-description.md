@@ -51,7 +51,7 @@ literal anchors keep failing): the IDE's tolerance-matching patch engine — fet
 | **Grep content inside project files** | `readAction { FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> Regex(pat).findAll(String(vf.contentsToByteArray(), vf.charset)) … } }` in ONE call |
 | **Run Maven / Gradle tests** | IDE runner — see `mcp-steroid://skill/execute-code-maven` and `mcp-steroid://skill/execute-code-gradle`; Bash is only for shell-level final verification or IDE-runner fallback |
 | **IDE build aborted (`errors=false, aborted=true`)** | Fetch `mcp-steroid://skill/execute-code-gradle` or `mcp-steroid://skill/execute-code-maven` and run the matching sync pattern before Bash fallback. |
-| **Compile check after an edit** | `ProjectTaskManager.getInstance(project).buildAllModules().await()` |
+| **Verify after an edit** | Fetch `mcp-steroid://ide/verify-after-edit` first. For JPS/non-delegated builds use `mcp-steroid://ide/jps-build-errors`; do not treat an empty diagnostics list as clean unless `check_ran=true`. |
 | **Find duplicate / cloned code across the project (DRY violations, copy-paste)** | **Fetch `mcp-steroid://ide/find-duplicates` FIRST — duplicate-code detection is an IDE/PSI task, not a text-search task; do not start with `grep` / `Bash` / `rg`.** The article's **Primary recipe (PSI body comparison)** is the default — exact-body duplicates for Kotlin/Java, runs in fresh sessions / CI / test environments with no warm-index prerequisite. The Cross-check recipe (bundled `DuplicatedCode` inspection: `com.jetbrains.clones.DuplicateInspection`) is OPTIONAL — only when the user explicitly wants near-duplicate / parameterized-clone detection AND the project's `HashFragmentIndex` is known to be warm. **`CLUSTERS_FOUND: 0` from the Cross-check alone is ambiguous** — it does not mean "no duplicates exist" until the Primary recipe has also run. No private-field reflection in either path. |
 | **Run a single named inspection on a file (with quick-fix)** | Fetch `mcp-steroid://ide/inspect-and-fix`. For *all enabled* inspections, use the context-API helper `runInspectionsDirectly(file)` directly. |
 | **Tabular output (array of records — find-references, call-hierarchy, project-search, document-symbols)** | `printCsv(headers: List<String>, rows: Iterable<List<Any?>>, dictColumns: Set<String> = emptySet())` — CSV with optional path-dictionary preamble. **OR** `printToon(value: Any?)` — TOON array-of-records (Token-Oriented Object Notation). **Signatures differ**: `printCsv` wants parallel `List<List<Any?>>` rows; `printToon` wants `List<Map<String, Any?>>` and infers column order from the first map. Do not pass `List<Map>` to `printCsv` (common compile error). |
@@ -122,6 +122,7 @@ Kotlin, so inspect the captured diagnostics first.
 - To surface anything to the caller, wrap it in `println(value)` for plain text or `printJson(value)` for structured data.
 - A script that ends with `myList` (or any bare expression) prints nothing — you will see only `execution_id: …` in the response, identical to a script that returned no value at all. Always end with an explicit `println(...)` or `printJson(...)` of what the agent needs to see.
 - **For inspection / report tasks, print compact machine-readable lines on the first run.** Stable shapes like `KEY: value` per line or `printJson` parse cheaply on your end and let you build the user-facing summary without a second exec_code pass to reshape verbose IDE output. Recipes in `mcp-steroid://ide/find-duplicates`, `…/inspect-and-fix`, `…/inspection-summary` already follow this convention.
+- **For `runInspectionsDirectly`, do not `printJson(result)` directly.** It is Map-compatible and contains live `ProblemDescriptor` PSI/VFS references. Snapshot descriptor fields inside `readAction { }`, print a DTO, and always include `result.failedTools`; a non-empty `failedTools` means the check is not clean even when the findings map is empty.
 
 **Threading rules — apply preventively, not after an error:**
 
@@ -169,7 +170,7 @@ val testFiles = readAction {
 println(testFiles.joinToString("\n"))
 ```
 
-**Compile check** (use after every edit — do NOT use `./mvnw compile`):
+**Compile check** (quick boolean only — for structured diagnostics fetch `mcp-steroid://ide/jps-build-errors`):
 
 ```kotlin
 import com.intellij.task.ProjectTaskManager
