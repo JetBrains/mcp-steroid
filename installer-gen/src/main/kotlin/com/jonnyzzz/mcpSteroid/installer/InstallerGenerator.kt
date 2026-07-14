@@ -289,13 +289,14 @@ internal fun renderInstallerScripts(table: Map<String, JdkScriptEntry>, devrig: 
         loadResource("/templates/install.ps1.tmpl"),
         common + ("DEVRIG_BINSUB" to devrig.launcherWindows) + ("PLATFORM_TABLE_PS" to renderPsTable(table)),
     )
-    // Windows PowerShell 5.1 reads a BOM-less .ps1 as the ANSI codepage, NOT UTF-8 — a non-ASCII byte
-    // (e.g. an em dash in a string) is mojibake'd into characters that break parsing (caught on
-    // eugene-x220). Keep install.ps1 strictly ASCII; fail generation if a template/baked value sneaks in.
-    val nonAscii = ps.indexOfFirst { it.code >= 128 }
-    require(nonAscii < 0) {
-        "install.ps1 must be ASCII-only (PowerShell 5.1 misreads UTF-8); first non-ASCII at index $nonAscii: " +
-            "'${ps[nonAscii]}' (U+${ps[nonAscii].code.toString(16).padStart(4, '0').uppercase()})"
+    // PowerShell 5.1 misreads BOM-less UTF-8, and legacy consoles can corrupt Unicode in either
+    // script. Fail generation if a template or baked value introduces anything outside ASCII.
+    mapOf("install.sh" to sh, "install.ps1" to ps).forEach { (name, script) ->
+        val nonAscii = script.indexOfFirst { it.code >= 128 }
+        require(nonAscii < 0) {
+            name + " must be ASCII-only; first non-ASCII at index " + nonAscii + ": '" + script[nonAscii] +
+                "' (U+" + script[nonAscii].code.toString(16).padStart(4, '0').uppercase() + ")"
+        }
     }
     return InstallerScripts(sh, ps)
 }
