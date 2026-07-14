@@ -95,6 +95,31 @@ class InstallerGeneratorTest {
         assertTrue(scripts.ps.contains("install devrig"), "install.ps1 must delegate to 'devrig install devrig'")
     }
 
+    @Test
+    fun `rendered install scripts are ASCII-only`() {
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        mapOf("install.sh" to scripts.sh, "install.ps1" to scripts.ps).forEach { (name, script) ->
+            val nonAscii = script.withIndex().firstOrNull { it.value.code >= 128 }
+            assertEquals(
+                null,
+                nonAscii,
+                name + " must be ASCII-only; first non-ASCII character at index " + nonAscii?.index +
+                    ": U+" + nonAscii?.value?.code?.toString(16)?.uppercase(),
+            )
+        }
+    }
+
+    @Test
+    fun `renderInstallerScripts rejects non-ASCII substituted values`() {
+        val unicodeDevrig = devrig.copy(url = devrig.url + 0x2603.toChar())
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            renderInstallerScripts(jdkScriptTable(fullModel()), unicodeDevrig, "1.2.3")
+        }
+        assertTrue(failure.message!!.contains("must be ASCII-only"), failure.message!!)
+    }
+
     // ── devrig resolution: local override path (no network) ──────────────────────────────────────
 
     @Test
