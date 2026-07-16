@@ -93,6 +93,148 @@ class InstallerGeneratorTest {
         }
         assertTrue(scripts.ps.contains("\$DevrigBinSub = 'devrig-1.0-abc1234/bin/devrig.bat'"), "install.ps1 missing computed binsub")
         assertTrue(scripts.ps.contains("install devrig"), "install.ps1 must delegate to 'devrig install devrig'")
+        // Silences PowerShell's default progress bar, which cripples Invoke-WebRequest / Expand-Archive
+        // throughput (jonnyzzz/mcp-steroid#274). Regression-guard: removing this line brings the bug back.
+        assertTrue(
+            scripts.ps.contains("\$ProgressPreference = 'SilentlyContinue'"),
+            "install.ps1 must silence \$ProgressPreference so Invoke-WebRequest + Expand-Archive stay fast",
+        )
+    }
+
+    @Test
+    fun `install_ps1 sets ProgressPreference before any Invoke-WebRequest or Expand-Archive call`() {
+        // A `$ProgressPreference = 'SilentlyContinue'` line placed AFTER Invoke-WebRequest / Expand-Archive
+        // would leave the first download and the first unpack still crawling under the default progress
+        // bar — the exact regression jonnyzzz/mcp-steroid#274 pins. The setting must be baked BEFORE both,
+        // so an edit that moves it below the download function fails this test.
+        val ps = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3").ps
+        val silentAt = ps.indexOf("\$ProgressPreference = 'SilentlyContinue'")
+        assertTrue(silentAt >= 0, "install.ps1 must set \$ProgressPreference = 'SilentlyContinue'")
+        // Match the actual call syntax, not the bare cmdlet name — the setting's own comment mentions
+        // both cmdlets by name, and the test must not fire on those mentions.
+        val invokeAt = ps.indexOf("Invoke-WebRequest -Uri")
+        val expandAt = ps.indexOf("Expand-Archive -Path")
+        assertTrue(invokeAt > 0, "install.ps1 must call Invoke-WebRequest -Uri")
+        assertTrue(expandAt > 0, "install.ps1 must call Expand-Archive -Path")
+        assertTrue(invokeAt > silentAt, "\$ProgressPreference must precede Invoke-WebRequest (silentAt=$silentAt, invokeAt=$invokeAt)")
+        assertTrue(expandAt > silentAt, "\$ProgressPreference must precede Expand-Archive (silentAt=$silentAt, expandAt=$expandAt)")
+        // And it must appear exactly once (belt+suspenders — a stray duplicate would suggest a template
+        // copy/paste bug that some future edit might revert one of the two lines).
+        assertEquals(silentAt, ps.lastIndexOf("\$ProgressPreference = 'SilentlyContinue'"), "duplicate \$ProgressPreference setting")
+    }
+
+    @Test
+    fun `install_ps1 restores the caller ProgressPreference (no session leak under irm iex)`() {
+        // `irm | iex` runs install.ps1 in the CALLER's scope, so a bare `$ProgressPreference =
+        // 'SilentlyContinue'` would leave the user's interactive session with progress permanently
+        // silenced. The script must snapshot the prior value and restore it in a `finally` so the
+        // success path and any uncaught terminating error both put the session back as they found it.
+        val ps = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3").ps
+        val saveAt = ps.indexOf("\$SteroidPrevProgressPreference = \$ProgressPreference")
+        val setAt = ps.indexOf("\$ProgressPreference = 'SilentlyContinue'")
+        val restoreAt = ps.indexOf("\$ProgressPreference = \$SteroidPrevProgressPreference")
+        assertTrue(saveAt >= 0, "install.ps1 must snapshot the caller's \$ProgressPreference before overriding it")
+        assertTrue(restoreAt >= 0, "install.ps1 must restore the caller's \$ProgressPreference (leak fix)")
+        // Order: snapshot → override → … → restore. Restore must be the LAST of the three so it wins.
+        assertTrue(saveAt < setAt, "must snapshot BEFORE overriding \$ProgressPreference")
+        assertTrue(restoreAt > setAt, "must restore AFTER the override")
+        // The restore lives in a finally that closes a try opened right after the override.
+        val tryAt = ps.indexOf("\ntry {", setAt)
+        val finallyAt = ps.lastIndexOf("finally {")
+        assertTrue(tryAt in 0 until restoreAt, "the body must be wrapped in a try{} opened after the override")
+        assertTrue(finallyAt in 0 until restoreAt, "the restore must sit inside the finally{} block")
+    }
+
+    @Test
+    fun `install_sh does not carry the PowerShell ProgressPreference setting`() {
+        // Belt-and-suspenders: `$ProgressPreference` is a PowerShell-only automatic variable. The POSIX
+        // install.sh must not contain it — a leak would mean the shared render pipeline crossed streams
+        // between the two templates.
+        val sh = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3").sh
+        assertTrue(!sh.contains("ProgressPreference"), "install.sh must not carry the PS-only ProgressPreference setting")
+    }
+
+    @Test
+    fun `install_ps1 detects CPU arch via PROCESSOR_ARCHITECTURE, not RuntimeInformation`() {
+        // jonnyzzz/mcp-steroid#273: reading [RuntimeInformation]::OSArchitecture aborts under
+        // Set-StrictMode Latest on the .NET Framework 4.6.x that base Windows 10 ships. The primary
+        // detection path must be the always-set Windows env vars; the RuntimeInformation branch may
+        // exist ONLY as a non-Windows (pwsh-Core) fallback, guarded by try/catch.
+        val ps = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3").ps
+        assertTrue(
+            ps.contains("\$env:PROCESSOR_ARCHITECTURE"),
+            "install.ps1 must consult \$env:PROCESSOR_ARCHITECTURE for CPU detection",
+        )
+        assertTrue(
+            ps.contains("\$env:PROCESSOR_ARCHITEW6432"),
+            "install.ps1 must also consult \$env:PROCESSOR_ARCHITEW6432 (WoW64 32-on-64 case)",
+        )
+        // If the .NET static access is present at all, the access itself must live inside a preceding
+        // try{} block — StrictMode + missing property is exactly the #273 abort. Match the qualified
+        // type reference (only appears in code, never in comments) so comment mentions of the bare
+        // word "RuntimeInformation" don't false-positive.
+        val accessMarker = "[System.Runtime.InteropServices.RuntimeInformation]"
+        val accessAt = ps.indexOf(accessMarker)
+        if (accessAt >= 0) {
+            val tryAt = ps.lastIndexOf("try {", accessAt)
+            assertTrue(
+                tryAt in 0 until accessAt,
+                "install.ps1 accesses $accessMarker but not inside a preceding try{} block — " +
+                    "unguarded access re-introduces #273 on old .NET Framework builds",
+            )
+        }
+    }
+
+    @Test
+    fun `install_ps1 closes stdin on the devrig launcher invocation`() {
+        // Bootstrapping via `irm | iex` leaves the parent PS host with stdin still connected to the outer
+        // shell's pipe. A devrig subprocess that reads stdin would hang forever with no user recourse.
+        // `$null |` gives the launcher an empty input stream so the first read is EOF — enforcing the
+        // `devrig install devrig` non-interactive contract (see runInstallDevrigCommand).
+        val ps = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3").ps
+        assertTrue(
+            ps.contains("\$null | & \$launcher install devrig"),
+            "install.ps1 must pipe \$null into the devrig launcher so the child cannot inherit an open stdin",
+        )
+    }
+
+    @Test
+    fun `install_sh closes stdin on the devrig launcher invocation`() {
+        // Mirror of the ps1 stdin-close on the POSIX side: `curl | sh` bootstrap leaves stdin open to the
+        // outer shell's pipe. `< /dev/null` gives devrig an already-closed stdin.
+        val sh = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3").sh
+        // Match the actual invocation line to avoid false positives on other `< /dev/null` uses.
+        val launcherLine = sh.lines().firstOrNull { it.contains("\"\$launcher\" install devrig") }
+            ?: error("install.sh must invoke \"\$launcher\" install devrig")
+        assertTrue(
+            "< /dev/null" in launcherLine,
+            "install.sh must redirect stdin from /dev/null on the devrig launcher line: '$launcherLine'",
+        )
+    }
+
+    @Test
+    fun `rendered install scripts are ASCII-only`() {
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        mapOf("install.sh" to scripts.sh, "install.ps1" to scripts.ps).forEach { (name, script) ->
+            val nonAscii = script.withIndex().firstOrNull { it.value.code >= 128 }
+            assertEquals(
+                null,
+                nonAscii,
+                name + " must be ASCII-only; first non-ASCII character at index " + nonAscii?.index +
+                    ": U+" + nonAscii?.value?.code?.toString(16)?.uppercase(),
+            )
+        }
+    }
+
+    @Test
+    fun `renderInstallerScripts rejects non-ASCII substituted values`() {
+        val unicodeDevrig = devrig.copy(url = devrig.url + 0x2603.toChar())
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            renderInstallerScripts(jdkScriptTable(fullModel()), unicodeDevrig, "1.2.3")
+        }
+        assertTrue(failure.message!!.contains("must be ASCII-only"), failure.message!!)
     }
 
     // ── devrig resolution: local override path (no network) ──────────────────────────────────────

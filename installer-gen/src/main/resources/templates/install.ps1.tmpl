@@ -11,6 +11,18 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# PowerShell's default progress bar redraws on every byte read (Invoke-WebRequest) and every entry
+# unpacked (Expand-Archive), turning a multi-hundred-MB download + JDK unpack into a UI-bound crawl
+# on Windows consoles. See https://github.com/PowerShell/PowerShell/issues/2138 - silence progress
+# for the whole script (Write-Log status lines still go to stderr).
+#
+# `irm | iex` runs this script in the CALLER's scope, so a bare assignment would leave the user's
+# session with progress permanently silenced. Save the prior value and restore it in the finally
+# below - that covers the success path and any uncaught terminating error (the Fail -> exit path
+# tears the session down, so the leak is moot there).
+$SteroidPrevProgressPreference = $ProgressPreference
+$ProgressPreference = 'SilentlyContinue'
+try {
 
 $Version      = '@@VERSION@@'
 $DevrigUrl    = '@@DEVRIG_URL@@'
@@ -42,10 +54,28 @@ $BinariesDir = Join-Path $SteroidHome 'binaries'
 # -- platform detection -> normalized <os>-<cpu> key --
 $cpu = $env:DEVRIG_CPU
 if (-not $cpu) {
-  switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
-    'Arm64' { $cpu = 'arm64' }
-    'X64'   { $cpu = 'x64' }
-    default { Fail "unsupported CPU architecture" }
+  # PROCESSOR_ARCHITECTURE / PROCESSOR_ARCHITEW6432 are Windows-native env vars set on EVERY
+  # PowerShell host (5.1 and 7.x) on every Windows build. Do NOT read
+  # [RuntimeInformation]::OSArchitecture as the primary lookup: on the .NET Framework 4.6.x that
+  # ships with base Windows 10 the property is missing entirely, and Set-StrictMode Latest turns
+  # that into a hard PropertyNotFoundStrict abort (jonnyzzz/mcp-steroid#273 - user ran
+  # `irm | iex` and got "OSArchitecture cannot be found on this object", the whole install
+  # dead in the water). PROCESSOR_ARCHITEW6432 comes first because WoW64 (32-bit PS on 64-bit
+  # Windows) sets PROCESSOR_ARCHITECTURE=x86 but exposes the real host arch in ARCHITEW6432.
+  $arch = $env:PROCESSOR_ARCHITEW6432
+  if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
+  if (-not $arch) {
+    # Reached only on non-Windows (pwsh Core on Linux/Mac in dev+test contexts) where neither
+    # env var is set. Guarded so a missing property in some future strict mode cannot
+    # re-introduce #273.
+    try { $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
+    catch { Fail "cannot detect CPU architecture: PROCESSOR_ARCHITECTURE unset and RuntimeInformation lookup threw ($($_.Exception.Message))" }
+  }
+  switch -Regex ($arch) {
+    '^(?i)ARM64$'       { $cpu = 'arm64' }
+    '^(?i)(AMD64|X64)$' { $cpu = 'x64' }
+    '^(?i)X86$'         { Fail "32-bit Windows is not supported" }
+    default             { Fail "unsupported CPU architecture: '$arch'" }
   }
 }
 $os = $env:DEVRIG_OS
@@ -115,7 +145,13 @@ if (-not (Test-Path (Join-Path $jdkHome 'bin\java.exe'))) {
 # registers itself. JAVA_HOME is set only so the unpacked devrig runs under the bundled JDK right now.
 Write-Log "registering devrig (devrig install devrig)..."
 $env:JAVA_HOME = $jdkHome
-& $launcher install devrig "--install-script=$launcher" "--jdk-home=$jdkHome"
+# Pipe $null so the launcher's child process gets an empty stdin that reads EOF immediately. `irm | iex`
+# is a PowerShell OBJECT pipeline (not a POSIX stdin pipe), so the script runs inside the caller's PS
+# host and a native child would otherwise inherit THAT host's stdin handle - an interactive console, or
+# in a non-interactive/redirected host an open stream. Either way a devrig subprocess that read stdin (or
+# waited on a Console.ReadLine style prompt) could block with no user recourse. `$null |` removes that
+# risk - `devrig install devrig` is contractually non-interactive (see runInstallDevrigCommand).
+$null | & $launcher install devrig "--install-script=$launcher" "--jdk-home=$jdkHome"
 if ($LASTEXITCODE -ne 0) { Fail "'devrig install devrig' failed (exit $LASTEXITCODE) - the launcher could not register itself" }
 
 # -- done. We do NOT auto-register devrig with agents - that edits agent configs, so it is an
@@ -124,3 +160,8 @@ Write-Log "devrig binary is ready."
 Write-Log ""
 Write-Log "To register devrig with your agents (Claude, Codex, Gemini), run:"
 Write-Log "    devrig install"
+}
+finally {
+  # Restore the caller's progress preference so `irm | iex` leaves the session as it found it.
+  $ProgressPreference = $SteroidPrevProgressPreference
+}
