@@ -55,6 +55,35 @@ class ArenaPromptContractTest {
     }
 
     @Test
+    fun `mcp prompt makes agent discover project name via list_projects instead of hardcoding it`() {
+        val prompt = ArenaTestRunner(
+            container = ContainerDriver(
+                logPrefix = "prompt-test",
+                containerId = "unused",
+                startRequest = StartContainerRequest(),
+            ),
+            projectGuestDir = "/workspace",
+        ).buildPrompt(testCase = sampleMavenTestCase(), projectDir = "/home/agent/project-home", withMcp = true)
+
+        assertFalse(
+            prompt.contains("Project name in IntelliJ is always"),
+            "The static project-name claim must be gone — the routing key is plugin-computed and dynamic (#251)",
+        )
+        assertTrue(
+            prompt.contains("steroid_list_projects"),
+            "Prompt must route the agent to discover the project via steroid_list_projects",
+        )
+        assertTrue(
+            prompt.contains("pick the entry whose `path` is `/home/agent/project-home`") && prompt.contains("`project_name`"),
+            "Prompt must tell the agent to select by path and reuse the exact project_name routing key",
+        )
+        assertTrue(
+            prompt.contains("If a later `steroid_execute_code` call returns `Project not found`"),
+            "Prompt must instruct re-discovery when the routing key changes mid-session (#309)",
+        )
+    }
+
+    @Test
     fun `gradle prompt batches targeted tests across subprojects`() {
         val prompt = ArenaTestRunner(
             container = ContainerDriver(

@@ -185,7 +185,9 @@ class ArenaTestRunner(
             appendLine("- **Do NOT use `steroid_execute_code` to run `./mvnw` or `./gradlew` via ProcessBuilder** — the ProcessBuilder pattern inside steroid is banned (classpath conflicts + token overflow). Use Bash for Maven/Gradle CLI invocations.")
             appendLine("- **Do not rerun Maven/Gradle just to recover hidden output.** If a completed targeted test run only lost `BUILD SUCCESS` behind `tail` or `grep`, inspect the saved output or preserve more output next time instead of rerunning the same target. Rerun when you changed code, saw a real failure, got an incomplete run, or Gradle skipped tests.")
             appendLine("- Keep one stable `task_id` for this task.")
-            appendLine("- **Project name in IntelliJ is always `project-home`** — use this exact name in every `steroid_execute_code` call. Never use the GitHub repo name (e.g. \"petclinic\", \"spring-petclinic\") as the project name.")
+            appendLine("- **Discover the project first**: Your VERY FIRST tool call must be `steroid_list_projects` (no arguments). From its response, pick the entry whose `path` is `$projectDir` and use that entry's exact `project_name` value in every subsequent `steroid_execute_code` call. Do NOT guess the name and do NOT use the GitHub repo name (e.g. \"petclinic\", \"spring-petclinic\").")
+            appendLine("- The `project_name` is an opaque routing key (a readable name plus a hash), not the folder name — it is only knowable from `steroid_list_projects`, never a fixed literal.")
+            appendLine("- If a later `steroid_execute_code` call returns `Project not found`, the routing key changed (e.g. after a project reload). Re-call `steroid_list_projects`, re-select by `path`, and continue with the refreshed `project_name` — do NOT fall back to bash.")
             appendLine("- **The IDE is already configured** — do NOT attempt JDK/SDK setup, do NOT install plugins. Start immediately with your first real task call.")
             appendLine("- **Check VCS changes on your FIRST call** (via `ChangeListManager.getInstance(project).allChanges`) to detect any prior agent work — do NOT assume a clean slate when there are multiple agent sessions.")
             appendLine("- **Validation/service changes → regression risk**: When you add a validation rule to an existing service method (e.g., `saveUser()`, `createOwner()`), EVERY other test that calls this method with data that now fails validation will break. BEFORE declaring success, scan for all test call sites: `PsiSearchHelper.getInstance(project).processAllFilesWithWord(\"saveUser\", scope, { f -> ...; true }, true)`. Common regression culprits: `Abstract*Tests`, `*JdbcTests`, `*JpaTests`, `*SpringDataJpaTests` — update their test data (e.g. passwords, names) to satisfy the new rule.")
@@ -216,7 +218,7 @@ class ArenaTestRunner(
             appendLine("  - **If you have already made 10 Read/Glob/Grep calls without yet making an Edit or Write: STOP IMMEDIATELY. Make your first code change now.** The test patch shows exactly what each test expects — further reading adds no value and will cause a timeout. Scope constraint: read only VCS-diff files + their direct imports. No build files, no entity classes, no application.yml, no pom.xml from unrelated modules.")
             appendLine("- **Multi-module project scoping (CRITICAL for microservices)**: When the VCS diff lists test files from 3+ distinct modules (microservices/separate subdirs): implement **sequentially per module**. Pattern: Read tests from MODULE_1 → Write/Edit MODULE_1 implementation → move to MODULE_2. Do NOT read tests from all N modules before writing any code — that creates an N-module exploration loop that always times out. A single service with 2-3 test files is enough signal to start writing its implementation without reading other services first.")
             appendLine("  - **Reactive migration trap**: When converting from Spring MVC to WebFlux (RestTemplate→WebClient, CrudRepository→ReactiveCrudRepository), do NOT explore all services before changing any. Pick the simplest service, convert it fully (implementation + interface), compile-check, then move to the next. Parallel exploration of a 4-service migration always exceeds the 900s budget.")
-            appendLine("- **MANDATORY first steroid call**: Your FIRST action must be a `steroid_execute_code` call that checks VCS changes and project readiness. This is required even for simple tasks — it confirms the IDE sees the project and shows exactly what the test patch changed.")
+            appendLine("- **MANDATORY first `steroid_execute_code` call**: After discovering the `project_name` via `steroid_list_projects`, your first `steroid_execute_code` call must check VCS changes and project readiness. This is required even for simple tasks — it confirms the IDE sees the project and shows exactly what the test patch changed.")
             appendLine("- **MANDATORY compilation check after edits**: After all file edits (before running Maven/Gradle tests), run ONE `steroid_execute_code` call to trigger IntelliJ compilation. **Do NOT use `./mvnw test-compile` or `./gradlew compileJava` for this check** — IntelliJ incremental build catches errors in ~2-5s vs a cold Maven compile (~25-60s). Use this exact code:")
             appendLine("  ```kotlin")
             appendLine("  val result = com.intellij.task.ProjectTaskManager.getInstance(project).buildAllModules().blockingGet(120_000)")
@@ -389,7 +391,7 @@ class ArenaTestRunner(
         val agentDurationMs = System.currentTimeMillis() - agentStartMs
 
         // Step 5: Evaluate
-        val evaluation = evaluate(testCase, agentResult)
+        val evaluation = evaluate(testCase, agentResult, agentResult.rawStdout)
         val diff = git.diff(projectDir)
         logDir?.resolve("agent-result.patch")?.writeText(diff)
 
@@ -399,6 +401,14 @@ class ArenaTestRunner(
         println("[ARENA]   Agent claimed fix: ${evaluation.agentClaimedFix}")
         println("[ARENA]   Used MCP: ${evaluation.usedMcpSteroid}")
         println("[ARENA] ========================================")
+
+        if (withMcp && evaluation.projectResolutionFailed) {
+            error(
+                "[ARENA] ${testCase.instanceId}: a steroid_execute_code call failed with " +
+                    "\"Project not found\" — the MCP arm could not resolve the project, so this run does " +
+                    "not measure the MCP transport. Failing instead of silently degrading to bash (#251)."
+            )
+        }
 
         return ArenaTestResult(
             testCase = testCase,
@@ -412,7 +422,7 @@ class ArenaTestRunner(
     /**
      * Evaluate the agent's response against the test case expectations.
      */
-    private fun evaluate(testCase: DpaiaTestCase, result: ProcessResult): ArenaEvaluation {
+    private fun evaluate(testCase: DpaiaTestCase, result: ProcessResult, rawNdjson: String): ArenaEvaluation {
         val combined = result.stdout + "\n" + result.stderr
 
         return ArenaEvaluation(
@@ -420,6 +430,7 @@ class ArenaTestRunner(
             usedMcpSteroid = combined.contains("steroid_execute_code", ignoreCase = true),
             agentClaimedFix = combined.contains("ARENA_FIX_APPLIED: yes", ignoreCase = true),
             agentSummary = extractMarker(combined, "ARENA_SUMMARY:"),
+            projectResolutionFailed = detectProjectResolutionFailure(rawNdjson),
         )
     }
 
@@ -457,4 +468,7 @@ data class ArenaEvaluation(
 
     /** The agent's one-line summary of changes, if provided */
     val agentSummary: String?,
+
+    /** True when a steroid_execute_code call failed to resolve the project (setup/prompt defect). */
+    val projectResolutionFailed: Boolean = false,
 )
