@@ -391,7 +391,7 @@ class ArenaTestRunner(
         val agentDurationMs = System.currentTimeMillis() - agentStartMs
 
         // Step 5: Evaluate
-        val evaluation = evaluate(testCase, agentResult, agentResult.rawStdout)
+        val evaluation = evaluate(testCase, agentResult, agentResult.rawStdout, projectDir)
         val diff = git.diff(projectDir)
         logDir?.resolve("agent-result.patch")?.writeText(diff)
 
@@ -400,13 +400,30 @@ class ArenaTestRunner(
         println("[ARENA]   Agent exit code: ${agentResult.exitCode}")
         println("[ARENA]   Agent claimed fix: ${evaluation.agentClaimedFix}")
         println("[ARENA]   Used MCP: ${evaluation.usedMcpSteroid}")
+        println("[ARENA]   Successful MCP execution: ${evaluation.successfulMcpExecution}")
+        println("[ARENA]   First MCP execution targeted project: ${evaluation.firstExecutionTargetedProject}")
         println("[ARENA] ========================================")
 
         if (withMcp && evaluation.projectResolutionFailed) {
             error(
-                "[ARENA] ${testCase.instanceId}: a steroid_execute_code call failed with " +
-                    "\"Project not found\" — the MCP arm could not resolve the project, so this run does " +
-                    "not measure the MCP transport. Failing instead of silently degrading to bash (#251)."
+                "[ARENA] ${testCase.instanceId}: steroid_execute_code project resolution ended in " +
+                    "${evaluation.projectResolutionStatus}. The first call must resolve immediately, and a " +
+                    "later routing-key failure must be followed by a successful execute_code retry (#251)."
+            )
+        }
+
+        if (withMcp && !evaluation.successfulMcpExecution) {
+            error(
+                "[ARENA] ${testCase.instanceId}: the MCP arm produced no successful " +
+                    "steroid_execute_code result, so this run does not measure successful IDE execution."
+            )
+        }
+
+        if (withMcp && !evaluation.firstExecutionTargetedProject) {
+            error(
+                "[ARENA] ${testCase.instanceId}: the mandatory first steroid_execute_code result did not " +
+                    "confirm project.basePath=$projectDir, so the MCP arm may have operated on another " +
+                    "open project (#251)."
             )
         }
 
@@ -422,15 +439,25 @@ class ArenaTestRunner(
     /**
      * Evaluate the agent's response against the test case expectations.
      */
-    private fun evaluate(testCase: DpaiaTestCase, result: ProcessResult, rawNdjson: String): ArenaEvaluation {
+    private fun evaluate(
+        testCase: DpaiaTestCase,
+        result: ProcessResult,
+        rawNdjson: String,
+        expectedProjectDir: String,
+    ): ArenaEvaluation {
         val combined = result.stdout + "\n" + result.stderr
+        val transcript = decodeAgentTranscript(rawNdjson)
+        val projectResolutionStatus = transcript.projectResolutionStatus()
 
         return ArenaEvaluation(
             agentExitedSuccessfully = result.exitCode == 0,
-            usedMcpSteroid = combined.contains("steroid_execute_code", ignoreCase = true),
+            usedMcpSteroid = transcript.usedMcpSteroid,
+            successfulMcpExecution = transcript.successfulMcpExecution,
+            firstExecutionTargetedProject = transcript.firstExecutionTargetsProject(expectedProjectDir),
             agentClaimedFix = combined.contains("ARENA_FIX_APPLIED: yes", ignoreCase = true),
             agentSummary = extractMarker(combined, "ARENA_SUMMARY:"),
-            projectResolutionFailed = detectProjectResolutionFailure(rawNdjson),
+            projectResolutionStatus = projectResolutionStatus,
+            projectResolutionFailed = projectResolutionStatus.shouldFailRun,
         )
     }
 
@@ -463,12 +490,21 @@ data class ArenaEvaluation(
     /** Whether the agent used steroid_execute_code */
     val usedMcpSteroid: Boolean,
 
+    /** Whether at least one steroid_execute_code call completed successfully */
+    val successfulMcpExecution: Boolean,
+
+    /** Whether the mandatory first steroid_execute_code result confirmed the arena project base path. */
+    val firstExecutionTargetedProject: Boolean,
+
     /** Whether the agent reported it applied a fix */
     val agentClaimedFix: Boolean,
 
     /** The agent's one-line summary of changes, if provided */
     val agentSummary: String?,
 
-    /** True when a steroid_execute_code call failed to resolve the project (setup/prompt defect). */
+    /** Resolution outcome across the ordered steroid_execute_code results. */
+    val projectResolutionStatus: ProjectResolutionStatus = ProjectResolutionStatus.CLEAN,
+
+    /** True for an initial resolution regression or a later failure without a successful recovery. */
     val projectResolutionFailed: Boolean = false,
 )

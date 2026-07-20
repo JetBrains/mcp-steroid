@@ -1,88 +1,258 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.arena
 
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ArenaProjectResolutionDetectorTest {
 
-    // Real captured Claude shape (…/run-20260708-…-petclinic-27-claude-mcp/agent-claude-code-1-raw.ndjson:5):
-    // an ERROR:-wrapped resolution failure whose tool_result references the steroid_execute_code call id.
-    private val claudeCall =
-        """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01Woi","name":"mcp__mcp-steroid__steroid_execute_code","input":{"code":"println(1)"}}]}}"""
-    private val claudeErrorResult =
-        """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ERROR: Project not found: \"project-home\". Available project_name values: demo-project-ki3y1pmc","is_error":true,"tool_use_id":"toolu_01Woi"}]}}"""
-
     @Test
-    fun `flags a Project not found error attributed to steroid_execute_code (claude)`() {
-        val ndjson = "$claudeCall\n$claudeErrorResult\n"
-        assertTrue(detectProjectResolutionFailure(ndjson))
+    fun `claude first resolution failure remains fatal after a successful retry`() {
+        val transcript = decode(
+            claudeCall("c1"),
+            claudeResult("c1", isError = true, projectNotFound("project-home")),
+            claudeCall("c2"),
+            claudeResult("c2", isError = false, "execution_id: eid_ok"),
+        )
+
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
+        assertTrue(transcript.usedMcpSteroid)
+        assertTrue(transcript.successfulMcpExecution)
     }
 
     @Test
-    fun `ignores the phrase when it comes from a steroid_fetch_resource article body`() {
-        val fetchCall =
-            """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_FETCH","name":"mcp__mcp-steroid__steroid_fetch_resource","input":{"uri":"mcp-steroid://x"}}]}}"""
-        // Article body quotes the phrase but is NOT an error and maps to fetch_resource, not execute_code.
-        val fetchResult =
-            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"the error reads: Project not found: \"foo\"","is_error":false,"tool_use_id":"toolu_FETCH"}]}}"""
-        val ndjson = "$fetchCall\n$fetchResult\n"
-        assertFalse(detectProjectResolutionFailure(ndjson))
+    fun `later resolution failure followed by success is recovered`() {
+        val transcript = decode(
+            claudeCall("c1"),
+            claudeResult("c1", isError = false, "execution_id: eid_1"),
+            claudeCall("c2"),
+            claudeResult("c2", isError = true, projectNotFound("old-key")),
+            claudeCall("c3"),
+            claudeResult("c3", isError = false, "execution_id: eid_3"),
+        )
+
+        assertEquals(ProjectResolutionStatus.RECOVERED, transcript.projectResolutionStatus())
+        assertFalse(transcript.projectResolutionStatus().shouldFailRun)
     }
 
     @Test
-    fun `does not flag an is_error fetch_resource result that matches the prefix (attribution)`() {
-        // A steroid_fetch_resource CALL followed by an is_error:true result that DOES match the
-        // "Project not found" prefix. This exercises the id->tool-name attribution directly: the
-        // result passes the is_error gate and the prefix match, so it is only rejected because the
-        // tool_use_id maps to fetch_resource, not execute_code. Deleting the endsWith(execute_code)
-        // check makes THIS test fail.
-        val fetchCall =
-            """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_FETCH2","name":"mcp__mcp-steroid__steroid_fetch_resource","input":{"uri":"mcp-steroid://x"}}]}}"""
-        val fetchErrorResult =
-            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ERROR: Project not found: \"x\". Available project_name values: foo-abc","is_error":true,"tool_use_id":"toolu_FETCH2"}]}}"""
-        assertFalse(detectProjectResolutionFailure("$fetchCall\n$fetchErrorResult\n"))
+    fun `later resolution failure without a successful retry is fatal`() {
+        val transcript = decode(
+            claudeCall("c1"),
+            claudeResult("c1", isError = false, "execution_id: eid_1"),
+            claudeCall("c2"),
+            claudeResult("c2", isError = true, projectNotFound("old-key")),
+        )
+
+        assertEquals(ProjectResolutionStatus.UNRECOVERED_FAILURE, transcript.projectResolutionStatus())
+        assertTrue(transcript.projectResolutionStatus().shouldFailRun)
     }
 
     @Test
-    fun `flags a doubled Error prefix attributed to steroid_execute_code`() {
-        // The plugin can surface the payload with a doubled wrapper (Error: ERROR: ...);
-        // stripErrorPrefixes must peel both before the exact-prefix match.
-        val doubledResult =
-            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Error: ERROR: Project not found: \"project-home\". Available project_name values: demo-project-ki3y1pmc","is_error":true,"tool_use_id":"toolu_01Woi"}]}}"""
-        assertTrue(detectProjectResolutionFailure("$claudeCall\n$doubledResult\n"))
+    fun `gemini uses real tool_id status output fields`() {
+        val transcript = decode(
+            geminiCall("g1"),
+            geminiResult("g1", status = "error", output = projectNotFound("project-home")),
+        )
+
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
+        assertEquals(
+            ExecuteCodeResult("g1", isError = true, text = projectNotFound("project-home")),
+            transcript.executeCodeResults.single(),
+        )
     }
 
     @Test
-    fun `flags a content-block-array error attributed to steroid_execute_code`() {
-        // Anthropic tool_result.content may arrive as a content-block ARRAY, not a bare string.
-        // textOf() must dig the text out of the array so the resolution failure is not silently missed.
-        val arrayErrorResult =
-            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"ERROR: Project not found: \"project-home\". Available project_name values: demo-project-ki3y1pmc"}],"is_error":true,"tool_use_id":"toolu_01Woi"}]}}"""
-        assertTrue(detectProjectResolutionFailure("$claudeCall\n$arrayErrorResult\n"))
+    fun `codex failed result is normalized`() {
+        val transcript = decode(
+            codexResult("x1", status = "failed", text = projectNotFound("project-home")),
+        )
+
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
+        assertTrue(transcript.executeCodeResults.single().isError)
     }
 
     @Test
-    fun `does not flag a clean run`() {
-        val okResult =
-            """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Project: demo, base: /home/agent/project-home","is_error":false,"tool_use_id":"toolu_01Woi"}]}}"""
-        assertFalse(detectProjectResolutionFailure("$claudeCall\n$okResult\n"))
+    fun `successful codex output quoting Project not found is not an error`() {
+        val transcript = decode(
+            codexResult("x1", status = "completed", text = projectNotFound("quoted-example")),
+        )
+
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus())
+        assertTrue(transcript.successfulMcpExecution)
     }
 
     @Test
-    fun `flags gemini-shaped resolution failure`() {
-        val call =
-            """{"type":"tool_use","id":"g1","tool_name":"mcp_mcp-steroid_steroid_execute_code","parameters":{"code":"x"}}"""
-        val err =
-            """{"type":"tool_result","tool_id":"g1","is_error":true,"content":"ERROR: Project not found: \"project-home\". Available project_name values: foo-abc"}"""
-        assertTrue(detectProjectResolutionFailure("$call\n$err\n"))
+    fun `fetch resource article body is not attributed to execute code`() {
+        val transcript = decode(
+            claudeCall("f1", toolName = "mcp__mcp-steroid__steroid_fetch_resource"),
+            claudeResult("f1", isError = true, projectNotFound("article-example")),
+        )
+
+        assertFalse(transcript.usedMcpSteroid)
+        assertTrue(transcript.executeCodeResults.isEmpty())
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus())
     }
 
     @Test
-    fun `flags codex-shaped resolution failure`() {
-        val line =
-            """{"type":"item.completed","item":{"id":"item_5","type":"mcp_tool_call","server":"mcp-steroid","tool":"steroid_execute_code","result":{"content":[{"type":"text","text":"ERROR: Project not found: \"project-home\". Available project_name values: foo-abc"}]}}}"""
-        assertTrue(detectProjectResolutionFailure("$line\n"))
+    fun `claude content block array and doubled Error wrappers are normalized`() {
+        val transcript = decode(
+            claudeCall("c1"),
+            claudeResult(
+                callId = "c1",
+                isError = true,
+                text = "Error: ERROR: ${projectNotFound("project-home")}",
+                contentAsArray = true,
+            ),
+        )
+
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
     }
+
+    @Test
+    fun `claude success without is_error is recorded as successful`() {
+        val transcript = decode(
+            claudeCall("c1"),
+            claudeResult(
+                callId = "c1",
+                isError = null,
+                text = "Project: task-project, base: /home/agent/project-home",
+            ),
+        )
+
+        assertTrue(transcript.successfulMcpExecution)
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus())
+    }
+
+    @Test
+    fun `first execute code result must report the expected project base path`() {
+        val expectedProjectDir = "/home/agent/project-home"
+        val correctProject = decode(
+            claudeCall("correct"),
+            claudeResult(
+                callId = "correct",
+                isError = null,
+                text = "Project: task-project, base: $expectedProjectDir",
+            ),
+        )
+        val wrongProject = decode(
+            claudeCall("wrong"),
+            claudeResult(
+                callId = "wrong",
+                isError = null,
+                text = "Project: demo-project, base: /home/agent/demo-project",
+            ),
+        )
+
+        assertTrue(correctProject.firstExecutionTargetsProject(expectedProjectDir))
+        assertFalse(wrongProject.firstExecutionTargetsProject(expectedProjectDir))
+    }
+
+    @Test
+    fun `prose mention is not structural MCP usage`() {
+        val prose = buildJsonObject {
+            put("type", "message")
+            put("role", "assistant")
+            put("content", "I should call steroid_execute_code next")
+        }.toString()
+
+        val transcript = decode(prose)
+        assertFalse(transcript.usedMcpSteroid)
+        assertFalse(transcript.successfulMcpExecution)
+    }
+
+    private fun decode(vararg lines: String): AgentTranscript =
+        decodeAgentTranscript(lines.joinToString(separator = "\n", postfix = "\n"))
+
+    private fun claudeCall(
+        callId: String,
+        toolName: String = "mcp__mcp-steroid__steroid_execute_code",
+    ): String = buildJsonObject {
+        put("type", "assistant")
+        putJsonObject("message") {
+            put("role", "assistant")
+            putJsonArray("content") {
+                addJsonObject {
+                    put("type", "tool_use")
+                    put("id", callId)
+                    put("name", toolName)
+                    putJsonObject("input") { put("code", "println(1)") }
+                }
+            }
+        }
+    }.toString()
+
+    private fun claudeResult(
+        callId: String,
+        isError: Boolean?,
+        text: String,
+        contentAsArray: Boolean = false,
+    ): String = buildJsonObject {
+        put("type", "user")
+        putJsonObject("message") {
+            put("role", "user")
+            putJsonArray("content") {
+                addJsonObject {
+                    put("type", "tool_result")
+                    put("tool_use_id", callId)
+                    if (isError != null) put("is_error", isError)
+                    if (contentAsArray) {
+                        putJsonArray("content") {
+                            addJsonObject {
+                                put("type", "text")
+                                put("text", text)
+                            }
+                        }
+                    } else {
+                        put("content", text)
+                    }
+                }
+            }
+        }
+    }.toString()
+
+    private fun codexResult(callId: String, status: String, text: String): String = buildJsonObject {
+        put("type", "item.completed")
+        putJsonObject("item") {
+            put("id", callId)
+            put("type", "mcp_tool_call")
+            put("server", "mcp-steroid")
+            put("tool", "steroid_execute_code")
+            put("status", status)
+            putJsonObject("arguments") { put("code", "println(1)") }
+            putJsonObject("result") {
+                putJsonArray("content") {
+                    addJsonObject {
+                        put("type", "text")
+                        put("text", text)
+                    }
+                }
+            }
+        }
+    }.toString()
+
+    private fun geminiCall(callId: String): String = buildJsonObject {
+        put("type", "tool_use")
+        put("tool_name", "mcp_mcp-steroid_steroid_execute_code")
+        put("tool_id", callId)
+        putJsonObject("parameters") { put("code", "println(1)") }
+    }.toString()
+
+    private fun geminiResult(callId: String, status: String, output: String): String = buildJsonObject {
+        put("type", "tool_result")
+        put("tool_id", callId)
+        put("tool_name", "mcp_mcp-steroid_steroid_execute_code")
+        put("status", status)
+        put("output", output)
+    }.toString()
+
+    private fun projectNotFound(name: String): String =
+        "ERROR: Project not found: \"$name\". Available project_name values: project-abc12345"
 }
