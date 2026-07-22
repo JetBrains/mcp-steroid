@@ -1,6 +1,8 @@
 ---
 title: "Experiment Findings: IDE vs Shell Agents"
 description: "Measured A/B results — the same coding tasks with and without MCP Steroid, on real codebases, with evidence-based scoring"
+group: "Vision"
+weight: 28
 ---
 
 We continuously run A/B experiments where the **same agent gets the same task twice**: once with
@@ -128,3 +130,8 @@ All experiments run continuously on CI; every number above is parsed from the ru
 [experiments-report](https://github.com/jonnyzzz/mcp-steroid/tree/main/experiments-report) pipeline —
 the same code that renders our internal dashboard. To reproduce locally, see the test classes linked
 above; run IDs are TeamCity build IDs recorded for provenance.
+
+---
+
+*Looking for the early DPAIA wall-clock table that used to be on the homepage? It has been
+withdrawn as current evidence (issue #251) and is [kept for the record only](/docs/dpaia-wall-clock-archive/).*
