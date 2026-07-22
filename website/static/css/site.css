@@ -34,6 +34,9 @@
     /* Accent Colors */
     --color-link: #a0a0ff;
     --color-code: #c0c0ff;
+
+    /* Shared nav font size — wordmark, menu items and badge read at one size */
+    --nav-font-size: 0.95rem;
 }
 
 * {
@@ -96,11 +99,22 @@ a:hover {
 }
 .nav-title {
     font-weight: 700;
-    font-size: 1.1rem;
-    background: var(--gradient-brand);
+    font-size: var(--nav-font-size);
+}
+/* Shared light-gradient "special presentation" for the brand word "devrig". */
+.lighter {
+    background: linear-gradient(135deg, #A99CFF 0%, #FF6E8E 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    color: transparent;
+}
+/* Inside a button/CTA the gradient-clipped brand word blends into the pill
+   background; force it to the solid white button label so it stays readable. */
+.btn .lighter {
+    background: none;
+    -webkit-text-fill-color: #ffffff;
+    color: #ffffff;
 }
 .nav-links {
     display: flex;
@@ -110,7 +124,7 @@ a:hover {
 .nav-link {
     color: var(--color-tertiary);
     text-decoration: none;
-    font-size: 0.95rem;
+    font-size: var(--nav-font-size);
     font-weight: 500;
     transition: color 0.2s;
     display: flex;
@@ -419,7 +433,7 @@ margin-bottom: 2rem;
     h1 {
 font-size: 2.5rem;
 margin-bottom: 0.75rem;
-background: var(--gradient-brand);
+background: linear-gradient(135deg, #A99CFF 0%, #FF6E8E 100%);
 -webkit-background-clip: text;
 -webkit-text-fill-color: transparent;
 background-clip: text;
@@ -1428,10 +1442,10 @@ h1 {
     font-size: 0.85rem;
 }
 
-/* ── devrig brand badge in the top-left nav (next to "MCP Steroid") ───────── */
-.nav-devrig {
+/* ── secondary brand badge in the top-left nav (next to "devrig") ─────────── */
+.nav-badge {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.7rem;
+    font-size: var(--nav-font-size);
     font-weight: 700;
     line-height: 1;
     letter-spacing: 0.01em;
@@ -1440,11 +1454,10 @@ h1 {
     padding: 3px 7px;
     border-radius: 6px;
     white-space: nowrap;
-    align-self: center;
 }
 @media (max-width: 480px) {
     .nav-container { padding-left: 0.9rem; padding-right: 0.9rem; }
-    .nav-devrig { font-size: 0.62rem; padding: 2px 5px; }
+    .nav-badge { font-size: 0.62rem; padding: 2px 5px; }
     .nav-brand { gap: 0.4rem; }
     .nav-title { font-size: 1rem; }
 }
