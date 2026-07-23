@@ -12,23 +12,57 @@ import kotlinx.serialization.json.contentOrNull
 
 private const val PROJECT_NOT_FOUND_PREFIX = "Project not found: \""
 
+/**
+ * Marker the mandatory first execute-code recipe prints its open-project base path after
+ * (`Project: <name>, base: <path>`). The producer is [ArenaTestRunner.buildPrompt]'s first-call recipe
+ * and the consumer is [AgentTranscript.firstExecutionTargetsProject]; both sides read this constant so
+ * the printed format and the parser cannot silently drift.
+ */
+const val PROJECT_BASE_PATH_MARKER = "base:"
+
 /** One normalized steroid_execute_code result, independent of the agent CLI that emitted it. */
 data class ExecuteCodeResult(
-    val callId: String,
     val isError: Boolean,
     val text: String,
 )
 
+/** One steroid_execute_code call and its result, when the transcript carried one. */
+data class ExecuteCodeCall(
+    val callId: String,
+    val result: ExecuteCodeResult?,
+)
+
 /** Structural MCP facts extracted from an agent's raw NDJSON transcript. */
 data class AgentTranscript(
-    val executeCodeCallIds: List<String>,
-    val executeCodeResults: List<ExecuteCodeResult>,
+    val executeCodeCalls: List<ExecuteCodeCall>,
 ) {
     val usedMcpSteroid: Boolean
-        get() = executeCodeCallIds.isNotEmpty()
+        get() = executeCodeCalls.isNotEmpty()
 
     val successfulMcpExecution: Boolean
-        get() = executeCodeResults.any { !it.isError }
+        get() = executeCodeCalls.any { it.result?.isError == false }
+
+    /**
+     * The first mandatory execute_code must resolve immediately (#251). Later project reloads may
+     * invalidate the key; that is accepted only when the agent re-lists projects and produces a later
+     * successful result.
+     */
+    val projectResolutionStatus: ProjectResolutionStatus
+        get() {
+            if (executeCodeCalls.firstOrNull()?.result?.isProjectResolutionFailure() == true) {
+                return ProjectResolutionStatus.INITIAL_FAILURE
+            }
+
+            val results = executeCodeCalls.mapNotNull { it.result }
+            val lastFailureIndex = results.indexOfLast { it.isProjectResolutionFailure() }
+            if (lastFailureIndex < 0) return ProjectResolutionStatus.CLEAN
+
+            return if (results.drop(lastFailureIndex + 1).any { !it.isError }) {
+                ProjectResolutionStatus.RECOVERED
+            } else {
+                ProjectResolutionStatus.UNRECOVERED_FAILURE
+            }
+        }
 }
 
 enum class ProjectResolutionStatus {
@@ -36,10 +70,6 @@ enum class ProjectResolutionStatus {
     RECOVERED,
     INITIAL_FAILURE,
     UNRECOVERED_FAILURE,
-    ;
-
-    val shouldFailRun: Boolean
-        get() = this == INITIAL_FAILURE || this == UNRECOVERED_FAILURE
 }
 
 private data class ResultCandidate(
@@ -145,39 +175,20 @@ fun decodeAgentTranscript(rawNdjson: String): AgentTranscript {
         }
     }
 
-    val results = resultCandidates
+    val resultsByCallId = LinkedHashMap<String, ExecuteCodeResult>()
+    resultCandidates
         .sortedBy { it.sequence }
-        .mapNotNull { candidate ->
+        .forEach { candidate ->
             val toolName = candidate.selfToolName ?: idToToolName[candidate.callId]
-            if (toolName?.endsWith("steroid_execute_code") != true) return@mapNotNull null
-            ExecuteCodeResult(candidate.callId, candidate.isError, candidate.text)
+            if (toolName?.endsWith("steroid_execute_code") != true) return@forEach
+            resultsByCallId.putIfAbsent(candidate.callId, ExecuteCodeResult(candidate.isError, candidate.text))
         }
 
     return AgentTranscript(
-        executeCodeCallIds = executeCodeCallIds,
-        executeCodeResults = results,
+        executeCodeCalls = executeCodeCallIds.map { callId ->
+            ExecuteCodeCall(callId, resultsByCallId[callId])
+        },
     )
-}
-
-/**
- * The first mandatory execute_code must resolve immediately (#251). Later project reloads may invalidate
- * the key; that is accepted only when the agent re-lists projects and produces a later successful result.
- */
-fun AgentTranscript.projectResolutionStatus(): ProjectResolutionStatus {
-    val firstCallId = executeCodeCallIds.firstOrNull()
-    val firstResult = firstCallId?.let { id -> executeCodeResults.firstOrNull { it.callId == id } }
-    if (firstResult?.isProjectResolutionFailure() == true) {
-        return ProjectResolutionStatus.INITIAL_FAILURE
-    }
-
-    val lastFailureIndex = executeCodeResults.indexOfLast { it.isProjectResolutionFailure() }
-    if (lastFailureIndex < 0) return ProjectResolutionStatus.CLEAN
-
-    return if (executeCodeResults.drop(lastFailureIndex + 1).any { !it.isError }) {
-        ProjectResolutionStatus.RECOVERED
-    } else {
-        ProjectResolutionStatus.UNRECOVERED_FAILURE
-    }
 }
 
 /**
@@ -186,13 +197,12 @@ fun AgentTranscript.projectResolutionStatus(): ProjectResolutionStatus {
  * the MCP arm look healthy.
  */
 fun AgentTranscript.firstExecutionTargetsProject(expectedProjectDir: String): Boolean {
-    val firstCallId = executeCodeCallIds.firstOrNull() ?: return false
-    val firstResult = executeCodeResults.firstOrNull { it.callId == firstCallId } ?: return false
+    val firstResult = executeCodeCalls.firstOrNull()?.result ?: return false
     if (firstResult.isError) return false
 
     val expectedPath = expectedProjectDir.trimEnd('/')
     return firstResult.text.lineSequence().any { line ->
-        line.substringAfter("base:", missingDelimiterValue = "").trim().trimEnd('/') == expectedPath
+        line.substringAfter(PROJECT_BASE_PATH_MARKER, missingDelimiterValue = "").trim().trimEnd('/') == expectedPath
     }
 }
 

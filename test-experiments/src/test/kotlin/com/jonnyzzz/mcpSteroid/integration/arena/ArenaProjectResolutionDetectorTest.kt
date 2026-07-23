@@ -22,7 +22,7 @@ class ArenaProjectResolutionDetectorTest {
             claudeResult("c2", isError = false, "execution_id: eid_ok"),
         )
 
-        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus)
         assertTrue(transcript.usedMcpSteroid)
         assertTrue(transcript.successfulMcpExecution)
     }
@@ -38,8 +38,7 @@ class ArenaProjectResolutionDetectorTest {
             claudeResult("c3", isError = false, "execution_id: eid_3"),
         )
 
-        assertEquals(ProjectResolutionStatus.RECOVERED, transcript.projectResolutionStatus())
-        assertFalse(transcript.projectResolutionStatus().shouldFailRun)
+        assertEquals(ProjectResolutionStatus.RECOVERED, transcript.projectResolutionStatus)
     }
 
     @Test
@@ -51,8 +50,7 @@ class ArenaProjectResolutionDetectorTest {
             claudeResult("c2", isError = true, projectNotFound("old-key")),
         )
 
-        assertEquals(ProjectResolutionStatus.UNRECOVERED_FAILURE, transcript.projectResolutionStatus())
-        assertTrue(transcript.projectResolutionStatus().shouldFailRun)
+        assertEquals(ProjectResolutionStatus.UNRECOVERED_FAILURE, transcript.projectResolutionStatus)
     }
 
     @Test
@@ -62,10 +60,10 @@ class ArenaProjectResolutionDetectorTest {
             geminiResult("g1", status = "error", output = projectNotFound("project-home")),
         )
 
-        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus)
         assertEquals(
-            ExecuteCodeResult("g1", isError = true, text = projectNotFound("project-home")),
-            transcript.executeCodeResults.single(),
+            ExecuteCodeCall("g1", ExecuteCodeResult(isError = true, text = projectNotFound("project-home"))),
+            transcript.executeCodeCalls.single(),
         )
     }
 
@@ -75,8 +73,8 @@ class ArenaProjectResolutionDetectorTest {
             codexResult("x1", status = "failed", text = projectNotFound("project-home")),
         )
 
-        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
-        assertTrue(transcript.executeCodeResults.single().isError)
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus)
+        assertTrue(transcript.executeCodeCalls.single().result?.isError == true)
     }
 
     @Test
@@ -85,7 +83,7 @@ class ArenaProjectResolutionDetectorTest {
             codexResult("x1", status = "completed", text = projectNotFound("quoted-example")),
         )
 
-        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus())
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus)
         assertTrue(transcript.successfulMcpExecution)
     }
 
@@ -97,8 +95,8 @@ class ArenaProjectResolutionDetectorTest {
         )
 
         assertFalse(transcript.usedMcpSteroid)
-        assertTrue(transcript.executeCodeResults.isEmpty())
-        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus())
+        assertTrue(transcript.executeCodeCalls.isEmpty())
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus)
     }
 
     @Test
@@ -113,7 +111,7 @@ class ArenaProjectResolutionDetectorTest {
             ),
         )
 
-        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus())
+        assertEquals(ProjectResolutionStatus.INITIAL_FAILURE, transcript.projectResolutionStatus)
     }
 
     @Test
@@ -128,7 +126,7 @@ class ArenaProjectResolutionDetectorTest {
         )
 
         assertTrue(transcript.successfulMcpExecution)
-        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus())
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus)
     }
 
     @Test

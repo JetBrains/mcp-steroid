@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
+import com.jonnyzzz.mcpSteroid.testHelper.AiProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.git.GitDriver
@@ -239,7 +240,7 @@ class ArenaTestRunner(
             appendLine("- For multi-file edits (renames, annotation changes, identical changes across N files), use the single-script read-replace-save shape inside `steroid_execute_code` described above — NOT a chain of native `Edit` calls. Still use steroid for the mandatory first call and compilation check.")
             appendLine("- **First call recipe** — combine readiness + Docker + VCS changes + **build environment** in ONE `steroid_execute_code` call (saves ~60s vs 3 separate calls):")
             appendLine("  ```kotlin")
-            appendLine("  println(\"Project: ${'$'}{project.name}, base: ${'$'}{project.basePath}\")")
+            appendLine("  println(\"Project: ${'$'}{project.name}, $PROJECT_BASE_PATH_MARKER ${'$'}{project.basePath}\")")
             appendLine("  // Docker socket check — no process spawn needed (ProcessBuilder inside steroid is banned)")
             appendLine("  val dockerOk = java.io.File(\"/var/run/docker.sock\").exists()")
             appendLine("  println(\"Docker: ${'$'}dockerOk\")")
@@ -391,7 +392,7 @@ class ArenaTestRunner(
         val agentDurationMs = System.currentTimeMillis() - agentStartMs
 
         // Step 5: Evaluate
-        val evaluation = evaluate(testCase, agentResult, agentResult.rawStdout, projectDir)
+        val evaluation = evaluate(agentResult, projectDir)
         val diff = git.diff(projectDir)
         logDir?.resolve("agent-result.patch")?.writeText(diff)
 
@@ -440,14 +441,19 @@ class ArenaTestRunner(
      * Evaluate the agent's response against the test case expectations.
      */
     private fun evaluate(
-        testCase: DpaiaTestCase,
-        result: ProcessResult,
-        rawNdjson: String,
+        result: AiProcessResult,
         expectedProjectDir: String,
     ): ArenaEvaluation {
         val combined = result.stdout + "\n" + result.stderr
-        val transcript = decodeAgentTranscript(rawNdjson)
-        val projectResolutionStatus = transcript.projectResolutionStatus()
+        val transcript = decodeAgentTranscript(result.rawStdout)
+        val projectResolutionStatus = transcript.projectResolutionStatus
+
+        // The runner owns the pass/fail policy: an initial resolution regression, or a later failure
+        // with no successful execute_code retry, fails the run (#251).
+        val projectResolutionFailed = when (projectResolutionStatus) {
+            ProjectResolutionStatus.INITIAL_FAILURE, ProjectResolutionStatus.UNRECOVERED_FAILURE -> true
+            ProjectResolutionStatus.CLEAN, ProjectResolutionStatus.RECOVERED -> false
+        }
 
         return ArenaEvaluation(
             agentExitedSuccessfully = result.exitCode == 0,
@@ -457,7 +463,7 @@ class ArenaTestRunner(
             agentClaimedFix = combined.contains("ARENA_FIX_APPLIED: yes", ignoreCase = true),
             agentSummary = extractMarker(combined, "ARENA_SUMMARY:"),
             projectResolutionStatus = projectResolutionStatus,
-            projectResolutionFailed = projectResolutionStatus.shouldFailRun,
+            projectResolutionFailed = projectResolutionFailed,
         )
     }
 
