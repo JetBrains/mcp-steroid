@@ -144,9 +144,15 @@ abstract class DpaiaScenarioBaseTest {
             }
 
             // Snapshot the test-patch files BEFORE the agent runs, so [ArenaVerifier.verify] can
-            // detect tampering afterward. Excluded from the agent's timed budget.
+            // detect tampering afterward. Excluded from the agent's timed budget. An infra hiccup here
+            // must not abort the arena run — a null snapshot just disables tamper detection at verify time.
             val verifier = ArenaVerifier(session.scope, ideProjectDir)
-            val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
+            val preAgentSnapshot = try {
+                verifier.snapshotTestFiles(testCase.testPatch)
+            } catch (e: Exception) {
+                System.err.println("[ARENA] Pre-agent test-file snapshot failed: $e")
+                null
+            }
 
             // ── Agent run (TIMED) ────────────────────────────────────────────────
             val agent: AiAgentSession = when (agentName) {
