@@ -46,6 +46,8 @@ object DpaiaCuratedCases {
      * @param projectJdkVersion       JDK version to set as the IDE project SDK before import. Default 21.
      * @param taskType               Primary challenge type driving agent effort.
      * @param mcpBenefit             Observed MCP benefit from A/B comparison runs.
+     * @param overlayTestPatch       Classpath resource with a local overlay test patch applied AFTER the dataset test patch.
+     * @param overlayFailToPass      FAIL_TO_PASS classes added by [overlayTestPatch].
      */
     data class CaseConfig(
         val projectReadyTimeoutMs: Long = 600_000L,
@@ -53,6 +55,8 @@ object DpaiaCuratedCases {
         val projectJdkVersion: String = "21",
         val taskType: TaskType = TaskType.MIXED,
         val mcpBenefit: McpBenefit = McpBenefit.UNKNOWN,
+        val overlayTestPatch: String? = null,
+        val overlayFailToPass: List<String> = emptyList(),
     )
 
     /**
@@ -67,7 +71,11 @@ object DpaiaCuratedCases {
     val CASE_CONFIGS: Map<String, CaseConfig> = mapOf(
         // Batch 1
         "dpaia__feature__service-125" to CaseConfig(
+            agentTimeoutSeconds = 1_800L,
+            projectJdkVersion = "24",
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            overlayTestPatch = "arena-overlays/dpaia__feature__service-125.patch",
+            overlayFailToPass = listOf("com.sivalabs.ft.features.config.ReleaseApiSecuritySliceTest"),
         ),
         "dpaia__empty__maven__springboot3-1" to CaseConfig(
             taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.HIGH,

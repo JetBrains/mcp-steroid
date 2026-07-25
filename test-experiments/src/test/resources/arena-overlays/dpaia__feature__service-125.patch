@@ -1,0 +1,134 @@
+diff --git a/src/test/java/com/sivalabs/ft/features/config/ReleaseApiSecuritySliceTest.java b/src/test/java/com/sivalabs/ft/features/config/ReleaseApiSecuritySliceTest.java
+new file mode 100644
+index 0000000..0f51051
+--- /dev/null
++++ b/src/test/java/com/sivalabs/ft/features/config/ReleaseApiSecuritySliceTest.java
+@@ -0,0 +1,128 @@
++package com.sivalabs.ft.features.config;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.Mockito.doThrow;
++import static org.mockito.Mockito.when;
++
++import com.sivalabs.ft.features.domain.CommentService;
++import com.sivalabs.ft.features.domain.FavoriteFeatureService;
++import com.sivalabs.ft.features.domain.FeatureService;
++import com.sivalabs.ft.features.domain.ProductService;
++import com.sivalabs.ft.features.domain.ReleaseService;
++import com.sivalabs.ft.features.domain.exceptions.InvalidStatusTransitionException;
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.util.Optional;
++import java.util.Set;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
++import org.springframework.context.annotation.Import;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.MediaType;
++import org.springframework.security.oauth2.jwt.JwtDecoder;
++import org.springframework.security.test.context.support.WithMockUser;
++import org.springframework.test.context.bean.override.mockito.MockitoBean;
++import org.springframework.test.web.servlet.assertj.MockMvcTester;
++
++@WebMvcTest
++@Import(SecurityConfig.class)
++@DisplayName("Release API security and transition-enforcement slice tests")
++class ReleaseApiSecuritySliceTest {
++
++    @Autowired
++    MockMvcTester mvc;
++
++    @MockitoBean
++    ReleaseService releaseService;
++
++    @MockitoBean
++    ProductService productService;
++
++    @MockitoBean
++    FeatureService featureService;
++
++    @MockitoBean
++    CommentService commentService;
++
++    @MockitoBean
++    FavoriteFeatureService favoriteFeatureService;
++
++    @MockitoBean
++    JwtDecoder jwtDecoder;
++
++    @Test
++    @DisplayName("Anonymous create release is rejected with 401")
++    void anonymousCreateReleaseIsRejected() {
++        var result = mvc.post()
++                .uri("/api/releases")
++                .contentType(MediaType.APPLICATION_JSON)
++                .content("{\"productCode\":\"intellij\",\"code\":\"X-1\",\"description\":\"d\"}")
++                .exchange();
++        assertThat(result).hasStatus(HttpStatus.UNAUTHORIZED);
++    }
++
++    @Test
++    @DisplayName("Anonymous update release is rejected with 401")
++    void anonymousUpdateReleaseIsRejected() {
++        var result = mvc.put()
++                .uri("/api/releases/{code}", "IDEA-X-1")
++                .contentType(MediaType.APPLICATION_JSON)
++                .content("{\"description\":\"d\",\"status\":\"PLANNED\"}")
++                .exchange();
++        assertThat(result).hasStatus(HttpStatus.UNAUTHORIZED);
++    }
++
++    @Test
++    @DisplayName("Anonymous delete release is rejected with 401")
++    void anonymousDeleteReleaseIsRejected() {
++        var result = mvc.delete().uri("/api/releases/{code}", "IDEA-X-1").exchange();
++        assertThat(result).hasStatus(HttpStatus.UNAUTHORIZED);
++    }
++
++    @Test
++    @DisplayName("Anonymous read of a single release stays public")
++    void anonymousReadReleaseIsAllowed() {
++        when(releaseService.findReleaseByCode("IDEA-X-1")).thenReturn(Optional.empty());
++        var result = mvc.get().uri("/api/releases/{code}", "IDEA-X-1").exchange();
++        assertThat(result).hasStatus(HttpStatus.NOT_FOUND);
++    }
++
++    @Test
++    @DisplayName("Invalid status transition on PUT is rejected with 400")
++    @WithMockUser(username = "user")
++    void invalidStatusTransitionReturns400() {
++        doThrow(new InvalidStatusTransitionException(
++                        ReleaseStatus.COMPLETED, ReleaseStatus.DRAFT, Set.of()))
++                .when(releaseService)
++                .updateRelease(any());
++        var result = mvc.put()
++                .uri("/api/releases/{code}", "IDEA-X-1")
++                .contentType(MediaType.APPLICATION_JSON)
++                .content("{\"description\":\"d\",\"status\":\"DRAFT\"}")
++                .exchange();
++        assertThat(result).hasStatus(HttpStatus.BAD_REQUEST);
++    }
++
++    @Test
++    @DisplayName("Authenticated delete of a missing release returns 404, not 401/403")
++    @WithMockUser(username = "user")
++    void authenticatedDeleteOfMissingReleaseIsNotFound() {
++        when(releaseService.isReleaseExists("IDEA-MISSING")).thenReturn(false);
++        var result = mvc.delete().uri("/api/releases/{code}", "IDEA-MISSING").exchange();
++        assertThat(result).hasStatus(HttpStatus.NOT_FOUND);
++    }
++
++    @Test
++    @DisplayName("Overdue query endpoint exists and is publicly readable")
++    void overdueEndpointIsPubliclyReadable() {
++        var status = mvc.get()
++                .uri("/api/releases/overdue?page=0&size=10")
++                .exchange()
++                .getMvcResult()
++                .getResponse()
++                .getStatus();
++        assertThat(status).isNotIn(401, 403, 404);
++    }
++}

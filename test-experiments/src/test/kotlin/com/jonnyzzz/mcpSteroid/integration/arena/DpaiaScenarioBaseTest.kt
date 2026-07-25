@@ -87,11 +87,26 @@ abstract class DpaiaScenarioBaseTest {
     // ── Test execution ───────────────────────────────────────────────────────
 
     private fun runAgent(agentName: String, mode: ArenaMode) {
-        val testCase = resolvedTestCase
+        val baseCase = resolvedTestCase
         val modeLabel = mode.label
         val withMcp = mode != ArenaMode.NONE
-        val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]
+        val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[baseCase.instanceId]
             ?: DpaiaCuratedCases.CaseConfig()
+
+        // A per-case overlay applies a local Docker-free test patch AFTER the dataset test patch,
+        // so it can add its own FAIL_TO_PASS class without touching the dataset's own patch content.
+        val overlayPatch = caseConfig.overlayTestPatch?.let { resourcePath ->
+            checkNotNull(javaClass.classLoader.getResourceAsStream(resourcePath)) {
+                "Overlay patch resource not found: $resourcePath"
+            }.readBytes().decodeToString()
+        }
+        val effectiveCase = if (overlayPatch == null) baseCase else baseCase.copy(
+            testPatch = baseCase.testPatch + "\n" + overlayPatch,
+            failToPass = baseCase.failToPass + caseConfig.overlayFailToPass,
+        )
+        // Distinguishes an overlay-augmented run in reports; CASE_CONFIGS lookups always key on the
+        // original instanceId (effectiveCase.instanceId is left untouched by the copy above).
+        val reportInstanceId = if (overlayPatch == null) baseCase.instanceId else "${baseCase.instanceId}x"
 
         val consoleTitle = instanceId.take(40)
 
@@ -104,9 +119,9 @@ abstract class DpaiaScenarioBaseTest {
             }
             val mcpMode = if (mode == ArenaMode.NONE) McpConnectionMode.None else null
 
-            println("[ARENA] Creating container for [$agentName+$modeLabel] ${testCase.instanceId} ...")
+            println("[ARENA] Creating container for [$agentName+$modeLabel] ${effectiveCase.instanceId} ...")
 
-            val buildSystem = when (testCase.buildSystem) {
+            val buildSystem = when (effectiveCase.buildSystem) {
                 "maven" -> BuildSystem.MAVEN
                 "gradle" -> BuildSystem.GRADLE
                 else -> BuildSystem.NONE
@@ -115,12 +130,12 @@ abstract class DpaiaScenarioBaseTest {
             val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
                 consoleTitle = "$consoleTitle-$modeLabel",
                 project = IntelliJProject.ProjectFromGitCommitAndPatch(
-                    cloneUrl = testCase.cloneUrl,
-                    repoOwnerAndName = testCase.repo.removeSuffix(".git"),
-                    baseCommit = testCase.baseCommit,
-                    testPatch = testCase.testPatch,
-                    displayName = testCase.instanceId,
-                    buildSystem = testCase.buildSystem,
+                    cloneUrl = effectiveCase.cloneUrl,
+                    repoOwnerAndName = effectiveCase.repo.removeSuffix(".git"),
+                    baseCommit = effectiveCase.baseCommit,
+                    testPatch = effectiveCase.testPatch,
+                    displayName = effectiveCase.instanceId,
+                    buildSystem = effectiveCase.buildSystem,
                 ),
                 aiMode = aiMode,
                 mcpConnectionMode = mcpMode,
@@ -148,7 +163,7 @@ abstract class DpaiaScenarioBaseTest {
             // must not abort the arena run — a null snapshot just disables tamper detection at verify time.
             val verifier = ArenaVerifier(session.scope, ideProjectDir)
             val preAgentSnapshot = try {
-                verifier.snapshotTestFiles(testCase.testPatch)
+                verifier.snapshotTestFiles(effectiveCase.testPatch)
             } catch (e: Exception) {
                 System.err.println("[ARENA] Pre-agent test-file snapshot failed: $e")
                 null
@@ -167,7 +182,7 @@ abstract class DpaiaScenarioBaseTest {
             )
 
             val result = runner.runTest(
-                testCase = testCase,
+                testCase = effectiveCase,
                 agent = agent,
                 withMcp = withMcp,
                 timeoutSeconds = caseConfig.agentTimeoutSeconds,
@@ -176,13 +191,13 @@ abstract class DpaiaScenarioBaseTest {
             )
 
             // ── Objective FAIL_TO_PASS verification (OUTSIDE the agent timer) ───────
-            val verification = if (testCase.buildSystem == "maven") {
+            val verification = if (effectiveCase.buildSystem == "maven") {
                 println("[ARENA] Verifying FAIL_TO_PASS via surefire (outside the agent timer) ...")
                 try {
                     verifier.verify(
-                        failToPass = testCase.failToPass,
+                        failToPass = effectiveCase.failToPass,
                         projectJdkVersion = caseConfig.projectJdkVersion,
-                        testPatch = testCase.testPatch,
+                        testPatch = effectiveCase.testPatch,
                         preAgentSnapshot = preAgentSnapshot,
                     )
                 } catch (e: Exception) {
@@ -190,7 +205,7 @@ abstract class DpaiaScenarioBaseTest {
                     null
                 }
             } else {
-                println("[ARENA] Skipping FAIL_TO_PASS verification — build system is '${testCase.buildSystem}', not maven")
+                println("[ARENA] Skipping FAIL_TO_PASS verification — build system is '${effectiveCase.buildSystem}', not maven")
                 null
             }
 
@@ -208,7 +223,7 @@ abstract class DpaiaScenarioBaseTest {
                 ?.let { extractDecodedLogMetrics(it.readText()) }
 
             val record = RunRecord(
-                instanceId = testCase.instanceId,
+                instanceId = reportInstanceId,
                 agentName = agentName,
                 mode = mode,
                 agentDurationMs = result.agentDurationMs,
@@ -225,11 +240,11 @@ abstract class DpaiaScenarioBaseTest {
             results.add(record)
 
             // Write JSON summary
-            writeRunSummary(testCase, agentName, modeLabel, result, record, session.runDirInContainer)
+            writeRunSummary(reportInstanceId, agentName, modeLabel, result, record, session.runDirInContainer)
 
             // Print summary
             println("[ARENA] ════════════════════════════════════════")
-            println("[ARENA] $agentName+$modeLabel — ${testCase.instanceId}")
+            println("[ARENA] $agentName+$modeLabel — ${effectiveCase.instanceId}")
             println("[ARENA]   Claimed fix:    ${record.claimedFix}")
             println("[ARENA]   Used MCP:       ${record.usedMcpSteroid}")
             println("[ARENA]   Exit code:      ${record.exitCode}")
@@ -265,12 +280,12 @@ abstract class DpaiaScenarioBaseTest {
             // Lenient assertion
             check(result.evaluation.agentExitedSuccessfully || result.evaluation.agentClaimedFix) {
                 "${agentName.replaceFirstChar { it.uppercase() }} [$agentName+$modeLabel] neither exited successfully (exit=${result.agentResult.exitCode}) " +
-                        "nor claimed a fix for ${testCase.instanceId}."
+                        "nor claimed a fix for ${effectiveCase.instanceId}."
             }
 
             if (withMcp) {
                 check(result.evaluation.usedMcpSteroid) {
-                    "${agentName.replaceFirstChar { it.uppercase() }} [$agentName+mcp] did not use steroid_execute_code for ${testCase.instanceId}."
+                    "${agentName.replaceFirstChar { it.uppercase() }} [$agentName+mcp] did not use steroid_execute_code for ${effectiveCase.instanceId}."
                 }
             }
         } finally {
@@ -325,7 +340,7 @@ abstract class DpaiaScenarioBaseTest {
     }
 
     private fun writeRunSummary(
-        testCase: DpaiaTestCase,
+        reportInstanceId: String,
         agentName: String,
         modeLabel: String,
         result: ArenaTestResult,
@@ -333,7 +348,7 @@ abstract class DpaiaScenarioBaseTest {
         runDir: File,
     ) {
         val summary = buildJsonObject {
-            put("instance_id", testCase.instanceId)
+            put("instance_id", reportInstanceId)
             put("agent", agentName)
             put("mode", modeLabel)
             put("run_dir", runDir.absolutePath)
@@ -386,7 +401,7 @@ abstract class DpaiaScenarioBaseTest {
             put("timestamp", java.time.Instant.now().toString())
         }
         val summaryFile = IdeTestFolders.testOutputDir
-            .resolve("dpaia-arena-run-${testCase.instanceId}-$agentName-$modeLabel.json")
+            .resolve("dpaia-arena-run-$reportInstanceId-$agentName-$modeLabel.json")
         summaryFile.parentFile.mkdirs()
         summaryFile.writeText(summary.toString())
         println("[ARENA] Run summary written to: ${summaryFile.absolutePath}")
@@ -396,7 +411,7 @@ abstract class DpaiaScenarioBaseTest {
         val csvFile = IdeTestFolders.testOutputDir.resolve("arena-comparison.csv")
         appendComparisonCsv(
             csvFile = csvFile,
-            instanceId = testCase.instanceId,
+            instanceId = reportInstanceId,
             passLabel = passLabel,
             mode = modeLabel,
             claimedFix = record.claimedFix,
