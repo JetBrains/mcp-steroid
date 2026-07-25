@@ -91,6 +91,7 @@ class ArenaTestRunner(
         val bashBuildWrapper = "$javaHomeAssignment $buildWrapper"
         val projectJdkVersion = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]?.projectJdkVersion
             ?: DpaiaCuratedCases.CaseConfig().projectJdkVersion
+        val dockerOracleWorks = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]?.dockerOracleWorks ?: false
         val configuredJavaHomePrefix = "/usr/lib/jvm/temurin-$projectJdkVersion-jdk-"
         val compileCommand = if (testCase.buildSystem == "maven") {
             "$bashBuildWrapper -DskipTests compile"
@@ -164,18 +165,22 @@ class ArenaTestRunner(
             appendLine("- **Maven missing module dependency** (e.g. `Could not resolve .../ts-common...`): install only that module: `JAVA_HOME=... $buildWrapper install -pl <missing-module> -DskipTests -Dspotless.check.skip=true`. Do NOT use IntelliJ APIs to resolve Maven module dependencies.")
         }
         appendLine("- Check Docker once at start (`docker info`) **only if the FAIL_TO_PASS tests use `@Testcontainers`, extend `AbstractIT`/`IntegrationTest`, or mention Docker**. For pure file-creation scenarios (just new Java classes/records needed), skip the Docker check entirely — it adds 10-15s with no benefit.")
-        appendLine("- If Docker is unavailable, **still attempt to run FAIL_TO_PASS tests** — many use H2 in-memory DB and work fine without Docker.")
-        appendLine("  - Run the target test class: `$runClassCommand`")
-        appendLine("  - If it fails with a Docker connection error (`Could not find a valid Docker environment` / `DockerException`):")
-        appendLine("    1. Run `./mvnw test-compile -Dspotless.check.skip=true` to verify compilation.")
-        appendLine("    2. If `test-compile` **passes** → report `ARENA_FIX_APPLIED: yes` with note:")
-        appendLine("       `(tests blocked by Docker unavailability — compilation verified via test-compile)`")
-        appendLine("    3. If `test-compile` **fails** → fix the compile errors first, then re-check.")
-        appendLine("  - If it fails for other (non-Docker) reasons: fix those reasons and retry.")
-        appendLine("  - **NEVER output `ARENA_FIX_APPLIED: yes` based on compile checks alone** unless Docker is the *explicit* blocker confirmed by a DockerException in the test output.")
-        appendLine("  - **Mixed pass (some FAIL_TO_PASS tests pass, others fail with `Could not find a valid Docker environment`)**: The implementation is correct. Output `ARENA_FIX_APPLIED: yes` immediately — Testcontainers requires a Docker socket that is absent in this container. **Do NOT** attempt `docker pull`, `docker info`, `service docker start`, or any Docker socket debugging — it is container infrastructure and cannot be fixed from inside. Stop and declare success.")
-        appendLine("  - **Docker image pull stalls** (e.g., `testcontainers/ryuk:*` or DB image pull makes no progress for 30+ seconds): this is a network restriction in the arena container — the public Docker registry is unreachable. **Do NOT** wait, retry, or debug Docker networking. Run `$compileCommand` to verify code compiles; if it passes, output `ARENA_FIX_APPLIED: yes` with note: `(tests blocked by Docker image pull failure — registry unreachable in arena container)` and stop immediately.")
-        appendLine("  - **Testcontainers/Docker infrastructure errors** (e.g., `HTTP 400 Bad Request`, API version mismatch, `BadRequestException`, ryuk container start failures, `DockerClientException`): these are arena container infrastructure problems — **NOT code bugs**. After **2 failed test attempts** showing Docker infrastructure errors, stop all Docker debugging. Run `$compileCommand`; if it passes, output `ARENA_FIX_APPLIED: yes` with note: `(tests blocked by Docker infrastructure — API incompatibility in arena container)` and stop. Do NOT write proxy scripts, monkey-patch docker-java, or spend more than 2 attempts on any Docker infrastructure error.")
+        if (!dockerOracleWorks) {
+            appendLine("- If Docker is unavailable, **still attempt to run FAIL_TO_PASS tests** — many use H2 in-memory DB and work fine without Docker.")
+            appendLine("  - Run the target test class: `$runClassCommand`")
+            appendLine("  - If it fails with a Docker connection error (`Could not find a valid Docker environment` / `DockerException`):")
+            appendLine("    1. Run `./mvnw test-compile -Dspotless.check.skip=true` to verify compilation.")
+            appendLine("    2. If `test-compile` **passes** → report `ARENA_FIX_APPLIED: yes` with note:")
+            appendLine("       `(tests blocked by Docker unavailability — compilation verified via test-compile)`")
+            appendLine("    3. If `test-compile` **fails** → fix the compile errors first, then re-check.")
+            appendLine("  - If it fails for other (non-Docker) reasons: fix those reasons and retry.")
+            appendLine("  - **NEVER output `ARENA_FIX_APPLIED: yes` based on compile checks alone** unless Docker is the *explicit* blocker confirmed by a DockerException in the test output.")
+            appendLine("  - **Mixed pass (some FAIL_TO_PASS tests pass, others fail with `Could not find a valid Docker environment`)**: The implementation is correct. Output `ARENA_FIX_APPLIED: yes` immediately — Testcontainers requires a Docker socket that is absent in this container. **Do NOT** attempt `docker pull`, `docker info`, `service docker start`, or any Docker socket debugging — it is container infrastructure and cannot be fixed from inside. Stop and declare success.")
+            appendLine("  - **Docker image pull stalls** (e.g., `testcontainers/ryuk:*` or DB image pull makes no progress for 30+ seconds): this is a network restriction in the arena container — the public Docker registry is unreachable. **Do NOT** wait, retry, or debug Docker networking. Run `$compileCommand` to verify code compiles; if it passes, output `ARENA_FIX_APPLIED: yes` with note: `(tests blocked by Docker image pull failure — registry unreachable in arena container)` and stop immediately.")
+            appendLine("  - **Testcontainers/Docker infrastructure errors** (e.g., `HTTP 400 Bad Request`, API version mismatch, `BadRequestException`, ryuk container start failures, `DockerClientException`): these are arena container infrastructure problems — **NOT code bugs**. After **2 failed test attempts** showing Docker infrastructure errors, stop all Docker debugging. Run `$compileCommand`; if it passes, output `ARENA_FIX_APPLIED: yes` with note: `(tests blocked by Docker infrastructure — API incompatibility in arena container)` and stop. Do NOT write proxy scripts, monkey-patch docker-java, or spend more than 2 attempts on any Docker infrastructure error.")
+        } else {
+            appendLine("- Docker and Testcontainers WORK in this environment. Run the FAIL_TO_PASS integration tests for real; a Docker/Testcontainers error is YOUR signal to re-check the test run, not infrastructure to blame. `ARENA_FIX_APPLIED: yes` requires the full suite green — no Docker exemptions.")
+        }
         appendLine("- **Gap analysis before implementing**: After reading VCS-modified test files, scan for method calls that reference production code. Verify each referenced method exists in the service/repository before writing other code — compile errors at test-run time from missing methods add unnecessary round-trips.")
         appendLine("- **Spring Boot i18n/message key validation**: When adding a new field/feature, check immediately whether the project has `MessageKeyValidatorTest` (or similar) that verifies all locale property files have consistent keys. Run: `find $projectDir/src -name '*MessageKey*' -o -name 'messages_*.properties' 2>/dev/null | head -20`. If multiple `messages_*.properties` exist (messages.properties, messages_de.properties, etc.), you MUST add the new message key to ALL of them in the same edit pass — do NOT wait for a failed test run to discover missing keys.")
 
@@ -268,9 +273,11 @@ class ArenaTestRunner(
             appendLine("  ```")
             appendLine("  **USE THE PRINTED Maven/Gradlew/Recommended JAVA_HOME paths for ALL subsequent Bash build commands** — never run `find /opt -name mvn` or `ls /usr/lib/jvm/` after this. The first call tells you everything you need.")
             appendLine("  **JDK SELECTION**: Use the printed `Recommended JAVA_HOME` for this case's configured JDK $projectJdkVersion on the first Bash build/test command. Do NOT try `JAVA_HOME=/usr/lib/jvm/temurin-21-...` first when the configured version is higher. Only switch JDKs after a real compiler/toolchain error proves the configured JDK is incompatible.")
-            appendLine("  If `dockerOk=false`: still **run the FAIL_TO_PASS tests first via Bash** (many use H2, no Docker needed).")
-            appendLine("  Only treat Docker as a blocker if the test explicitly fails with a `DockerException` / `Could not find a valid Docker environment` error.")
-            appendLine("  **HARD STOP ON DOCKER FAILURES**: If ANY test fails with `Could not find a valid Docker environment`, `BadRequestException Status 400`, `HTTP 400`, or `docker.sock` errors — this is an INFRASTRUCTURE problem, NOT your code. Do NOT retry, do NOT investigate DOCKER_HOST, do NOT probe docker.sock, do NOT try environment variables. Instead: verify your code compiles (ProjectTaskManager or ./mvnw test-compile) and output ARENA_FIX_APPLIED: yes. Maximum 2 Bash calls for Docker — after that, STOP.")
+            if (!dockerOracleWorks) {
+                appendLine("  If `dockerOk=false`: still **run the FAIL_TO_PASS tests first via Bash** (many use H2, no Docker needed).")
+                appendLine("  Only treat Docker as a blocker if the test explicitly fails with a `DockerException` / `Could not find a valid Docker environment` error.")
+                appendLine("  **HARD STOP ON DOCKER FAILURES**: If ANY test fails with `Could not find a valid Docker environment`, `BadRequestException Status 400`, `HTTP 400`, or `docker.sock` errors — this is an INFRASTRUCTURE problem, NOT your code. Do NOT retry, do NOT investigate DOCKER_HOST, do NOT probe docker.sock, do NOT try environment variables. Instead: verify your code compiles (ProjectTaskManager or ./mvnw test-compile) and output ARENA_FIX_APPLIED: yes. Maximum 2 Bash calls for Docker — after that, STOP.")
+            }
         } else {
             appendLine("- IntelliJ MCP tools are unavailable in this run.")
             appendLine("- Use shell commands only (`bash`, `cat`, `find`, `grep`, `$buildWrapper`).")
