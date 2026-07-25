@@ -35,4 +35,13 @@ class DpaiaConfigTest {
             petclinicCases.values.map { it.projectJdkVersion },
         )
     }
+
+    @Test
+    fun `service-125 overlay resource resolves and adds its class to FAIL_TO_PASS`() {
+        val config = DpaiaCuratedCases.CASE_CONFIGS.getValue("dpaia__feature__service-125")
+        val resource = config.overlayTestPatch?.let { javaClass.classLoader.getResource(it) }
+        org.junit.jupiter.api.Assertions.assertNotNull(resource, "overlay patch must be on the test classpath")
+        org.junit.jupiter.api.Assertions.assertTrue(
+            config.overlayFailToPass.contains("com.sivalabs.ft.features.config.ReleaseApiSecuritySliceTest"))
+    }
 }
