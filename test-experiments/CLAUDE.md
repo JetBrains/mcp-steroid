@@ -75,7 +75,7 @@ Working notes, comparison tables, and autoresearch loop prompts live in `../docs
 and `claude without mcp` (shell-only baseline — agent uses bash, cat, find, grep, ./mvnw; no steroid_* tools, no IDE APIs).
 After each agent run, the harness re-executes FAIL_TO_PASS test classes via Maven and grades from surefire XML
 (Gradle cases currently skip verification), using fields like `verified_ftp_rate` and `tests_tampered` in the run JSON/CSV.
-The `dpaia__service-125x` case runs with a local overlay test patch and is reported separately from the base scenario.
+The `dpaia__feature__service-125x` case runs with a local overlay test patch and is reported separately from the base scenario.
 
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 
