@@ -299,6 +299,7 @@ class DpaiaArenaTest {
                 csvFile = csvFile,
                 instanceId = testCase.instanceId,
                 passLabel = passLabel,
+                mode = modeLabel,
                 claimedFix = result.evaluation.agentClaimedFix,
                 durationS = result.agentDurationMs / 1000,
                 tokens = tokens,

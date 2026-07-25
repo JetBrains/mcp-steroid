@@ -22,12 +22,22 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
+/** Which MCP transport (if any) the agent gets for this arena run. */
+enum class ArenaMode(val label: String) {
+    /** MCP Steroid over direct HTTP. */
+    MCP_HTTP("mcp"),
+    /** MCP Steroid over the devrig stdio bridge. */
+    DEVRIG("devrig"),
+    /** No MCP registered — shell-only baseline. */
+    NONE("none"),
+}
+
 /**
  * Abstract base class for dedicated DPAIA scenario tests — **Claude Code and Codex**.
  *
  * Each subclass overrides [instanceId] to select a specific dpaia arena scenario.
- * Four test methods are inherited: "claude with mcp", "claude without mcp",
- * "codex with mcp", and "codex without mcp".
+ * Six test methods are inherited: "claude with mcp", "claude with devrig", "claude without mcp",
+ * "codex with mcp", "codex with devrig", and "codex without mcp".
  *
  * Each test method launches a **fresh Docker container** with IntelliJ IDEA.
  * Before the agent timer starts, the test runs a full prewarm:
@@ -48,35 +58,36 @@ abstract class DpaiaScenarioBaseTest {
 
     @Test
     @Timeout(value = 60, unit = TimeUnit.MINUTES)
-    fun `claude with mcp`() {
-        runAgent("claude", withMcp = true)
-    }
+    fun `claude with mcp`() = runAgent("claude", ArenaMode.MCP_HTTP)
 
     @Test
     @Timeout(value = 60, unit = TimeUnit.MINUTES)
-    fun `claude without mcp`() {
-        runAgent("claude", withMcp = false)
-    }
+    fun `claude with devrig`() = runAgent("claude", ArenaMode.DEVRIG)
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `claude without mcp`() = runAgent("claude", ArenaMode.NONE)
 
     // ── Codex ────────────────────────────────────────────────────────────────
 
     @Test
     @Timeout(value = 60, unit = TimeUnit.MINUTES)
-    fun `codex with mcp`() {
-        runAgent("codex", withMcp = true)
-    }
+    fun `codex with mcp`() = runAgent("codex", ArenaMode.MCP_HTTP)
 
     @Test
     @Timeout(value = 60, unit = TimeUnit.MINUTES)
-    fun `codex without mcp`() {
-        runAgent("codex", withMcp = false)
-    }
+    fun `codex with devrig`() = runAgent("codex", ArenaMode.DEVRIG)
+
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    fun `codex without mcp`() = runAgent("codex", ArenaMode.NONE)
 
     // ── Test execution ───────────────────────────────────────────────────────
 
-    private fun runAgent(agentName: String, withMcp: Boolean) {
+    private fun runAgent(agentName: String, mode: ArenaMode) {
         val testCase = resolvedTestCase
-        val modeLabel = if (withMcp) "mcp" else "none"
+        val modeLabel = mode.label
+        val withMcp = mode != ArenaMode.NONE
         val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]
             ?: DpaiaCuratedCases.CaseConfig()
 
@@ -84,8 +95,12 @@ abstract class DpaiaScenarioBaseTest {
 
         val lifetime = CloseableStackHost()
         try {
-            val aiMode = if (withMcp) AiMode.AI_MCP else AiMode.NONE
-            val mcpMode = if (withMcp) null else McpConnectionMode.None
+            val aiMode = when (mode) {
+                ArenaMode.MCP_HTTP -> AiMode.AI_MCP
+                ArenaMode.DEVRIG -> AiMode.AI_DEVRIG
+                ArenaMode.NONE -> AiMode.NONE
+            }
+            val mcpMode = if (mode == ArenaMode.NONE) McpConnectionMode.None else null
 
             println("[ARENA] Creating container for [$agentName+$modeLabel] ${testCase.instanceId} ...")
 
@@ -163,7 +178,7 @@ abstract class DpaiaScenarioBaseTest {
             val record = RunRecord(
                 instanceId = testCase.instanceId,
                 agentName = agentName,
-                withMcp = withMcp,
+                mode = mode,
                 agentDurationMs = result.agentDurationMs,
                 prewarmMs = 0L, // Prewarm is now inside waitForProjectReady
                 exitCode = result.agentResult.exitCode,
@@ -238,8 +253,8 @@ abstract class DpaiaScenarioBaseTest {
         println("║              DPAIA ARENA — AGENT COMPARISON (${instanceId.take(37).padEnd(37)})  ║")
         println("╠═══════════════════════════════════════════════════════════════════════════════════════╣")
 
-        for (r in results.sortedWith(compareBy({ it.agentName }, { !it.withMcp }))) {
-            val mode = if (r.withMcp) "${r.agentName}+mcp" else "${r.agentName}+none"
+        for (r in results.sortedWith(compareBy({ it.agentName }, { it.mode }))) {
+            val mode = "${r.agentName}+${r.mode.label}"
             println("║ ${mode.padEnd(16)}                                                                       ║")
             println("║   Fix: ${if (r.claimedFix) "YES" else "NO "}  Exit: ${(r.exitCode?.toString() ?: "?").padStart(3)}  " +
                     "Agent: ${(r.agentDurationMs / 1000).toString().padStart(4)}s  " +
@@ -321,6 +336,7 @@ abstract class DpaiaScenarioBaseTest {
             csvFile = csvFile,
             instanceId = testCase.instanceId,
             passLabel = passLabel,
+            mode = modeLabel,
             claimedFix = record.claimedFix,
             durationS = record.agentDurationMs / 1000,
             tokens = record.tokenUsage,
@@ -339,7 +355,7 @@ abstract class DpaiaScenarioBaseTest {
     data class RunRecord(
         val instanceId: String,
         val agentName: String,
-        val withMcp: Boolean,
+        val mode: ArenaMode,
         val agentDurationMs: Long,
         val prewarmMs: Long,
         val exitCode: Int?,
