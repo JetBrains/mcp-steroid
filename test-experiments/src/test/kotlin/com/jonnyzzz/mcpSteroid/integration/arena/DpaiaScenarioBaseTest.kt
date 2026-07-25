@@ -12,8 +12,10 @@ import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -141,6 +143,11 @@ abstract class DpaiaScenarioBaseTest {
                     "(open: ${openProjects.joinToString { "${it.name}@${it.path}" }}). Deploy/open regression (#251)."
             }
 
+            // Snapshot the test-patch files BEFORE the agent runs, so [ArenaVerifier.verify] can
+            // detect tampering afterward. Excluded from the agent's timed budget.
+            val verifier = ArenaVerifier(session.scope, ideProjectDir)
+            val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
+
             // ── Agent run (TIMED) ────────────────────────────────────────────────
             val agent: AiAgentSession = when (agentName) {
                 "claude" -> session.aiAgents.claude
@@ -161,6 +168,25 @@ abstract class DpaiaScenarioBaseTest {
                 predeployedProjectDir = ideProjectDir,
                 logDir = session.runDirInContainer
             )
+
+            // ── Objective FAIL_TO_PASS verification (OUTSIDE the agent timer) ───────
+            val verification = if (testCase.buildSystem == "maven") {
+                println("[ARENA] Verifying FAIL_TO_PASS via surefire (outside the agent timer) ...")
+                try {
+                    verifier.verify(
+                        failToPass = testCase.failToPass,
+                        projectJdkVersion = caseConfig.projectJdkVersion,
+                        testPatch = testCase.testPatch,
+                        preAgentSnapshot = preAgentSnapshot,
+                    )
+                } catch (e: Exception) {
+                    System.err.println("[ARENA] Verification infrastructure failed: $e")
+                    null
+                }
+            } else {
+                println("[ARENA] Skipping FAIL_TO_PASS verification — build system is '${testCase.buildSystem}', not maven")
+                null
+            }
 
             // ── Extract metrics from agent NDJSON ────────────────────────────────
             val rawOutput = result.agentResult.stdout
@@ -188,6 +214,7 @@ abstract class DpaiaScenarioBaseTest {
                 tokenUsage = tokens,
                 testMetrics = testMetrics,
                 decodedLogMetrics = decodedLogMetrics,
+                verification = verification,
             )
             results.add(record)
 
@@ -217,6 +244,14 @@ abstract class DpaiaScenarioBaseTest {
                 println("[ARENA]   exec_code:      ${decodedLogMetrics.execCodeCalls}")
                 println("[ARENA]   Read/Edit/Write: ${decodedLogMetrics.readCalls}/${decodedLogMetrics.editCalls}/${decodedLogMetrics.writeCalls}")
                 println("[ARENA]   Glob/Grep/Bash: ${decodedLogMetrics.globCalls}/${decodedLogMetrics.grepCalls}/${decodedLogMetrics.bashCalls}")
+            }
+            if (verification != null) {
+                println("[ARENA]   Verified FTP:   ${verification.classesPassed}/${verification.classesTotal} " +
+                    "(${String.format("%.0f%%", verification.failToPassRate * 100)})  tests_tampered=${verification.testsTampered}")
+                verification.perClass.forEach { c ->
+                    println("[ARENA]     ${if (c.passed) "PASS" else "FAIL"} ${c.className} " +
+                        "(run=${c.testsRun}, failures=${c.failures}, errors=${c.errors}, skipped=${c.skipped})")
+                }
             }
             println("[ARENA]   Summary:        ${record.summary ?: "(none)"}")
             println("[ARENA] ════════════════════════════════════════")
@@ -271,6 +306,11 @@ abstract class DpaiaScenarioBaseTest {
                 println("║   Tests: ${m.testsRun} run, ${m.testsPass} pass, ${m.testsFail} fail  " +
                         "BUILD ${if (m.buildSuccess == true) "SUCCESS" else "FAILURE"}".padEnd(49) + "║")
             }
+            val v = r.verification
+            if (v != null) {
+                println(("║   Verified FTP: ${v.classesPassed}/${v.classesTotal} " +
+                        "(${String.format("%.0f%%", v.failToPassRate * 100)})  tests_tampered=${v.testsTampered}").padEnd(91) + "║")
+            }
             println("║   ${(r.summary ?: "(no summary)").take(72).padEnd(72)}      ║")
         }
 
@@ -320,6 +360,22 @@ abstract class DpaiaScenarioBaseTest {
                 put("glob_calls", d.globCalls)
                 put("grep_calls", d.grepCalls)
             }
+            record.verification?.let { v ->
+                put("verified_ftp_passed", v.classesPassed)
+                put("verified_ftp_total", v.classesTotal)
+                put("verified_ftp_rate", v.failToPassRate)
+                put("tests_tampered", v.testsTampered)
+                put("claim_matches_reality", record.claimedFix == (v.failToPassRate == 1.0))
+                put("verification_ms", v.verificationDurationMs)
+                putJsonArray("verified_classes") {
+                    v.perClass.forEach { c ->
+                        addJsonObject {
+                            put("class", c.className); put("tests", c.testsRun)
+                            put("failures", c.failures); put("errors", c.errors); put("passed", c.passed)
+                        }
+                    }
+                }
+            }
             put("agent_summary", record.summary ?: "")
             put("timestamp", java.time.Instant.now().toString())
         }
@@ -342,6 +398,7 @@ abstract class DpaiaScenarioBaseTest {
             tokens = record.tokenUsage,
             testMetrics = record.testMetrics,
             decoded = record.decodedLogMetrics,
+            verification = record.verification,
         )
         println("[ARENA] Comparison CSV appended to: ${csvFile.absolutePath}")
     }
@@ -365,6 +422,7 @@ abstract class DpaiaScenarioBaseTest {
         val tokenUsage: TokenUsage?,
         val testMetrics: TestMetrics?,
         val decodedLogMetrics: DecodedLogMetrics? = null,
+        val verification: ArenaVerificationResult? = null,
     )
 
     companion object {
