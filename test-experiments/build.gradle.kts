@@ -78,6 +78,10 @@ fun Test.configureExperimentalTest() {
         .filterKeys { it.toString().startsWith("arena.test.") }
         .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
 
+    // Forward agent model overrides (read via System.getProperty in test-helper sessions).
+    listOf("claude.model", "codex.model", "gemini.model")
+        .forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
+
     dependsOn(pluginZip, agentOutputFilterDist, devrigPackageDist)
     doFirst {
         delete(layout.buildDirectory.dir("test-results/${this@configureExperimentalTest.name}/binary"))
