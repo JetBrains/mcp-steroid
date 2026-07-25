@@ -26,12 +26,6 @@ class ArenaVerificationSmokeTest {
 
     private val instanceId = "dpaia__feature__service-125"
 
-    /** Docker-free classes that MUST pass on the reference solution regardless of the Docker oracle. */
-    private val dockerFreeClasses = setOf(
-        "com.sivalabs.ft.features.domain.ReleaseStatusTransitionValidatorTest",
-        "com.sivalabs.ft.features.config.ReleaseApiSecuritySliceTest",
-    )
-
     @Test
     @Timeout(value = 60, unit = TimeUnit.MINUTES)
     fun `reference solution passes verification`() {
@@ -83,12 +77,7 @@ class ArenaVerificationSmokeTest {
             result.perClass.forEach { println("[SMOKE]   ${it.className}: run=${it.testsRun} fail=${it.failures} err=${it.errors} passed=${it.passed}") }
 
             assertTrue(!result.testsTampered, "Reference patch must not count as tampering (it touches no test files)")
-            val dockerFreeFailures = result.perClass.filter { it.className in dockerFreeClasses && !it.passed }
-            assertTrue(dockerFreeFailures.isEmpty()) {
-                "Docker-free oracle classes failed on the reference solution: $dockerFreeFailures"
-            }
-            // Tightened by the Docker-oracle task once Testcontainers works in the arena container:
-            // assertTrue(result.failToPassRate == 1.0) { "All FAIL_TO_PASS must pass on the reference solution" }
+            assertTrue(result.failToPassRate == 1.0) { "All FAIL_TO_PASS must pass on the reference solution: ${result.perClass}" }
         } finally {
             lifetime.closeAllStacks()
         }
