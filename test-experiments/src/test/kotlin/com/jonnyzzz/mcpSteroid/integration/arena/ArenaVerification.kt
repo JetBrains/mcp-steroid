@@ -135,7 +135,8 @@ class ArenaVerifier(
 
         bash("rm -rf '$projectDir/target/surefire-reports'", 30, "Clean stale surefire reports")
         val mvn = bash(
-            "cd '$projectDir' && JAVA_HOME='$javaHome' ./mvnw test " +
+            // pipefail: without it the logged exit code is tail's (always 0), not Maven's.
+            "set -o pipefail && cd '$projectDir' && JAVA_HOME='$javaHome' ./mvnw test " +
                 "-Dtest='$testFilter' -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true " +
                 "2>&1 | tail -100",
             timeoutSeconds = 1_200,
