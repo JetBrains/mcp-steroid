@@ -288,7 +288,7 @@ fun extractToolCallStats(rawOutput: String): ToolCallStats? {
 
 // ── CSV comparison writer ───────────────────────────────────────────────────
 
-private const val CSV_HEADER = "timestamp,instance_id,pass_label,agent_claimed_fix,duration_s," +
+private const val CSV_HEADER = "timestamp,instance_id,pass_label,mode,agent_claimed_fix,duration_s," +
         "exec_code_calls,bash_calls,read_calls,write_calls,edit_calls,glob_calls,grep_calls," +
         "num_turns,total_input_tokens,total_output_tokens,total_cache_creation_tokens," +
         "total_cache_read_tokens,duration_api_ms,estimated_cost_usd,tests_pass,tests_run"
@@ -301,6 +301,7 @@ private const val CSV_HEADER = "timestamp,instance_id,pass_label,agent_claimed_f
  * @param csvFile the target CSV file (e.g. `testOutputDir/arena-comparison.csv`)
  * @param instanceId the DPAIA scenario instance ID
  * @param passLabel a label for the current pass (from `-Darena.pass.label` system property)
+ * @param mode the arena mode label for this run ("mcp", "devrig", or "none")
  * @param claimedFix whether the agent claimed to have fixed the issue
  * @param durationS agent wall-clock duration in seconds
  * @param tokens extracted token usage (nullable)
@@ -312,6 +313,7 @@ fun appendComparisonCsv(
     csvFile: java.io.File,
     instanceId: String,
     passLabel: String,
+    mode: String,
     claimedFix: Boolean,
     durationS: Long,
     tokens: TokenUsage?,
@@ -326,6 +328,7 @@ fun appendComparisonCsv(
         java.time.Instant.now().toString(),
         instanceId,
         passLabel,
+        mode,
         claimedFix.toString(),
         durationS.toString(),
         (decoded?.execCodeCalls ?: "").toString(),
