@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -87,5 +88,36 @@ class ArenaVerificationTest {
         assertEquals(1, result.classesPassed)
         assertEquals(3, result.classesTotal)
         assertEquals(1.0 / 3.0, result.failToPassRate, 1e-9)
+    }
+
+    @Test
+    fun `accepts ordinary test-patch paths`() {
+        requireSafeShellPaths(listOf("src/test/java/com/example/FooTest.java", "src/test/resources/test-data.sql"))
+    }
+
+    @Test
+    fun `rejects a path containing a single quote`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            requireSafeShellPaths(listOf("src/test/java/com/example/Foo'; rm -rf /; echo 'Test.java"))
+        }
+    }
+
+    @Test
+    fun `rejects a path containing a newline`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            requireSafeShellPaths(listOf("src/test/java/Foo.java\nrm -rf /"))
+        }
+    }
+
+    @Test
+    fun `accepts ordinary fully-qualified class names`() {
+        requireSafeFqcns(listOf("com.example.FooTest", "com.example.bar.BazTest"))
+    }
+
+    @Test
+    fun `rejects a class name with shell metacharacters`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            requireSafeFqcns(listOf("com.example.FooTest;rm -rf /"))
+        }
     }
 }

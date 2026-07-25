@@ -56,6 +56,24 @@ fun extractPatchFilePaths(patch: String): Set<String> =
     DIFF_FILE_HEADER.findAll(patch).map { it.groupValues[1] }.toSet()
 
 /**
+ * Fails loud if any [paths] would break out of the single-quoted shell interpolation used to build the
+ * hashing/verification scripts (`'$projectDir/$it'`). Paths come from an external dataset's unified diff,
+ * so this is an injection guard, not a formatting nicety — reject rather than attempt to escape.
+ */
+fun requireSafeShellPaths(paths: Collection<String>) {
+    val bad = paths.filter { '\'' in it || '\n' in it }
+    require(bad.isEmpty()) { "Unsupported character in test-patch path(s), refusing to shell-interpolate: $bad" }
+}
+
+private val FQCN_REGEX = Regex("""^[A-Za-z0-9_.]+$""")
+
+/** Fails loud if any [fqcns] contain characters outside a Java fully-qualified class name. */
+fun requireSafeFqcns(fqcns: Collection<String>) {
+    val bad = fqcns.filterNot { FQCN_REGEX.matches(it) }
+    require(bad.isEmpty()) { "Unsupported character in FAIL_TO_PASS class name(s), refusing to shell-interpolate: $bad" }
+}
+
+/**
  * Runs the harness-side, objective FAIL_TO_PASS verification for one arena run: hashes the test-patch
  * files before the agent runs, then re-runs all FAIL_TO_PASS classes in one Maven invocation afterward
  * and grades them from the surefire XML — independent of whatever the agent claimed in its transcript.
@@ -75,6 +93,7 @@ class ArenaVerifier(
 
     private fun hashTestFiles(paths: Set<String>): Map<String, String> {
         if (paths.isEmpty()) return emptyMap()
+        requireSafeShellPaths(paths)
         val list = paths.joinToString(" ") { "'$projectDir/$it'" }
         val out = bash(
             "for f in $list; do if [ -f \"${'$'}f\" ]; then sha256sum \"${'$'}f\"; else echo \"ABSENT  ${'$'}f\"; fi; done",
@@ -96,14 +115,17 @@ class ArenaVerifier(
         failToPass: List<String>,
         projectJdkVersion: String,
         testPatch: String,
-        preAgentSnapshot: Map<String, String>,
+        preAgentSnapshot: Map<String, String>?,
     ): ArenaVerificationResult {
         val startMs = System.currentTimeMillis()
 
-        val tampered = hashTestFiles(extractPatchFilePaths(testPatch)) != preAgentSnapshot
+        // A null snapshot means the pre-agent hashing itself failed (infra hiccup, logged by the
+        // caller); tamper detection needs a baseline to diff against, so it's skipped rather than
+        // treated as tampering.
+        val tampered = preAgentSnapshot?.let { hashTestFiles(extractPatchFilePaths(testPatch)) != it } ?: false
 
-        val simpleToFqcn = failToPass.associateBy { it.substringAfterLast('.') }
-        val testFilter = simpleToFqcn.keys.joinToString(",")
+        requireSafeFqcns(failToPass)
+        val testFilter = failToPass.map { it.substringAfterLast('.') }.distinct().joinToString(",")
         val javaHome = bash(
             "ls -d /usr/lib/jvm/temurin-$projectJdkVersion-jdk-* 2>/dev/null | head -1",
             timeoutSeconds = 20,
