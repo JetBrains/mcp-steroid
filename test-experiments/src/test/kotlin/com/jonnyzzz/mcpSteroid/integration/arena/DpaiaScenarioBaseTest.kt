@@ -285,7 +285,7 @@ abstract class DpaiaScenarioBaseTest {
 
             if (withMcp) {
                 check(result.evaluation.usedMcpSteroid) {
-                    "${agentName.replaceFirstChar { it.uppercase() }} [$agentName+mcp] did not use steroid_execute_code for ${effectiveCase.instanceId}."
+                    "${agentName.replaceFirstChar { it.uppercase() }} [$agentName+$modeLabel] did not use steroid_execute_code for ${effectiveCase.instanceId}."
                 }
             }
         } finally {

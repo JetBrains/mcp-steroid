@@ -69,7 +69,9 @@ private fun dockerSocketMapping(mount: Boolean): HostMappingsInfo {
  * DefaultDockerClientConfig from the test JVM's user.home), NOT through a container env var: docker-java
  * only honors the literal env key "api.version", and Maven Surefire rebuilds its forked-JVM environment
  * dropping env names that are not valid shell identifiers — the dotted key never reaches the test JVM.
- * 1.44 is Engine 29's minimum and below every current daemon's maximum.
+ * 1.44 is Engine 29's minimum and below every current daemon's maximum. Maintenance assumption: the 1.44
+ * pin assumes the host Docker Engine is >= 25 (API max >= 1.44); bump the pin if engines' minimum API
+ * ever exceeds 1.44.
  */
 private fun writeDockerJavaApiVersionProperties(container: ContainerDriver) {
     val result = container.startProcessInContainer {

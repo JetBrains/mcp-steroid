@@ -19,8 +19,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Golden-path check for the arena verification oracle: deploy service-125 (dataset test patch +
  * local overlay), apply the dataset's REFERENCE fix, then require the verifier to see every
- * Docker-free FAIL_TO_PASS class green. IT classes are reported (and asserted once the
- * Testcontainers oracle works) — their raw failure output is the diagnostic for the Docker fix.
+ * FAIL_TO_PASS class green — Testcontainers ITs included. Guards both the verification pipeline
+ * and the in-container Docker oracle.
  */
 class ArenaVerificationSmokeTest {
 
