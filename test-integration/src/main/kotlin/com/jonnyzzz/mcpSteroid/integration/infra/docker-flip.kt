@@ -49,8 +49,39 @@ private fun dockerSocketMapping(mount: Boolean): HostMappingsInfo {
         // the host network. host.docker.internal (added via --add-host in docker-container-start.kt)
         // bridges back from this container, so Testcontainers connects to the host gateway, not itself.
         envOverride = mapOf("TESTCONTAINERS_HOST_OVERRIDE" to "host.docker.internal"),
-        containerSetup = ::fixDockerSocketPermissions,
+        containerSetup = { container ->
+            fixDockerSocketPermissions(container)
+            writeDockerJavaApiVersionProperties(container)
+        },
     )
+}
+
+/**
+ * Pin the docker-java client API version so Testcontainers can talk to Docker Engine 29+.
+ *
+ * Testcontainers (through at least 2.0.1) falls back to Docker API version 1.32 when none is configured
+ * (DockerClientProviderStrategy.getClientForConfig), and Engine 29+ rejects API versions below its
+ * minimum (1.44) with HTTP 400 — an empty /info payload on Docker Desktop — so NO client strategy
+ * resolves and every Testcontainers test dies with "Could not find a valid Docker environment".
+ * See https://github.com/testcontainers/testcontainers-java/issues/11212.
+ *
+ * The pin must go through `~/.docker-java.properties` (read by docker-java's
+ * DefaultDockerClientConfig from the test JVM's user.home), NOT through a container env var: docker-java
+ * only honors the literal env key "api.version", and Maven Surefire rebuilds its forked-JVM environment
+ * dropping env names that are not valid shell identifiers — the dotted key never reaches the test JVM.
+ * 1.44 is Engine 29's minimum and below every current daemon's maximum.
+ */
+private fun writeDockerJavaApiVersionProperties(container: ContainerDriver) {
+    val result = container.startProcessInContainer {
+        this
+            .args("bash", "-c", "printf 'api.version=1.44\\n' > \"${'$'}HOME/.docker-java.properties\"")
+            .timeoutSeconds(10)
+            .description("Pin docker-java API version for Testcontainers")
+            .quietly()
+    }.awaitForProcessFinish()
+    require(result.exitCode == 0) {
+        "Failed to write ~/.docker-java.properties: ${result.stderr}"
+    }
 }
 
 /**
