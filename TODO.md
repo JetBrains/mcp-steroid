@@ -69,6 +69,22 @@
 - [ ] **DataGrip (DB) caveat**: test-run/debug articles are now fetchable in DB where they are meaningless
   (graceful error at runtime); add a one-line DB caveat if dogfooding surfaces confusion.
 
+- [ ] **Arena verification: extend to Gradle-based arena cases.** `test-experiments/build/arena-*` currently collects
+  results only from Maven-execution scenarios. Wire harness to also run FAIL_TO_PASS classes via `./gradlew` for
+  Gradle-based projects (Spring Boot, Gradle wrapper scenarios) so verification matches the same surefire XML +
+  `verified_ftp_rate` grading used in Maven cases — eliminating the `self-reported ARENA_FIX_APPLIED` bypass.
+
+- [ ] **Arena overlays: extend local-patch support to other curated cases.** Service-125x (with security/status-transition
+  slice test overlay) now runs with a local test-patch overlay; same pattern scales to other scenario-specific edge cases
+  (Rider/.NET audit overlays, permission-model refinements). Document the overlay-harness contract and extend the pattern
+  to the next priority case (TBD during arena maintenance).
+
+- [ ] **Arena repeat-run statistics protocol.** After implementing A/B arms (Task 2), design a repeat-run frame-based
+  protocol so agents across multiple arena executions contribute to a running aggregate (per-scenario, per-mode).
+  Deliverable: CSV aggregation rules and significance-test formula suitable for comparing Claude vs. Codex over 100+
+  runs. Deliberately deferred (out of scope for the initial three-arm work); prioritize after initial data collection
+  stabilizes the measurement machinery (2026-Q3 or later).
+
 ## IntelliJ-family IDE coverage (IU/IC/AI) — backlog
 
 - [ ] **Integration test lanes for IntelliJ Community (IC) and Android Studio (AI).** The `[IU,IC,AI]`

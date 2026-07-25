@@ -70,6 +70,13 @@ SKIP_IMPROVE=1 MAX_RUNS=1 bash ../docs/dpaia-arena-runner.sh 0
 Working notes, comparison tables, and autoresearch loop prompts live in `../docs/CLAUDE.md` and
 `../docs/autoresearch/`.
 
+**Three-arm scenarios and objective verification.** Each scenario test class carries three arms: `claude with mcp`
+(runs the agent against the live `steroid_*` MCP API), `claude with devrig` (same agent, devrig stdio protocol),
+and `claude without mcp` (shell-only baseline — agent uses bash, cat, find, grep, ./mvnw; no steroid_* tools, no IDE APIs).
+After each agent run, the harness re-executes FAIL_TO_PASS test classes via Maven and grades from surefire XML
+(Gradle cases currently skip verification), using fields like `verified_ftp_rate` and `tests_tampered` in the run JSON/CSV.
+The `dpaia__service-125x` case runs with a local overlay test patch and is reported separately from the base scenario.
+
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 
 Pattern used by `FindDuplicatesPromptTest` (issue #33; lives in `:test-integration`). Reusable in any
