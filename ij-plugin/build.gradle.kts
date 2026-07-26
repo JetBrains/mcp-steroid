@@ -144,15 +144,6 @@ fun ideRootProviderFor(
 ): Provider<File> =
     providers.provider { ideRootFor(target, product) }
 
-// Consume kotlinc distribution from kotlin-cli subproject
-val kotlincDist by configurations.creating {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "kotlinc-dist"))
-    }
-}
-
 dependencies {
     intellijPlatform {
         when (targetIdeProduct) {
@@ -204,9 +195,6 @@ dependencies {
 
     // Kotlinc utility classes (KotlincArgFile, KotlincCommandLineBuilder)
     implementation(project(":kotlin-cli"))
-
-    // Kotlinc binary distribution for plugin sandbox
-    kotlincDist(project(":kotlin-cli"))
 
     // OCR common models shared with ocr-tesseract CLI
     implementation(project(":ocr-common"))
@@ -386,16 +374,12 @@ tasks {
 val verifyBundledKotlinCompatibility by tasks.registering(VerifyBundledKotlinCompatibilityTask::class) {
     group = "verification"
     description = "Verify bundled kotlinc is close enough to IntelliJ-bundled kotlin-stdlib"
-    dependsOn(kotlincDist)
     dependsOn(tasks.prepareSandbox)
 
     val sourceSets = project.extensions.getByType<SourceSetContainer>()
     mainRuntimeClasspath.from(sourceSets.getByName("main").runtimeClasspath)
     mainRuntimeClasspath.from(configurations.getByName("intellijPlatformDependency"))
-    kotlincHome.set(kotlincDist.elements.map { files ->
-        val dir = files.first().asFile.resolve("kotlinc")
-        layout.projectDirectory.dir(dir.absolutePath)
-    })
+    bundledKotlinVersion.set(libs.versions.kotlin.asProvider())
     kotlinPluginVersion.set(providers.provider {
         plugins.getPlugin(org.jetbrains.kotlin.gradle.plugin.KotlinPluginWrapper::class.java).pluginVersion
     })
@@ -458,14 +442,6 @@ listOf(tasks.prepareSandbox, tasks.prepareTestSandbox, prepareSandbox_integratio
         from(ocrToolDist) {
             into(intellijPlatform.projectName.map { "$it/ocr-tesseract" })
             filesMatching("bin/*") {
-                if (!name.endsWith(".bat")) {
-                    permissions { unix("rwxr-xr-x") }
-                }
-            }
-        }
-        from(kotlincDist) {
-            into(intellijPlatform.projectName)
-            filesMatching("kotlinc/bin/*") {
                 if (!name.endsWith(".bat")) {
                     permissions { unix("rwxr-xr-x") }
                 }
@@ -551,12 +527,6 @@ val verifyBundledLibraries by tasks.registering {
         allFiles = allFiles.map { it.removePrefix(pluginPrefix) }.toSortedSet()
 
         check(allFiles.isNotEmpty()) { "no libraries found in ${allFiles.joinToString { "\n  - $it" }}" }
-
-        val kotlincFiles = allFiles.filter { it.startsWith("kotlinc/") }.toSortedSet()
-        check(kotlincFiles.contains("kotlinc/bin/kotlinc:X")) { "Kotlinc must be included in " + kotlincFiles.joinToString { "\n $it" } }
-        check(kotlincFiles.contains("kotlinc/bin/kotlinc.bat")) { "Kotlinc must be included in " + kotlincFiles.joinToString { "\n $it" } }
-        allFiles = (allFiles - kotlincFiles).toCollection(sortedSetOf())
-
 
         val ocrFiles = allFiles.filter { it.startsWith("ocr-tesseract/") }.toSortedSet()
         check(ocrFiles.contains("ocr-tesseract/bin/ocr-tesseract:X")) { "ocr-tesseract must be included in " + ocrFiles.joinToString { "\n $it" } }
