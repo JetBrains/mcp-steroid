@@ -37,6 +37,25 @@ class DpaiaConfigTest {
     }
 
     @Test
+    fun `the arm timeout covers the slowest curated case end to end`() {
+        val slowestAgentMinutes = DpaiaCuratedCases.CASE_CONFIGS.values
+            .maxOf { it.agentTimeoutSeconds } / 60
+        val slowestProjectReadyMinutes = DpaiaCuratedCases.CASE_CONFIGS.values
+            .maxOf { it.projectReadyTimeoutMs } / 60_000
+        val verificationMinutes = VERIFICATION_MAVEN_TIMEOUT_SECONDS / 60
+
+        val required = slowestAgentMinutes + slowestProjectReadyMinutes + verificationMinutes +
+            ARENA_ARM_TIMEOUT_HEADROOM_MINUTES
+        assertTrue(
+            ARENA_ARM_TIMEOUT_MINUTES >= required,
+            "@Timeout of $ARENA_ARM_TIMEOUT_MINUTES min is below the worst-case arm budget of $required min " +
+                "(agent $slowestAgentMinutes + project-ready $slowestProjectReadyMinutes + " +
+                "verification $verificationMinutes + headroom $ARENA_ARM_TIMEOUT_HEADROOM_MINUTES). " +
+                "Raise ARENA_ARM_TIMEOUT_MINUTES and the TeamCity executionTimeoutMin together.",
+        )
+    }
+
+    @Test
     fun `service-125 overlay resource resolves and adds its class to FAIL_TO_PASS`() {
         val config = DpaiaCuratedCases.CASE_CONFIGS.getValue("dpaia__feature__service-125")
         val resource = config.overlayTestPatch?.let { javaClass.classLoader.getResource(it) }

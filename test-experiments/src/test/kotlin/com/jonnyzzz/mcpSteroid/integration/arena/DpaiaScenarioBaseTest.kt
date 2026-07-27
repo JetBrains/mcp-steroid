@@ -24,6 +24,22 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
+/**
+ * Per-test-method ceiling for a scenario arm.
+ *
+ * One arm pays, in sequence: container start + clone + import + full compile (bounded by
+ * `CaseConfig.projectReadyTimeoutMs`, plus startup that timeout does not cover), the agent run
+ * (`CaseConfig.agentTimeoutSeconds`, up to 90 min for the slowest curated cases), and the
+ * out-of-timer FAIL_TO_PASS verification ([VERIFICATION_MAVEN_TIMEOUT_SECONDS] plus hashing).
+ * The value must exceed the sum of those ceilings, otherwise JUnit kills a run that is still
+ * inside its own budget and the arm is lost after an hour of real API spend.
+ * `DpaiaConfigTest` asserts the arithmetic against the curated cases.
+ */
+const val ARENA_ARM_TIMEOUT_MINUTES = 150L
+
+/** Headroom for what no inner timeout covers: image pull/build, IDE startup, teardown, artifact copy. */
+const val ARENA_ARM_TIMEOUT_HEADROOM_MINUTES = 15L
+
 /** Which MCP transport (if any) the agent gets for this arena run. */
 enum class ArenaMode(val label: String) {
     /** MCP Steroid over direct HTTP. */
@@ -59,29 +75,29 @@ abstract class DpaiaScenarioBaseTest {
     // ── Claude ───────────────────────────────────────────────────────────────
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `claude with mcp`() = runAgent("claude", ArenaMode.MCP_HTTP)
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `claude with devrig`() = runAgent("claude", ArenaMode.DEVRIG)
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `claude without mcp`() = runAgent("claude", ArenaMode.NONE)
 
     // ── Codex ────────────────────────────────────────────────────────────────
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `codex with mcp`() = runAgent("codex", ArenaMode.MCP_HTTP)
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `codex with devrig`() = runAgent("codex", ArenaMode.DEVRIG)
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `codex without mcp`() = runAgent("codex", ArenaMode.NONE)
 
     // ── Test execution ───────────────────────────────────────────────────────
