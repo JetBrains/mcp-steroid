@@ -46,6 +46,12 @@ fun IntelliJContainer.Companion.create(lifetime: CloseableStack, opts: IntelliJC
 
     val containerEnv = buildMap {
         putAll(setupHostMappings.envOverride)
+
+        val clashing = extraEnv.keys.filter { it in keys }
+        require(clashing.isEmpty()) {
+            "IntelliJContainerOpts.extraEnv redefines host-mapping variables: ${clashing.sorted()}"
+        }
+        putAll(extraEnv)
     }
 
     var container: ContainerDriver = startDockerContainerAndDispose(

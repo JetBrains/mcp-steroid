@@ -56,7 +56,8 @@ dependencies {
     // Pure-JVM (no IntelliJ platform) protocol/marker classes (PidMarker, Npx* bridge models,
     // McpSteroidServerInfo, DevrigEndpointInfo) used by DevrigFakeIdeBridgeIntegrationTest to forge a
     // fake IDE marker + the devrig↔IDE bridge wire format. The fake bridge itself uses the JDK's built-in
-    // com.sun.net.httpserver.HttpServer (no ktor dependency needed).
+    // com.sun.net.httpserver.HttpServer (no ktor dependency needed). Also ExecCodeDescriptionVariant, so
+    // the tool-description smoke test selects a variant by the same enum the server resolves it from.
     testImplementation(project(":mcp-steroid-server"))
 }
 
