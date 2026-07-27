@@ -122,10 +122,11 @@
   hint into a rule registry. Deferred until the slimmed `execute-code-tool-description` router is validated
   on TC — the hint text and the article it links must agree, so the routing table has to settle first.
 
-- [ ] **Raise the arena TC timeout for the fourth arm.** Every scenario class now carries a `mcp-slim` arm
-  (`MCP_STEROID_EXEC_CODE_DESCRIPTION=slim`) on top of `mcp` / `devrig` / `none`, so a full scenario run is
-  ~1/3 longer. The arena build's `executionTimeoutMin = 320` lives in the separate TeamCity DSL repo
-  (`~/work/mcp-steroid-teamcity`) and has to grow with it before the four-arm suite runs on CI.
+- [ ] **Keep `ARENA_ARM_TIMEOUT_MINUTES` and the TC arena cap in step.** The TC side now derives
+  `executionTimeoutMin` from each agent's arm count (`DpaiaArenaAgentSpec.arms` × `ARENA_ARM_TIMEOUT_MIN`
+  + overhead, in the separate `~/work/mcp-steroid-teamcity` repo), but that 150 is a hand-mirrored copy of
+  `ARENA_ARM_TIMEOUT_MINUTES` here — the DSL runtime cannot read these sources. Changing either constant,
+  or adding an arm to `DpaiaScenarioBaseTest`, means updating the spec in that repo too.
 - [ ] **Corpus-wide A/B for the slim router.** Only `skill/execute-code-tool-description` exists in two
   variants; the sibling articles it routes to are shared by all four arms. A clean corpus-wide comparison
   would need slim counterparts for the routed articles (~7 files) — measure the tool-definition-only win
