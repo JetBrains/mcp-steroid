@@ -94,6 +94,22 @@ if (vf != null && !vf.isDirectory) {
 }
 ```
 
+### What MCP Steroid Already Refreshes for You
+
+You do **not** need to schedule a VFS refresh around a `steroid_execute_code` call. The plugin
+brackets every execution with two of them:
+
+- **Before** kotlinc compiles your script, it **awaits** a `VfsUtil.markDirtyAndRefresh` on the
+  project root, so the compiler and your script see on-disk changes made by a peer process or by the
+  previous call. Blocking, capped at 30 s.
+- **After** your script returns — from a `finally` block, so this runs on the success **and** failure
+  paths — it fires a non-blocking async refresh. The MCP response comes back immediately; the next
+  semantic query sees the updated state once the `RefreshQueue` thread has caught up.
+
+The one thing this does **not** cover: if the *same* script writes a file and then reads it back
+through PSI, call `PsiDocumentManager.getInstance(project).commitAllDocuments()` inside your script.
+The tail refresh runs only after the script finishes, which is too late for you.
+
 ### Refresh a Specific File
 
 Use this only when you know a file changed outside the IDE:

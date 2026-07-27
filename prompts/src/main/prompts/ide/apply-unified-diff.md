@@ -6,7 +6,7 @@ Apply a unified diff via the IDE's drift-tolerant patch engine (`GenericPatchApp
 
 **Not the major flow.** For ordinary edits — one or a handful of literal substitutions —
 use the read-replace-save shape (`content.replace(OLD, NEW)` + `writeAction { VfsUtil.saveText(...) }`,
-see `mcp-steroid://skill/execute-code-tool-description`, "Multi-site edits"). It is simpler,
+see `mcp-steroid://skill/execute-code-overview`, "Multi-Site Literal Edits"). It is simpler,
 fully predictable, and the anchor-safe recipe (`mcp-steroid://skill/anchor-safe-editing`)
 makes it land on the first attempt.
 
@@ -98,7 +98,7 @@ tests. The engine guarantees a match was found, not that the result is semantica
 
 # See also
 
-- [Execute Code Tool Description](mcp-steroid://skill/execute-code-tool-description) — the primary multi-site edit flow
+- [Execute Code Overview](mcp-steroid://skill/execute-code-overview) — the primary multi-site edit flow
 - [Anchor-Safe Editing](mcp-steroid://skill/anchor-safe-editing) — make literal replacements land on the first attempt
 - [Threading and Read/Write Actions](mcp-steroid://skill/coding-with-intellij-threading)
 - [VFS access](mcp-steroid://skill/coding-with-intellij-vfs)

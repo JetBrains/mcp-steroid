@@ -229,6 +229,7 @@ println(String(appProps.contentsToByteArray(), appProps.charset))
 // IDE utilities:
 waitForSmartMode()                        // Wait for indexing; asserts non-modal (auto under modal=smart_non_modal)
 closeModalDialogs()                       // Close leftover modal dialogs now (returns count; auto under smart_non_modal)
+monitorAndCloseModalDialogs()             // Arm the watcher for the rest of the run (auto under smart_non_modal)
 allowModalDialog()                        // About to open a dialog on purpose — don't let the monitor close/fail it
 syncDocuments()                           // Commit + save documents + refresh VFS (auto under smart_non_modal)
 
@@ -274,6 +275,31 @@ if (buildFile != null) {
 > **A crashing inspection tool no longer aborts the sweep.** `runInspectionsDirectly` returns an additive result: it still behaves exactly like the `Map<inspectionShortName, List<ProblemDescriptor>>` shown above, and additionally exposes `result.failedTools` — the tools that crashed during the sweep, or a sweep-level failure such as passing a non-PSI `VirtualFile` (tool id + error message). Findings from the healthy tools survive a crashing tool, so check `failedTools` before declaring a file clean.
 
 > **Do not `printJson(result)` directly.** `ProblemDescriptor` results carry live PSI/VFS references, not a snapshot; Jackson can recurse deeply or hit read-lock problems. Snapshot the fields you need under `readAction { }`, then print a DTO with `status`, `findings`, and `failedTools` as shown above.
+
+### Modality Control from a Script
+
+The `modal` tool parameter picks a profile; these methods are the primitives it is built from, and
+they are callable from any mode.
+
+| Method | Semantics |
+|---|---|
+| `closeModalDialogs(): Int` | Closes every showing modal dialog, deepest-first, capturing a screenshot + thread dump first. Returns how many were closed. Does **not** fail the call. |
+| `monitorAndCloseModalDialogs()` | Polls (~1 s) for showing modal dialogs for the rest of the run. A modal still showing at a poll tick is closed and the call **fails**, with a screenshot + thread dump captured. It does **not** sweep dialogs already on screen — call `closeModalDialogs()` first for those. No-op if the watcher is already active. |
+| `allowModalDialog()` | **Disables** that watcher for the **rest of the run** — it does not auto-resume. Call it just before opening a dialog on purpose; call `monitorAndCloseModalDialogs()` again to re-arm. |
+| `syncDocuments()` | Commits PSI, saves documents, refreshes the VFS. Asserts non-modal — fails on a modal. |
+| `waitForSmartMode()` | Waits for indexing. Asserts non-modal, and fails if its deadlock-safety timeout is reached. Point-in-time only: index-dependent reads still need `smartReadAction { }`, and after a Gradle/Maven sync you also need `Observation.awaitConfiguration(project)` — this wait is dumb→smart-mode only and does not await external-system configuration. |
+
+There is intentionally **no "close a mid-run dialog and keep going" profile.** `smart_non_modal`
+closes the dialog and fails. If a script must tolerate dialogs appearing while it runs, use
+`modal=unleashed` and call `closeModalDialogs()` yourself — and accept that you get no
+PSI-consistency guarantees.
+
+**Under `smart_non_modal` the call can fail before your script body ever runs.** The pre-flight gate
+(non-modal assertion) or the bounded commit / smart-mode wait hitting its deadlock-safety timeout
+both fail the call ahead of your Kotlin. That is documented behaviour, not a bug in your script.
+Whenever a modality failure happens — gate or monitor — the screenshot and thread dump are written to
+the execution's storage folder and their paths appear in the result text. Read those before retrying;
+`steroid_take_screenshot` captures *current* state, not the failure state.
 
 ### Daemon Analysis & Highlights
 

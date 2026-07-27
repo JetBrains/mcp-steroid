@@ -11,7 +11,7 @@ tried them** — the IDE is there; the tools just need loading first.
 
 This is a **STATEFUL** API — every call changes the IDE state. The IntelliJ IDE is running exclusively for you. Use it aggressively instead of manual file operations or shell commands.
 
-**File edits: always through MCP Steroid, even when Edit looks cheaper on tokens.** The native `Edit` tool writes to disk bypassing IntelliJ. VFS + PSI + search indices go stale, and the next semantic operation (find-references, rename, hierarchy search, inspections) returns inconsistent results until something forces a refresh. The 5-line `VfsUtil.saveText` recipe in `steroid_execute_code`'s tool description reads+writes in one call with auto-refresh; its 1.5–2.5× token overhead is cheaper than the debugging turns you spend when PSI disagrees with disk. This applies to every edit size, including 1–3 line changes.
+**File edits: always through MCP Steroid — and it is cheaper than it looks.** The native `Edit` tool writes to disk bypassing IntelliJ. VFS + PSI + search indices go stale, and the next semantic operation (find-references, rename, hierarchy search, inspections) returns inconsistent results until something forces a refresh. The `VfsUtil.saveText` recipe in `steroid_execute_code`'s tool description reads+writes in one call with auto-refresh. Count the tokens end-to-end, not per call: the script source is 2–5× larger than an `Edit`'s `old_string`/`new_string` pair (~300 bytes vs ~60 for a one-line change), but `Edit` also obliges you to `Read` the whole file first — ~3600 bytes for a 160-line file — while `steroid_execute_code` reads it inside the IDE JVM, where the file bytes never cross the MCP boundary at all. For anything past a few dozen lines the IDE path therefore ships **fewer** tokens, not more, and you still avoid the debugging turns you spend when PSI disagrees with disk. This applies to every edit size, including 1–3 line changes.
 
 **Getting started:**
 1. Call `steroid_list_projects` to see what's open — route every project-scoped call by the `project_name` it returns (the unique, opaque key), never by the human-readable `name`; to map a file/dir path to a project, pick the one whose `path` is the longest prefix of your target path
@@ -24,8 +24,8 @@ for indexing — all before your script — then closes any modal dialog that ap
 the call with diagnostics. This is the safe choice for any PSI / editing / build / test work. `non_modal`
 only asserts a non-modal start; `unleashed` does no sweep/checks at all (intentional modal-dialog workflows
 or trivial non-PSI actions only). Finer control (`closeModalDialogs()`, `monitorAndCloseModalDialogs()`,
-`allowModalDialog()`, `syncDocuments()`, `waitForSmartMode()`) lives in the script-context methods. See
-`mcp-steroid://skill/execute-code-tool-description`.
+`allowModalDialog()`, `syncDocuments()`, `waitForSmartMode()`) lives in the script-context methods — see
+`mcp-steroid://skill/coding-with-intellij-context-api` for what each one does and how it reports failure.
 
 **Design philosophy in one breath.** The MCP tool surface is small **on purpose** — power lives in `mcp-steroid://` recipes that teach you to call IntelliJ's APIs directly inside `steroid_execute_code`. `McpScriptContext` stays narrow. Don't expect new `steroid_*` tools or new context methods; expect richer recipes. Fetch `mcp-steroid://skill/design-philosophy` once if you're new here.
 

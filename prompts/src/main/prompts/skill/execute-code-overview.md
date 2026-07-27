@@ -59,7 +59,38 @@ single `steroid_execute_code` call — not a chain of native `Edit` calls. Read 
 `content.replace(OLD, NEW)`, pre-check every match, then save all files inside one
 `writeAction { }`. VFS + PSI stay consistent, and the plugin refreshes VFS after the script
 returns. The anchor-safe recipe (`mcp-steroid://skill/anchor-safe-editing`) shows the full
-locate → excerpt → check → apply → verify flow.
+locate → excerpt → check → apply → verify flow for a single file.
+
+Group the edits by path so several edits to the same file fold in order, and validate every anchor
+**before** the first write lands:
+
+```kotlin
+val edits = listOf(
+    Triple("/abs/path/A.java", "oldA", "newA"),
+    Triple("/abs/path/A.java", "oldA2", "newA2"),  // same-file edits are folded, in order
+    Triple("/abs/path/B.java", "oldB", "newB"),
+)
+val resolved = edits.groupBy { it.first }.map { (path, fileEdits) ->
+    val vf = findProjectFile(path) ?: error("not found: $path")
+    var content = String(vf.contentsToByteArray(), vf.charset)
+    for ((_, old, new) in fileEdits) {   // each edit sees the previous one's result
+        val occurrences = content.split(old).size - 1
+        check(occurrences == 1) { "$path: anchor occurs $occurrences times — expand it with surrounding context" }
+        content = content.replace(old, new)
+    }
+    vf to content
+}
+writeAction { resolved.forEach { (vf, updated) -> VfsUtil.saveText(vf, updated) } }
+println("edited: " + resolved.joinToString { it.first.path })
+```
+
+The pre-check loop validates every match before any write lands, so a bad anchor fails the call
+instead of leaving files half-edited. `VfsUtil.saveText` keeps VFS + PSI consistent; a chain of
+native `Edit` calls costs one tool call per site and leaves the VFS stale.
+
+For a COMPLEX change only — an existing unified diff, or drifted files where literal anchors keep
+failing — use the IDE's tolerance-matching patch engine: `mcp-steroid://ide/apply-unified-diff`.
+This recipe stays primary.
 
 ---
 
@@ -92,6 +123,27 @@ locate → excerpt → check → apply → verify flow.
 1. pom.xml was just modified in this session, AND
 2. Maven sync was already triggered (`scheduleUpdateAllMavenProjects` + `awaitConfiguration`), AND
 3. `MavenRunConfigurationType.runConfiguration()` with `modal=smart_non_modal` (the default) has already timed out (>2 min)
+
+---
+
+## ❌ BANNED: Reaching Project Files Behind the VFS
+
+`java.io` and `java.nio` are not banned as such — the docker-socket check above is a legitimate use,
+and so is any probe of a path the IDE does not model. What is banned is touching **project files**
+through them from inside `steroid_execute_code`. Those calls bypass IntelliJ's VFS, so every
+following semantic query (PSI, indexes, inspections, find-usages) keeps seeing stale content until
+something forces a refresh.
+
+| Banned for project files | Use instead |
+|---|---|
+| `java.io.File(path).walk()` / `listFiles()` / `exists()` | `FilenameIndex.getAllFilesByExt(...)` / `getVirtualFilesByName(...)` inside `readAction { }`, or `LocalFileSystem.getInstance().findFileByPath(path)` + `vf.children` inside `readAction { }` |
+| `java.nio.file.Files.*`, `Files.walk(...)`, `Path.toFile()` | same as above |
+| `FileReader` / `BufferedReader.readText()` | `String(vf.contentsToByteArray(), vf.charset)` — keeps the VFS the source of truth |
+| `ProcessBuilder(...).start()` / `Runtime.exec(...)` | never inside `steroid_execute_code` — see the ProcessBuilder ban above |
+
+The test is whether the path is part of the project model. `/var/run/docker.sock` is not, so
+`java.io.File("/var/run/docker.sock").exists()` stays correct. `src/main/java/...` is, so it must go
+through the VFS.
 
 ---
 
