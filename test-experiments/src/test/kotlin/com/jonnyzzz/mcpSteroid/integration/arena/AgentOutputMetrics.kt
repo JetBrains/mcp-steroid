@@ -295,9 +295,38 @@ private const val CSV_HEADER = "timestamp,instance_id,pass_label,mode,agent_clai
         "verified_ftp_passed,verified_ftp_total,verified_ftp_rate,tests_tampered"
 
 /**
+ * Move [csvFile] aside when its first line no longer matches the current [CSV_HEADER].
+ *
+ * The column set grows whenever a new metric lands (the `mode` column, the `verified_ftp_*` block).
+ * The comparison CSV outlives those changes — it accumulates across arena runs — so appending
+ * new-shaped rows under an old header silently misaligns every column, and nothing notices until
+ * someone charts the numbers. Rotating keeps the old rows readable under their own header and lets
+ * the live file start clean.
+ *
+ * Returns the file the old content was moved to, or null when nothing needed rotating.
+ */
+fun rotateComparisonCsvOnHeaderDrift(csvFile: java.io.File): java.io.File? {
+    if (!csvFile.isFile) return null
+    val header = csvFile.useLines { it.firstOrNull() } ?: return null
+    if (header == CSV_HEADER) return null
+
+    val prefix = "${csvFile.nameWithoutExtension}-legacy-${csvFile.lastModified()}"
+    var target = java.io.File(csvFile.parentFile, "$prefix.csv")
+    var suffix = 1
+    while (target.exists()) {
+        target = java.io.File(csvFile.parentFile, "$prefix-$suffix.csv")
+        suffix++
+    }
+    check(csvFile.renameTo(target)) { "Failed to rotate ${csvFile.absolutePath} to ${target.absolutePath}" }
+    System.err.println("[ARENA] ${csvFile.name} header changed; previous rows moved to ${target.name}")
+    return target
+}
+
+/**
  * Append a row to the arena comparison CSV file.
  *
- * Creates the file with a header if it doesn't exist yet. Thread-safe via synchronized write.
+ * Creates the file with a header if it doesn't exist yet, and rotates a file whose header predates
+ * the current column set (see [rotateComparisonCsvOnHeaderDrift]). Thread-safe via synchronized write.
  *
  * @param csvFile the target CSV file (e.g. `testOutputDir/arena-comparison.csv`)
  * @param instanceId the DPAIA scenario instance ID
@@ -325,7 +354,8 @@ fun appendComparisonCsv(
     verification: ArenaVerificationResult? = null,
 ) {
     csvFile.parentFile?.mkdirs()
-    if (!csvFile.exists()) {
+    rotateComparisonCsvOnHeaderDrift(csvFile)
+    if (!csvFile.exists() || csvFile.length() == 0L) {
         csvFile.writeText(CSV_HEADER + "\n")
     }
     val row = listOf(
