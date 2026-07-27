@@ -55,6 +55,12 @@ class PerIdeAvailabilityContractTest {
             // Genuinely plugin-bound: the Maven integration plugin (org.jetbrains.idea.maven)
             // is bundled only in IDEA among the supported product codes; every fence needs it.
             "skill/execute-code-maven" to "Maven plugin is bundled only in IDEA",
+            // Same plugin binding as execute-code-gradle: the recipe's only fence builds a
+            // GradleRunConfiguration (org.jetbrains.plugins.gradle.service.execution), so it resolves
+            // only in the IntelliJ-IDEA family (the fence is gated [AI,IC,IU]). Advertised from
+            // prompt/test-skill, which is why it is in the audited corpus.
+            "test/run-test-class-structured" to
+                "GradleRunConfiguration/GradleExternalTaskConfigurationType — IDEA-family (IU/IC/AI)",
             // The entries below entered the corpus when the `mcp-steroid://ide/<id>` shorthand
             // list in prompt/skill became part of the audit (#98). Every fence in each of them
             // drives a Java-plugin refactoring processor (com.intellij.refactoring.* java-impl
