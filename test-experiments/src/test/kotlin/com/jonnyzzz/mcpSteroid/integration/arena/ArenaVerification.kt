@@ -6,6 +6,13 @@ import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import javax.xml.parsers.DocumentBuilderFactory
 
+/**
+ * Wall-clock ceiling for the verification Maven run. It re-runs only the FAIL_TO_PASS classes, but on a
+ * cold container that still means resolving the reactor's dependencies, so it is sized like a full build.
+ * Part of the per-test budget asserted by `DpaiaConfigTest`.
+ */
+const val VERIFICATION_MAVEN_TIMEOUT_SECONDS = 1_200L
+
 data class SurefireClassResult(
     val className: String,
     val testsRun: Int,
@@ -74,6 +81,32 @@ fun requireSafeFqcns(fqcns: Collection<String>) {
 }
 
 /**
+ * Shell snippet printing the surefire report for [fqcn], wherever in the reactor it landed.
+ *
+ * Surefire writes into the *owning module's* `target/surefire-reports`, so a multi-module arena
+ * project (train-ticket, microshop, petclinic-microservices, piggymetrics, jhipster) has no report
+ * under [projectDir] itself — reading only the root would grade every class as "never ran".
+ * Search the whole tree and take the most recently written match, so a class name that exists in
+ * two modules resolves to the run we just triggered.
+ */
+fun surefireReportLookupScript(projectDir: String, fqcn: String): String =
+    """
+    report=""
+    while IFS= read -r f; do
+      if [ -z "${'$'}report" ] || [ "${'$'}f" -nt "${'$'}report" ]; then report="${'$'}f"; fi
+    done < <(find '$projectDir' -type f -path '*/target/surefire-reports/TEST-$fqcn.xml' 2>/dev/null)
+    if [ -n "${'$'}report" ]; then cat "${'$'}report"; fi
+    """.trimIndent()
+
+/**
+ * Shell snippet removing every module's surefire reports under [projectDir]. Cleaning only the root
+ * module would leave a multi-module reactor's stale pre-agent reports in place, and
+ * [surefireReportLookupScript] would then grade them as if the verification run had produced them.
+ */
+fun surefireCleanScript(projectDir: String): String =
+    "find '$projectDir' -type d -path '*/target/surefire-reports' -prune -exec rm -rf {} +"
+
+/**
  * Runs the harness-side, objective FAIL_TO_PASS verification for one arena run: hashes the test-patch
  * files before the agent runs, then re-runs all FAIL_TO_PASS classes in one Maven invocation afterward
  * and grades them from the surefire XML — independent of whatever the agent claimed in its transcript.
@@ -82,6 +115,10 @@ class ArenaVerifier(
     private val container: ContainerDriver,
     private val projectDir: String,
 ) {
+    init {
+        requireSafeShellPaths(listOf(projectDir))
+    }
+
     private fun bash(script: String, timeoutSeconds: Long, description: String): ProcessResult =
         container.startProcessInContainer {
             this.args("bash", "-lc", script).timeoutSeconds(timeoutSeconds).description(description)
@@ -133,27 +170,35 @@ class ArenaVerifier(
         ).stdout.trim()
         check(javaHome.isNotBlank()) { "No temurin-$projectJdkVersion JDK in the arena container" }
 
-        bash("rm -rf '$projectDir/target/surefire-reports'", 30, "Clean stale surefire reports")
+        bash(surefireCleanScript(projectDir), 60, "Clean stale surefire reports")
         val mvn = bash(
             // pipefail: without it the logged exit code is tail's (always 0), not Maven's.
             "set -o pipefail && cd '$projectDir' && JAVA_HOME='$javaHome' ./mvnw test " +
                 "-Dtest='$testFilter' -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true " +
                 "2>&1 | tail -100",
-            timeoutSeconds = 1_200,
+            timeoutSeconds = VERIFICATION_MAVEN_TIMEOUT_SECONDS,
             description = "Arena verification: run FAIL_TO_PASS classes",
         )
         println("[ARENA-VERIFY] Maven exit=${mvn.exitCode}; tail:\n${mvn.stdout}")
 
         val perClass = failToPass.map { fqcn ->
+            val notRun = SurefireClassResult(className = fqcn, testsRun = 0, failures = 0, errors = 0, skipped = 0)
             val xml = bash(
-                "cat '$projectDir/target/surefire-reports/TEST-$fqcn.xml' 2>/dev/null",
-                timeoutSeconds = 30,
+                surefireReportLookupScript(projectDir, fqcn),
+                timeoutSeconds = 60,
                 description = "Read surefire report for $fqcn",
             ).stdout
             if (xml.isBlank()) {
-                SurefireClassResult(className = fqcn, testsRun = 0, failures = 0, errors = 0, skipped = 0)
+                notRun
             } else {
-                parseSurefireXml(xml)
+                // A truncated or malformed report must not abort grading of the remaining classes;
+                // it grades as "did not run", which is what an unreadable report means.
+                try {
+                    parseSurefireXml(xml)
+                } catch (e: Exception) {
+                    System.err.println("[ARENA-VERIFY] Unreadable surefire report for $fqcn: $e")
+                    notRun
+                }
             }
         }
 

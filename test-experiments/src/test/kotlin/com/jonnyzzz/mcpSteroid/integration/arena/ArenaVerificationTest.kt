@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 class ArenaVerificationTest {
 
@@ -119,5 +122,75 @@ class ArenaVerificationTest {
         assertThrows(IllegalArgumentException::class.java) {
             requireSafeFqcns(listOf("com.example.FooTest;rm -rf /"))
         }
+    }
+
+    @TempDir
+    lateinit var tempDir: File
+
+    private fun bash(script: String): String {
+        val out = File.createTempFile("bash-out", ".txt")
+        val err = File.createTempFile("bash-err", ".txt")
+        try {
+            val process = ProcessBuilder("bash", "-c", script)
+                .redirectOutput(out).redirectError(err).start()
+            assertTrue(process.waitFor(60, TimeUnit.SECONDS), "bash script timed out: $script")
+            assertEquals(0, process.exitValue(), "bash script failed: ${err.readText()}")
+            return out.readText()
+        } finally {
+            out.delete()
+            err.delete()
+        }
+    }
+
+    private fun writeReport(module: String, fqcn: String, tests: Int): File {
+        val file = File(tempDir, "$module/target/surefire-reports/TEST-$fqcn.xml")
+        file.parentFile.mkdirs()
+        file.writeText("""<testsuite name="$fqcn" tests="$tests" errors="0" skipped="0" failures="0"/>""")
+        return file
+    }
+
+    @Test
+    fun `report lookup finds a report in a nested reactor module`() {
+        val fqcn = "com.example.FooTest"
+        writeReport("services/order-service", fqcn, tests = 4)
+
+        val xml = bash(surefireReportLookupScript(tempDir.absolutePath, fqcn))
+
+        assertEquals(4, parseSurefireXml(xml).testsRun)
+    }
+
+    @Test
+    fun `report lookup prints nothing when no module produced a report`() {
+        writeReport("services/order-service", "com.example.OtherTest", tests = 1)
+
+        assertEquals("", bash(surefireReportLookupScript(tempDir.absolutePath, "com.example.FooTest")).trim())
+    }
+
+    @Test
+    fun `report lookup prefers the most recently written module report`() {
+        val fqcn = "com.example.FooTest"
+        val old = writeReport("services/a", fqcn, tests = 1)
+        val fresh = writeReport("services/b", fqcn, tests = 2)
+        old.setLastModified(fresh.lastModified() - 60_000)
+
+        assertEquals(2, parseSurefireXml(bash(surefireReportLookupScript(tempDir.absolutePath, fqcn))).testsRun)
+    }
+
+    @Test
+    fun `clean removes every module's surefire reports and nothing else`() {
+        val a = writeReport("services/a", "com.example.FooTest", tests = 1)
+        val b = writeReport("services/b", "com.example.BarTest", tests = 1)
+        val root = writeReport(".", "com.example.RootTest", tests = 1)
+        val classFile = File(tempDir, "services/a/target/classes/Foo.class").apply {
+            parentFile.mkdirs()
+            writeText("keep me")
+        }
+
+        bash(surefireCleanScript(tempDir.absolutePath))
+
+        assertFalse(a.exists())
+        assertFalse(b.exists())
+        assertFalse(root.exists())
+        assertTrue(classFile.exists(), "Clean must only remove surefire-reports directories")
     }
 }
