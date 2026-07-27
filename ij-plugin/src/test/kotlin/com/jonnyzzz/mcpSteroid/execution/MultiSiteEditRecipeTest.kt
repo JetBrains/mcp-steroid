@@ -19,7 +19,7 @@ import kotlin.time.Duration.Companion.seconds
  * DSL (#206): read a file's content, `content.replace(OLD, NEW)`, pre-check
  * every match, then save all files inside a single `writeAction { }` via
  * `VfsUtil.saveText`. This is exactly what the prompt corpus now teaches
- * (execute-code-tool-description "Multi-site edits", anchor-safe-editing
+ * (execute-code-overview "Multi-Site Literal Edits", anchor-safe-editing
  * Step 4) — these tests keep the taught instructions true.
  *
  * Inherits the behavioral checklist that mattered from the deleted
@@ -83,7 +83,7 @@ class MultiSiteEditRecipeTest : BasePlatformTestCase() {
         val b = createProjectFile("recipe/multi/B.java", "class B { void oldB() {} }")
         val c = createProjectFile("recipe/multi/C.java", "class C { void oldC() {} }")
 
-        // The execute-code-tool-description "Multi-site edits" recipe, verbatim shape:
+        // The execute-code-overview "Multi-Site Literal Edits" recipe, verbatim shape:
         val edits = listOf(
             Triple(a.path, "oldA", "newA"),
             Triple(b.path, "oldB", "newB"),

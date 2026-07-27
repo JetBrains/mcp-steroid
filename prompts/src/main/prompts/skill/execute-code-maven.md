@@ -164,6 +164,34 @@ MavenProjectsManager.getInstance(project).scheduleUpdateMavenProjects(
 
 ---
 
+## IDE Compile Check and the `aborted=true` Trap
+
+Verify the project compiles through the IDE's build runner instead of a nested `./mvnw` process:
+
+```kotlin[IU]
+import com.intellij.task.ProjectTaskManager
+import org.jetbrains.concurrency.await
+
+val result = ProjectTaskManager.getInstance(project).buildAllModules().await()
+println("COMPILE_ERRORS: ${result.hasErrors()}")
+println("COMPILE_ABORTED: ${result.isAborted()}")
+```
+
+Read the two flags as a pair — they do not mean the same thing:
+
+| `hasErrors()` | `isAborted()` | Meaning | Next step |
+|---|---|---|---|
+| `false` | `false` | Clean build | Continue |
+| `true` | `false` | Real compilation errors | Fetch `mcp-steroid://ide/jps-build-errors` for per-file diagnostics |
+| `false` | `true` | **The build runner never started** — this is NOT a clean build | Run the `Sync after pom.xml Change` recipe above (`scheduleUpdateAllMavenProjects` + `Observation.awaitConfiguration`), then retry the check |
+| `true` | `true` | Aborted after some errors surfaced | Treat as aborted: sync first, then retry |
+
+`errors=false, aborted=true` is the trap — it reads like success and is not. In a Maven project it
+almost always means the project model is stale or dependencies are unresolved, and the sync recipe
+above is the fix. Use Bash `./mvnw` only if the sync itself fails or times out.
+
+---
+
 ## JAVA_HOME / Multi-JDK Selection
 
 ### JDK Selection Algorithm (do this BEFORE your first Maven/Gradle command)

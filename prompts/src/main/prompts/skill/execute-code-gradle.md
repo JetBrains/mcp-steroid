@@ -60,6 +60,32 @@ Key points:
 - Use the two-argument `ExternalSystemUtil.refreshProject(path, importSpec)` form; older overloads are deprecated.
 - If sync fails, fix the Gradle/JDK/import problem. Do not continue with unresolved dependencies.
 
+## IDE Compile Check and the `aborted=true` Trap
+
+Verify the project compiles through the IDE's build runner instead of a nested `./gradlew` process:
+
+```kotlin[IU]
+import com.intellij.task.ProjectTaskManager
+import org.jetbrains.concurrency.await
+
+val result = ProjectTaskManager.getInstance(project).buildAllModules().await()
+println("COMPILE_ERRORS: ${result.hasErrors()}")
+println("COMPILE_ABORTED: ${result.isAborted()}")
+```
+
+Read the two flags as a pair — they do not mean the same thing:
+
+| `hasErrors()` | `isAborted()` | Meaning | Next step |
+|---|---|---|---|
+| `false` | `false` | Clean build | Continue |
+| `true` | `false` | Real compilation errors | Fetch `mcp-steroid://ide/jps-build-errors` for per-file diagnostics |
+| `false` | `true` | **The build runner never started** — this is NOT a clean build | Run the `Sync after build.gradle.kts Change` recipe above, await `onFinalTasksFinished`, then retry the check |
+| `true` | `true` | Aborted after some errors surfaced | Treat as aborted: sync first, then retry |
+
+`errors=false, aborted=true` is the trap — it reads like success and is not. In a Gradle project it
+almost always means the external-system model is stale, and the sync recipe above is the fix. Use
+Bash `./gradlew` only if the sync itself fails or times out.
+
 ## Agent: Run Gradle Tests (two-call pattern, polling)
 
 The preferred Gradle test runner from `steroid_execute_code`. Uses `GradleRunConfiguration.isRunAsTest = true` so per-test results land in IntelliJ's standard SM test-runner data model. **Read that model by polling**, not by subscribing to events — the polling shape is much shorter and survives retries cleanly.
