@@ -276,6 +276,39 @@ class McpSteroidDriver(
     }
 
     /**
+     * The description the server advertises for [toolName] over `tools/list` — the exact text an agent's
+     * CLI receives. Tests that vary a tool description per container (the arena's execute-code variants)
+     * assert on this rather than on what the harness *asked* for, so a switch that never reached the IDE
+     * fails the run instead of mislabelling it.
+     */
+    fun mcpToolDescription(toolName: String): String {
+        val sessionId = mcpInitialize()
+
+        val request = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", 2)
+            put("method", "tools/list")
+            putJsonObject("params") { }
+        }.toString()
+
+        val response = executeMcpRequest(sessionId, request)
+
+        return try {
+            val tools = parseMcpResponseOrFail(response).jsonObject["result"]?.jsonObject?.get("tools")?.jsonArray
+                ?: throw McpRequestFailedError("tools/list returned no tools payload: $response")
+            val tool = tools.firstOrNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull == toolName }
+                ?: throw McpRequestFailedError(
+                    "tools/list has no '$toolName'; served: " +
+                        tools.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+                )
+            tool.jsonObject["description"]?.jsonPrimitive?.contentOrNull
+                ?: throw McpRequestFailedError("tools/list entry for '$toolName' has no description: $tool")
+        } catch (e: IllegalArgumentException) {
+            throw McpRequestFailedError("tools/list malformed payload: ${e.message}")
+        }
+    }
+
+    /**
      * Find the project name for the guest project directory.
      */
     fun resolveProjectName(): String {

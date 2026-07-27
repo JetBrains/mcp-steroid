@@ -58,6 +58,17 @@ data class IntelliJContainerOpts(
     val preloadJdkTable: Boolean = true,
 
     /**
+     * Extra environment variables for the container, on top of the ones the host mappings need.
+     *
+     * The IDE, the plugin's MCP server and every agent CLI in the container inherit them, so this is the
+     * per-container switch for behaviour a single deployed plugin ZIP can vary — e.g.
+     * `MCP_STEROID_EXEC_CODE_DESCRIPTION`, which picks the `steroid_execute_code` tool description an
+     * arena arm is measured against. A key already claimed by the host mappings is rejected: silently
+     * winning or losing that race would make the run's configuration a guess.
+     */
+    val extraEnv: Map<String, String> = emptyMap(),
+
+    /**
      * Hooks invoked just BEFORE the IDE process is launched (after all built-in startup
      * config files are written, including the pre-generated `jdk.table.xml`, and the project
      * files are deployed). Use these to adjust the IDE config dir / project files while no IDE is
