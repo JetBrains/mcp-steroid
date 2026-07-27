@@ -20,6 +20,32 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
+data class AnthropicCredential(val value: String, val containerEnvVar: String)
+
+/**
+ * Choose the Anthropic credential and the container env var to forward it as, from resolved env values.
+ * Precedence keeps a raw API key first (unchanged CI behavior); an OAuth bearer token is used only when
+ * no API key is present and is forwarded as ANTHROPIC_AUTH_TOKEN (Authorization: Bearer), never as
+ * ANTHROPIC_API_KEY (which would be sent as x-api-key and rejected). The ~/.anthropic file is treated as
+ * a raw API key.
+ */
+fun selectAnthropicCredential(
+    evalApiKey: String?,
+    anthropicApiKey: String?,
+    anthropicAuthToken: String?,
+    anthropicFileContent: String?,
+): AnthropicCredential? {
+    evalApiKey?.takeIf { it.isNotBlank() }
+        ?.let { return AnthropicCredential(it, "ANTHROPIC_API_KEY") }
+    anthropicApiKey?.takeIf { it.isNotBlank() }
+        ?.let { return AnthropicCredential(it, "ANTHROPIC_API_KEY") }
+    anthropicAuthToken?.takeIf { it.isNotBlank() }
+        ?.let { return AnthropicCredential(it, "ANTHROPIC_AUTH_TOKEN") }
+    anthropicFileContent?.takeIf { it.isNotBlank() }
+        ?.let { return AnthropicCredential(it, "ANTHROPIC_API_KEY") }
+    return null
+}
+
 /**
  * Manages a Claude CLI session running inside a Docker container.
  * This provides complete isolation from the local system, preventing
@@ -30,6 +56,7 @@ class DockerClaudeSession(
     private val apiKey: String,
     private val debug: Boolean = false,
     val model: String = DEFAULT_MODEL,
+    private val credentialEnvVar: String = "ANTHROPIC_API_KEY",
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
     private var mcpConfigJson: String? = null
@@ -82,7 +109,7 @@ class DockerClaudeSession(
             addAll(args)
         }
         val env = buildMap {
-            put("ANTHROPIC_API_KEY", apiKey)
+            put(credentialEnvVar, apiKey)
             // Route through a host-side Anthropic-compatible gateway when one is configured (no-op on CI).
             resolveContainerAgentBaseUrl("ANTHROPIC_BASE_URL")?.let { put("ANTHROPIC_BASE_URL", it) }
             if (debug) {
@@ -160,21 +187,26 @@ class DockerClaudeSession(
         override val displayName = "Claude Code"
         override val outputFilter get() = ClaudeOutputFilter()
 
-        override val apiKeyHint = "set env ANTHROPIC_API_KEY, CLAUDE_EVAL_API_KEY, or ~/.anthropic"
+        override val apiKeyHint =
+            "set env ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_EVAL_API_KEY, or ~/.anthropic"
 
-        override fun readApiKey(): String? {
-            (System.getenv("CLAUDE_EVAL_API_KEY") ?: System.getenv("ANTHROPIC_API_KEY"))?.takeIf { it.isNotBlank() }?.let { return it }
-            val keyFile = File(System.getProperty("user.home"), ".anthropic")
-            if (keyFile.exists()) {
-                val content = keyFile.readText().trim()
-                if (content.isNotBlank()) return content
-            }
-            return null
+        fun resolveCredential(): AnthropicCredential? {
+            val fileContent = File(System.getProperty("user.home"), ".anthropic")
+                .takeIf { it.exists() }?.readText()?.trim()
+            return selectAnthropicCredential(
+                evalApiKey = System.getenv("CLAUDE_EVAL_API_KEY"),
+                anthropicApiKey = System.getenv("ANTHROPIC_API_KEY"),
+                anthropicAuthToken = System.getenv("ANTHROPIC_AUTH_TOKEN"),
+                anthropicFileContent = fileContent,
+            )
         }
+
+        override fun readApiKey(): String? = resolveCredential()?.value
 
         override fun createImpl(session: ContainerDriver, apiKey: String): DockerClaudeSession {
             val model = System.getProperty("claude.model", DEFAULT_MODEL)
-            return DockerClaudeSession(session, apiKey, model = model)
+            val envVar = resolveCredential()?.containerEnvVar ?: "ANTHROPIC_API_KEY"
+            return DockerClaudeSession(session, apiKey, model = model, credentialEnvVar = envVar)
         }
     }
 }
