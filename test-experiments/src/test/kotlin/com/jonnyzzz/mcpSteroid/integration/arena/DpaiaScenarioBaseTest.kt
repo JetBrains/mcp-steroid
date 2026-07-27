@@ -10,6 +10,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
+import com.jonnyzzz.mcpSteroid.server.ExecCodeDescriptionVariant
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import kotlinx.serialization.json.addJsonObject
@@ -40,22 +41,31 @@ const val ARENA_ARM_TIMEOUT_MINUTES = 150L
 /** Headroom for what no inner timeout covers: image pull/build, IDE startup, teardown, artifact copy. */
 const val ARENA_ARM_TIMEOUT_HEADROOM_MINUTES = 15L
 
-/** Which MCP transport (if any) the agent gets for this arena run. */
-enum class ArenaMode(val label: String) {
+/**
+ * Which MCP transport (if any) the agent gets for this arena run, and which `steroid_execute_code`
+ * tool description the container serves it.
+ *
+ * [execDescription] defaults to the repo default so every historical arm keeps being measured against
+ * the same text it always was; [MCP_HTTP_SLIM] is the same MCP arm reading the router variant, which
+ * is what makes the two descriptions comparable within one run of a scenario.
+ */
+enum class ArenaMode(val label: String, val execDescription: ExecCodeDescriptionVariant) {
     /** MCP Steroid over direct HTTP. */
-    MCP_HTTP("mcp"),
+    MCP_HTTP("mcp", ExecCodeDescriptionVariant.FULL),
+    /** MCP Steroid over direct HTTP, served the slim router tool description. */
+    MCP_HTTP_SLIM("mcp-slim", ExecCodeDescriptionVariant.SLIM),
     /** MCP Steroid over the devrig stdio bridge. */
-    DEVRIG("devrig"),
+    DEVRIG("devrig", ExecCodeDescriptionVariant.FULL),
     /** No MCP registered — shell-only baseline. */
-    NONE("none"),
+    NONE("none", ExecCodeDescriptionVariant.FULL),
 }
 
 /**
  * Abstract base class for dedicated DPAIA scenario tests — **Claude Code and Codex**.
  *
  * Each subclass overrides [instanceId] to select a specific dpaia arena scenario.
- * Six test methods are inherited: "claude with mcp", "claude with devrig", "claude without mcp",
- * "codex with mcp", "codex with devrig", and "codex without mcp".
+ * Seven test methods are inherited: "claude with mcp", "claude with mcp slim", "claude with devrig",
+ * "claude without mcp", "codex with mcp", "codex with devrig", and "codex without mcp".
  *
  * Each test method launches a **fresh Docker container** with IntelliJ IDEA.
  * Before the agent timer starts, the test runs a full prewarm:
@@ -77,6 +87,10 @@ abstract class DpaiaScenarioBaseTest {
     @Test
     @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `claude with mcp`() = runAgent("claude", ArenaMode.MCP_HTTP)
+
+    @Test
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
+    fun `claude with mcp slim`() = runAgent("claude", ArenaMode.MCP_HTTP_SLIM)
 
     @Test
     @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
@@ -129,7 +143,7 @@ abstract class DpaiaScenarioBaseTest {
         val lifetime = CloseableStackHost()
         try {
             val aiMode = when (mode) {
-                ArenaMode.MCP_HTTP -> AiMode.AI_MCP
+                ArenaMode.MCP_HTTP, ArenaMode.MCP_HTTP_SLIM -> AiMode.AI_MCP
                 ArenaMode.DEVRIG -> AiMode.AI_DEVRIG
                 ArenaMode.NONE -> AiMode.NONE
             }
@@ -156,6 +170,10 @@ abstract class DpaiaScenarioBaseTest {
                 aiMode = aiMode,
                 mcpConnectionMode = mcpMode,
                 mountDockerSocket = true,
+                // Set for every arm, including the ones taking the default: an arm's tool-description
+                // variant is part of what the run measures, so it belongs in the container config
+                // explicitly rather than being inferred from an absent variable.
+                extraEnv = mapOf(ExecCodeDescriptionVariant.ENV_VAR to mode.execDescription.wire),
             )).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
                 projectJdkVersion = caseConfig.projectJdkVersion,
@@ -173,6 +191,20 @@ abstract class DpaiaScenarioBaseTest {
                 "[ARENA] No IDE project open at the arena deploy path $ideProjectDir before the agent run " +
                     "(open: ${openProjects.joinToString { "${it.name}@${it.path}" }}). Deploy/open regression (#251)."
             }
+
+            // The arm is only comparable if the container really serves the description the arm stands
+            // for — assert on the served text, before any API spend, so a broken env plumbing fails the
+            // run instead of producing a mislabelled data point.
+            val servedExecDescription = session.mcpSteroid.mcpToolDescription("steroid_execute_code")
+            val expectedVariant = mode.execDescription
+            check(servedExecDescription.contains(expectedVariant.marker)) {
+                "[ARENA] Arm '$modeLabel' expects the ${expectedVariant.wire} steroid_execute_code " +
+                    "description (${ExecCodeDescriptionVariant.ENV_VAR}=${expectedVariant.wire}), but the " +
+                    "served text does not carry its marker '${expectedVariant.marker}' " +
+                    "(${servedExecDescription.length} chars)."
+            }
+            println("[ARENA] steroid_execute_code description: ${expectedVariant.wire}, " +
+                "${servedExecDescription.length} chars")
 
             // Snapshot the test-patch files BEFORE the agent runs, so [ArenaVerifier.verify] can
             // detect tampering afterward. Excluded from the agent's timed budget. An infra hiccup here
@@ -252,6 +284,7 @@ abstract class DpaiaScenarioBaseTest {
                 testMetrics = testMetrics,
                 decodedLogMetrics = decodedLogMetrics,
                 verification = verification,
+                execDescriptionChars = servedExecDescription.length,
             )
             results.add(record)
 
@@ -264,6 +297,7 @@ abstract class DpaiaScenarioBaseTest {
             println("[ARENA]   Claimed fix:    ${record.claimedFix}")
             println("[ARENA]   Used MCP:       ${record.usedMcpSteroid}")
             println("[ARENA]   Exit code:      ${record.exitCode}")
+            println("[ARENA]   exec_code desc: ${mode.execDescription.wire} (${record.execDescriptionChars} chars)")
             println("[ARENA]   Agent time:     ${record.agentDurationMs / 1000}s")
             println("[ARENA]   Prewarm time:   ${record.prewarmMs / 1000}s")
             if (tokens != null) {
@@ -373,6 +407,8 @@ abstract class DpaiaScenarioBaseTest {
             put("used_mcp_steroid", record.usedMcpSteroid)
             put("agent_duration_ms", record.agentDurationMs)
             put("prewarm_ms", record.prewarmMs)
+            put("exec_description_variant", record.mode.execDescription.wire)
+            put("exec_description_chars", record.execDescriptionChars)
             record.tokenUsage?.let { t ->
                 put("input_tokens", t.inputTokens)
                 put("output_tokens", t.outputTokens)
@@ -430,6 +466,8 @@ abstract class DpaiaScenarioBaseTest {
             instanceId = reportInstanceId,
             passLabel = passLabel,
             mode = modeLabel,
+            execDescriptionVariant = record.mode.execDescription.wire,
+            execDescriptionChars = record.execDescriptionChars,
             claimedFix = record.claimedFix,
             durationS = record.agentDurationMs / 1000,
             tokens = record.tokenUsage,
@@ -460,6 +498,12 @@ abstract class DpaiaScenarioBaseTest {
         val testMetrics: TestMetrics?,
         val decodedLogMetrics: DecodedLogMetrics? = null,
         val verification: ArenaVerificationResult? = null,
+        /**
+         * Length of the `steroid_execute_code` description the container actually served this arm — the
+         * measured counterpart of `mode.execDescription`, and the per-request tool-definition cost the
+         * arm's token numbers have to be read against.
+         */
+        val execDescriptionChars: Int,
     )
 
     companion object {

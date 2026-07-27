@@ -18,12 +18,16 @@ class AppendComparisonCsvTest {
     private fun append(
         instanceId: String = "dpaia__feature__service-125",
         mode: String = "mcp",
+        execDescriptionVariant: String = "full",
+        execDescriptionChars: Int = 29667,
         verification: ArenaVerificationResult? = null,
     ) = appendComparisonCsv(
         csvFile = csvFile,
         instanceId = instanceId,
         passLabel = "pass1",
         mode = mode,
+        execDescriptionVariant = execDescriptionVariant,
+        execDescriptionChars = execDescriptionChars,
         claimedFix = true,
         durationS = 42L,
         tokens = null,
@@ -48,10 +52,26 @@ class AppendComparisonCsvTest {
 
         val row = lines[0].split(",").zip(lines[1].split(",")).toMap()
         assertEquals("mcp", row["mode"])
+        assertEquals("full", row["exec_description_variant"])
+        assertEquals("29667", row["exec_description_chars"])
         assertEquals("1", row["verified_ftp_passed"])
         assertEquals("2", row["verified_ftp_total"])
         assertEquals("0.5000", row["verified_ftp_rate"])
         assertEquals("false", row["tests_tampered"])
+    }
+
+    @Test
+    fun `the two execute-code description arms stay distinguishable in one file`() {
+        append(mode = "mcp")
+        append(mode = "mcp-slim", execDescriptionVariant = "slim", execDescriptionChars = 15005)
+
+        val lines = csvFile.readLines()
+        val header = lines[0].split(",")
+        val rows = lines.drop(1).map { header.zip(it.split(",")).toMap() }
+
+        assertEquals(listOf("mcp", "mcp-slim"), rows.map { it["mode"] })
+        assertEquals(listOf("full", "slim"), rows.map { it["exec_description_variant"] })
+        assertEquals(listOf("29667", "15005"), rows.map { it["exec_description_chars"] })
     }
 
     @Test
