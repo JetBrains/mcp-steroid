@@ -288,7 +288,8 @@ fun extractToolCallStats(rawOutput: String): ToolCallStats? {
 
 // ── CSV comparison writer ───────────────────────────────────────────────────
 
-private const val CSV_HEADER = "timestamp,instance_id,pass_label,mode,agent_claimed_fix,duration_s," +
+private const val CSV_HEADER = "timestamp,instance_id,pass_label,mode," +
+        "exec_description_variant,exec_description_chars,agent_claimed_fix,duration_s," +
         "exec_code_calls,bash_calls,read_calls,write_calls,edit_calls,glob_calls,grep_calls," +
         "num_turns,total_input_tokens,total_output_tokens,total_cache_creation_tokens," +
         "total_cache_read_tokens,duration_api_ms,estimated_cost_usd,tests_pass,tests_run," +
@@ -331,7 +332,10 @@ fun rotateComparisonCsvOnHeaderDrift(csvFile: java.io.File): java.io.File? {
  * @param csvFile the target CSV file (e.g. `testOutputDir/arena-comparison.csv`)
  * @param instanceId the DPAIA scenario instance ID
  * @param passLabel a label for the current pass (from `-Darena.pass.label` system property)
- * @param mode the arena mode label for this run ("mcp", "devrig", or "none")
+ * @param mode the arena mode label for this run ("mcp", "mcp-slim", "devrig", or "none")
+ * @param execDescriptionVariant which `steroid_execute_code` tool description the arm was served
+ * @param execDescriptionChars length of that served description — the per-request tool-definition cost
+ *                             the row's token counts have to be read against
  * @param claimedFix whether the agent claimed to have fixed the issue
  * @param durationS agent wall-clock duration in seconds
  * @param tokens extracted token usage (nullable)
@@ -346,6 +350,8 @@ fun appendComparisonCsv(
     instanceId: String,
     passLabel: String,
     mode: String,
+    execDescriptionVariant: String,
+    execDescriptionChars: Int,
     claimedFix: Boolean,
     durationS: Long,
     tokens: TokenUsage?,
@@ -363,6 +369,8 @@ fun appendComparisonCsv(
         instanceId,
         passLabel,
         mode,
+        execDescriptionVariant,
+        execDescriptionChars.toString(),
         claimedFix.toString(),
         durationS.toString(),
         (decoded?.execCodeCalls ?: "").toString(),

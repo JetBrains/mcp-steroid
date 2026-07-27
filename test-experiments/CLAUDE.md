@@ -70,12 +70,25 @@ SKIP_IMPROVE=1 MAX_RUNS=1 bash ../docs/dpaia-arena-runner.sh 0
 Working notes, comparison tables, and autoresearch loop prompts live in `../docs/CLAUDE.md` and
 `../docs/autoresearch/`.
 
-**Three-arm scenarios and objective verification.** Each scenario test class carries three arms: `claude with mcp`
-(runs the agent against the live `steroid_*` MCP API), `claude with devrig` (same agent, devrig stdio protocol),
+**Four-arm scenarios and objective verification.** Each scenario test class carries four arms: `claude with mcp`
+(runs the agent against the live `steroid_*` MCP API), `claude with mcp slim` (same as `mcp`, but the container
+serves the slim `steroid_execute_code` tool description), `claude with devrig` (same agent, devrig stdio protocol),
 and `claude without mcp` (shell-only baseline — agent uses bash, cat, find, grep, ./mvnw; no steroid_* tools, no IDE APIs).
 After each agent run, the harness re-executes FAIL_TO_PASS test classes via Maven and grades from surefire XML
 (Gradle cases currently skip verification), using fields like `verified_ftp_rate` and `tests_tampered` in the run JSON/CSV.
 The `dpaia__feature__service-125x` case runs with a local overlay test patch and is reported separately from the base scenario.
+
+**How the `mcp-slim` arm varies the tool description.** One plugin ZIP is deployed per run, so the variant
+cannot be a build-time choice: `ExecCodeDescriptionVariant` (in `:mcp-steroid-server`, so both the in-IDE
+server and devrig resolve it the same way) reads `MCP_STEROID_EXEC_CODE_DESCRIPTION` per process, defaulting
+to `full` — the repo default is unchanged, slim is opt-in. `ArenaMode` maps each arm to a variant and passes
+it through `IntelliJContainerOpts.extraEnv`, explicitly for every arm including the `full` ones, so a row's
+variant is configuration rather than an assumption. Before spending any API budget, each arm reads the served
+description back over `tools/list` (`McpSteroidDriver.mcpToolDescription`) and fails if the variant's marker
+is missing; its length is recorded as `exec_description_chars` next to `exec_description_variant` in the run
+JSON and `arena-comparison.csv`, so token counts can be read against the tool-definition cost they include.
+The env-var → IDE-JVM plumbing has its own agent-free Docker check in
+`:test-integration` — `ExecCodeDescriptionVariantIntegrationTest` (two containers, empty project, no API spend).
 
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 

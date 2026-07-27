@@ -10,6 +10,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
+import com.jonnyzzz.mcpSteroid.server.ExecCodeDescriptionVariant
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import kotlinx.serialization.json.buildJsonObject
@@ -95,6 +96,8 @@ class DpaiaArenaTest {
         val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]
             ?: DpaiaCuratedCases.CaseConfig()
 
+        val execDescriptionVariant = ExecCodeDescriptionVariant.DEFAULT
+
         val lifetime = CloseableStackHost()
         try {
             val aiMode = if (withMcp) AiMode.AI_MCP else AiMode.NONE
@@ -112,6 +115,10 @@ class DpaiaArenaTest {
                 aiMode = aiMode,
                 mcpConnectionMode = mcpMode,
                 mountDockerSocket = true,
+                // This suite always measures the repo-default tool description; the dedicated scenario
+                // classes (DpaiaScenarioBaseTest) are where the variants are compared. Stated explicitly
+                // so a row's exec_description_variant is configuration, not an assumption.
+                extraEnv = mapOf(ExecCodeDescriptionVariant.ENV_VAR to execDescriptionVariant.wire),
             )).waitForProjectReady(
                 timeoutMillis = caseConfig.projectReadyTimeoutMs,
                 projectJdkVersion = caseConfig.projectJdkVersion,
@@ -128,6 +135,13 @@ class DpaiaArenaTest {
                 "codex" -> session.aiAgents.codex
                 "gemini" -> session.aiAgents.gemini
                 else -> error("Unknown agent: $agentName")
+            }
+
+            val servedExecDescription = session.mcpSteroid.mcpToolDescription("steroid_execute_code")
+            check(servedExecDescription.contains(execDescriptionVariant.marker)) {
+                "[ARENA] Expected the ${execDescriptionVariant.wire} steroid_execute_code description, but " +
+                    "the served text does not carry its marker '${execDescriptionVariant.marker}' " +
+                    "(${servedExecDescription.length} chars)."
             }
 
             val ideProjectDir = session.intellijDriver.getGuestProjectDir()
@@ -166,7 +180,18 @@ class DpaiaArenaTest {
                 )
             )
 
-            writeRunSummary(testCase, agentName, modeLabel, result, session.runDirInContainer, tokens, testMetrics, decodedLogMetrics)
+            writeRunSummary(
+                testCase = testCase,
+                agentName = agentName,
+                modeLabel = modeLabel,
+                result = result,
+                runDir = session.runDirInContainer,
+                execDescriptionVariant = execDescriptionVariant,
+                execDescriptionChars = servedExecDescription.length,
+                tokens = tokens,
+                testMetrics = testMetrics,
+                decodedLogMetrics = decodedLogMetrics,
+            )
 
             // Lenient assertion: agent either exited cleanly or claimed a fix.
             check(result.evaluation.agentExitedSuccessfully || result.evaluation.agentClaimedFix) {
@@ -240,12 +265,20 @@ class DpaiaArenaTest {
             println()
         }
 
+        /**
+         * @param execDescriptionVariant the `steroid_execute_code` description variant this run was
+         *   served, verified against the live `tools/list` answer before the agent started.
+         * @param execDescriptionChars length of that served description — the tool-definition context
+         *   the agent paid for, so token counts can be read against it.
+         */
         private fun writeRunSummary(
             testCase: DpaiaTestCase,
             agentName: String,
             modeLabel: String,
             result: ArenaTestResult,
             runDir: File,
+            execDescriptionVariant: ExecCodeDescriptionVariant,
+            execDescriptionChars: Int,
             tokens: TokenUsage? = null,
             testMetrics: TestMetrics? = null,
             decodedLogMetrics: DecodedLogMetrics? = null,
@@ -254,6 +287,8 @@ class DpaiaArenaTest {
                 put("instance_id", testCase.instanceId)
                 put("agent", agentName)
                 put("mode", modeLabel)
+                put("exec_description_variant", execDescriptionVariant.wire)
+                put("exec_description_chars", execDescriptionChars)
                 put("run_dir", runDir.absolutePath)
                 put("exit_code", result.agentResult.exitCode ?: -1)
                 put("agent_claimed_fix", result.evaluation.agentClaimedFix)
@@ -300,6 +335,8 @@ class DpaiaArenaTest {
                 instanceId = testCase.instanceId,
                 passLabel = passLabel,
                 mode = modeLabel,
+                execDescriptionVariant = execDescriptionVariant.wire,
+                execDescriptionChars = execDescriptionChars,
                 claimedFix = result.evaluation.agentClaimedFix,
                 durationS = result.agentDurationMs / 1000,
                 tokens = tokens,

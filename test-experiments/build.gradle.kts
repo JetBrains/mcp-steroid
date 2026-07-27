@@ -41,6 +41,9 @@ dependencies {
     testImplementation(project(":agent-output-filter"))
     testImplementation(project(":ai-agents"))
     testImplementation(project(":intellij-downloader"))
+    // ExecCodeDescriptionVariant — the arena arms select a tool-description variant by the same
+    // enum the server resolves it from, so the wire value and its marker cannot drift apart.
+    testImplementation(project(":mcp-steroid-server"))
 
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter-api")

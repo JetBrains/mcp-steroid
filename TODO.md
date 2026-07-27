@@ -112,3 +112,21 @@
 - [ ] **Corpus-wide `[IU]` → `[IU,IC,AI]` sweep.** This PR converted only its own articles. Audit the rest of
   `prompts/src/main/prompts/**` for `[IU]` fences/sections whose APIs are actually in IC/AI and widen them
   (leaving genuinely Ultimate-bound ones, e.g. `skill/coding-with-intellij-spring.md`, as `[IU]`).
+
+- [ ] **IDE-assisted hints on exec_code compile errors.** Today the agent's script is compiled by the
+  Kotlin daemon out-of-band; compile failures return raw kotlinc text with no IDE assistance. Idea: on
+  `unresolved reference: Xxx`, resolve the short name via the IDE's indexes (`PsiShortNamesCache` /
+  `JavaPsiFacade`) and append the exact missing `import` line (the IDE's auto-import hint, server-side);
+  similarly map known error texts (`Read access is allowed…`, `suspension functions can only be called…`)
+  to one-line fixes + article URI. Generalizes the existing aborted-build `guidanceFor()` REQUIRED-ACTION
+  hint into a rule registry. Deferred until the slimmed `execute-code-tool-description` router is validated
+  on TC — the hint text and the article it links must agree, so the routing table has to settle first.
+
+- [ ] **Raise the arena TC timeout for the fourth arm.** Every scenario class now carries a `mcp-slim` arm
+  (`MCP_STEROID_EXEC_CODE_DESCRIPTION=slim`) on top of `mcp` / `devrig` / `none`, so a full scenario run is
+  ~1/3 longer. The arena build's `executionTimeoutMin = 320` lives in the separate TeamCity DSL repo
+  (`~/work/mcp-steroid-teamcity`) and has to grow with it before the four-arm suite runs on CI.
+- [ ] **Corpus-wide A/B for the slim router.** Only `skill/execute-code-tool-description` exists in two
+  variants; the sibling articles it routes to are shared by all four arms. A clean corpus-wide comparison
+  would need slim counterparts for the routed articles (~7 files) — measure the tool-definition-only win
+  first and decide whether the duplication pays for itself.
