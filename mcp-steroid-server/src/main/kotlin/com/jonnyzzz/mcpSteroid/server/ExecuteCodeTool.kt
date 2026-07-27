@@ -14,7 +14,6 @@ import com.jonnyzzz.mcpSteroid.mcp.string
 import com.jonnyzzz.mcpSteroid.mcp.withDefaultValue
 import com.jonnyzzz.mcpSteroid.prompts.Generic
 import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
-import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeToolDescriptionPromptArticle
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -77,7 +76,7 @@ data class ExecCodeParams(
  */
 class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBase() {
     override val name = "steroid_execute_code"
-    override val description get() = ExecuteCodeToolDescriptionPromptArticle().readPayload(PromptsContext.Generic)
+    override val description get() = ExecCodeDescriptionVariant.fromEnvironment().readDescription(PromptsContext.Generic)
 
     val projectName = CommonToolParams.projectName().registerToSchema()
 
