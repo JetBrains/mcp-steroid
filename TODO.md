@@ -1,5 +1,12 @@
 # TODO
 
+- [ ] **Move the Docker test images off Node 20** — `20.20.2` (Iron) is the last LTS release of a line
+  whose maintenance window has closed, so it stops receiving security fixes. All four images
+  (`test-integration/.../ide-base`, `test-helper/.../{claude,codex,gemini}-cli`) pin it via
+  `ARG NODE_VERSION` + per-arch sha256 from `nodejs.org/dist/vN/SHASUMS256.txt`. Bumping means
+  checking that `@anthropic-ai/claude-code`, `@openai/codex` and `@google/gemini-cli` all run on the
+  newer line first, then updating the version and BOTH digests in each file.
+
 - [ ] **runInspectionsDirectly follow-ups (#69 ask 1)** — deliberately deferred, not work-in-progress.
   - *Deferred:* a `PsiFile`-accepting overload (and any richer per-file batch surface). It is a
     `McpScriptContext` surface growth — gated by PHILOSOPHY Tenet 3 / the 3-reviewer consensus, same
