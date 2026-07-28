@@ -61,14 +61,31 @@ RUN curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gp
         temurin-25-jdk && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20 (NodeSource APT)
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
-        > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends nodejs && \
-    rm -rf /var/lib/apt/lists/*
+# Install Node.js 20 from the official nodejs.org release tarball.
+# NodeSource's APT repo (deb.nodesource.com) answers 403 to data-centre egress
+# addresses — including the AWS-hosted CI agents — which fails the image build at
+# this layer while every other endpoint in this file (deb.debian.org,
+# packages.adoptium.net, download.docker.com) stays reachable. The release tarball
+# needs no third-party apt repo and no GPG key, and it carries npm/npx/corepack.
+# Both digests are from https://nodejs.org/dist/v20.20.2/SHASUMS256.txt — bump the
+# version and BOTH digests together to move Node forward.
+ARG NODE_VERSION=20.20.2
+ARG NODE_SHA256_AMD64=19e56f0825510207dd904f087fe52faa0a4eb6b2aab5f0ea7a33830d04888b8b
+ARG NODE_SHA256_ARM64=47ef73d543ecf6eb19435f6c03a0ac4809b3bf0dd6b26c7c571efc2a6572a74d
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in \
+        amd64) node_arch=x64;   node_sha256="$NODE_SHA256_AMD64" ;; \
+        arm64) node_arch=arm64; node_sha256="$NODE_SHA256_ARM64" ;; \
+        *) echo "Unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    tarball="node-v${NODE_VERSION}-linux-${node_arch}.tar.gz"; \
+    curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${tarball}"; \
+    echo "${node_sha256}  ${tarball}" | sha256sum -c -; \
+    tar -xzf "${tarball}" -C /usr/local --strip-components=1 \
+        --exclude CHANGELOG.md --exclude LICENSE --exclude README.md; \
+    rm "${tarball}"; \
+    node --version; \
+    npm --version
 
 RUN ARCH=$(dpkg --print-architecture) && \
     ln -sfn /usr/lib/jvm/temurin-25-jdk-${ARCH} /usr/lib/jvm/java-25-default
