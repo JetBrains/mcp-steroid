@@ -7,9 +7,19 @@ Execute Kotlin code directly in IntelliJ's runtime with full API access — buil
 
 ## Route the task before reaching for a native tool
 
-The IDE path keeps VFS + PSI consistent and one call replaces 3–5 chained native-tool calls. If your
-next instinct is `Read` / `Edit` / `Grep` / `Glob` / `Bash`, check this table first. Every row is
-actionable as written — the URI adds depth, it is not a prerequisite.
+The IDE path keeps VFS + PSI consistent and one call replaces 3–5 chained native-tool calls. It is not
+the answer to every step: an `exec_code` call costs you a hand-written Kotlin script, so it pays where
+the work touches the VFS, the PSI, the indexes, or a build — and it does not pay for a one-shot look at
+a file you are not about to change.
+
+**Take the fork first.** About to edit, inspect, walk PSI, or search the indexes for this file? Do it
+in ONE `exec_code` script and read the file *inside* that script — the read is free once you are there.
+Only need to look at a file, with no IDE operation on it next? Native `Read` costs you one line instead
+of a script, and nothing goes stale — reading does not write. The staleness rule below is about
+`Edit` / `Write`, which must never touch a project file.
+
+Then check the table for the shape you picked. Every row is actionable as written — the URI adds depth,
+it is not a prerequisite.
 
 | Task shape | IDE path |
 |---|---|
@@ -18,7 +28,8 @@ actionable as written — the URI adds depth, it is not a prerequisite.
 | **An existing unified diff, or literal anchors that keep failing** | the IDE's tolerance-matching patch engine: `mcp-steroid://ide/apply-unified-diff`. Escape hatch for COMPLEX changes only. |
 | **Create a file** | `VfsUtil.createDirectoryIfMissing` + `dir.createChildData` + `VfsUtil.saveText`, all in one `writeAction { }` — indexes immediately. `mcp-steroid://skill/execute-code-overview` |
 | **Find files by extension or exact name** | `readAction { FilenameIndex.getAllFilesByExt(project, "java", projectScope()) }` or `readAction { FilenameIndex.getVirtualFilesByName("UserService.java", projectScope()) }` — O(1) indexed lookup, not `Bash find` |
-| **Read file content, any size** | `val vf = findProjectFile(p) ?: error("not found: $p")`, then `String(vf.contentsToByteArray(), vf.charset)` — relative or absolute paths; re-reads from disk at script top level |
+| **Read a file you are about to edit, inspect or walk** | in the SAME script, before the change: `val vf = findProjectFile(p) ?: error("not found: $p")`, then `String(vf.contentsToByteArray(), vf.charset)` — relative or absolute paths; re-reads from disk at script top level |
+| **Read a file only to look at it** | native `Read` — fewer tokens than typing a script for content you will not act on inside the IDE. Do NOT pre-`Read` a file you are about to change with the recipe below; that read already happens in the script. |
 | **Grep content inside project files** | `readAction { }` over `FilenameIndex.getAllFilesByExt(...)` plus `Regex(pat).findAll(...)` — all in ONE call |
 | **Find all references to a symbol** | `readAction { ReferencesSearch.search(psiElement, projectScope()).findAll() }` — type-aware; Grep over source text is the fallback, not the default |
 | **Run Maven / Gradle tests** | the IDE runner, as a two-call launch-then-poll pattern — a single call is cancelled at ~60 s. `mcp-steroid://skill/execute-code-maven`, `mcp-steroid://skill/execute-code-gradle` |
@@ -37,6 +48,8 @@ auto-printed; this is a script, not a REPL. A script ending in a bare `myList` p
 response looks identical to one that returned no value at all. Always end with an explicit
 `println(value)` or `printJson(value)`. For inspection and report tasks print compact `KEY: value`
 lines or `printJson` on the FIRST run, so you never spend a second call reshaping verbose IDE output.
+Print the slice you will act on, never a whole-source dump: a result large enough to be truncated costs
+you the turns you then spend re-reading your own saved tool result.
 
 **Threading — apply preventively, not after an error.** The wrap is required in EVERY new script: the
 IDE does not carry over the previous script's coroutine context, so a `readAction { }` in script #1

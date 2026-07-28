@@ -67,6 +67,44 @@ class PromptRoutingContractTest {
         }
     }
 
+    /**
+     * Routing the IDE path is a fork, not a blanket order, and both variants must say so.
+     *
+     * An `exec_code` call costs the agent a hand-written Kotlin script — an output-token cost that dwarfs
+     * the cached tool definition it is billed against. So the IDE path has to earn its call: it wins when
+     * the work touches the VFS, PSI, indexes or a build, and loses to a native `Read` for a one-shot look
+     * at a file that will not be changed. A description that drops the read side of the fork pushes the
+     * agent to type a script for every read; the 2026-07-28 four-arm arena run measured that arm typing
+     * twice the Kotlin of the cheapest one for the same verified result.
+     */
+    @Test
+    fun `both variants route reads as a fork, not a blanket order into the IDE`() {
+        for (context in contexts) {
+            for ((variant, prompt) in bothVariants(context)) {
+                assertTrue(
+                    prompt.contains("Take the fork first"),
+                    "the routing guidance must open with the fork, so the IDE path reads as conditional " +
+                        "rather than as an unconditional order ($variant, $context)",
+                )
+                assertTrue(
+                    prompt.contains("Read a file only to look at it") && prompt.contains("native `Read`"),
+                    "a one-shot read with no follow-up IDE operation must route to the native Read tool — " +
+                        "repo policy in prompts/CLAUDE.md, and the cheaper path ($variant, $context)",
+                )
+                assertTrue(
+                    prompt.contains("reading does not write"),
+                    "the VFS/PSI staleness rule must stay scoped to Edit/Write; without this the agent " +
+                        "generalises it to reads and scripts every read ($variant, $context)",
+                )
+                assertTrue(
+                    prompt.contains("in the SAME script"),
+                    "the edit/inspect/walk side of the fork must keep the read inside the one script that " +
+                        "acts on the file ($variant, $context)",
+                )
+            }
+        }
+    }
+
     @Test
     fun `the full variant carries the multi-site recipe inline while the slim one links it`() {
         for (context in contexts) {
