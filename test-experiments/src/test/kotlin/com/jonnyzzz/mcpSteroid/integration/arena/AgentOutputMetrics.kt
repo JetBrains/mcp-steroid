@@ -60,16 +60,29 @@ private val BUILD_STATUS_REGEX = Regex("""BUILD (SUCCESS|FAILURE)""")
  * Tests run: 47, Failures: 0, Errors: 0, Skipped: 0
  * BUILD SUCCESS
  * ```
- * Takes the LAST match, which corresponds to the final test run summary.
+ * Surefire prints one such line per test class and then an aggregate under `Results:`. Prefers the
+ * aggregate that follows the last `Results:` marker; only when the output carries no marker does it fall
+ * back to the last match anywhere. Taking the last match unconditionally reports whichever line the agent
+ * happened to quote last — one arena arm ran 84 tests and was recorded as 7 that way. Even with the
+ * marker this is a scrape of agent prose: the authoritative per-class verdict is the surefire XML the
+ * harness re-runs itself ([ArenaVerificationResult]), so treat these numbers as indicative only and do
+ * not compare them across arms.
  */
 fun extractTestMetrics(rawOutput: String): TestMetrics? {
-    val matches = TEST_RESULT_REGEX.findAll(rawOutput).toList()
-    if (matches.isEmpty()) return null
+    val allMatches = TEST_RESULT_REGEX.findAll(rawOutput).toList()
+    if (allMatches.isEmpty()) return null
 
-    val last = matches.last()
-    val testsRun = last.groupValues[1].toInt()
-    val testsFail = last.groupValues[2].toInt()
-    val testsError = last.groupValues[3].toInt()
+    // Surefire prints the aggregate immediately after `Results:`, so the FIRST match past the last marker
+    // is it; anything later is the agent quoting a per-class line back. Without a marker, keep the old
+    // last-match behaviour.
+    val lastResultsMarker = rawOutput.lastIndexOf("Results:")
+    val afterMarker = allMatches.filter { it.range.first > lastResultsMarker }
+    val chosen =
+        if (lastResultsMarker >= 0 && afterMarker.isNotEmpty()) afterMarker.first() else allMatches.last()
+
+    val testsRun = chosen.groupValues[1].toInt()
+    val testsFail = chosen.groupValues[2].toInt()
+    val testsError = chosen.groupValues[3].toInt()
     val testsPass = testsRun - testsFail - testsError
 
     val buildSuccess = BUILD_STATUS_REGEX.findAll(rawOutput).toList()
@@ -131,6 +144,15 @@ data class DecodedLogMetrics(
 )
 
 /**
+ * The tool name out of a decoded `>> ToolName (detail)` line — everything between the `>> ` prefix and
+ * the first space or `(`. Agents spell MCP tools differently (`mcp__mcp-steroid__steroid_execute_code`,
+ * `mcp_mcp-steroid_steroid_execute_code`, bare `steroid_execute_code`), so callers match the MCP ones
+ * with `endsWith` and the native ones exactly.
+ */
+fun decodedToolName(decodedLine: String): String =
+    decodedLine.removePrefix(">> ").substringBefore(" (").substringBefore(' ').trim()
+
+/**
  * Parse decoded agent log text and count tool invocation lines.
  *
  * The decoded log format (written by [ConsoleAwareAgentSession]) uses `>> ToolName (detail)` lines.
@@ -143,6 +165,10 @@ data class DecodedLogMetrics(
  * Returns null when the text contains no `>>` tool lines at all (e.g. agent never produced decoded output).
  */
 fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
+    // Match the invoked tool by NAME, never by substring over the whole line: the detail in parentheses
+    // routinely mentions other tools, so `contains("steroid_execute_code")` counts a
+    // `>> ToolSearch (select:…steroid_execute_code…)` query and a `>> Read (…/tool-results/…
+    // steroid_execute_code…)` re-read as exec_code calls, and steals them from their own counters.
     var execCodeCalls = 0
     var readCalls = 0
     var writeCalls = 0
@@ -155,14 +181,14 @@ fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
     for (line in decodedLogText.lines()) {
         if (!line.startsWith(">> ")) continue
         foundAny = true
-        when {
-            line.contains("steroid_execute_code") -> execCodeCalls++
-            line.startsWith(">> Read ") || line == ">> Read" -> readCalls++
-            line.startsWith(">> Write ") || line == ">> Write" -> writeCalls++
-            line.startsWith(">> Edit ") || line == ">> Edit" -> editCalls++
-            line.startsWith(">> Bash ") || line == ">> Bash" -> bashCalls++
-            line.startsWith(">> Glob ") || line == ">> Glob" -> globCalls++
-            line.startsWith(">> Grep ") || line == ">> Grep" -> grepCalls++
+        when (val tool = decodedToolName(line)) {
+            "Read" -> readCalls++
+            "Write" -> writeCalls++
+            "Edit" -> editCalls++
+            "Bash" -> bashCalls++
+            "Glob" -> globCalls++
+            "Grep" -> grepCalls++
+            else -> if (tool.endsWith("steroid_execute_code")) execCodeCalls++
         }
     }
 

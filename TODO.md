@@ -134,6 +134,14 @@
   + overhead, in the separate `~/work/mcp-steroid-teamcity` repo), but that 150 is a hand-mirrored copy of
   `ARENA_ARM_TIMEOUT_MINUTES` here — the DSL runtime cannot read these sources. Changing either constant,
   or adding an arm to `DpaiaScenarioBaseTest`, means updating the spec in that repo too.
+- [ ] **Count arena tool calls from the raw NDJSON, not the decoded transcript.** `extractDecodedLogMetrics`
+  now matches the tool by name instead of by substring, which reproduces the NDJSON ground truth on all four
+  arms of the 2026-07-28 run. The decoded transcript is still the weaker source — `test-integration/CLAUDE.md`
+  documents that agents echo fetched article bodies into it — and the raw `agent-*-raw.ndjson` is what the
+  analysis itself counted. `PrintCsvPrintToonPromptTest.readAgentExecCodeBodies` already parses all three
+  agent shapes; reusing it here would also give per-call payload and result sizes, which is what the
+  cost comparison actually turns on. Four call sites (`DpaiaScenarioBaseTest`, `DpaiaArenaTest`,
+  `DpaiaClaudeComparisonTest`, `SemanticRunRecorder`).
 - [ ] **Corpus-wide A/B for the slim router.** Only `skill/execute-code-tool-description` exists in two
   variants; the sibling articles it routes to are shared by all four arms. A clean corpus-wide comparison
   would need slim counterparts for the routed articles (~7 files) — measure the tool-definition-only win

@@ -26,6 +26,23 @@ class ExtractDecodedLogMetricsTest {
     }
 
     @Test
+    fun `a tool whose detail merely mentions exec_code is not counted as an exec_code call`() {
+        // Both lines are verbatim shapes from the 2026-07-28 FeatureService125 arena traces. Matching the
+        // tool by substring over the whole line credited them to exec_code — and the second one also
+        // stole a Read: the arm reported 10 exec_code / 1 Read where it had made 7 and 4.
+        val log = """
+            >> ToolSearch (select:steroid_list_projects,steroid_fetch_resource,steroid_execute_code)
+            >> Read (/home/agent/.claude/tool-results/mcp-mcp-steroid-steroid_execute_code-1.txt)
+            >> mcp__mcp-steroid__steroid_execute_code (implement the release endpoints)
+        """.trimIndent()
+
+        val metrics = extract(log)
+        assertNotNull(metrics)
+        assertEquals(1, metrics!!.execCodeCalls, "only the real invocation counts")
+        assertEquals(1, metrics.readCalls, "the tool-result re-read stays a Read")
+    }
+
+    @Test
     fun `counts steroid_execute_code with full MCP prefix`() {
         val log = ">> mcp__mcp-steroid__steroid_execute_code (Mandatory first call)"
         val metrics = extract(log)

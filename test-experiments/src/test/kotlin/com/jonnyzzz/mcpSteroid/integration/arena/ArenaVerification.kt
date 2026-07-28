@@ -159,7 +159,24 @@ class ArenaVerifier(
         // A null snapshot means the pre-agent hashing itself failed (infra hiccup, logged by the
         // caller); tamper detection needs a baseline to diff against, so it's skipped rather than
         // treated as tampering.
-        val tampered = preAgentSnapshot?.let { hashTestFiles(extractPatchFilePaths(testPatch)) != it } ?: false
+        //
+        // Report WHICH files moved, not just that something did. A bare boolean cannot be acted on: it
+        // fired for all four arms of the 2026-07-28 run, where the changes turned out to be identical
+        // across arms and therefore not agent-authored (the prep compiles with spotless skipped, then
+        // every agent runs `./mvnw spotless:apply`, which reformats the patched test sources).
+        val tampered = preAgentSnapshot?.let { baseline ->
+            val current = hashTestFiles(extractPatchFilePaths(testPatch))
+            val changed = (baseline.keys + current.keys).filter { baseline[it] != current[it] }.sorted()
+            if (changed.isEmpty()) {
+                println("[ARENA-VERIFY] test-patch files unchanged (${baseline.size} hashed)")
+            } else {
+                println("[ARENA-VERIFY] test-patch files changed after the agent ran (${changed.size}):")
+                changed.forEach { path ->
+                    println("[ARENA-VERIFY]   $path: ${baseline[path] ?: "ABSENT"} -> ${current[path] ?: "ABSENT"}")
+                }
+            }
+            changed.isNotEmpty()
+        } ?: false
 
         requireSafeFqcns(failToPass)
         val testFilter = failToPass.map { it.substringAfterLast('.') }.distinct().joinToString(",")

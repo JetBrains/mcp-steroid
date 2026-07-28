@@ -24,6 +24,38 @@ class ExtractTestMetricsTest {
     }
 
     @Test
+    fun `prefers the aggregate under Results over a per-class line quoted afterwards`() {
+        // The shape that recorded an 84-test arena arm as 7: the agent's closing prose repeats a
+        // per-class line after Maven has already printed the aggregate.
+        val output = """
+            [INFO] Running com.example.ReleaseControllerTests
+            [INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0
+            [INFO] Results:
+            [INFO] Tests run: 84, Failures: 0, Errors: 0, Skipped: 0
+            [INFO] BUILD SUCCESS
+            All green — ReleaseStatusTransitionValidatorTest reported Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+        """.trimIndent()
+
+        val metrics = extract(output)
+        assertNotNull(metrics)
+        assertEquals(84, metrics!!.testsRun)
+        assertEquals(84, metrics.testsPass)
+    }
+
+    @Test
+    fun `falls back to the last match when the output carries no Results marker`() {
+        val output = """
+            [INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0
+            [INFO] Tests run: 12, Failures: 1, Errors: 0, Skipped: 0
+        """.trimIndent()
+
+        val metrics = extract(output)
+        assertNotNull(metrics)
+        assertEquals(12, metrics!!.testsRun)
+        assertEquals(1, metrics.testsFail)
+    }
+
+    @Test
     fun `parses single summary line with build success`() {
         val output = """
             [INFO] Tests run: 25, Failures: 0, Errors: 0, Skipped: 0
