@@ -39,6 +39,14 @@ class HomePaths(val home: Path) {
     fun cacheDir(id: String): Path = cachesDir.resolve(id)
     fun pidFile(id: String): Path = stateDir.resolve("$id.pid")
 
+    /**
+     * Scratch directory (`~/.mcp-steroid/tmp`) for files devrig materializes for the caller to look
+     * at — today, images decoded out of a [com.jonnyzzz.mcpSteroid.mcp.ContentItem.Image] returned by
+     * ANY tool. Not part of [mkdirsAll]'s fixed layout: it is created here, on first use, rather than
+     * unconditionally on every devrig start, because most invocations never render an image.
+     */
+    fun tmpDir(): Path = home.resolve("tmp").also { Files.createDirectories(it) }
+
     fun mkdirsAll() {
         listOf(logsDir, backendsDir, cachesDir, downloadsDir, stateDir, binDir, updateDir).forEach { Files.createDirectories(it) }
     }
