@@ -64,8 +64,10 @@ enum class ArenaMode(val label: String, val execDescription: ExecCodeDescription
  * Abstract base class for dedicated DPAIA scenario tests — **Claude Code and Codex**.
  *
  * Each subclass overrides [instanceId] to select a specific dpaia arena scenario.
- * Seven test methods are inherited: "claude with mcp", "claude with mcp slim", "claude with devrig",
- * "claude without mcp", "codex with mcp", "codex with devrig", and "codex without mcp".
+ * Eleven test methods are inherited. Claude runs only its two reference arms, four times each, to
+ * measure their own spread: "claude with mcp" plus "repeat 2/3/4", and "claude without mcp" plus
+ * "repeat 2/3/4". Codex keeps one run per arm: "codex with mcp", "codex with devrig",
+ * "codex without mcp".
  *
  * Each test method launches a **fresh Docker container** with IntelliJ IDEA.
  * Before the agent timer starts, the test runs a full prewarm:
@@ -84,21 +86,43 @@ abstract class DpaiaScenarioBaseTest {
 
     // ── Claude ───────────────────────────────────────────────────────────────
 
+    // Claude runs the two reference arms only, four times each: their own spread has to be known before
+    // any single-run difference elsewhere can be read as an effect. The `devrig` and `mcp-slim` arms stay
+    // available through [ArenaMode] (Codex still runs devrig) but are not wired to a Claude test method,
+    // so the TC filter `*<TestClass>.claude*` selects exactly these eight runs. Repeats are
+    // configuration-identical — only the report label carries `-rN`.
+
     @Test
     @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `claude with mcp`() = runAgent("claude", ArenaMode.MCP_HTTP)
 
     @Test
     @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
-    fun `claude with mcp slim`() = runAgent("claude", ArenaMode.MCP_HTTP_SLIM)
+    fun `claude with mcp repeat 2`() = runAgent("claude", ArenaMode.MCP_HTTP, repeat = 2)
 
     @Test
     @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
-    fun `claude with devrig`() = runAgent("claude", ArenaMode.DEVRIG)
+    fun `claude with mcp repeat 3`() = runAgent("claude", ArenaMode.MCP_HTTP, repeat = 3)
+
+    @Test
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
+    fun `claude with mcp repeat 4`() = runAgent("claude", ArenaMode.MCP_HTTP, repeat = 4)
 
     @Test
     @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     fun `claude without mcp`() = runAgent("claude", ArenaMode.NONE)
+
+    @Test
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
+    fun `claude without mcp repeat 2`() = runAgent("claude", ArenaMode.NONE, repeat = 2)
+
+    @Test
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
+    fun `claude without mcp repeat 3`() = runAgent("claude", ArenaMode.NONE, repeat = 3)
+
+    @Test
+    @Timeout(value = ARENA_ARM_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
+    fun `claude without mcp repeat 4`() = runAgent("claude", ArenaMode.NONE, repeat = 4)
 
     // ── Codex ────────────────────────────────────────────────────────────────
 
@@ -116,9 +140,14 @@ abstract class DpaiaScenarioBaseTest {
 
     // ── Test execution ───────────────────────────────────────────────────────
 
-    private fun runAgent(agentName: String, mode: ArenaMode) {
+    /**
+     * @param repeat 1-based index for arms that run several times in one build to measure their own
+     * spread. It only widens the report label, so each repeat gets its own container title, JSON summary
+     * and CSV row instead of overwriting the previous one; the arm's configuration stays identical.
+     */
+    private fun runAgent(agentName: String, mode: ArenaMode, repeat: Int = 1) {
         val baseCase = resolvedTestCase
-        val modeLabel = mode.label
+        val modeLabel = if (repeat == 1) mode.label else "${mode.label}-r$repeat"
         val withMcp = mode != ArenaMode.NONE
         val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[baseCase.instanceId]
             ?: DpaiaCuratedCases.CaseConfig()
@@ -274,6 +303,7 @@ abstract class DpaiaScenarioBaseTest {
                 instanceId = reportInstanceId,
                 agentName = agentName,
                 mode = mode,
+                modeLabel = modeLabel,
                 agentDurationMs = result.agentDurationMs,
                 prewarmMs = 0L, // Prewarm is now inside waitForProjectReady
                 exitCode = result.agentResult.exitCode,
@@ -359,8 +389,8 @@ abstract class DpaiaScenarioBaseTest {
         println("║              DPAIA ARENA — AGENT COMPARISON (${instanceId.take(37).padEnd(37)})  ║")
         println("╠═══════════════════════════════════════════════════════════════════════════════════════╣")
 
-        for (r in results.sortedWith(compareBy({ it.agentName }, { it.mode }))) {
-            val mode = "${r.agentName}+${r.mode.label}"
+        for (r in results.sortedWith(compareBy({ it.agentName }, { it.mode }, { it.modeLabel }))) {
+            val mode = "${r.agentName}+${r.modeLabel}"
             println("║ ${mode.padEnd(16)}                                                                       ║")
             println("║   Fix: ${if (r.claimedFix) "YES" else "NO "}  Exit: ${(r.exitCode?.toString() ?: "?").padStart(3)}  " +
                     "Agent: ${(r.agentDurationMs / 1000).toString().padStart(4)}s  " +
@@ -488,6 +518,8 @@ abstract class DpaiaScenarioBaseTest {
         val instanceId: String,
         val agentName: String,
         val mode: ArenaMode,
+        /** [ArenaMode.label], suffixed `-rN` for the 2nd and later repeats of the same arm. */
+        val modeLabel: String,
         val agentDurationMs: Long,
         val prewarmMs: Long,
         val exitCode: Int?,

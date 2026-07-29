@@ -68,40 +68,43 @@ class PromptRoutingContractTest {
     }
 
     /**
-     * Routing the IDE path is a fork, not a blanket order, and both variants must say so.
+     * The read fork belongs to the **slim** variant only; the full one stays the measured reference text.
      *
-     * An `exec_code` call costs the agent a hand-written Kotlin script — an output-token cost that dwarfs
-     * the cached tool definition it is billed against. So the IDE path has to earn its call: it wins when
-     * the work touches the VFS, PSI, indexes or a build, and loses to a native `Read` for a one-shot look
-     * at a file that will not be changed. A description that drops the read side of the fork pushes the
-     * agent to type a script for every read; the 2026-07-28 four-arm arena run measured that arm typing
-     * twice the Kotlin of the cheapest one for the same verified result.
+     * The fork is what the slim router uses to keep the agent on the cheap read path: a one-shot look at a
+     * file goes to native `Read`, and only work that touches the VFS, PSI, indexes or a build earns a
+     * hand-written script. It demonstrably moves behaviour — with the fork the slim arm went from 0 to 7
+     * native reads on `service-125x`. The full variant deliberately does NOT carry it: it is the arm every
+     * earlier measurement was taken against, so changing its text destroys the baseline the slim arm is
+     * compared to. Both halves of that split are asserted here.
      */
     @Test
-    fun `both variants route reads as a fork, not a blanket order into the IDE`() {
+    fun `the read fork lives in the slim variant and stays out of the full one`() {
+        val forkMarkers = listOf(
+            "Take the fork first" to
+                "the routing guidance must open with the fork, so the IDE path reads as conditional " +
+                "rather than as an unconditional order",
+            "Read a file only to look at it" to
+                "a one-shot read with no follow-up IDE operation must route to the native Read tool — " +
+                "repo policy in prompts/CLAUDE.md, and the cheaper path",
+            "reading does not write" to
+                "the VFS/PSI staleness rule must stay scoped to Edit/Write; without this the agent " +
+                "generalises it to reads and scripts every read",
+            "in the SAME script" to
+                "the edit/inspect/walk side of the fork must keep the read inside the one script that " +
+                "acts on the file",
+        )
+
         for (context in contexts) {
-            for ((variant, prompt) in bothVariants(context)) {
-                assertTrue(
-                    prompt.contains("Take the fork first"),
-                    "the routing guidance must open with the fork, so the IDE path reads as conditional " +
-                        "rather than as an unconditional order ($variant, $context)",
-                )
-                assertTrue(
-                    prompt.contains("Read a file only to look at it") && prompt.contains("native `Read`"),
-                    "a one-shot read with no follow-up IDE operation must route to the native Read tool — " +
-                        "repo policy in prompts/CLAUDE.md, and the cheaper path ($variant, $context)",
-                )
-                assertTrue(
-                    prompt.contains("reading does not write"),
-                    "the VFS/PSI staleness rule must stay scoped to Edit/Write; without this the agent " +
-                        "generalises it to reads and scripts every read ($variant, $context)",
-                )
-                assertTrue(
-                    prompt.contains("in the SAME script"),
-                    "the edit/inspect/walk side of the fork must keep the read inside the one script that " +
-                        "acts on the file ($variant, $context)",
-                )
+            val slim = slimDescription(context)
+            val full = fullDescription(context)
+            for ((marker, why) in forkMarkers) {
+                assertTrue(slim.contains(marker), "$why (slim, $context)")
             }
+            assertFalse(
+                full.contains("Take the fork first"),
+                "the full variant is the reference text every earlier arena run was measured against — " +
+                    "editing it moves the baseline instead of the variable under test ($context)",
+            )
         }
     }
 

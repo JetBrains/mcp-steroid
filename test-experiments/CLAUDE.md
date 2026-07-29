@@ -70,10 +70,14 @@ SKIP_IMPROVE=1 MAX_RUNS=1 bash ../docs/dpaia-arena-runner.sh 0
 Working notes, comparison tables, and autoresearch loop prompts live in `../docs/CLAUDE.md` and
 `../docs/autoresearch/`.
 
-**Four-arm scenarios and objective verification.** Each scenario test class carries four arms: `claude with mcp`
-(runs the agent against the live `steroid_*` MCP API), `claude with mcp slim` (same as `mcp`, but the container
-serves the slim `steroid_execute_code` tool description), `claude with devrig` (same agent, devrig stdio protocol),
-and `claude without mcp` (shell-only baseline — agent uses bash, cat, find, grep, ./mvnw; no steroid_* tools, no IDE APIs).
+**Arms and objective verification.** `ArenaMode` defines four arms — `mcp` (the agent against the live
+`steroid_*` MCP API over HTTP), `mcp-slim` (same, but the container serves the slim `steroid_execute_code`
+tool description), `devrig` (same agent, devrig stdio protocol) and `none` (shell-only baseline: bash, cat,
+find, grep, ./mvnw; no steroid_* tools, no IDE APIs) — but a test method has to exist for an arm to run.
+Claude is currently wired to `mcp` and `none` only, **four runs each** (`repeat 2/3/4`), to measure the
+spread of the two reference arms before any single-run difference elsewhere is read as an effect; repeats
+are configuration-identical and differ only by the `-rN` suffix in the report label, which keeps their
+per-run JSON summaries from overwriting each other. Codex keeps one run per arm (`mcp`, `devrig`, `none`).
 After each agent run, the harness re-executes FAIL_TO_PASS test classes via Maven and grades from surefire XML
 (Gradle cases currently skip verification), using fields like `verified_ftp_rate` and `tests_tampered` in the run JSON/CSV.
 The `dpaia__feature__service-125x` case runs with a local overlay test patch and is reported separately from the base scenario.

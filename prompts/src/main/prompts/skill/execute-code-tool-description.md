@@ -47,8 +47,7 @@ literal anchors keep failing): the IDE's tolerance-matching patch engine — fet
 | **Find files by extension** | `readAction { FilenameIndex.getAllFilesByExt(project, "java", projectScope()) }` — not `Bash find … -name "*.java"` |
 | **Find files by exact name** | `readAction { FilenameIndex.getVirtualFilesByName("UserService.java", projectScope()) }` |
 | **Find all references to a symbol** | `readAction { ReferencesSearch.search(psiElement, projectScope()).findAll() }` — type-aware; Grep over source text is a fallback |
-| **Read a file you are about to edit, inspect or walk** | in the SAME script, before the change: `String((findProjectFile(p) ?: error("not found: $p")).contentsToByteArray(), charset)` — accepts relative or absolute paths, always re-reads from disk when called at the script top level; the next semantic query sees what you read |
-| **Read a file only to look at it** | native `Read` — fewer tokens than typing a script for content you will not act on inside the IDE. Do NOT pre-`Read` a file you are about to change with the edit recipe; that read already happens in the script. |
+| **Read file content (any size)** | `String((findProjectFile(p) ?: error("not found: $p")).contentsToByteArray(), charset)` — accepts relative or absolute paths, always re-reads from disk when called at the script top level; the next semantic query sees what you read |
 | **Grep content inside project files** | `readAction { FilenameIndex.getAllFilesByExt(project, ext, scope).flatMap { vf -> Regex(pat).findAll(String(vf.contentsToByteArray(), vf.charset)) … } }` in ONE call |
 | **Run Maven / Gradle tests** | IDE runner — see `mcp-steroid://skill/execute-code-maven` and `mcp-steroid://skill/execute-code-gradle`; Bash is only for shell-level final verification or IDE-runner fallback |
 | **IDE build aborted (`errors=false, aborted=true`)** | Fetch `mcp-steroid://skill/execute-code-gradle` or `mcp-steroid://skill/execute-code-maven` and run the matching sync pattern before Bash fallback. |
@@ -58,9 +57,7 @@ literal anchors keep failing): the IDE's tolerance-matching patch engine — fet
 | **Tabular output (array of records — find-references, call-hierarchy, project-search, document-symbols)** | `printCsv(headers: List<String>, rows: Iterable<List<Any?>>, dictColumns: Set<String> = emptySet())` — CSV with optional path-dictionary preamble. **OR** `printToon(value: Any?)` — TOON array-of-records (Token-Oriented Object Notation). **Signatures differ**: `printCsv` wants parallel `List<List<Any?>>` rows; `printToon` wants `List<Map<String, Any?>>` and infers column order from the first map. Do not pass `List<Map>` to `printCsv` (common compile error). |
 | **Git / Docker CLI / shell** | native `Bash` — genuinely outside the IDE |
 
-The IDE path keeps VFS + PSI consistent, reuses the warm JVM, and one call reliably replaces 3-5 chained native-tool calls. It is not the answer to every step: an `exec_code` call costs you a hand-written Kotlin script, so it pays where the work touches the VFS, the PSI, the indexes, or a build — and it does not pay for a one-shot look at a file you are not about to change.
-
-**Take the fork first.** About to edit, inspect, walk PSI, or search the indexes for this file? Do it in ONE `exec_code` script and read the file *inside* that script — the read is free once you are there. Only need to look at a file, with no IDE operation on it next? Native `Read` costs you one line instead of a script, and nothing goes stale — reading does not write. The staleness rule is about `Edit` / `Write`, which must never touch a project file. Then check the table above for the shape you picked.
+If your next instinct is a native `Read` / `Edit` / `Grep` / `Glob` / `Bash` call, check this table first. The IDE path keeps VFS + PSI consistent, reuses the warm JVM, and one call reliably replaces 3-5 chained native-tool calls.
 
 **Before your first call, read the guide for your task** with `steroid_fetch_resource`:
 - Building/testing → `mcp-steroid://prompt/test-skill`
@@ -125,7 +122,6 @@ Kotlin, so inspect the captured diagnostics first.
 - To surface anything to the caller, wrap it in `println(value)` for plain text or `printJson(value)` for structured data.
 - A script that ends with `myList` (or any bare expression) prints nothing — you will see only `execution_id: …` in the response, identical to a script that returned no value at all. Always end with an explicit `println(...)` or `printJson(...)` of what the agent needs to see.
 - **For inspection / report tasks, print compact machine-readable lines on the first run.** Stable shapes like `KEY: value` per line or `printJson` parse cheaply on your end and let you build the user-facing summary without a second exec_code pass to reshape verbose IDE output. Recipes in `mcp-steroid://ide/find-duplicates`, `…/inspect-and-fix`, `…/inspection-summary` already follow this convention.
-- **Print the slice you will act on, never a whole-source dump.** A result large enough to be truncated costs you the turns you then spend re-reading your own saved tool result — filter, slice or summarise inside the script instead.
 - **For `runInspectionsDirectly`, do not `printJson(result)` directly.** It is Map-compatible and contains live `ProblemDescriptor` PSI/VFS references. Snapshot descriptor fields inside `readAction { }`, print a DTO, and always include `result.failedTools`; a non-empty `failedTools` means the check is not clean even when the findings map is empty.
 
 **Threading rules — apply preventively, not after an error:**
