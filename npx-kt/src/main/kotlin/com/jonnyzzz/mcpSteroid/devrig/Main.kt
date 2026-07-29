@@ -171,20 +171,17 @@ suspend fun DevrigServices.mainImpl2(
 private class DevrigLastResortCrashHandler
 
 /**
- * Runs [block] (in production, [runCli] for [command]) and maps its failure to an exit code:
- *
- *  - [CliUserFacingException] → its own [CliUserFacingException.exit], message-only on stderr (the trace
- *    goes to the log file, so the console stays readable but the report stays debuggable).
- *  - anything else → the last-resort `64`, with the trace printed directly to stderr AND logged with the
- *    exception — never swallowed, per the root `CLAUDE.md` rule that every catch must rethrow, log, or
- *    both — so an operator/agent can diagnose an NPE deep in the bridge. The direct `printStackTrace`
- *    stays alongside the log record on purpose: this is the last-resort handler, and it must not depend
- *    on logging being configured and reachable to get the trace in front of whoever is looking.
- *
+ * Runs [block] (in production, [runCli] for [command]) and converts an unhandled failure into the
+ * last-resort exit code. The trace ALWAYS goes to [System.err] — never swallowed, per the root
+ * `CLAUDE.md` rule that every catch must rethrow, log, or both — so an operator/agent can diagnose an
+ * NPE deep in the bridge even under `--json`, where stdout stays a single clean envelope and therefore
+ * cannot also carry the trace. A [CliUserFacingException] renders as its message alone (and its own
+ * exit code), since a stack trace would bury the one line the user must read.
  * [kotlinx.coroutines.CancellationException] is rethrown as-is rather than treated as a failure:
  * swallowing it here would stop the surrounding coroutine scope from unwinding through structured
- * concurrency. (The outer `main()` handler still reports a rethrown cancellation as an "unexpected
- * error" of its own — that duplicate is unavoidable but harmless, since the process exits either way.)
+ * concurrency. (The outer `main()` handler still logs a rethrown cancellation as an "unexpected
+ * error" of its own — that duplicate log line is unavoidable but harmless, since the process exits
+ * either way.)
  *
  * Extracted from [mainImpl2] so this exit-code mapping is unit-testable without booting the CLI.
  */
@@ -203,19 +200,18 @@ fun runCliWithLastResortHandling(command: DevrigCommand, mcpStdout: PrintStream,
         log.info("Command $command failed: ${e.message}", e)
         e.exit
     } catch (t: Throwable) {
-        // Last-resort crash handler. Under --json still emit a single isError envelope so a machine
-        // consumer never gets an empty stdout on an unexpected failure; otherwise log the trace to
-        // stderr (stdout stays clean). Never a stack trace on stdout, never a second stdout document.
+        System.err.println("Unexpected error calling $command. ${t.message}")
+        t.printStackTrace(System.err)
+        log.error("Unexpected error calling $command. ${t.message}", t)
         if (command.json) {
             Presentation.Json().renderError(
                 "devrig", "unexpected error: ${t.message ?: t.javaClass.simpleName}",
-                exit = 64, out = mcpStdout,
+                // No dedicated "internal crash" exit code exists; this reuses the same 64 that main()'s
+                // and the MCP branch's own last-resort handlers already return for an unhandled crash.
+                exit = CliExit.USAGE, out = mcpStdout,
             )
         } else {
-            System.err.println("Unexpected error calling $command. ${t.message}")
-            t.printStackTrace(System.err)
-            log.error("Unexpected error calling $command. ${t.message}", t)
-            64
+            CliExit.USAGE
         }
     }
 }
@@ -278,7 +274,13 @@ private fun DevrigCommand.isMcpAsCliToolCommand(): Boolean = when (this) {
  */
 fun DevrigCommand.selfHealsLauncherOnStart(): Boolean = !isMcpAsCliToolCommand()
 
-private fun DevrigCommand.printsHeadliner(): Boolean =
+/**
+ * Whether this command prints the `devrig vX.Y.Z — ...` banner before its output. Tool-backed,
+ * non-`mcp`, non-MCP-as-CLI commands print it — but only in human console mode: `--json` must stay a
+ * single clean stdout document with no banner line ahead of it. Public (not `private`) so it is
+ * unit-testable across every [DevrigCommand] variant, mirroring [selfHealsLauncherOnStart].
+ */
+fun DevrigCommand.printsHeadliner(): Boolean =
     runsTool() && this !is DevrigCommand.MCP && !json && !isMcpAsCliToolCommand()
 
 suspend fun DevrigServices.mainImplMcp(

@@ -36,10 +36,16 @@ class CliToolSupportTest {
         ToolCallResult(content = listOf(ContentItem.Text(text)), isError = isError)
 
     private fun imageResult(bytes: ByteArray = byteArrayOf(1, 2, 3, 4), mimeType: String = "image/png") =
-        ToolCallResult(content = listOf(ContentItem.Image(data = Base64.getEncoder().encodeToString(bytes), mimeType = mimeType)))
+        ToolCallResult(content = listOf(imageItem(bytes, mimeType)))
+
+    private fun imageItem(bytes: ByteArray, mimeType: String = "image/png") =
+        ContentItem.Image(data = Base64.getEncoder().encodeToString(bytes), mimeType = mimeType)
 
     private fun firstTextOf(content: kotlinx.serialization.json.JsonElement): String =
         (content as JsonArray)[0].jsonObject.getValue("text").jsonPrimitive.content
+
+    private fun countOccurrences(haystack: String, needle: String): Int =
+        Regex(Regex.escape(needle)).findAll(haystack).count()
 
     // ------------------------------ presentationFor / stderrProgressReporter ------------------------------
 
@@ -125,17 +131,36 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `console render does not throw on undecodable base64 and prints a marker instead`() {
+    fun `console render does not throw on undecodable base64, prints a marker, and exits DATA_ERROR`() {
         val out = CapturedStream()
         val err = CapturedStream()
         val badResult = ToolCallResult(content = listOf(ContentItem.Image(data = "!!! not base64 !!!", mimeType = "image/png")))
 
         val exit = Presentation.Console { tempDir }.render(badResult, "take_screenshot", out.stream, err.stream)
 
-        assertEquals(CliExit.OK, exit)
+        // Coherent with the --out path below: an undecodable image is DATA_ERROR whether or not
+        // --out was passed, never a bare CliExit.OK that hides a corrupt payload.
+        assertEquals(CliExit.DATA_ERROR, exit)
         assertTrue(out.text().contains("undecodable"))
         assertTrue(err.text().contains("not valid base64"))
         assertTrue(tempDir.listDirectoryEntries().isEmpty(), "no file should be written for undecodable data")
+    }
+
+    @Test
+    fun `console render maps a filesystem write failure while saving an image to IO_ERROR`() {
+        // imageDir() resolves to a plain file, not a directory: Files.createTempFile(dir, ...) fails
+        // with NotDirectoryException (an IOException), the ordinary-render equivalent of the --out
+        // write-failure case below. A filesystem failure must never surface as a plain USAGE exit
+        // through the last-resort handler in Main.kt.
+        val notADirectory = tempDir.resolve("not-a-directory")
+        Files.write(notADirectory, byteArrayOf(0))
+        val out = CapturedStream()
+        val err = CapturedStream()
+
+        val exit = Presentation.Console { notADirectory }.render(imageResult(), "take_screenshot", out.stream, err.stream)
+
+        assertEquals(CliExit.IO_ERROR, exit)
+        assertTrue(err.text().contains("failed to write"), err.text())
     }
 
     // ------------------------------ --out ------------------------------
@@ -150,7 +175,7 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `--out writes the decoded image bytes to the given path and the json envelope reports savedOut`() {
+    fun `--out writes the decoded image bytes, reports savedOut, and strips its base64 from the json envelope`() {
         val outPath = tempDir.resolve("shots/ok.png")
         val out = CapturedStream()
         val bytes = byteArrayOf(5, 6, 7)
@@ -165,6 +190,10 @@ class CliToolSupportTest {
             outPath.toAbsolutePath().toString(),
             envelope.getValue("data").jsonObject.getValue("savedOut").jsonPrimitive.content,
         )
+        // Asking for a file must not also put the image's bytes on stdout: the written image is the
+        // only content item, so it disappears from the envelope entirely.
+        val content = envelope.getValue("data").jsonObject.getValue("content") as JsonArray
+        assertTrue(content.isEmpty(), "expected the written image to be removed from content: $content")
     }
 
     @Test
@@ -182,55 +211,114 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `--out with no image in the result warns on stderr and preserves the tool result's own exit code`() {
-        val outPath = tempDir.resolve("x.png")
+    fun `--out with two images writes only the first, and the second still rides along in the json envelope`() {
+        // Reachable via execute_code: a script's own logImage plus a dialog-failure screenshot yield
+        // two images in one result. Only the one actually written to --out may disappear.
+        val outPath = tempDir.resolve("ok.png")
         val out = CapturedStream()
-        val err = CapturedStream()
+        val firstBytes = byteArrayOf(1, 1, 1)
+        val secondBytes = byteArrayOf(2, 2, 2)
+        val result = ToolCallResult(content = listOf(imageItem(firstBytes), imageItem(secondBytes)))
 
-        val exit = renderWithOut(Presentation.Json(), textResult("all good, no dialog appeared"), "execute_code", outPath, out.stream, err.stream)
+        val exit = renderWithOut(Presentation.Json(), result, "execute_code", outPath, out.stream)
 
-        assertEquals(CliExit.OK, exit, "a --out miss must not fail an otherwise-successful call")
-        assertTrue(err.text().contains("no image"), err.text())
-        assertTrue(!Files.exists(outPath), "nothing should be written when there is no image")
-        assertTrue(out.text().contains("all good"), "the underlying result must still be rendered")
+        assertEquals(CliExit.OK, exit)
+        assertTrue(firstBytes.contentEquals(Files.readAllBytes(outPath)), "the FIRST image must be the one written to --out")
+        val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
+        val content = envelope.getValue("data").jsonObject.getValue("content") as JsonArray
+        assertEquals(1, content.size, "the first image is removed; the second must survive: $content")
+        assertEquals(Base64.getEncoder().encodeToString(secondBytes), content[0].jsonObject.getValue("data").jsonPrimitive.content)
     }
 
     @Test
-    fun `--out with no image preserves a tool-level error's own TOOL_ERROR exit code`() {
-        val outPath = tempDir.resolve("x.png")
+    fun `--out with two images on the console writes only the first to --out and still saves the second under tmpDir`() {
+        val outPath = tempDir.resolve("ok.png")
         val out = CapturedStream()
-        val err = CapturedStream()
+        val firstBytes = byteArrayOf(1, 1, 1)
+        val secondBytes = byteArrayOf(2, 2, 2)
+        val result = ToolCallResult(content = listOf(imageItem(firstBytes), imageItem(secondBytes)))
 
-        val exit = renderWithOut(Presentation.Json(), textResult("compile failed", isError = true), "execute_code", outPath, out.stream, err.stream)
+        val exit = renderWithOut(Presentation.Console { tempDir }, result, "execute_code", outPath, out.stream)
 
-        assertEquals(CliExit.TOOL_ERROR, exit)
-        assertTrue(err.text().contains("no image"))
+        assertEquals(CliExit.OK, exit)
+        assertTrue(firstBytes.contentEquals(Files.readAllBytes(outPath)))
+        // The second image must not be silently dropped: it still goes through the normal render path
+        // and lands under tmpDir, exactly as it would with no --out at all.
+        val savedUnderTmp = tempDir.listDirectoryEntries().filterNot { it == outPath }
+        assertEquals(1, savedUnderTmp.size, "expected exactly one extra file for the second image: $savedUnderTmp")
+        assertTrue(secondBytes.contentEquals(Files.readAllBytes(savedUnderTmp.single())))
     }
 
     @Test
-    fun `--out with an undecodable image payload is a DATA_ERROR`() {
+    fun `--out with no image in the result is a DATA_ERROR under --json, regardless of the tool result's own exit code`() {
+        val outPath = tempDir.resolve("x.png")
+
+        for (isError in listOf(false, true)) {
+            val out = CapturedStream()
+            val exit = renderWithOut(
+                Presentation.Json(),
+                textResult("all good, no dialog appeared", isError = isError),
+                "execute_code",
+                outPath,
+                out.stream,
+            )
+
+            // The user explicitly asked for an image; its absence is an unmet expectation regardless
+            // of whether the underlying tool call itself succeeded — never a bare CliExit.OK/TOOL_ERROR.
+            assertEquals(CliExit.DATA_ERROR, exit, "isError=$isError must not change a --out miss into anything but DATA_ERROR")
+            assertTrue(!Files.exists(outPath), "nothing should be written when there is no image")
+            val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
+            assertEquals(true, envelope.getValue("isError").jsonPrimitive.boolean)
+            assertTrue(firstTextOf(envelope.getValue("data").jsonObject.getValue("content")).contains("no image"))
+        }
+    }
+
+    @Test
+    fun `--out with no image in the result is a DATA_ERROR on the console, with the diagnostic printed exactly once`() {
         val outPath = tempDir.resolve("x.png")
         val out = CapturedStream()
         val err = CapturedStream()
-        val badResult = ToolCallResult(content = listOf(ContentItem.Image(data = "!!! not base64 !!!", mimeType = "image/png")))
 
-        val exit = renderWithOut(Presentation.Json(), badResult, "take_screenshot", outPath, out.stream, err.stream)
+        val exit = renderWithOut(Presentation.Console { tempDir }, textResult("all good"), "execute_code", outPath, out.stream, err.stream)
 
         assertEquals(CliExit.DATA_ERROR, exit)
         assertTrue(!Files.exists(outPath))
-        assertTrue(err.text().contains("not valid base64"))
+        assertEquals(1, countOccurrences(err.text(), "no image"), "expected exactly one diagnostic, got: ${err.text()}")
     }
 
     @Test
-    fun `--out to an unwritable path is an IO_ERROR`() {
+    fun `--out with an undecodable image payload is a DATA_ERROR whose message reaches the caller exactly once`() {
+        val outPath = tempDir.resolve("x.png")
+        val badResult = ToolCallResult(content = listOf(ContentItem.Image(data = "!!! not base64 !!!", mimeType = "image/png")))
+
+        val jsonOut = CapturedStream()
+        val jsonExit = renderWithOut(Presentation.Json(), badResult, "take_screenshot", outPath, jsonOut.stream)
+        assertEquals(CliExit.DATA_ERROR, jsonExit)
+        assertTrue(!Files.exists(outPath))
+        val envelope = parseJson.parseToJsonElement(jsonOut.text()).jsonObject
+        assertTrue(firstTextOf(envelope.getValue("data").jsonObject.getValue("content")).contains("not valid base64"))
+
+        val consoleOut = CapturedStream()
+        val consoleErr = CapturedStream()
+        val consoleExit = renderWithOut(Presentation.Console { tempDir }, badResult, "take_screenshot", outPath, consoleOut.stream, consoleErr.stream)
+        assertEquals(CliExit.DATA_ERROR, consoleExit)
+        assertEquals(1, countOccurrences(consoleErr.text(), "not valid base64"), "expected exactly one diagnostic, got: ${consoleErr.text()}")
+    }
+
+    @Test
+    fun `--out to an unwritable path is an IO_ERROR whose message reaches the caller exactly once`() {
         // tempDir itself is a directory: Files.write onto it fails with IOException ("Is a directory"),
         // a genuine write failure distinct from the undecodable-payload DATA_ERROR case above.
-        val out = CapturedStream()
-        val err = CapturedStream()
+        val jsonOut = CapturedStream()
+        val jsonExit = renderWithOut(Presentation.Json(), imageResult(), "take_screenshot", tempDir, jsonOut.stream)
+        assertEquals(CliExit.IO_ERROR, jsonExit)
+        val envelope = parseJson.parseToJsonElement(jsonOut.text()).jsonObject
+        assertTrue(firstTextOf(envelope.getValue("data").jsonObject.getValue("content")).contains("failed to write"))
 
-        val exit = renderWithOut(Presentation.Json(), imageResult(), "take_screenshot", tempDir, out.stream, err.stream)
-
-        assertEquals(CliExit.IO_ERROR, exit)
-        assertTrue(err.text().contains("failed to write"), err.text())
+        val consoleOut = CapturedStream()
+        val consoleErr = CapturedStream()
+        val consoleExit = renderWithOut(Presentation.Console { tempDir }, imageResult(), "take_screenshot", tempDir, consoleOut.stream, consoleErr.stream)
+        assertEquals(CliExit.IO_ERROR, consoleExit)
+        assertEquals(1, countOccurrences(consoleErr.text(), "failed to write"), "expected exactly one diagnostic, got: ${consoleErr.text()}")
     }
 }

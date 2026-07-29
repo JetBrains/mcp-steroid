@@ -18,13 +18,14 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * Shared support for `devrig` subcommands that are thin frontends over an existing MCP tool.
- *
- * This is deliberately a small helper set, NOT a "CLI-from-MCP-schema" generator: it factors out
- * only the parts every tool-backed command repeats — rendering a [ToolCallResult] to stdout/stderr,
- * a stable `--json` envelope, meaningful exit codes, and progress plumbing. The tool behavior itself
- * always lives behind the existing bridge handlers (single source of truth); the CLI never
- * reimplements it.
+ * Shared rendering, exit-code, and progress-reporting plumbing for `devrig` subcommands that call
+ * through to an existing MCP tool — both the manual, bespoke commands that exist today (`project`,
+ * `backend`, `install`) and, once wired up, the tool-backed commands issue #284's schema-driven CLI
+ * generates one per `steroid_*` tool. It factors out only the parts every such command repeats:
+ * rendering a [ToolCallResult] to stdout/stderr, a stable `--json` envelope, meaningful exit codes
+ * ([CliExit]), and progress plumbing ([stderrProgressReporter]). The tool behavior itself always
+ * lives behind the existing bridge handlers (single source of truth); this file never reimplements
+ * it, only presents the result.
  */
 
 /** Stable process exit codes shared by tool-backed commands. */
@@ -99,7 +100,13 @@ sealed interface Presentation {
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
                     is ContentItem.Text -> sink.println(item.text)
-                    is ContentItem.Image -> renderImage(item, index, sink, err)
+                    is ContentItem.Image -> {
+                        // A hard image failure (undecodable payload, unwritable disk) outranks the tool's
+                        // own success/failure: abort rendering immediately and report it as the exit code,
+                        // rather than letting a corrupt/unsaved image hide behind an otherwise-OK exit.
+                        val failureExit = renderImage(item, index, sink, err)
+                        if (failureExit != null) return failureExit
+                    }
                     is ContentItem.Resource -> {
                         val res = item.resource
                         sink.println("[resource: ${res.uri}${res.mimeType?.let { " ($it)" } ?: ""}]")
@@ -110,21 +117,29 @@ sealed interface Presentation {
             return if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
 
-        private fun renderImage(item: ContentItem.Image, index: Int, sink: PrintStream, err: PrintStream) {
+        /** Renders [item]; returns a non-null exit code only when rendering must abort (bad payload or a
+         * filesystem write failure), `null` when it printed normally and rendering should continue. */
+        private fun renderImage(item: ContentItem.Image, index: Int, sink: PrintStream, err: PrintStream): Int? {
             val decoded = try {
                 Base64.getDecoder().decode(item.data)
             } catch (e: IllegalArgumentException) {
-                err.println("devrig: image payload was not valid base64 (${e.message})")
+                err.println("image payload was not valid base64 (${e.message})")
                 null
             }
             if (decoded == null) {
                 sink.println("[image: ${item.mimeType}, undecodable]")
-                return
+                return CliExit.DATA_ERROR
             }
             val ext = item.mimeType.substringAfterLast('/', "png")
-            val file = Files.createTempFile(imageDir(), "image-$index-", ".$ext")
-            Files.write(file, decoded)
-            sink.println("Saved image: ${file.toAbsolutePath()}")
+            return try {
+                val file = Files.createTempFile(imageDir(), "image-$index-", ".$ext")
+                Files.write(file, decoded)
+                sink.println("Saved image: ${file.toAbsolutePath()}")
+                null
+            } catch (e: IOException) {
+                err.println("failed to write image: ${e.message}")
+                CliExit.IO_ERROR
+            }
         }
 
         override fun renderError(command: String, message: String, exit: Int, out: PrintStream, err: PrintStream): Int {
@@ -140,26 +155,28 @@ fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
 
 /**
  * `--out` is a devrig CLI framework flag beside `--json`, accepted on every subcommand — never a tool
- * parameter. It redirects a returned image AFTER the tool call returns to a caller-chosen path instead
- * of [HomePaths.tmpDir]. It is not screenshot-only: `steroid_execute_code` also returns a PNG (the
- * modal-dialog failure screenshot) via `ExecutionManager.logImage`, so any tool's result may carry one.
+ * parameter. It redirects the FIRST returned image AFTER the tool call returns to a caller-chosen path
+ * instead of [HomePaths.tmpDir]. It is not screenshot-only: `steroid_execute_code` also returns a PNG
+ * (the modal-dialog failure screenshot) via `ExecutionManager.logImage`, so any tool's result may carry
+ * one — and `execute_code` in particular can carry two (a `logImage` the script produced, plus a
+ * dialog-failure screenshot), which is why only the image actually written is removed below.
  *
  * Composes [Presentation.render] rather than living as a third [Presentation] member: a per-tool
  * rendering method on the shared interface is exactly the duplication [Presentation] exists to avoid.
  *
  * When [outPath] is `null` (the flag was not passed) this delegates straight to [Presentation.render].
  *
- * Behavior on a result with no image: a stderr warning, and the tool's own result (success or error)
- * still decides the exit code — never a USAGE failure. `--out` is opportunistic: most calls that pass it
- * against a tool that *can* return an image (`execute_code`'s failure screenshot above all) will
- * legitimately not get one, because the dialog most calls are guarding against did not appear. Treating
- * "no image this time" as a usage error would fail the common, successful case merely for having asked
- * defensively for a screenshot that turned out not to be needed — the opposite of what a defensive flag
- * should do. A stderr warning keeps the diagnostic (the caller learns nothing was written) without
- * punishing an otherwise-successful invocation.
+ * The user explicitly asked for an image to be saved, so every failure to do that — no image in the
+ * result, an undecodable payload, or a write failure — is [CliExit.DATA_ERROR] / [CliExit.IO_ERROR],
+ * never a silent no-op: `devrig take_screenshot --out shot.png && open shot.png` must not report success
+ * with `shot.png` absent. The accepted cost is that a caller who passes `--out` speculatively (on the
+ * chance of a failure screenshot that may never materialize) now fails an otherwise-successful run.
  *
- * Undecodable image data is [CliExit.DATA_ERROR]; a write failure is [CliExit.IO_ERROR] — both cases
- * ARE the caller's problem (a corrupt payload, an unwritable path), unlike the merely-absent case above.
+ * The image that IS written is removed from the rendered content by identity (not "every image") so the
+ * console and `--json` presentations agree: its bytes go to [outPath] and only its path is reported
+ * (`savedOut` under `--json`; a path line on the console) — never a second copy under [HomePaths.tmpDir]
+ * or a second copy of its base64 in the envelope. Any OTHER image in the result passes through the
+ * normal [Presentation.render] path untouched.
  */
 fun renderWithOut(
     presentation: Presentation,
@@ -173,15 +190,14 @@ fun renderWithOut(
 
     val image = result.content.filterIsInstance<ContentItem.Image>().firstOrNull()
     if (image == null) {
-        err.println("devrig: --out was given but the $command result carries no image; nothing was written to $outPath")
-        return presentation.render(result, command, out, err)
+        val message = "--out was given but the $command result carries no image; nothing was written to $outPath"
+        return presentation.renderError(command, message, CliExit.DATA_ERROR, out, err)
     }
 
     val decoded = try {
         Base64.getDecoder().decode(image.data)
     } catch (e: IllegalArgumentException) {
         val message = "--out image payload was not valid base64: ${e.message}"
-        err.println("devrig: $message")
         return presentation.renderError(command, message, CliExit.DATA_ERROR, out, err)
     }
 
@@ -190,22 +206,22 @@ fun renderWithOut(
         Files.write(outPath, decoded)
     } catch (e: IOException) {
         val message = "failed to write --out to $outPath: ${e.message}"
-        err.println("devrig: $message")
         return presentation.renderError(command, message, CliExit.IO_ERROR, out, err)
     }
 
     val savedOutPath = outPath.toAbsolutePath().toString()
+    val remaining = result.content.filterNot { it === image }
     return when (presentation) {
         is Presentation.Json -> {
+            val strippedResult = result.copy(content = remaining)
             val data = buildJsonObject {
-                for ((key, value) in result.contentDataJson()) put(key, value)
+                for ((key, value) in strippedResult.contentDataJson()) put(key, value)
                 put("savedOut", savedOutPath)
             }
             out.println(cliEnvelopeJson(command, isError = result.isError, data = data))
             if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
         is Presentation.Console -> {
-            val remaining = result.content.filterNot { it is ContentItem.Image }
             val withNote = result.copy(content = remaining + ContentItem.Text("Saved --out: $savedOutPath"))
             presentation.render(withNote, command, out, err)
         }
@@ -213,10 +229,13 @@ fun renderWithOut(
 }
 
 /**
- * The unified JSON envelope for all `devrig` CLI commands, shared across tool-backed subcommands.
- *
- * `data` shape is command-specific: `{content:[...]}` for tool-result commands, `{projects:[...]}`
- * for list_projects, `{windows,backgroundTasks}` for list_windows.
+ * The unified JSON envelope for `devrig` CLI commands that render a [ToolCallResult] through
+ * [Presentation.Json] — `{tool, command, isError, data}`, where `data` is always the tool-result
+ * shape this file produces: `{content:[...]}`, plus `savedOut` when `--out` wrote an image (see
+ * [renderWithOut]). Commands that predate the schema-driven CLI and never produce a [ToolCallResult]
+ * at all — `devrig project --json`, for instance — hand-roll their own JSON today and are out of
+ * scope for this envelope; under the schema-driven design a tool-backed command reports through this
+ * same shape instead.
  */
 val CLI_ENVELOPE_JSON: Json = Json {
     prettyPrint = true
