@@ -167,4 +167,28 @@ class DevrigCommandOutputTest {
         val err = stderr()
         assertTrue(err.contains("--what"), "got: $err")
     }
+
+    // -------------------- generated tool commands: usage exit code ----------------------
+
+    @Test
+    fun `an unknown flag on a generated tool command exits 64 with stdout clean`() {
+        val args = arrayOf("list_windows", "--bogus")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(CliExit.USAGE, exit)
+        assertEquals("", stdout(), "stdout must stay clean for usage errors; got: ${stdout()}")
+        assertTrue(stderr().contains("--bogus"), "got:\n${stderr()}")
+    }
+
+    @Test
+    fun `a usage error the schema binding derives after finalization also exits 64`() {
+        // Both --code and its file source: a rule Clikt's grammar cannot express, so SchemaCliBinding
+        // raises it one step later (from run(), not from finalization). It must still exit 64, not 1.
+        val args = arrayOf("execute_code", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(CliExit.USAGE, exit)
+        assertEquals("", stdout(), "stdout must stay clean for usage errors; got: ${stdout()}")
+        assertTrue(stderr().contains("--code-file"), "got:\n${stderr()}")
+    }
 }

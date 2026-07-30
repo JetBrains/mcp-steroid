@@ -94,6 +94,25 @@ class DevrigCommandTest {
     }
 
     @Test
+    fun `--help wins over a command's own required parameters`() {
+        // devrig's help is Clikt's own EAGER help option, so it short-circuits before a required option or
+        // argument is validated. Without that, `devrig install --help` reports "missing argument <agent>"
+        // — help for a command is unreachable exactly when the user needs it most.
+        assertIs<DevrigCommand.DevrigCommandHelp>(command("install", "--help"))
+        assertIs<DevrigCommand.DevrigCommandHelp>(command("install", "-h"))
+        assertIs<DevrigCommand.DevrigCommandHelp>(command("backend", "--help"))
+        assertTrue(assertIs<DevrigCommand.DevrigCommandHelp>(command("--debug", "--help")).debug)
+        assertTrue(assertIs<DevrigCommand.DevrigCommandHelp>(command("--json", "--help")).json)
+    }
+
+    @Test
+    fun `an unknown flag before --help is still a parse error`() {
+        // Token order decides: an unknown option fails while tokens are read, which is before any eager
+        // option runs. Machine callers rely on the 64 exit rather than a help banner and a 0.
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("--bogus", "--help"))
+    }
+
+    @Test
     fun `unknown command returns parse error`() {
         assertIs<DevrigCommand.DevrigCommandParseError>(command("foo"))
         assertIs<DevrigCommand.DevrigCommandParseError>(command("--no-such"))

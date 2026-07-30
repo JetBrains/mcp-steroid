@@ -418,14 +418,30 @@ class SchemaCliBindingTest {
     @Test
     fun `two extra options claiming one flag fail while the command is built`() {
         // Clikt keeps one option per name, so the second registration would silently shadow the first.
+        // Two DIFFERENT names sharing one explicit flag, so this exercises the flag rule alone — with two
+        // identical names it would also trip the name rule below and neither would be isolated.
         val extras = listOf(
-            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "poll until ready"),
-            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "something else"),
+            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "poll until ready", flag = "--hold"),
+            CliExtraOption(name = "linger", type = CliOptionType.BOOLEAN, synopsis = "something else", flag = "--hold"),
         )
 
         val error = assertFailsWith<IllegalArgumentException> { BindingCommand(emptyList(), extras) }
 
-        assertTrue("--wait" in error.message!!, error.message!!)
+        assertTrue("--hold" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `two extra options claiming one name fail while the command is built`() {
+        // The name is the runtime's key into SchemaCliValues.extraOptions, so a duplicate would silently
+        // drop one of the two values instead of shadowing a flag.
+        val extras = listOf(
+            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "poll until ready", flag = "--wait"),
+            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "something else", flag = "--linger"),
+        )
+
+        val error = assertFailsWith<IllegalArgumentException> { BindingCommand(emptyList(), extras) }
+
+        assertTrue("wait" in error.message!!, error.message!!)
     }
 
     @Test
@@ -591,7 +607,7 @@ class SchemaCliBindingTest {
             "--project_path=/tmp/p", "--task_id=t1", "--reason=open", "--wait",
         )
 
-        assertEquals(mapOf("--wait" to true), values.extraOptions)
+        assertEquals(mapOf("wait" to true), values.extraOptions)
         assertEquals(listOf("project_path", "task_id", "reason"), values.arguments.keys.toList())
     }
 
@@ -599,7 +615,7 @@ class SchemaCliBindingTest {
     fun `an absent boolean extra option is false`() {
         val values = bind(openProject(), "--project_path=/tmp/p", "--task_id=t1", "--reason=open")
 
-        assertEquals(mapOf("--wait" to false), values.extraOptions)
+        assertEquals(mapOf("wait" to false), values.extraOptions)
     }
 
     @Test
@@ -608,8 +624,20 @@ class SchemaCliBindingTest {
 
         val values = BindingCommand(emptyList(), listOf(extra)).also { it.parse(listOf("--wait")) }.values
 
-        assertEquals(mapOf("--wait" to true), values.extraOptions)
+        assertEquals(mapOf("wait" to true), values.extraOptions)
         assertTrue(values.arguments.isEmpty(), "got ${values.arguments}")
+    }
+
+    @Test
+    fun `an extra option is keyed by its name, not by its CLI spelling`() {
+        // The runtime indexes this map to decide what to do (poll after open_project, …). Keying it by the
+        // flag would silently break that lookup the moment the flag is respelled, which is exactly why
+        // CliExtraOption carries a name distinct from its flag.
+        val extra = CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "wait for it", flag = "--hold")
+
+        val values = BindingCommand(emptyList(), listOf(extra)).also { it.parse(listOf("--hold")) }.values
+
+        assertEquals(mapOf("wait" to true), values.extraOptions)
     }
 
     // ------------------------------- flag to parameter lookup -------------------------------

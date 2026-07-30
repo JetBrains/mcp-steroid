@@ -52,11 +52,21 @@ data class SchemaCliValues(
      */
     val fileSources: Map<String, String>,
     /**
-     * Tool-scoped [CliExtraOption] values by flag — options the CLI acts on itself (e.g. `--wait`
-     * polling after `open_project` returns) and never sends to the tool.
+     * Tool-scoped [CliExtraOption] values by [CliExtraOption.name] — options the CLI acts on itself (e.g.
+     * `wait` polling after `open_project` returns) and never sends to the tool. Keyed by the name, not by
+     * the CLI spelling: the name is the option's identity, so respelling [CliExtraOption.flag] can never
+     * silently break the runtime's lookup.
      */
     val extraOptions: Map<String, Boolean>,
 )
+
+/**
+ * A required parameter reached [SchemaCliBinding.parsed] with no value in any spelling the CLI accepts.
+ * A distinct type rather than a plain [UsageError] so a command can tell "you left this out" — where the
+ * parameter's own [InputSchemaParamSpec.cliMissingHint] is the better wording — apart from the exclusivity
+ * failure ("you gave both"), which reports the same parameter name but must keep its own message.
+ */
+class MissingCliValue(message: String, paramName: String) : UsageError(message, paramName)
 
 /**
  * Binds one tool's declarative CLI metadata onto a Clikt command, and reads the parsed result back as
@@ -109,7 +119,9 @@ class SchemaCliBinding private constructor(
      * no standard input — a file source contributes its *path*, never its content.
      *
      * Throws [UsageError] for the three requirements Clikt itself cannot express, each derived from the
-     * shape of the declaration and none needing a per-tool rule. Two follow from a
+     * shape of the declaration and none needing a per-tool rule — the two "no value at all" cases as the
+     * more specific [MissingCliValue], so a caller can substitute the curated wording for exactly those.
+     * Two follow from a
      * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] being a second source for one value: both forms given at
      * once, and neither form given for a parameter the tool requires — the latter is what makes "one of the
      * two" mandatory, because a required parameter offering a file source is `cliOptional` by construction
@@ -134,13 +146,13 @@ class SchemaCliBinding private constructor(
                     "give either ${spec.cliParamName} or ${fileSource.flag} for '${spec.name}', not both",
                     paramName = spec.cliParamName,
                 )
-                if (value == null && path == null && spec.required) throw UsageError(
+                if (value == null && path == null && spec.required) throw MissingCliValue(
                     "'${spec.name}' is required: pass ${spec.cliParamName} or ${fileSource.flag}",
                     paramName = spec.cliParamName,
                 )
             }
             val negativeFlag = spec.negativeCliFlag
-            if (negativeFlag != null && spec.cliRequired && value == null) throw UsageError(
+            if (negativeFlag != null && spec.cliRequired && value == null) throw MissingCliValue(
                 "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
                 paramName = spec.cliParamName,
             )
@@ -150,7 +162,7 @@ class SchemaCliBinding private constructor(
         return SchemaCliValues(
             arguments = JsonObject(arguments),
             fileSources = fileSources,
-            extraOptions = extras.associate { it.option.flag to it.value() },
+            extraOptions = extras.associate { it.option.name to it.value() },
         )
     }
 
@@ -215,7 +227,11 @@ private fun cliNames(
         spec.negativeCliFlag?.let { claim(it, "the negative flag of '${spec.name}'", spec) }
         spec.cliFileSource?.let { claim(it.flag, "the file source of '${spec.name}'", spec) }
     }
-    for (extra in extraOptions) claim(extra.flag, "extra option '${extra.flag}'", null)
+    for (extra in extraOptions) claim(extra.flag, "extra option '${extra.name}'", null)
+    // A second namespace, checked separately: SchemaCliValues.extraOptions is keyed by name, so two extras
+    // sharing a name would drop one value silently even when their flags differ.
+    val extraNames = extraOptions.groupBy { it.name }.filterValues { it.size > 1 }.keys
+    require(extraNames.isEmpty()) { "extra option name(s) declared more than once: $extraNames" }
     return specs
 }
 

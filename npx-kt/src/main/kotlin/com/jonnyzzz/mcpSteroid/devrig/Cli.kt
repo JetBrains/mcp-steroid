@@ -3,15 +3,23 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
+import com.github.ajalt.clikt.core.MissingArgument
+import com.github.ajalt.clikt.core.MissingOption
+import com.github.ajalt.clikt.core.MultiUsageError
+import com.github.ajalt.clikt.core.PrintHelpMessage
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.options.eagerOption
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.path
 import com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
+import java.nio.file.Path
+import kotlinx.serialization.json.JsonObject
 
 const val NO_BACKENDS_DETECTED_MESSAGE: String = "No backends detected."
 
@@ -115,6 +123,34 @@ sealed interface DevrigCommand {
         override val json: Boolean = false,
     ) : DevrigCommand
 
+    /**
+     * A parsed but inert tool invocation, produced by the generated [SchemaToolCliCommand] for one
+     * `steroid_*` tool. Clikt has routed, tokenized and typed everything, and nothing has executed:
+     * parsing touches no handler, service or backend. The runtime resolves the live tool spec by
+     * [toolName] and calls it; [commandName] is the CLI command the user invoked, echoed into the `--json`
+     * envelope.
+     *
+     * Plain data only — no service, no `Presentation`, no handler-bound spec:
+     *  - [arguments] is the tool call itself, already typed;
+     *  - [fileSources] maps a parameter name to the path (or `-` for standard input) its declared
+     *    [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] flag was given; reading it is runtime work, so the
+     *    parse phase deliberately carries the path only;
+     *  - [extraOptions] holds the tool-scoped options the CLI acts on itself, by
+     *    [com.jonnyzzz.mcpSteroid.mcp.CliExtraOption.name], and never reaches the tool;
+     *  - [out] is the framework `--out` path, applied to the image in the RESULT (see [renderWithOut]),
+     *    never a tool argument.
+     */
+    data class RunTool(
+        val toolName: String,
+        val commandName: String,
+        val arguments: JsonObject = JsonObject(emptyMap()),
+        val fileSources: Map<String, String> = emptyMap(),
+        val extraOptions: Map<String, Boolean> = emptyMap(),
+        val out: Path? = null,
+        override val debug: Boolean = false,
+        override val json: Boolean = false,
+    ) : DevrigCommand
+
     data class DevrigCommandHelp(
         override val debug: Boolean = false,
         override val json: Boolean = false,
@@ -127,6 +163,8 @@ sealed interface DevrigCommand {
 
     data class DevrigCommandParseError(
         val text: String,
+        /** The subcommand the invocation was aiming at (see [recoverCommandName]); `devrig` when none. */
+        val commandName: String = "devrig",
         override val debug: Boolean = false,
         override val json: Boolean = false,
     ) : DevrigCommand
@@ -138,22 +176,103 @@ fun parseDevrigCommand(rawArgs: Array<String>): DevrigCommand {
     return try {
         root.parse(rawArgs)
         selected.command ?: DevrigCommand.DevrigCommandHelp()
+    } catch (e: PrintHelpMessage) {
+        // Help was asked for, by the eager `-h`/`--help` every command registers. devrig prints its own
+        // banner, so nothing but the request itself is read from the exception — except `error = true`,
+        // which is Clikt reporting a usage failure BY printing help, and stays a usage failure here.
+        if (e.error) parseError(root, e, rawArgs)
+        else DevrigCommand.DevrigCommandHelp(debug = rawArgs.debugRequested(), json = rawArgs.jsonRequested())
     } catch (e: CliktError) {
-        DevrigCommand.DevrigCommandParseError(root.getFormattedHelp(e) ?: e.message ?: "Invalid arguments")
+        parseError(root, e, rawArgs)
     }
 }
 
-private class SelectedDevrigCommand {
+private fun parseError(
+    root: DevrigRootCommand,
+    e: CliktError,
+    rawArgs: Array<String>,
+): DevrigCommand.DevrigCommandParseError {
+    val reported = (e as? UsageError)?.withCuratedMissingHints() ?: e
+    return DevrigCommand.DevrigCommandParseError(
+        text = root.getFormattedHelp(reported) ?: reported.message ?: "Invalid arguments",
+        commandName = recoverCommandName(rawArgs, root.subcommandTokens()),
+    )
+}
+
+/**
+ * Substitutes a parameter's own [com.jonnyzzz.mcpSteroid.mcp.InputSchemaParamSpec.cliMissingHint] — a
+ * runnable example, or where to obtain the value — for the default "missing option" wording, and leaves
+ * every other failure untouched: a rejected VALUE (`--modal=bogus`) must keep the message that explains
+ * what was wrong with it.
+ *
+ * One lookup covers both sources of a missing value, because both key on the same name: Clikt's own
+ * [MissingOption] / [MissingArgument] (which expose nothing but `paramName`) and the [MissingCliValue] the
+ * schema binding raises for a parameter whose value may arrive in more than one spelling. A
+ * [MultiUsageError] is rebuilt from its curated parts so a first run that omits several parameters gets a
+ * hint for each.
+ */
+private fun UsageError.withCuratedMissingHints(): UsageError {
+    val command = context?.command as? SchemaToolCliCommand ?: return this
+    return withCuratedMissingHints(command)
+}
+
+private fun UsageError.withCuratedMissingHints(command: SchemaToolCliCommand): UsageError {
+    if (this is MultiUsageError) {
+        return MultiUsageError(errors.map { it.withCuratedMissingHints(command) }).also { it.context = context }
+    }
+    if (this !is MissingOption && this !is MissingArgument && this !is MissingCliValue) return this
+    val name = paramName ?: return this
+    val hint = command.missingHintFor(name) ?: return this
+    return UsageError(hint, paramName = name).also { it.context = context }
+}
+
+/**
+ * Every subcommand token the command tree accepts, at any depth, aliases included. Derived from what is
+ * actually registered rather than from a written-down list, so a newly added tool cannot leave
+ * [recoverCommandName] stale.
+ */
+fun CliktCommand.subcommandTokens(): Set<String> =
+    aliases().keys + registeredSubcommands().flatMap { setOf(it.commandName) + it.subcommandTokens() }
+
+/**
+ * The subcommand a failed invocation was aiming at. A [CliktError] aborts before any command's flags are
+ * captured, so this reads the raw tokens: the first token that names a known subcommand ([tokens]), else
+ * the first non-flag token (which covers an unknown command such as `devrig frobnicate`), else `devrig`
+ * itself. Reliable because devrig's grammar is subcommand-first and every flag that may precede a
+ * subcommand is boolean, so an option VALUE can never be mistaken for the command name.
+ */
+fun recoverCommandName(rawArgs: Array<String>, tokens: Set<String>): String =
+    rawArgs.firstOrNull { it in tokens } ?: rawArgs.firstOrNull { !it.startsWith("-") } ?: "devrig"
+
+/**
+ * `--debug` / `--json` read straight off the raw tokens. Needed only where no Clikt option delegate can be
+ * read: an eager `--help` fires before the other options are finalized, and a parse failure can abort
+ * before they are seen at all. Exact token matches are enough because both are boolean flags accepted at
+ * every command level, so neither can appear as another option's value.
+ */
+private fun Array<String>.debugRequested(): Boolean = devrigDebugEnvEnabled() || any { it == "--debug" }
+
+private fun Array<String>.jsonRequested(): Boolean = any { it == "--json" }
+
+/**
+ * DEVRIG_DEBUG — the env var that also makes the launcher attach a JDWP agent — additionally turns on full
+ * debug mode for every command, identical to passing `--debug`, so the verbose DEBUG logs that explain a
+ * debugging session are emitted without also having to pass the flag.
+ */
+private fun devrigDebugEnvEnabled(): Boolean = !System.getenv("DEVRIG_DEBUG").isNullOrBlank()
+
+class SelectedDevrigCommand {
     var command: DevrigCommand? = null
 }
 
-private data class GenericOptions(
+data class GenericOptions(
     val debug: Boolean,
     val json: Boolean,
-    val help: Boolean,
+    /** The `--out` path, or null when the flag was not given; see [renderWithOut]. */
+    val out: Path?,
 )
 
-private abstract class DevrigCliktCommand(
+abstract class DevrigCliktCommand(
     name: String,
     private val selected: SelectedDevrigCommand,
     private val parent: DevrigCliktCommand?,
@@ -164,40 +283,55 @@ private abstract class DevrigCliktCommand(
     invokeWithoutSubcommand = invokeWithoutSubcommand,
     hidden = hidden,
 ) {
-    // DEVRIG_DEBUG (the env var that also makes the launcher attach a JDWP agent) additionally turns on
-    // full debug mode for every command — identical to passing --debug — so the verbose DEBUG logs that
-    // explain a debugging session are emitted without also having to pass the flag.
-    private val devrigDebugEnv = !System.getenv("DEVRIG_DEBUG").isNullOrBlank()
     private val debugFlag by option("--debug", help = "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)").flag()
     private val jsonFlag by option("--json", help = "emit JSON output where supported").flag()
-    private val helpFlag by option("--help", "-h", help = "print help and exit").flag()
+
+    /**
+     * A devrig framework flag, beside `--json`, accepted on every subcommand and never a tool parameter:
+     * it redirects the image a tool RESULT carries to a caller-chosen path. The behavior lives in
+     * [renderWithOut]; this is only the declaration.
+     */
+    private val outFlag by option(
+        "--out",
+        help = "write the image the command returns to this path instead of the devrig temp dir",
+        metavar = "PATH",
+    ).path(canBeDir = false)
 
     init {
-        context {
-            helpOptionNames = emptySet()
+        context { helpOptionNames = emptySet() }
+        // Help is EAGER, which is what makes it win over a required parameter: Clikt finalizes eager
+        // options before it validates that every required option and argument was supplied, so
+        // `devrig execute_code --help` and `devrig install --help` print help instead of "missing …".
+        // It must NOT win over an error already found in the tokens themselves (`devrig --bogus --help`):
+        // Clikt collects such an error and keeps parsing to gather more, so returning normally here lets it
+        // surface as the usage failure it is, rather than answering a typo with a help banner and exit 0.
+        // Registered here rather than left to Clikt's own default help option, which cannot make that
+        // distinction.
+        eagerOption("--help", "-h", help = "print help and exit") {
+            if (!context.errorEncountered) throw PrintHelpMessage(context)
         }
     }
 
     protected fun options(): GenericOptions {
         val parentOptions = parent?.options()
         return GenericOptions(
-            debug = debugFlag || parentOptions?.debug == true || devrigDebugEnv,
+            debug = debugFlag || parentOptions?.debug == true || devrigDebugEnvEnabled(),
             json = jsonFlag || parentOptions?.json == true,
-            help = helpFlag || parentOptions?.help == true,
+            out = outFlag ?: parentOptions?.out,
         )
     }
 
     protected fun select(command: DevrigCommand) {
-        val options = options()
-        selected.command = if (options.help) {
-            DevrigCommand.DevrigCommandHelp(debug = options.debug, json = options.json)
-        } else {
-            command
-        }
+        selected.command = command
     }
 }
 
-private class DevrigRootCommand(
+/**
+ * devrig's root command. Its subcommands are the hand-written lifecycle verbs plus ONE generated command
+ * per CLI-visible `steroid_*` tool ([schemaToolCliCommands]): adding a tool to `devrigToolSpecs(...)` adds
+ * its `devrig <tool>` subcommand here — no command class, no dispatch arm, no name list.
+ */
+class DevrigRootCommand(
     selected: SelectedDevrigCommand,
 ) : DevrigCliktCommand(
     name = "devrig",
@@ -206,6 +340,8 @@ private class DevrigRootCommand(
     invokeWithoutSubcommand = true,
 ) {
     private val versionFlag by option("--version", "-v", help = "print the devrig version and exit").flag()
+
+    private val tools = devrigCliTools()
 
     init {
         val backend = BackendCommand(selected, this)
@@ -218,10 +354,27 @@ private class DevrigRootCommand(
             backend,
             ProjectCommand(selected, this),
             InstallCommand(selected, this),
+            *schemaToolCliCommands(selected, this, tools).toTypedArray(),
             HelpCommand(selected, this),
             VersionCommand(selected, this),
         )
+        // Clikt resolves a token to one command (`associateBy { it.commandName }`) and expands an alias
+        // only when no subcommand claims the token, so a duplicate would silently shadow rather than fail.
+        val tokens = registeredSubcommandNames() + aliases().keys
+        val duplicates = tokens.groupBy { it }.filterValues { it.size > 1 }.keys
+        require(duplicates.isEmpty()) { "devrig subcommand token(s) declared more than once: $duplicates" }
     }
+
+    /**
+     * The alias tokens the tools declare ([com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.aliases]), expanded to
+     * the canonical command. Clikt's own alias expansion is used deliberately: the alias reaches the SAME
+     * generated command, so there is exactly one grammar per tool and an alias cannot drift into a second
+     * one of its own.
+     */
+    override fun aliases(): Map<String, List<String>> = tools
+        .filterNot { it.cli.hidden }
+        .flatMap { spec -> spec.cli.aliases.map { alias -> alias to listOf(spec.cli.name) } }
+        .toMap()
 
     override fun run() {
         val options = options()
@@ -415,6 +568,9 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
     return try {
         when (command) {
             is DevrigCommand.MCP -> error("runCli called with DevrigCommand.MCP")
+            // Parsing and running are separate lifecycle phases; the runtime that calls the tool behind a
+            // generated command is wired in its own layer, not here.
+            is DevrigCommand.RunTool -> error("no runtime is wired for the generated '${command.commandName}' command")
             is DevrigCommand.DevrigCommandHelp -> printHelp(mcpStdout)
             is DevrigCommand.DevrigCommandVersion -> printVersion(mcpStdout)
             is DevrigCommand.DevrigCommandParseError -> {

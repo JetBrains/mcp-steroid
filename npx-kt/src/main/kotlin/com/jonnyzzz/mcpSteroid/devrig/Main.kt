@@ -227,6 +227,7 @@ private fun DevrigCommand.runsTool(): Boolean = when (this) {
     is DevrigCommand.DevrigCommandInstall,
     is DevrigCommand.DevrigCommandInstallDevrig,
     is DevrigCommand.DevrigCommandInstallPlugin -> true
+    is DevrigCommand.RunTool -> true
     is DevrigCommand.DevrigCommandInstallOverview,
     is DevrigCommand.DevrigCommandInstallConfig,
     is DevrigCommand.DevrigCommandHelp,
@@ -241,12 +242,12 @@ private fun DevrigCommand.runsTool(): Boolean = when (this) {
  * just to forward one bridge call (Tenet 3: devrig is stateless) — unlike the interactive
  * `project` / `backend` / `install` listings.
  *
- * No variant matches yet: the generated tool-command variant lands in a later task. Written as an
- * exhaustive `when` over every current [DevrigCommand] case (rather than an `is` check against a
- * variant that does not exist) so adding that variant is a one-line change forced by the compiler,
- * never a silently-stale predicate.
+ * Written as an exhaustive `when` over every [DevrigCommand] case (rather than a single `is` check) so a
+ * new variant must be classified deliberately, forced by the compiler, and never becomes a silently-stale
+ * predicate.
  */
 private fun DevrigCommand.isMcpAsCliToolCommand(): Boolean = when (this) {
+    is DevrigCommand.RunTool -> true
     is DevrigCommand.MCP,
     is DevrigCommand.DevrigCommandBackend,
     is DevrigCommand.DevrigCommandBackendDownload,

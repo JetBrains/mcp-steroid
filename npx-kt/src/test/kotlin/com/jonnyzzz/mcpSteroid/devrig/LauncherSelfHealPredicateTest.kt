@@ -6,13 +6,11 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Pins [selfHealsLauncherOnStart] and [printsHeadliner] across every [DevrigCommand] variant that
- * exists today. None of them are the MCP-as-CLI tool facade yet (that variant, `RunTool`, lands in a
- * later task) — so every variant self-heals, preserving today's unconditional `ensureBinLauncher(...)`
- * call in [mainImpl2]. When `RunTool` is added, the compiler forces `isMcpAsCliToolCommand` to classify
- * it (an exhaustive `when` with no `else`), and `every existing DevrigCommand variant self-heals the
- * launcher on start` will start failing for that one new variant until the exclusion is added
- * deliberately.
+ * Pins [selfHealsLauncherOnStart] and [printsHeadliner] across every [DevrigCommand] variant.
+ * [DevrigCommand.RunTool] — the generated MCP-as-CLI tool facade — is the one variant that must NOT
+ * self-heal the launcher and must never print the headliner: it is a thin, stateless bridge forwarder
+ * whose stdout has to stay pipeable (Tenet 3). Every other variant self-heals, preserving the behavior
+ * of the unconditional `ensureBinLauncher(...)` call [mainImpl2] used to make.
  *
  * [printsHeadliner] is covered here too (not with a `debug`/`json`-toggling helper that changes
  * nothing, the way an earlier version of this test toggled both flags against a predicate that reads
@@ -20,6 +18,8 @@ import kotlin.test.assertTrue
  * so the tests below assert the value flips with it.
  */
 class LauncherSelfHealPredicateTest {
+
+    private val runTool = DevrigCommand.RunTool(toolName = "steroid_list_windows", commandName = "list_windows")
 
     private val everyCommand: List<DevrigCommand> = listOf(
         DevrigCommand.MCP(),
@@ -52,13 +52,19 @@ class LauncherSelfHealPredicateTest {
         DevrigCommand.DevrigCommandHelp(),
         DevrigCommand.DevrigCommandVersion(),
         DevrigCommand.DevrigCommandParseError(text = "bad args"),
+        runTool,
     )
 
     @Test
-    fun `every existing DevrigCommand variant self-heals the launcher on start`() {
+    fun `every DevrigCommand variant except the generated tool facade self-heals the launcher on start`() {
         for (command in everyCommand) {
             assertTrue(command.selfHealsLauncherOnStart(), "expected $command to self-heal the launcher")
         }
+    }
+
+    @Test
+    fun `the generated tool facade never self-heals the launcher`() {
+        assertTrue(!runTool.selfHealsLauncherOnStart(), "a stateless tool facade must not mutate launcher state")
     }
 
     @Test
@@ -70,7 +76,7 @@ class LauncherSelfHealPredicateTest {
     }
 
     @Test
-    fun `MCP, help, version and parse-error commands never print the headliner, json or not`() {
+    fun `MCP, help, version, parse-error and generated tool commands never print the headliner, json or not`() {
         for (command in neverHeadlinedCommands) {
             assertTrue(!withJson(command, json = false).printsHeadliner(), "expected $command to never print the headliner")
             assertTrue(!withJson(command, json = true).printsHeadliner(), "expected $command to never print the headliner")
@@ -90,5 +96,6 @@ class LauncherSelfHealPredicateTest {
         is DevrigCommand.DevrigCommandHelp -> command.copy(json = json)
         is DevrigCommand.DevrigCommandVersion -> command.copy(json = json)
         is DevrigCommand.DevrigCommandParseError -> command.copy(json = json)
+        is DevrigCommand.RunTool -> command.copy(json = json)
     }
 }
