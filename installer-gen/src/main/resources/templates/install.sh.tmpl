@@ -7,7 +7,7 @@
 # Every URL + SHA-256 for every supported platform is baked in below; the script
 # performs NO live discovery (no GitHub API, no corretto.aws lookups). It downloads
 # devrig + a matching JDK 25, verifies SHA-256, unpacks verbatim under
-# ~/.mcp-steroid/binaries/<artifact>-<os>-<cpu>-<version>-<sha12>/, and writes a
+# ~/.mcp-steroid/binaries/<artifact>-<os>-<cpu>-<artifact-version>-<sha12>/, and writes a
 # launcher into ~/.mcp-steroid/bin/devrig. ALL output to stderr (MCP stdio rule).
 # The whole body runs through main(), invoked on the last line, so a truncated
 # `curl | sh` transfer can never execute a partial script.
@@ -43,11 +43,13 @@ promote_tree() {
   fi
 }
 
-# install_artifact <kind> <url> <sha256> <format>  -> prints the target dir on stdout
+# install_artifact <kind> <url> <sha256> <format> <version>  -> prints the target dir on stdout
+# <version> is the artifact's OWN version (devrig: $VERSION; jdk: the vendor JDK version) - the
+# install dir must not carry the devrig version for the JDK (jonnyzzz/mcp-steroid#362).
 install_artifact() {
-  ia_kind="$1"; ia_url="$2"; ia_sha="$3"; ia_fmt="$4"
+  ia_kind="$1"; ia_url="$2"; ia_sha="$3"; ia_fmt="$4"; ia_version="$5"
   ia_sha12=$(printf '%s' "$ia_sha" | cut -c1-12)
-  ia_target="$BINARIES_DIR/${ia_kind}-${key}-${VERSION}-${ia_sha12}"
+  ia_target="$BINARIES_DIR/${ia_kind}-${key}-${ia_version}-${ia_sha12}"
   if [ -d "$ia_target" ]; then
     log "already installed: ${ia_target##*/}"
     printf '%s\n' "$ia_target"; return 0
@@ -107,7 +109,7 @@ main() {
   fi
 
   # -- BAKED-IN per-platform JDK table (devrig coordinates are universal, set above) --
-  jdk_url=''; jdk_sha256=''; jdk_format=''; jdk_javahome=''
+  jdk_url=''; jdk_sha256=''; jdk_format=''; jdk_javahome=''; jdk_version=''
   case "$key" in
 @@PLATFORM_CASE_SH@@
     macos-x64) fail "Intel macOS (x86_64) is not supported - MCP Steroid ships an Apple-silicon (arm64) JDK only. Use an arm64 Mac." ;;
@@ -155,8 +157,8 @@ main() {
   find "$BINARIES_DIR" -maxdepth 1 -name '.tmp.*' -mtime +0 -exec rm -rf {} + 2>/dev/null \
     || log "WARNING: could not sweep stale .tmp.* entries"
 
-  devrig_target=$(install_artifact devrig "$DEVRIG_URL" "$DEVRIG_SHA256" "$DEVRIG_FORMAT")
-  jdk_target=$(install_artifact jdk "$jdk_url" "$jdk_sha256" "$jdk_format")
+  devrig_target=$(install_artifact devrig "$DEVRIG_URL" "$DEVRIG_SHA256" "$DEVRIG_FORMAT" "$VERSION")
+  jdk_target=$(install_artifact jdk "$jdk_url" "$jdk_sha256" "$jdk_format" "$jdk_version")
 
   # -- locate the unpacked launcher + the bundled JAVA_HOME --
   # DEVRIG_BINSUB is the generator-computed, asserted subpath (devrig-<version>-<hash>/bin/devrig).
