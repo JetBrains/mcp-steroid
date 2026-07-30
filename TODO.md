@@ -1,5 +1,14 @@
 # TODO
 
+- [ ] **BuildFetch remote cache — finish TeamCity provisioning.** The Gradle side
+  (settings.gradle.kts), GH Actions secret + workflow wiring shipped 2026-07-30; local
+  verification confirmed store + FROM-CACHE load against cache.eu-central-a.buildfetch.com.
+  Remaining: store the token as a secure value in TC project `mcp_steroid`
+  (`POST /app/rest/projects/id:mcp_steroid/secure/tokens` — needs EDIT_PROJECT, the current
+  jb-cli PAT is scoped too narrow), then in `~/Work/mcp-steroid-teamcity` swap the placeholder
+  UUID in `.teamcity/utils/Tokens.kt` (`BUILDFETCH_GRADLE_CACHE_TOKEN_REF`), regenerate, diff,
+  commit, push. DSL change is prepared locally + validated (diff = one project-level param).
+
 - [ ] **Native MCP tools — implement per `docs/native-mcp-tools-design.md`** (spec landed first;
   research 3×-quorum validated + live-tested on IU-261.25134.95, 2026-07-22):
   - [ ] Scenario B (chosen first step): `IntelliJMcpServerProbe.listNativeTools()` (+ drop the
