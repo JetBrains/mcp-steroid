@@ -24,6 +24,13 @@ const val INSTALLER_HOME_DIR = "/home/tester one"
 /** Constant baked into the generated scripts + into the content-addressed dir names the tests probe. */
 const val INSTALLER_TEST_VERSION = "0.0.0-test"
 
+/**
+ * Vendor-native JDK version baked into the synthetic model — deliberately DIFFERENT from
+ * [INSTALLER_TEST_VERSION] so the tests prove the JDK install dir is named by the JDK's own version,
+ * not the devrig version (jonnyzzz/mcp-steroid#362).
+ */
+const val INSTALLER_TEST_JDK_VERSION = "25.0.7.7.7"
+
 fun sha256(file: File): String {
     val md = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { ins ->

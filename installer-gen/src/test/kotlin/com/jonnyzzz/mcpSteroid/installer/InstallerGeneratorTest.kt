@@ -55,10 +55,20 @@ class InstallerGeneratorTest {
 
     @Test
     fun `validateScriptTable rejects a non-hex sha256 and an absolute javaHome`() {
-        val badSha = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "ZZZ", "zip", "h") }.toTypedArray())
+        val badSha = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "ZZZ", "zip", "h", "25.0.3") }.toTypedArray())
         assertFailsWith<IllegalArgumentException> { validateScriptTable(badSha) }
-        val absHome = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "a".repeat(64), "zip", "/abs") }.toTypedArray())
+        val absHome = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "a".repeat(64), "zip", "/abs", "25.0.3") }.toTypedArray())
         assertFailsWith<IllegalArgumentException> { validateScriptTable(absHome) }
+    }
+
+    @Test
+    fun `validateScriptTable rejects a blank or path-unsafe jdk version`() {
+        // The version becomes a path segment of the install dir (jdk-<key>-<version>-<sha12>) — a blank
+        // value or one carrying a path separator would corrupt the folder layout.
+        for (bad in listOf("", "25.0.3/evil", "25 0 3")) {
+            val table = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "a".repeat(64), "zip", "h", bad) }.toTypedArray())
+            assertFailsWith<IllegalArgumentException>("version '$bad' must be rejected") { validateScriptTable(table) }
+        }
     }
 
     // ── render pipeline: scripts bake the table + carry the musl guard, no leftover placeholders ─
@@ -82,6 +92,10 @@ class InstallerGeneratorTest {
         listOf("macos-arm64)", "linux-arm64)", "linux-x64)").forEach {
             assertTrue(scripts.sh.contains(it), "install.sh missing arm $it")
         }
+        // The JDK's own (vendor-native) version is baked per platform — the install dir is named by it,
+        // not by the devrig VERSION (jonnyzzz/mcp-steroid#362).
+        assertTrue(scripts.sh.contains("jdk_version='25.0.3.9.1'"), "install.sh missing baked jdk_version")
+        assertTrue(scripts.ps.contains("JdkVersion = '25.0.3.9.1'"), "install.ps1 missing baked JdkVersion")
         assertTrue(scripts.sh.contains("musl libc (Alpine) is not supported"), "install.sh missing musl guard")
         assertTrue(scripts.sh.contains("DEVRIG_BINSUB='devrig-1.0-abc1234/bin/devrig'"), "install.sh missing computed binsub")
         assertTrue(scripts.sh.contains("install devrig --install-script="), "install.sh must delegate to 'devrig install devrig'")
@@ -98,6 +112,44 @@ class InstallerGeneratorTest {
         assertTrue(
             scripts.ps.contains("\$ProgressPreference = 'SilentlyContinue'"),
             "install.ps1 must silence \$ProgressPreference so Invoke-WebRequest + Expand-Archive stay fast",
+        )
+    }
+
+    @Test
+    fun `install dirs are named by each artifact's own version - jdk folder carries the JDK version`() {
+        // jonnyzzz/mcp-steroid#362: the JDK used to unpack into jdk-<key>-<DEVRIG VERSION>-<sha12>. Both
+        // scripts must thread a per-artifact version into the install-dir name: $VERSION for devrig, the
+        // baked vendor-native JDK version for the JDK.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        // install.sh: the target dir uses the helper's per-artifact version argument, never $VERSION.
+        assertTrue(
+            scripts.sh.contains("ia_target=\"\$BINARIES_DIR/\${ia_kind}-\${key}-\${ia_version}-\${ia_sha12}\""),
+            "install.sh must name the install dir by the per-artifact ia_version",
+        )
+        assertTrue(!scripts.sh.contains("\${ia_kind}-\${key}-\${VERSION}"), "install.sh must not name install dirs by the devrig VERSION")
+        assertTrue(
+            scripts.sh.contains("install_artifact jdk \"\$jdk_url\" \"\$jdk_sha256\" \"\$jdk_format\" \"\$jdk_version\""),
+            "install.sh must pass the baked jdk_version to install_artifact",
+        )
+        assertTrue(
+            scripts.sh.contains("install_artifact devrig \"\$DEVRIG_URL\" \"\$DEVRIG_SHA256\" \"\$DEVRIG_FORMAT\" \"\$VERSION\""),
+            "install.sh must pass the devrig VERSION to install_artifact",
+        )
+
+        // install.ps1: same split — $Version for devrig, $p.JdkVersion for the JDK.
+        assertTrue(
+            scripts.ps.contains("\$name   = \"\$kind-\$key-\$ver-\$sha12\""),
+            "install.ps1 must name the install dir by the per-artifact \$ver parameter",
+        )
+        assertTrue(!scripts.ps.contains("\"\$kind-\$key-\$Version-\$sha12\""), "install.ps1 must not name install dirs by the devrig \$Version")
+        assertTrue(
+            scripts.ps.contains("Install-Artifact 'jdk'    \$p.JdkUrl  \$p.JdkSha256  \$p.JdkFormat \$p.JdkVersion"),
+            "install.ps1 must pass the baked JdkVersion to Install-Artifact",
+        )
+        assertTrue(
+            scripts.ps.contains("Install-Artifact 'devrig' \$DevrigUrl \$DevrigSha256 \$DevrigFormat \$Version"),
+            "install.ps1 must pass the devrig \$Version to Install-Artifact",
         )
     }
 
