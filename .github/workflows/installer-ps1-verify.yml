@@ -24,6 +24,10 @@ concurrency:
 # Opt JavaScript actions onto Node 24 to match the repo's other workflows.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # BuildFetch remote Gradle build cache (settings.gradle.kts). Gradle runs directly
+  # on the runner here, so a workflow-level env var reaches it; CI=true (set by GH)
+  # makes these runs cache writers. Empty on fork PRs → remote cache disables itself.
+  BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN: ${{ secrets.BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN }}
 
 jobs:
   linux-docker:

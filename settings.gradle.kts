@@ -9,6 +9,37 @@ plugins {
 
 rootProject.name = "mcp-steroid"
 
+// Remote Gradle build cache — https://buildfetch.com/ — shared by GitHub Actions,
+// TeamCity, and developer machines. `org.gradle.caching=true` (gradle.properties)
+// switches caching on; this block only adds the remote node on top of the local one.
+//
+// Token: set BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN as an env var (CI) or in
+// ~/.gradle/gradle.properties (best for mixed IDE & terminal use). Without a
+// token the remote node stays disabled and builds fall back to the local cache
+// only — contributors without credentials are never blocked.
+buildCache {
+    remote<HttpBuildCache> {
+        url = uri("https://cache.eu-central-a.buildfetch.com/pOImKP/gradle/")
+
+        credentials {
+            username = "token-auth"
+            // `takeIf isNotBlank`: on GH Actions, `${{ secrets.X }}` in a fork PR
+            // resolves to an EMPTY string (not unset) — a blank password must mean
+            // "no remote cache", not "authenticate with empty credentials".
+            password = "BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN".let {
+                providers.environmentVariable(it).orElse(providers.gradleProperty(it)).orNull
+            }?.takeIf { it.isNotBlank() }
+        }
+
+        // BuildFetch recommends cache writes from CI only (reproducible environment).
+        // GitHub Actions sets CI=true; TeamCity sets TEAMCITY_VERSION but not CI.
+        isPush = providers.environmentVariable("CI").isPresent ||
+                providers.environmentVariable("TEAMCITY_VERSION").isPresent
+
+        isEnabled = credentials.password != null
+    }
+}
+
 // On Windows hosts: pre-materialize the bundled 7-Zip Windows binaries before any
 // project is configured, so LocalIdeProvisioner's config-phase .exe unpack has the
 // extractor on disk via SevenZipLocator's system-property hook. Mac/Linux config

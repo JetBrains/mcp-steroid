@@ -100,6 +100,9 @@ jobs:
         # buildNumberPattern; here we set it explicitly from the upstream job.
         env:
           BUILD_NUMBER: ${{ needs.build-number.outputs.version }}
+          # BuildFetch remote Gradle build cache (settings.gradle.kts). `-e CI` forwards
+          # the runner's CI=true into the container so the run is a cache writer.
+          BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN: ${{ secrets.BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/.gradle-home"
@@ -108,6 +111,8 @@ jobs:
             -e HOME=/tmp \
             -e GRADLE_USER_HOME=/build/.gradle-home \
             -e BUILD_NUMBER \
+            -e BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN \
+            -e CI \
             -v "$GITHUB_WORKSPACE:/build" \
             -w /build \
             mcp-steroid-build:ci \

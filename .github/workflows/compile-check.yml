@@ -56,6 +56,11 @@ jobs:
         # compileAllClasses (defined in the root build.gradle.kts) depends on the per-source-set
         # `*Classes` lifecycle task of every module, so this fails on the first compilation error
         # anywhere — production, test, or auxiliary (integrationTest/tartTest) code.
+        env:
+          # BuildFetch remote Gradle build cache (settings.gradle.kts). `-e CI` forwards
+          # the runner's CI=true into the container so the run is a cache writer. On fork
+          # PRs the secret resolves to an empty string and the remote cache disables itself.
+          BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN: ${{ secrets.BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/.gradle-home"
@@ -63,6 +68,8 @@ jobs:
             -u "$(id -u):$(id -g)" \
             -e HOME=/tmp \
             -e GRADLE_USER_HOME=/build/.gradle-home \
+            -e BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN \
+            -e CI \
             -v "$GITHUB_WORKSPACE:/build" \
             -w /build \
             mcp-steroid-build:ci \
