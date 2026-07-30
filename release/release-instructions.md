@@ -272,6 +272,13 @@ appropriately — jb doesn't use GitHub Pages, so accept jb's deletion.
 
 Or via IntelliJ MCP (`steroid_execute_code`) with a Gradle run configuration.
 
+**Release builds use no build cache.** `-Pmcp.release.build=true` automatically
+disables the Gradle build cache — both the local directory cache and the
+BuildFetch remote node (enforced in `settings.gradle.kts`, no `--no-build-cache`
+flag needed). Every artifact in the release ZIPs is compiled from source by this
+very invocation; nothing is assembled from cache entries. Expect the build to
+take correspondingly longer than a regular dev build.
+
 The resulting plugin ZIP is in `ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip`.
 The devrig CLI ZIP is in `npx-kt/build/distributions/devrig-<version>-<gitHash>.zip`.
 The `<gitHash>` must match the current HEAD (the version bump commit) for both — building

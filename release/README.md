@@ -25,7 +25,9 @@ For a quick release without the full Docker build matrix, use Claude Code agents
 1. **Bump version**: Edit `VERSION` in both main repo root and `website/VERSION`, commit both.
 2. **Collect release notes**: Write `release/notes/<version>.md`.
 3. **Build**: `./gradlew clean :ij-plugin:buildPlugin :npx-kt:distZip -Pmcp.release.build=true -Pmcp.release.notes.version=<version> -x :test-integration:test`
-   (builds the plugin zip **and** the devrig CLI zip `npx-kt/build/distributions/devrig-<version>-<gitHash>.zip` from the same commit)
+   (builds the plugin zip **and** the devrig CLI zip `npx-kt/build/distributions/devrig-<version>-<gitHash>.zip` from the same commit).
+   `-Pmcp.release.build=true` also disables the Gradle build cache (local + BuildFetch remote,
+   enforced in `settings.gradle.kts`) — release artifacts are always compiled from source.
 4. **Publish to GitHub** (on the public repo `jonnyzzz/mcp-steroid`):
    ```bash
    # Create release targeting the public repo commit

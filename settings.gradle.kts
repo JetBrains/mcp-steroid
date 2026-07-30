@@ -21,7 +21,22 @@ rootProject.name = "mcp-steroid"
 //     read-only (2026-07-30): the server 200-ACKs its pushes but discards them.
 // On CI (CI / TEAMCITY_VERSION env present) there is NO public fallback — CI
 // either authenticates with its read-write secret or runs without the remote node.
+//
+// RELEASE BUILDS USE NO CACHE AT ALL. `-Pmcp.release.build=true` (see
+// release/release-instructions.md, Stage 6) disables both the local directory
+// cache and the remote node, so every artifact in a shipped release is compiled
+// from source in that very invocation — never assembled from cache entries.
+// Same strict value parsing as parseBooleanProperty in the root build script.
+val isReleaseBuild = when (val raw = providers.gradleProperty("mcp.release.build").orNull?.trim()?.lowercase()) {
+    null, "0", "false", "no", "off" -> false
+    "1", "true", "yes", "on" -> true
+    else -> error("Unsupported mcp.release.build value '$raw' (expected true/false or 1/0)")
+}
+
 buildCache {
+    local {
+        isEnabled = !isReleaseBuild
+    }
     remote<HttpBuildCache> {
         url = uri("https://cache.eu-central-a.buildfetch.com/pOImKP/gradle/")
 
@@ -43,7 +58,7 @@ buildCache {
         // BuildFetch recommends cache writes from CI only (reproducible environment).
         isPush = isCi
 
-        isEnabled = credentials.password != null
+        isEnabled = !isReleaseBuild && credentials.password != null
     }
 }
 
