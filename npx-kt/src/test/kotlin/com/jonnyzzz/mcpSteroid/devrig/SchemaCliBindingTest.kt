@@ -419,8 +419,8 @@ class SchemaCliBindingTest {
     fun `two extra options claiming one flag fail while the command is built`() {
         // Clikt keeps one option per name, so the second registration would silently shadow the first.
         val extras = listOf(
-            CliExtraOption(flag = "--wait", type = CliOptionType.BOOLEAN, synopsis = "poll until ready"),
-            CliExtraOption(flag = "--wait", type = CliOptionType.BOOLEAN, synopsis = "something else"),
+            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "poll until ready"),
+            CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "something else"),
         )
 
         val error = assertFailsWith<IllegalArgumentException> { BindingCommand(emptyList(), extras) }
@@ -430,7 +430,7 @@ class SchemaCliBindingTest {
 
     @Test
     fun `an extra option claiming a parameter's flag fails while the command is built`() {
-        val extra = CliExtraOption(flag = "--who", type = CliOptionType.BOOLEAN, synopsis = "collides")
+        val extra = CliExtraOption(name = "who", type = CliOptionType.BOOLEAN, synopsis = "collides")
 
         val error = assertFailsWith<IllegalArgumentException> {
             BindingCommand(listOf(param("who", "string")), listOf(extra))
@@ -441,7 +441,7 @@ class SchemaCliBindingTest {
 
     @Test
     fun `an extra option claiming an optional boolean's negative flag fails while the command is built`() {
-        val extra = CliExtraOption(flag = "--no-cache", type = CliOptionType.BOOLEAN, synopsis = "collides")
+        val extra = CliExtraOption(name = "no-cache", type = CliOptionType.BOOLEAN, synopsis = "collides")
 
         val error = assertFailsWith<IllegalArgumentException> {
             BindingCommand(listOf(param("cache", "boolean")), listOf(extra))
@@ -604,7 +604,7 @@ class SchemaCliBindingTest {
 
     @Test
     fun `an extra option is bound even when the tool declares no parameters`() {
-        val extra = CliExtraOption(flag = "--wait", type = CliOptionType.BOOLEAN, synopsis = "wait for it")
+        val extra = CliExtraOption(name = "wait", type = CliOptionType.BOOLEAN, synopsis = "wait for it")
 
         val values = BindingCommand(emptyList(), listOf(extra)).also { it.parse(listOf("--wait")) }.values
 
