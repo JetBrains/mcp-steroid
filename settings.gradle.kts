@@ -13,28 +13,35 @@ rootProject.name = "mcp-steroid"
 // TeamCity, and developer machines. `org.gradle.caching=true` (gradle.properties)
 // switches caching on; this block only adds the remote node on top of the local one.
 //
-// Token: set BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN as an env var (CI) or in
-// ~/.gradle/gradle.properties (best for mixed IDE & terminal use). Without a
-// token the remote node stays disabled and builds fall back to the local cache
-// only — contributors without credentials are never blocked.
+// Tokens, in precedence order:
+//  1. BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN env var or gradle property — the
+//     read-write secret on CI, or a personal token in ~/.gradle/gradle.properties.
+//  2. Local builds without a token fall back to the hardcoded PUBLIC READ-ONLY
+//     token below: contributors get cache hits with zero setup. Verified truly
+//     read-only (2026-07-30): the server 200-ACKs its pushes but discards them.
+// On CI (CI / TEAMCITY_VERSION env present) there is NO public fallback — CI
+// either authenticates with its read-write secret or runs without the remote node.
 buildCache {
     remote<HttpBuildCache> {
         url = uri("https://cache.eu-central-a.buildfetch.com/pOImKP/gradle/")
 
+        // GitHub Actions sets CI=true; TeamCity sets TEAMCITY_VERSION but not CI.
+        val isCi = providers.environmentVariable("CI").isPresent ||
+                providers.environmentVariable("TEAMCITY_VERSION").isPresent
+
         credentials {
             username = "token-auth"
             // `takeIf isNotBlank`: on GH Actions, `${{ secrets.X }}` in a fork PR
-            // resolves to an EMPTY string (not unset) — a blank password must mean
-            // "no remote cache", not "authenticate with empty credentials".
-            password = "BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN".let {
+            // resolves to an EMPTY string (not unset) — a blank value must mean
+            // "no explicit token", not "authenticate with empty credentials".
+            val explicitToken = "BUILDFETCH_GRADLE_REMOTE_CACHE_TOKEN".let {
                 providers.environmentVariable(it).orElse(providers.gradleProperty(it)).orNull
             }?.takeIf { it.isNotBlank() }
+            password = explicitToken ?: "6f191bd0-1474-4d4e-9fd1-debee45dc35f".takeUnless { isCi }
         }
 
         // BuildFetch recommends cache writes from CI only (reproducible environment).
-        // GitHub Actions sets CI=true; TeamCity sets TEAMCITY_VERSION but not CI.
-        isPush = providers.environmentVariable("CI").isPresent ||
-                providers.environmentVariable("TEAMCITY_VERSION").isPresent
+        isPush = isCi
 
         isEnabled = credentials.password != null
     }
