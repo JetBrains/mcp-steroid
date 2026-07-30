@@ -207,6 +207,41 @@ class SchemaCliBindingTest {
     }
 
     @Test
+    fun `a required boolean must be supplied in one of its two spellings`() {
+        // Clikt's .required() does not apply to a flag pair, so the file's one requiredness rule
+        // (required && !cliOptional) would otherwise have a boolean-shaped hole: absence would reach the
+        // backend as a tool error, skipping the paramName -> paramFor -> cliMissingHint chain entirely.
+        // Because the negative spelling exists, absence IS distinguishable from a deliberate false, so the
+        // CLI can demand one of them. No tool declares a required boolean today.
+        val flag = param("dry_run", "boolean", required = true).copy(cliMissingHint = "say --dry_run or --no-dry_run")
+
+        val command = BindingCommand(listOf(flag))
+        val error = assertFailsWith<UsageError> { command.parse(emptyList()) }
+
+        assertTrue("--dry_run" in error.message!!, error.message!!)
+        assertTrue("--no-dry_run" in error.message!!, error.message!!)
+        assertEquals("--dry_run", error.paramName)
+        assertEquals("say --dry_run or --no-dry_run", command.binding.paramFor(error.paramName!!)?.cliMissingHint)
+    }
+
+    @Test
+    fun `a required boolean is satisfied by either spelling`() {
+        val flag = param("dry_run", "boolean", required = true)
+
+        assertEquals(true, bind(listOf(flag), "--dry_run").arguments["dry_run"]?.jsonPrimitive?.boolean)
+        assertEquals(false, bind(listOf(flag), "--no-dry_run").arguments["dry_run"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `a CLI-optional required boolean is not demanded, and still contributes no key`() {
+        // The gate is cliRequired, not required: a parameter the CLI can supply itself is never demanded,
+        // exactly as for every other type.
+        val flag = param("dry_run", "boolean", required = true).copy(cliOptional = true)
+
+        assertTrue(bind(listOf(flag)).arguments.isEmpty())
+    }
+
+    @Test
     fun `an omitted optional boolean contributes no key, so the tool default survives`() {
         // open_project's trust_project defaults to TRUE inside the tool. A CLI-synthesized `false` would
         // flip it, silently re-enabling the trust dialog for every `devrig open_project` without the flag.

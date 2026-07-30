@@ -108,11 +108,16 @@ class SchemaCliBinding private constructor(
      * Reads the parsed values into the three destinations of [SchemaCliValues]. Touches no filesystem and
      * no standard input — a file source contributes its *path*, never its content.
      *
-     * Throws [UsageError] for the two violations that follow from a [com.jonnyzzz.mcpSteroid.mcp.CliFileSource]
-     * being a second source for the same value, so they need no per-tool rule: both forms given at once,
-     * and neither form given for a parameter the tool requires. The second check is what makes "one of the
+     * Throws [UsageError] for the three requirements Clikt itself cannot express, each derived from the
+     * shape of the declaration and none needing a per-tool rule. Two follow from a
+     * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] being a second source for one value: both forms given at
+     * once, and neither form given for a parameter the tool requires — the latter is what makes "one of the
      * two" mandatory, because a required parameter offering a file source is `cliOptional` by construction
-     * (`ToolSchema.register` enforces that pairing) and Clikt therefore never demands the direct flag.
+     * (`ToolSchema.register` enforces that pairing) and Clikt therefore never demands the direct flag. The
+     * third is a required boolean, whose switch pair cannot carry Clikt's `.required()`; demanding one of
+     * its two spellings here is what keeps [InputSchemaParamSpec.cliRequired] — the file's one requiredness
+     * rule — true for booleans as well, and keeps the failure on the parse-time path where `paramName` →
+     * [paramFor] → [InputSchemaParamSpec.cliMissingHint] still reaches the user.
      */
     fun parsed(): SchemaCliValues {
         val arguments = LinkedHashMap<String, JsonElement>()
@@ -134,6 +139,11 @@ class SchemaCliBinding private constructor(
                     paramName = spec.cliParamName,
                 )
             }
+            val negativeFlag = spec.negativeCliFlag
+            if (negativeFlag != null && spec.cliRequired && value == null) throw UsageError(
+                "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
+                paramName = spec.cliParamName,
+            )
             if (value != null) arguments[spec.name] = value
             if (path != null) fileSources[spec.name] = path
         }
@@ -243,8 +253,10 @@ private fun bindOption(command: CliktCommand, spec: InputSchemaParamSpec): () ->
         // omitting it yields null, and `--flag=false` fails as IncorrectOptionValueCount. The negative
         // spelling is what makes the third state expressible — without it a parameter like
         // `trust_project` (tool default true) could never be turned off from the CLI at all.
-        // A required boolean stays unenforced here: absence is a legitimate state of a switch pair, so
-        // the tool's own required-parameter error reports it rather than a CLI-invented one.
+        // Requiredness is NOT expressible here — Clikt's `.required()` does not apply to a flag pair — so
+        // a required boolean is demanded by `parsed()` instead. Because the pair exists, an absent value is
+        // now distinguishable from a deliberate `false` (either spelling means "supplied explicitly"), so
+        // the CLI can demand one of them rather than leaving it to a backend error.
         val bound = command.option(spec.cliFlag, help = spec.cliSynopsis).nullableFlag(negativeFlag)
         command.registerOption(bound)
         return { bound.value?.let { JsonPrimitive(it) } }
