@@ -168,8 +168,11 @@ When changing files across multiple sub-folders, read the guides for each.
 
 ## Project Overview
 
-MCP Steroid — IntelliJ Platform plugin that exposes a standalone MCP server letting LLM agents drive the
-IDE via Kotlin code execution.
+devrig is the product — the CLI you install and run. One command installs devrig with its own bundled
+runtime (no manual setup); `devrig install <agent>` wires it into Claude Code, Codex, or Gemini. To reach
+real IDE semantics, devrig talks to **MCP Steroid**, the IntelliJ Platform plugin that exposes a standalone
+MCP server letting LLM agents drive the IDE via Kotlin code execution — installed in your JetBrains IDE as
+well (JetBrains Marketplace).
 
 - **Public repo**: https://github.com/jonnyzzz/mcp-steroid
 - **Docs**: [README.md](README.md), [docs/guides/AGENT-STEROID-GUIDE.md](docs/guides/AGENT-STEROID-GUIDE.md)
@@ -178,7 +181,7 @@ IDE via Kotlin code execution.
 
 ## Technology Stack
 
-Gradle 9.5.1 / Kotlin 2.3.20 / Java 25 toolchain / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
+Gradle 9.6.1 / Kotlin 2.3.20 / Java 25 toolchain / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
 
 **Bytecode targets Java 21** (class-file v65) while the toolchain stays JDK 25: Android Studio 2026.1
 bundles JBR 21 (IDEA bundles JBR 25), so the plugin must load on both. Set via the root `subprojects {}`

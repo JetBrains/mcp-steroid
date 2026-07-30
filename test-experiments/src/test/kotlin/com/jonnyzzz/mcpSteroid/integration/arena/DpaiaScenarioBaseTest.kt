@@ -117,6 +117,15 @@ abstract class DpaiaScenarioBaseTest {
 
             val ideProjectDir = session.intellijDriver.getGuestProjectDir()
 
+            // #251 Part C: lock the existing waitForMcpReady path-guarantee explicitly at the arena layer.
+            // Path check only — it does NOT prove the repo content/identity (a wrong project sharing the
+            // path would still pass); the FAIL_TO_PASS + green build in the run establish content.
+            val openProjects = session.mcpSteroid.mcpListProjects()
+            check(openProjects.any { it.path == ideProjectDir }) {
+                "[ARENA] No IDE project open at the arena deploy path $ideProjectDir before the agent run " +
+                    "(open: ${openProjects.joinToString { "${it.name}@${it.path}" }}). Deploy/open regression (#251)."
+            }
+
             // ── Agent run (TIMED) ────────────────────────────────────────────────
             val agent: AiAgentSession = when (agentName) {
                 "claude" -> session.aiAgents.claude

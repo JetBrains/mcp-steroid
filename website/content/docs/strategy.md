@@ -1,73 +1,65 @@
 ---
 title: "Strategy"
-description: "How MCP Steroid helps your AI Agent change code with fewer cleanup loops"
+description: "How MCP Steroid helps your AI agent change code with fewer cleanup loops"
 weight: 30
 group: "Vision"
 aliases:
   - /strategy/
 ---
 
-## Reliable code changes for AI Agents
+## Reliable code changes for AI agents
 
-MCP Steroid makes your AI Agent change code with fewer cleanup loops. File-only workflows break on real tasks because the
-Agent cannot run inspections, execute refactorings, launch debugger flows, or use live IDE context and actions. The larger
-the repository, the more research the Agent must do -- and the more tokens it burns -- without IDE-grade understanding.
+MCP Steroid makes your AI agent change code with fewer cleanup loops. File-only workflows break on real tasks because the
+agent cannot run inspections, execute refactorings, launch debugger flows, or use live IDE context and actions. The larger
+the repository, the more research the agent must do -- and the more tokens it burns -- without IDE-grade understanding.
 
-MCP Steroid closes that gap by giving AI Agents the same semantic actions JetBrains IDEs give humans -- typed refactors,
-inspections, debugger, test runs -- so the Agent finishes in fewer attempts and humans spend less time verifying its output.
+MCP Steroid closes that gap by giving AI agents the same semantic actions JetBrains IDEs give humans -- typed refactors,
+inspections, debugger, test runs -- so the agent finishes in fewer attempts and humans spend less time verifying its output.
 
 ## Strategic thesis
 
-MCP Steroid is an AI-Agent-first product. Today the value is delivered as a JetBrains IDE plugin, which is where existing
-users already work; the long-term product direction is the same surface in a headless runtime so it serves AI Agents anywhere
-they execute, not only when a developer's IDE is open.
+devrig is an AI-agent-first product: the CLI you install and run. MCP Steroid is how it reaches your IDE -- today delivered
+as a JetBrains IDE plugin, which is where existing users already work. The long-term product direction is the same surface
+in a self-contained runtime so it serves AI agents anywhere they execute, not only when a developer's IDE is open.
 
-On tasks that depend on IDE capabilities, AI Agents with MCP Steroid should complete more work with fewer interventions,
-lower token usage, and less rework on the human side than the same AI Agents without it.
+On tasks that depend on IDE capabilities, AI agents with devrig should complete more work with fewer interventions,
+lower token usage, and less rework on the human side than the same AI agents without it.
 
 ## Three-phase product arc
 
 1. **Phase 1 -- Plugin distribution:** ship the surface as a JetBrains IDE plugin (current)
 2. **Phase 2 -- Fine-tune:** evals, benchmarks, prompt optimization
-3. **Phase 3 -- Scale:** headless mode, packaging, SaaS, B2B distribution
+3. **Phase 3 -- Scale:** self-contained runtime, packaging, SaaS, B2B distribution
 
 ### Phase 1: Plugin distribution (current)
 
-Today MCP Steroid runs as a plugin inside JetBrains IDEs. A developer connects their AI Agent 
+Today MCP Steroid runs as a plugin inside JetBrains IDEs. A developer connects their AI agent 
 (Claude Code, Codex, Gemini, or any MCP client) to a running IDE instance -- IntelliJ IDEA, PyCharm, Android Studio, Rider, and others -- where their project is already open.
 
 ### Phase 2: Fine-tune -- evals, benchmarks, learn, and iterate
 
-**Result: 20-54% speedup on benchmarks** when AI Agents use MCP Steroid with full IDE access vs. file-only workflows.
-
-DPAIA benchmark results across diverse Spring Boot tasks:
-
-| Task | With MCP | Without MCP | Delta |
-|------|----------|-------------|-------|
-| Rename ROLE\_ADMIN across JHipster app (9 files) | 202s | 440s | **-54%** |
-| JWT auth from scratch (5+ new files) | 288s | 396s | **-27%** |
-| Parent-child JPA & Flyway (10 files) | 382s | 523s | **-27%** |
-| Multi-layer JPA+service+controller (15 files) | 788s | 1002s | **-21%** |
-| Simple URL prefix replace (7 files) | 188s | 181s | +4% |
-| Extend OrderRepository JPQL (4 files) | 727s | 633s | +15% |
-
-Tasks requiring semantic understanding -- refactorings across many files, multi-layer code generation -- show the largest gains. Simple text replacements perform similarly with or without IDE access.
+We run the same task twice -- same model, same repo -- once with the IDE through MCP Steroid and once as a plain shell
+agent, and score every run on machine-checkable evidence rather than on what the agent claims about itself. See the
+[experiment findings](/docs/experiment-findings/) for the verified results, including the runs where the IDE path did not win.
 
 We are collecting scenarios and execution logs from real MCP Steroid sessions (share your `.idea/mcp-steroid` folder with us).
 
 The collected data is analyzed to identify sharp edges in the current implementation and to improve prompts, skills,
-and documentation. AI Agents help us craft the better product for AI Agents. This is an iterative process; we have
+and documentation. AI agents help us craft the better product for AI agents. This is an iterative process; we have
 completed roughly seven optimization rounds so far, primarily on the MCP Steroid project itself.
 
-This validation loop is described in [Learning Methodology](/docs/learning-methodology/). See also [IntelliJ as a Skill Factory](/docs/skill-factory/) for how skills turn one-off API explorations into reusable AI Agent capabilities.
+This validation loop is described in [Learning Methodology](/docs/learning-methodology/). See also [IntelliJ as a Skill Factory](/docs/skill-factory/) for how skills turn one-off API explorations into reusable AI agent capabilities.
 
-### Phase 3: Scale -- headless runtime, SaaS, B2B
+### Phase 3: Scale -- self-contained runtime, SaaS, B2B
 
-The long-term target is a self-contained runtime, available both as SaaS and as an end-user product, that serves as the headless IDE for AI Agents.
+The long-term target is a self-contained runtime, available both as SaaS and as an end-user product, that runs the IDE for
+AI agents without a developer's desktop session. That runtime still gives the IDE a real display -- the normal GUI on
+macOS/Windows, or a virtual one via Xvfb on Linux and CI; a true headless launch (`-Djava.awt.headless=true`) is
+unsupported (see [#177](https://github.com/jonnyzzz/mcp-steroid/issues/177) and [Running devrig in CI](/docs/running-on-ci/)).
 
 ## Easy experimentation
 
-MCP Steroid provides an easy way to experiment with new tasks, prompts, and skills locally. Create a new skill, ask your AI Agent to use `steroid_execute_code`, and give it an example code snippet using IntelliJ API to solve your goal:
+MCP Steroid provides an easy way to experiment with new tasks, prompts, and skills locally. Create a new skill, ask your AI agent to use `steroid_execute_code`, and give it an example code snippet using IntelliJ API to solve your goal:
 
 ```kotlin
 import com.intellij.psi.search.PsiSearchHelper
@@ -86,7 +78,7 @@ val todoItems = readAction {
 todoItems.forEach { println(it) }
 ```
 
-The [Debugging IDE with MCP Steroid](/docs/how-to-debug-ide/) guide was written entirely by AI Agents using this approach -- a real skill created through experimentation with full IDE access.
+The [Debugging IDE with MCP Steroid](/docs/how-to-debug-ide/) guide was written entirely by AI agents using this approach -- a real skill created through experimentation with full IDE access.
 
 ## How you can help
 

@@ -34,6 +34,9 @@
     /* Accent Colors */
     --color-link: #a0a0ff;
     --color-code: #c0c0ff;
+
+    /* Shared nav font size — wordmark, menu items and badge read at one size */
+    --nav-font-size: 0.95rem;
 }
 
 * {
@@ -96,11 +99,22 @@ a:hover {
 }
 .nav-title {
     font-weight: 700;
-    font-size: 1.1rem;
-    background: var(--gradient-brand);
+    font-size: var(--nav-font-size);
+}
+/* Shared light-gradient "special presentation" for the brand word "devrig". */
+.lighter {
+    background: linear-gradient(135deg, #A99CFF 0%, #FF6E8E 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    color: transparent;
+}
+/* Inside a button/CTA the gradient-clipped brand word blends into the pill
+   background; force it to the solid white button label so it stays readable. */
+.btn .lighter {
+    background: none;
+    -webkit-text-fill-color: #ffffff;
+    color: #ffffff;
 }
 .nav-links {
     display: flex;
@@ -110,7 +124,7 @@ a:hover {
 .nav-link {
     color: var(--color-tertiary);
     text-decoration: none;
-    font-size: 0.95rem;
+    font-size: var(--nav-font-size);
     font-weight: 500;
     transition: color 0.2s;
     display: flex;
@@ -384,7 +398,8 @@ a:focus-visible {
  *
  * Without the hash, no min-height applies and the section sits
  * tight against the footer at its natural content height. */
-#support {
+#support,
+#install {
     scroll-margin-top: 4rem;
 }
 #support:target {
@@ -403,12 +418,12 @@ a:focus-visible {
                 0 8px 32px rgba(0, 0, 0, 0.25);
 }
 .hero {
-    text-align: center;
-    max-width: 980px;
-    margin: 0 auto 3rem auto;
+    text-align: left;
+    max-width: 1000px;
+    margin: 0 auto 1.5rem auto;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     width: 100%;
 }
     .logo {
@@ -419,7 +434,7 @@ margin-bottom: 2rem;
     h1 {
 font-size: 2.5rem;
 margin-bottom: 0.75rem;
-background: var(--gradient-brand);
+background: linear-gradient(135deg, #A99CFF 0%, #FF6E8E 100%);
 -webkit-background-clip: text;
 -webkit-text-fill-color: transparent;
 background-clip: text;
@@ -762,7 +777,7 @@ text-decoration: underline;
     /* Responsive design */
     @media (max-width: 768px) {
         .hero {
-            margin-bottom: 3rem;
+            margin-bottom: 1.75rem;
         }
 h1 {
     font-size: 2rem;
@@ -1126,6 +1141,10 @@ h1 {
 @media (max-width: 900px) {
     .docs-layout {
         flex-direction: column;
+        /* In the column layout, stretch children to the container width.
+           Without this the flex-start cross-axis alignment lets .docs-content
+           size to its content and overflow the viewport horizontally. */
+        align-items: stretch;
     }
 }
 /* Docs layout responsive */
@@ -1388,7 +1407,13 @@ h1 {
     width: 22px;
     height: 22px;
 }
-@media (max-width: 768px) {
+/* Show the standalone heart quick-link as soon as the horizontal menu
+   collapses into the hamburger (960px — see the .nav-toggle breakpoint above).
+   Previously this was 768px, leaving a 769–960px dead zone where the menu was
+   already collapsed but neither the in-menu "PoC & Support" heart nor this
+   standalone heart was visible. Keeping both breakpoints at 960px makes the
+   header degrade monotonically: the heart is always present once the menu hides. */
+@media (max-width: 960px) {
     .nav-heart-mobile {
         display: flex;
     }
@@ -1428,10 +1453,10 @@ h1 {
     font-size: 0.85rem;
 }
 
-/* ── devrig brand badge in the top-left nav (next to "MCP Steroid") ───────── */
-.nav-devrig {
+/* ── secondary brand badge in the top-left nav (next to "devrig") ─────────── */
+.nav-badge {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.7rem;
+    font-size: var(--nav-font-size);
     font-weight: 700;
     line-height: 1;
     letter-spacing: 0.01em;
@@ -1440,11 +1465,10 @@ h1 {
     padding: 3px 7px;
     border-radius: 6px;
     white-space: nowrap;
-    align-self: center;
 }
 @media (max-width: 480px) {
     .nav-container { padding-left: 0.9rem; padding-right: 0.9rem; }
-    .nav-devrig { font-size: 0.62rem; padding: 2px 5px; }
+    .nav-badge { font-size: 0.62rem; padding: 2px 5px; }
     .nav-brand { gap: 0.4rem; }
     .nav-title { font-size: 1rem; }
 }
@@ -1462,3 +1486,183 @@ h1 {
     text-decoration: none;
 }
 .footer-copyright a:hover { text-decoration: underline; }
+
+/* ── Homepage focus rebuild (#322): hero eyebrow, install-command CTA, sublinks ── */
+/* Keep the hero from shrink-wrapping to the nowrap install command (would overflow
+   the viewport on narrow screens): force full width and let the grid track shrink. */
+.hero-grid {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+}
+.hero-eyebrow {
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--color-tertiary);
+    margin: 0 0 0.75rem 0;
+}
+.install-cta {
+    max-width: 680px;
+    margin: 2rem 0 0.5rem 0;
+    width: 100%;
+}
+/* Homepage install card: the command block and its sub-lines fill the card
+ * width (removing the dead space on the right of the 680px block), and follow
+ * the section lede tightly instead of the default 2rem gap. */
+#install .install-cta {
+    max-width: none;
+    margin-top: 0.75rem;
+}
+.install-cta-label {
+    font-weight: 600;
+    color: var(--color-secondary);
+    margin: 0 0 0.75rem 0;
+}
+.install-cmd {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.6rem;
+    text-align: left;
+    min-width: 0;
+}
+.install-cmd-os {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-quaternary);
+    min-width: 92px;
+}
+.install-cmd-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.95rem;
+    color: var(--color-code);
+    user-select: all;
+    overflow-x: auto;
+    white-space: nowrap;
+    background: none;
+    padding: 0;
+}
+.install-copy {
+    flex: 0 0 auto;
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--gradient-brand);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.install-copy:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(107, 87, 255, 0.35);
+}
+.install-cta-sub {
+    font-size: 0.9rem;
+    color: var(--color-tertiary);
+    margin: 0.75rem 0 0 0;
+}
+.hero-sublinks {
+    margin: 1.5rem 0 0 0;
+    font-size: 0.9rem;
+    color: var(--color-quaternary);
+}
+.hero-sublinks a {
+    color: var(--color-link);
+    text-decoration: none;
+}
+.hero-sublinks a:hover { text-decoration: underline; }
+.hero-sublink-sep {
+    margin: 0 0.6rem;
+    color: var(--color-quaternary);
+    opacity: 0.6;
+}
+@media (max-width: 640px) {
+    .install-cmd { flex-wrap: wrap; }
+    .install-cmd-text { flex-basis: 100%; order: 3; }
+    .install-copy { margin-left: auto; }
+    .hero-sublink-sep { display: none; }
+    .hero-sublinks a { display: block; margin: 0.4rem 0; }
+}
+
+/* Hero eyebrow version badge (moved out of the H1) */
+.hero-eyebrow-version {
+    font-size: 0.75rem;
+    padding: 0.1rem 0.5rem;
+    margin-bottom: 0;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    -webkit-text-fill-color: var(--color-code);
+    background-clip: unset;
+    -webkit-background-clip: unset;
+}
+
+/* Install trust note (small print, unobtrusive) */
+.install-trust {
+    font-size: 0.8rem;
+    color: var(--color-quaternary);
+    line-height: 1.5;
+    margin: 0.9rem 0 0 0;
+}
+.install-trust code {
+    font-size: 0.78rem;
+    color: var(--color-code);
+}
+
+/* Proof section stat cards */
+.proof-card .proof-stat {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin-bottom: 0.4rem;
+    line-height: 1.2;
+}
+.proof-card .proof-vs {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-quaternary);
+    white-space: nowrap;
+}
+.proof-negative {
+    font-size: 0.9rem;
+    color: var(--color-tertiary);
+    line-height: 1.6;
+    margin: 1.25rem 0 0 0;
+    padding-left: 0.9rem;
+    border-left: 2px solid rgba(254, 40, 87, 0.5);
+}
+.proof-provenance {
+    font-size: 0.8rem;
+    color: var(--color-quaternary);
+    line-height: 1.6;
+    margin: 1rem 0 0.5rem 0;
+}
+.proof-provenance code { font-size: 0.78rem; color: var(--color-code); }
+.proof-provenance a { color: var(--color-link); text-decoration: none; }
+.proof-provenance a:hover { text-decoration: underline; }
+
+/* Carousel: right-edge fade so the clipped last tile reads as an
+   intentional "scroll for more" affordance, not a broken cut. */
+.videos-box {
+    position: relative;
+}
+.videos-box::after {
+    content: "";
+    position: absolute;
+    top: 1.5rem;
+    right: 0;
+    bottom: 1.5rem;
+    width: 2.5rem;
+    pointer-events: none;
+    background: linear-gradient(to right, rgba(20, 20, 30, 0), rgba(20, 20, 30, 0.55));
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+}

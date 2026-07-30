@@ -12,7 +12,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.io.HttpRequests
-import com.jonnyzzz.mcpSteroid.PluginDescriptorProvider
+import com.jonnyzzz.mcpSteroid.getBuildVersion
+import com.jonnyzzz.mcpSteroid.util.text.DevrigVersion
 import kotlinx.coroutines.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -27,7 +28,7 @@ import kotlin.time.Duration.Companion.seconds
 /**
  * Application-level service that periodically checks for plugin updates.
  *
- * Fetches version info from https://mcp-steroid.jonnyzzz.com/version.json
+ * Fetches version info from https://devrig.dev/version.json
  * and notifies the user ONCE per IDE session when a newer version is available.
  *
  * The check continues running even after an update is detected, but the notification
@@ -53,15 +54,15 @@ class UpdateChecker(
      * Can be called manually for testing.
      */
     suspend fun checkForUpdates() {
-        val currentVersion = PluginDescriptorProvider.getInstance().version
+        val currentVersion = getBuildVersion()
         val ijBuild = ApplicationInfo.getInstance().build.asString()
-        val url = "https://mcp-steroid.jonnyzzz.com/version.json?intellij-version=$ijBuild"
+        val url = "https://devrig.dev/version.json?intellij-version=$ijBuild"
         log.debug("Checking for updates at $url (current version: $currentVersion)")
 
         val response = withContext(Dispatchers.IO) {
             try {
                 HttpRequests.request(url)
-                    .userAgent(buildUserAgent(currentVersion, ijBuild))
+                    .userAgent(buildUserAgent(currentVersion.value, ijBuild))
                     .connectTimeout(10_000)
                     .readTimeout(10_000)
                     .readString()
@@ -81,14 +82,15 @@ class UpdateChecker(
         val remoteVersion = versionInfo.versionBase
         lastFetchedVersion = remoteVersion
 
-        log.info("Remote version: $remoteVersion, current version: $currentVersion")
+        val promotedVersion = DevrigVersion.parse(remoteVersion)
+        log.info("Promoted version: $promotedVersion, current version: $currentVersion")
 
-        if (!currentVersion.startsWith(remoteVersion)) {
+        if (DevrigVersion.isUpdateAvailable(current = currentVersion, promoted = promotedVersion)) {
             log.info("MCP Steroid plugin update available: $remoteVersion (current: $currentVersion)")
 
             // Show notification only once per IDE session
             if (notificationShown.compareAndSet(false, true)) {
-                showUpdateNotification(currentVersion, remoteVersion)
+                showUpdateNotification(currentVersion.value, remoteVersion)
             }
         }
     }
@@ -124,7 +126,7 @@ class UpdateChecker(
             })",
             NotificationType.INFORMATION
         ).addAction(NotificationAction.createSimpleExpiring("Download") {
-            BrowserUtil.browse("https://mcp-steroid.jonnyzzz.com/releases/")
+            BrowserUtil.browse("https://devrig.dev/releases/")
         }).notify(null)
     }
 

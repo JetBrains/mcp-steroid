@@ -7,7 +7,7 @@ repositories {
 }
 
 // Resolvable configuration to get the plugin .zip from :ij-plugin subproject
-val pluginZip by configurations.creating {
+val pluginZip = configurations.create("pluginZip") {
     isCanBeConsumed = false
     isCanBeResolved = true
     attributes {
@@ -16,16 +16,13 @@ val pluginZip by configurations.creating {
 }
 
 // Resolvable configuration to get the agent-output-filter executable distribution zip
-val agentOutputFilterDist by configurations.creating {
+val agentOutputFilterDist = configurations.create("agentOutputFilterDist") {
     isCanBeConsumed = false
     isCanBeResolved = true
 }
 
-// Resolvable configuration to get the Kotlin devrig CLI distribution zip from :npx-kt. The integration
-// infra (IdeTestFolders / IdeTestHelpers) now REQUIRES `test.integration.devrig.package.zip`, so the
-// experiment tests must provide it exactly like :test-integration does — otherwise every
-// :test-experiments:test fails at init with "devrig.package.zip system property not set".
-val devrigPackageDist by configurations.creating {
+// Resolvable configuration to get the Kotlin devrig CLI distribution zip from :npx-kt.
+val devrigPackageDist = configurations.create("devrigPackageDist") {
     isCanBeConsumed = false
     isCanBeResolved = true
     attributes {
