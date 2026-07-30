@@ -7,11 +7,13 @@ import com.github.ajalt.clikt.core.MissingOption
 import com.github.ajalt.clikt.core.PrintHelpMessage
 import com.github.ajalt.clikt.core.UsageError
 import com.jonnyzzz.mcpSteroid.mcp.CliExtraOption
+import com.jonnyzzz.mcpSteroid.mcp.CliFileSource
 import com.jonnyzzz.mcpSteroid.mcp.CliOptionType
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.InputSchemaParamSpec
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolSpec
 import com.jonnyzzz.mcpSteroid.server.ExecuteFeedbackToolSpec
+import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import com.jonnyzzz.mcpSteroid.server.OpenProjectToolSpec
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -77,6 +79,12 @@ class SchemaCliBindingTest {
         ToolCommand(spec).also { it.parse(args.toList()) }.values
 
     // ------------------------------- fixtures -------------------------------
+
+    /** The canonical tool list, wired to a tool set that fails if any handler is resolved while parsing. */
+    private class NoHandlerTools : McpSteroidTools() {
+        override fun <T> handler(type: Class<T>): T =
+            error("no handler may be resolved while parsing: ${type.name}")
+    }
 
     /** A spec double whose handler must never be resolved: parsing reads metadata only. */
     private fun executeCode() = ExecuteCodeToolSpec { error("no handler may be resolved while parsing") }
@@ -163,6 +171,39 @@ class SchemaCliBindingTest {
         val values = bind(listOf(trust), "--trust_project")
 
         assertEquals(true, values.arguments["trust_project"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `an optional boolean can be turned off through its negative flag`() {
+        // Without a negative spelling `false` is unreachable: nullableFlag() with no secondary name has
+        // arity 0..0, so `--trust_project` is the only accepted form and `--trust_project=false` fails as
+        // IncorrectOptionValueCount. open_project's trust_project defaults to true tool-side, so without
+        // this there is no way to open a project WITHOUT pre-trusting it — the one choice IntelliJ's trust
+        // dialog exists for.
+        val trust = toolParam(openProject(), "trust_project")
+
+        val values = bind(listOf(trust), "--no-trust_project")
+
+        val value = values.arguments["trust_project"]?.jsonPrimitive
+        assertEquals(false, value?.boolean)
+        assertFalse(value!!.isString, "a boolean must serialize as a JSON boolean, not a string")
+    }
+
+    @Test
+    fun `an attached value on an optional boolean is rejected rather than silently ignored`() {
+        // The negative flag is the supported spelling; `--flag=false` must not quietly parse as `true`.
+        val trust = toolParam(openProject(), "trust_project")
+
+        assertFailsWith<UsageError> { BindingCommand(listOf(trust)).parse(listOf("--trust_project=false")) }
+    }
+
+    @Test
+    fun `a negative boolean flag maps back to the parameter that declares it`() {
+        val trust = toolParam(openProject(), "trust_project")
+
+        val command = BindingCommand(listOf(trust))
+
+        assertEquals("trust_project", command.binding.paramFor("--no-trust_project")?.name)
     }
 
     @Test
@@ -339,6 +380,41 @@ class SchemaCliBindingTest {
         assertTrue("--same" in error.message!!, error.message!!)
     }
 
+    @Test
+    fun `two extra options claiming one flag fail while the command is built`() {
+        // Clikt keeps one option per name, so the second registration would silently shadow the first.
+        val extras = listOf(
+            CliExtraOption(flag = "--wait", type = CliOptionType.BOOLEAN, synopsis = "poll until ready"),
+            CliExtraOption(flag = "--wait", type = CliOptionType.BOOLEAN, synopsis = "something else"),
+        )
+
+        val error = assertFailsWith<IllegalArgumentException> { BindingCommand(emptyList(), extras) }
+
+        assertTrue("--wait" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `an extra option claiming a parameter's flag fails while the command is built`() {
+        val extra = CliExtraOption(flag = "--who", type = CliOptionType.BOOLEAN, synopsis = "collides")
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            BindingCommand(listOf(param("who", "string")), listOf(extra))
+        }
+
+        assertTrue("--who" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `an extra option claiming an optional boolean's negative flag fails while the command is built`() {
+        val extra = CliExtraOption(flag = "--no-cache", type = CliOptionType.BOOLEAN, synopsis = "collides")
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            BindingCommand(listOf(param("cache", "boolean")), listOf(extra))
+        }
+
+        assertTrue("--no-cache" in error.message!!, error.message!!)
+    }
+
     // ------------------------------- file sources -------------------------------
 
     @Test
@@ -401,6 +477,38 @@ class SchemaCliBindingTest {
 
         assertEquals("--code", error.paramName)
         assertTrue("--code-file" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `a parameter's own form is registered before its file source`() {
+        // Registration order is the order generated help lists options in, so the direct form has to come
+        // first: `--code` above `--code-file`, not the reverse.
+        val command = ToolCommand(executeCode())
+
+        val names = command.registeredOptions().map { it.names.single() }
+        assertTrue(
+            names.indexOf("--code") < names.indexOf("--code-file"),
+            "expected --code before --code-file, got $names",
+        )
+    }
+
+    @Test
+    fun `a positional with a file source raises a usage error the lookup can resolve`() {
+        // The flag/positional asymmetry: a positional is reported by its bare name, so keying the error by
+        // cliFlag would produce a paramName ('--uri') that paramFor() cannot resolve, silently losing the
+        // cliMissingHint substitution for this shape. No tool declares it today.
+        val uri = param("uri", "string", required = true).copy(
+            cliPositional = true,
+            cliOptional = true,
+            cliFileSource = CliFileSource(flag = "--uri-file", synopsis = "read the uri from a file"),
+            cliMissingHint = "pass a uri or --uri-file",
+        )
+
+        val command = BindingCommand(listOf(uri))
+        val error = assertFailsWith<UsageError> { command.parse(emptyList()) }
+
+        assertEquals("uri", error.paramName)
+        assertEquals("pass a uri or --uri-file", command.binding.paramFor(error.paramName!!)?.cliMissingHint)
     }
 
     @Test
@@ -505,6 +613,38 @@ class SchemaCliBindingTest {
         val spec = command.binding.paramFor(error.paramName!!)
         assertEquals("uri", spec?.name)
         assertEquals("pass a uri", spec?.cliMissingHint)
+    }
+
+    // ------------------------------- every canonical tool -------------------------------
+
+    @Test
+    fun `every devrig tool spec binds, and every CLI-visible parameter is reachable by name`() {
+        // The generic claim, guarded: bind() rejects an unsupportable declaration with
+        // IllegalArgumentException while the command is CONSTRUCTED, so without this loop a future tool
+        // declaring, say, an object array would surface as a devrig startup crash instead of a unit-test
+        // failure. Drives the canonical devrigToolSpecs() list, not a hand-picked subset.
+        val specs = NoHandlerTools().devrigToolSpecs()
+        assertTrue(specs.size >= 8, "expected the canonical tool list, got ${specs.map { it.cli.name }}")
+
+        for (spec in specs) {
+            val command = ToolCommand(spec)
+
+            for (param in spec.schema.asCliParams().filterNot { it.cliHidden }) {
+                val name = if (param.cliPositional) param.name else param.cliFlag
+                assertEquals(
+                    param.name,
+                    command.binding.paramFor(name)?.name,
+                    "${spec.cli.name}: '$name' must resolve back to '${param.name}'",
+                )
+                param.cliFileSource?.let { source ->
+                    assertEquals(
+                        param.name,
+                        command.binding.paramFor(source.flag)?.name,
+                        "${spec.cli.name}: '${source.flag}' must resolve back to '${param.name}'",
+                    )
+                }
+            }
+        }
     }
 
     @Test

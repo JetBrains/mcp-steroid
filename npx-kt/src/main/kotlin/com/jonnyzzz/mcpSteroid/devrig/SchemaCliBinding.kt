@@ -60,9 +60,12 @@ data class SchemaCliValues(
 
 /**
  * Binds one tool's declarative CLI metadata onto a Clikt command, and reads the parsed result back as
- * typed JSON. **This is the only production file in the repository that may reference a Clikt type**:
- * Clikt is an implementation detail of the CLI and has to stay replaceable, so the presentation layer,
- * the dispatch helper and the tool metadata are all Clikt-free.
+ * typed JSON. **Clikt is confined to the command line.** It must not reach the tool metadata
+ * (`mcp-core`, `mcp-steroid-server`), the presentation/envelope/dispatch layer, or any per-tool
+ * contract — those describe what a tool *is*, and a parser is an implementation detail that has to stay
+ * replaceable. Inside `npx-kt`, Clikt therefore appears only where the command line is parsed: this file
+ * for the schema-driven engine, and the hand-written command tree in `Cli.kt` that has always been
+ * devrig's router.
  *
  * Every parameter is declared once, in the tool's own [com.jonnyzzz.mcpSteroid.mcp.ToolSchema], and
  * translated here: Clikt converts each raw token exactly once — into a `String`, `Int`, `Double`,
@@ -72,9 +75,12 @@ data class SchemaCliValues(
  * would parse the same value twice and lose Clikt's own error wording. `McpTool.call()` stays the
  * authoritative tool-side parser.
  *
- * Absence is preserved end to end. A parameter with no value contributes no key, so a default owned by
- * the tool (e.g. `open_project`'s `trust_project = true`) is never overwritten by a CLI-synthesized
- * `false` — which is why an optional boolean is bound with `nullableFlag()` rather than `flag()`.
+ * Absence is preserved end to end, and it is a third state distinct from `false`. An optional boolean is
+ * bound with `nullableFlag()` — never `flag()`, which reports absence as `false` — plus a negative
+ * spelling ([negativeCliFlag]), so all three states are reachable: the flag given is `true`, the negative
+ * flag is `false`, and neither contributes no key at all. That is what lets a default owned by the tool
+ * (e.g. `open_project`'s `trust_project = true`) survive an invocation that mentions neither, while still
+ * letting a caller ask for `false` on purpose.
  *
  * Construct it while the command is being constructed (from `init`), then call [parsed] after
  * `parse(...)` — from `run()`, which is still the parse lifecycle phase, never the dispatch phase.
@@ -88,12 +94,13 @@ class SchemaCliBinding private constructor(
      * The parameter that declared [paramName], or null when nothing here declares it (a devrig framework
      * flag such as `--json`, for instance).
      *
-     * [paramName] is what Clikt reports on a failure: `MissingOption.paramName` /
-     * `MissingArgument.paramName` — the parameter's *longest declared name*, which for these bindings is
-     * the declared `cliFlag` (options carry exactly one name each) or the parameter name (positionals).
-     * A [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] flag maps back to the parameter that declares it.
-     * This is the hook a command needs to substitute [InputSchemaParamSpec.cliMissingHint] for Clikt's
-     * default wording; the substitution itself is a command-level concern and does not live here.
+     * [paramName] is what Clikt reports on a failure — `MissingOption.paramName` /
+     * `MissingArgument.paramName` — and what the [UsageError]s raised by [parsed] carry: the declared
+     * `cliFlag` for an option, the parameter name for a positional (see [cliParamName]). A
+     * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] flag and an optional boolean's negative spelling both
+     * map back to the parameter that declares them. This is the hook a command needs to substitute
+     * [InputSchemaParamSpec.cliMissingHint] for Clikt's default wording; the substitution itself is a
+     * command-level concern and does not live here.
      */
     fun paramFor(paramName: String): InputSchemaParamSpec? = specsByCliName[paramName]
 
@@ -116,13 +123,15 @@ class SchemaCliBinding private constructor(
             val path = bound.filePath()
             val fileSource = spec.cliFileSource
             if (fileSource != null) {
+                // Keyed by cliParamName, the same name paramFor() resolves, so a command can still reach
+                // this parameter's cliMissingHint — including for a positional, whose name is not a flag.
                 if (value != null && path != null) throw UsageError(
-                    "give either ${spec.cliFlag} or ${fileSource.flag} for '${spec.name}', not both",
-                    paramName = spec.cliFlag,
+                    "give either ${spec.cliParamName} or ${fileSource.flag} for '${spec.name}', not both",
+                    paramName = spec.cliParamName,
                 )
                 if (value == null && path == null && spec.required) throw UsageError(
-                    "'${spec.name}' is required: pass ${spec.cliFlag} or ${fileSource.flag}",
-                    paramName = spec.cliFlag,
+                    "'${spec.name}' is required: pass ${spec.cliParamName} or ${fileSource.flag}",
+                    paramName = spec.cliParamName,
                 )
             }
             if (value != null) arguments[spec.name] = value
@@ -173,39 +182,43 @@ private class BoundParam(
 private class BoundExtra(val option: CliExtraOption, val value: () -> Boolean)
 
 /**
- * The CLI names of [params] mapped back to their declaring parameter, failing fast on a collision — two
- * parameters claiming one flag, or a file source colliding with a parameter, would otherwise let one
- * silently shadow the other. [extraOptions] participate in the collision check but not in the map: an
- * extra option is not a parameter, so nothing can map back to a spec for it.
+ * Every CLI name this command will carry, mapped back to its declaring parameter, failing fast on any
+ * collision: Clikt keeps one option per name, so two declarations claiming one name would let one
+ * silently shadow the other. All four sources of a name take part — a parameter's own flag or positional
+ * name, an optional boolean's negative spelling, a file-source flag, and an [CliExtraOption] flag — and
+ * they are checked against each other, not only within their own kind. Extra options are not in the
+ * returned map: an extra option is not a parameter, so nothing can map back to a spec for it.
  */
 private fun cliNames(
     params: List<InputSchemaParamSpec>,
     extraOptions: List<CliExtraOption>,
-): Map<String, InputSchemaParamSpec> = buildMap {
-    fun claim(name: String, spec: InputSchemaParamSpec) {
-        val previous = put(name, spec)
-        require(previous == null) {
-            "CLI name '$name' is declared twice: by '${previous?.name}' and by '${spec.name}'"
-        }
+): Map<String, InputSchemaParamSpec> {
+    val declaredBy = LinkedHashMap<String, String>()
+    val specs = LinkedHashMap<String, InputSchemaParamSpec>()
+    fun claim(name: String, declaration: String, spec: InputSchemaParamSpec?) {
+        val previous = declaredBy.put(name, declaration)
+        require(previous == null) { "CLI name '$name' is declared twice: by $previous and by $declaration" }
+        if (spec != null) specs[name] = spec
     }
     for (spec in params) {
-        claim(if (spec.cliPositional) spec.name else spec.cliFlag, spec)
-        spec.cliFileSource?.let { claim(it.flag, spec) }
+        claim(spec.cliParamName, "parameter '${spec.name}'", spec)
+        spec.negativeCliFlag?.let { claim(it, "the negative flag of '${spec.name}'", spec) }
+        spec.cliFileSource?.let { claim(it.flag, "the file source of '${spec.name}'", spec) }
     }
-    for (extra in extraOptions) {
-        val owner = get(extra.flag)
-        require(owner == null) { "extra option '${extra.flag}' collides with parameter '${owner?.name}'" }
-    }
+    for (extra in extraOptions) claim(extra.flag, "extra option '${extra.flag}'", null)
+    return specs
 }
 
 private fun bindParam(command: CliktCommand, spec: InputSchemaParamSpec): BoundParam {
     // The filter in bind() is the rule; this pins it, so a refactor that drops the filter fails loudly
     // instead of exposing an MCP-only parameter on the command line.
     require(!spec.cliHidden) { "cliHidden parameter '${spec.name}' must never be bound to the CLI" }
+    // The parameter's own form is registered first so generated help lists it before the alternative
+    // (`--code` above `--code-file`); Clikt renders options in registration order.
+    val value = if (spec.cliPositional) bindPositional(command, spec) else bindOption(command, spec)
     val fileOption = spec.cliFileSource?.let { source ->
         command.option(source.flag, help = source.synopsis, metavar = "PATH").also { command.registerOption(it) }
     }
-    val value = if (spec.cliPositional) bindPositional(command, spec) else bindOption(command, spec)
     return BoundParam(spec, value) { fileOption?.value }
 }
 
@@ -222,10 +235,17 @@ private fun bindExtra(command: CliktCommand, option: CliExtraOption): BoundExtra
 
 private fun bindOption(command: CliktCommand, spec: InputSchemaParamSpec): () -> JsonElement? {
     val required = spec.cliRequired
-    if (spec.type == "boolean") {
-        // A required boolean cannot be expressed as a CLI switch (absence is the only other state), so it
-        // is bound as an optional switch and the tool's own required-parameter error reports its absence.
-        val bound = command.option(spec.cliFlag, help = spec.cliSynopsis).nullableFlag()
+    // A non-positional boolean is exactly the parameter that carries a negative spelling.
+    val negativeFlag = spec.negativeCliFlag
+    if (negativeFlag != null) {
+        // `nullableFlag` decides presence by "the name used is not a secondary name", so WITHOUT a
+        // secondary name the option has arity 0..0 and `false` is unreachable: `--flag` yields true,
+        // omitting it yields null, and `--flag=false` fails as IncorrectOptionValueCount. The negative
+        // spelling is what makes the third state expressible — without it a parameter like
+        // `trust_project` (tool default true) could never be turned off from the CLI at all.
+        // A required boolean stays unenforced here: absence is a legitimate state of a switch pair, so
+        // the tool's own required-parameter error reports it rather than a CLI-invented one.
+        val bound = command.option(spec.cliFlag, help = spec.cliSynopsis).nullableFlag(negativeFlag)
         command.registerOption(bound)
         return { bound.value?.let { JsonPrimitive(it) } }
     }
@@ -354,6 +374,24 @@ private fun InputSchemaParamSpec.cliBounds(): CliBounds {
 
 /** The CLI demands a parameter only when the tool requires it and cannot supply it itself. */
 private val InputSchemaParamSpec.cliRequired: Boolean get() = required && !cliOptional
+
+/**
+ * The name the CLI reports this parameter by — its flag, or its bare name when it is a positional (Clikt
+ * reports a missing argument by the name it was declared with). Both `cliNames` and the [UsageError]s
+ * [SchemaCliBinding.parsed] raises key on this, so one lookup resolves every failure.
+ */
+private val InputSchemaParamSpec.cliParamName: String get() = if (cliPositional) name else cliFlag
+
+/**
+ * The negative spelling of an optional boolean's flag — `--trust_project` gains `--no-trust_project` —
+ * and null for every parameter that is not a boolean switch (a positional boolean takes an explicit
+ * `true`/`false` value instead). Derived rather than declared: `--no-<flag>` is Clikt's own convention for
+ * a flag's secondary name, so no metadata field has to exist for a single mechanical spelling. It is
+ * built from [InputSchemaParamSpec.cliFlag] rather than [InputSchemaParamSpec.name] so an overridden flag
+ * keeps its pair coherent; for the default flag (`--<name>`) the two are the same string.
+ */
+private val InputSchemaParamSpec.negativeCliFlag: String?
+    get() = if (type == "boolean" && !cliPositional) "--no-" + cliFlag.removePrefix("--") else null
 
 /** An empty repetition means the flag never appeared, which must contribute no key at all. */
 private fun List<JsonPrimitive>.toJsonArrayOrNull(): JsonArray? = takeIf { it.isNotEmpty() }?.let { JsonArray(it) }
