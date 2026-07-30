@@ -228,3 +228,12 @@
   Both #412 AS-lane runs log `JDK: 25.0.2` in idea.log for AI-261.26222.65 (2026.1.3). The
   bytecode-21 gate itself stays valuable (issue #157: older AS + minimum-supported baselines), but
   the KDoc's "AS 2026.1 bundles JBR 21" premise is stale and should be reworded against reality.
+
+- [ ] **`devrig <tool>` parses but cannot execute yet (#284, branch `issue-284-cli-engine`)**: the
+  schema-driven commands are generated and registered, but `runCli`'s `RunTool` arm is
+  `error("no runtime is wired ...")` pending the runtime dispatcher. The branch tip is therefore not
+  shippable: `devrig list_windows` parses successfully and then throws (exit 64 via the last-resort
+  handler) instead of calling the tool. Also pending on that branch: `devrig <tool> --help` prints the
+  curated global banner rather than the command's own generated help, because the eager help option's
+  `PrintHelpMessage` is discarded — so the eight generated subcommands are currently undocumented from
+  the CLI. Both are known and assigned; do not release from this branch until they are closed.
