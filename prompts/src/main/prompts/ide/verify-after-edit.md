@@ -44,7 +44,7 @@ Never collapse `did_not_run` or `check_failed` to `clean`.
    `runInspectionsDirectly(file)` and always include `failedTools`.
 4. For module-wide local inspection sweeps, use
    `mcp-steroid://ide/module-inspection-sweep`.
-5. For targeted Gradle tests, use
+5. For a targeted test-class run with structured results, use
    `mcp-steroid://test/run-test-class-structured`.
 
 Do not use daemon highlighting as the primary verification signal. Highlighting
@@ -124,5 +124,5 @@ Pitfalls:
 
 - [JPS Build Errors](mcp-steroid://ide/jps-build-errors) - Run a JPS build and collect structured compiler diagnostics.
 - [Module Inspection Sweep](mcp-steroid://ide/module-inspection-sweep) - Run file-scoped inspections over a module without internal batch-inspection APIs.
-- [Run Gradle Test Class](mcp-steroid://test/run-test-class-structured) - Single-call Gradle test verification with structured results.
+- [Run Test Class (Structured)](mcp-steroid://test/run-test-class-structured) - Single-call test-class verification with structured results.
 - [Inspection Summary](mcp-steroid://ide/inspection-summary) - List enabled inspections before relying on an inspection sweep.
