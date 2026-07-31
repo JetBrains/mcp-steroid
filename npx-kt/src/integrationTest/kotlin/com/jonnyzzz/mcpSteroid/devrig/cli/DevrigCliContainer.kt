@@ -42,12 +42,14 @@ class DevrigCliContainer(
         }
 
     /** Run the devrig launcher once with [args] in the container, returning the finished process result. */
-    fun runDevrig(vararg args: String, timeoutSeconds: Long = 60): ProcessResult =
+    fun runDevrig(vararg args: String, timeoutSeconds: Long = 60, env: Map<String, String> = emptyMap()): ProcessResult =
         container.startProcessInContainer {
-            args(listOf(launcher) + args.toList())
-                .timeoutSeconds(timeoutSeconds)
-                .description("devrig ${args.joinToString(" ")}")
-                .quietly()
+            env.entries.fold(
+                args(listOf(launcher) + args.toList())
+                    .timeoutSeconds(timeoutSeconds)
+                    .description("devrig ${args.joinToString(" ")}")
+                    .quietly()
+            ) { req, (k, v) -> req.addEnv(k, v) }
         }.awaitForProcessFinish()
 
     /** Run `devrig mcp` once in the container feeding [stdin] (e.g. a fixed handshake), returning the result. */
