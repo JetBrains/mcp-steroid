@@ -15,6 +15,8 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.io.TempDir
@@ -110,6 +112,107 @@ class CliToolSupportTest {
         assertEquals(CliExit.UNAVAILABLE, exit)
         assertTrue(err.text().contains("no such project"))
         assertEquals("", out.text())
+    }
+
+    // ------------------------------ contentDataJson: text vs json payload ------------------------------
+    // These pin the --json envelope's payload shape: a tool's own JSON payload (e.g. list_windows'
+    // {"windows":[...]}) must be reachable in ONE parse, not double-encoded as an escaped string under
+    // "text". Every assertion below reads a whole document (never a substring) per the brief.
+
+    @Test
+    fun `an object payload is unpacked under json, not double-encoded under text`() {
+        val result = textResult("""{"windows":[{"windowId":"w1"}]}""")
+
+        val item = (result.contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+        assertEquals("text", item.getValue("type").jsonPrimitive.content)
+        assertTrue("text" !in item, "must carry exactly one payload key, not also text: $item")
+        val windowId = item.getValue("json").jsonObject.getValue("windows")
+            .jsonArray[0].jsonObject.getValue("windowId").jsonPrimitive.content
+        assertEquals("w1", windowId)
+    }
+
+    @Test
+    fun `an array payload is unpacked under json`() {
+        val result = textResult("""[1,2,3]""")
+
+        val item = (result.contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+        assertTrue("text" !in item, "must carry exactly one payload key, not also text: $item")
+        assertEquals(listOf(1, 2, 3), item.getValue("json").jsonArray.map { it.jsonPrimitive.int })
+    }
+
+    @Test
+    fun `a bare scalar payload stays under text, never json`() {
+        for (scalar in listOf("123", "\"hi\"", "true")) {
+            val item = (textResult(scalar).contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+            assertEquals(scalar, item.getValue("text").jsonPrimitive.content, "scalar payload: $scalar")
+            assertTrue("json" !in item, "a bare scalar must not be unpacked as json: $scalar -> $item")
+        }
+    }
+
+    @Test
+    fun `prose that fails to parse as json stays under text, unchanged`() {
+        val prose = "hello, this is not json {"
+        val item = (textResult(prose).contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+
+        assertEquals(prose, item.getValue("text").jsonPrimitive.content)
+        assertTrue("json" !in item)
+    }
+
+    @Test
+    fun `an execute_code-shaped transcript with an embedded json object stays under text`() {
+        // Pins the load-bearing assumption behind this whole task: execute_code's payload is a
+        // transcript (execution_id / [PRE] / script output / [POST]), never bare JSON, no matter what
+        // the script printed. If transcript wrapping is ever dropped, this must fail loudly instead of
+        // silently flipping execute_code's envelope shape to json.
+        val transcript = "execution_id: eid_1\n[PRE] sync documents\n{\"a\":1}\n[POST] sync documents"
+        val item = (textResult(transcript).contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+
+        assertEquals(transcript, item.getValue("text").jsonPrimitive.content)
+        assertTrue("json" !in item, "an embedded JSON object mid-transcript must not flip the shape: $item")
+    }
+
+    @Test
+    fun `a multi-item result unpacks json and text independently per item, images untouched`() {
+        val result = ToolCallResult(
+            content = listOf(
+                ContentItem.Text("""{"a":1}"""),
+                ContentItem.Text("plain prose"),
+                imageItem(byteArrayOf(1, 2, 3)),
+            ),
+        )
+
+        val content = result.contentDataJson().getValue("content") as JsonArray
+        assertEquals(3, content.size)
+        val first = content[0].jsonObject
+        assertTrue("json" in first && "text" !in first, "expected json-shaped: $first")
+        assertEquals(1, first.getValue("json").jsonObject.getValue("a").jsonPrimitive.int)
+        val second = content[1].jsonObject
+        assertTrue("text" in second && "json" !in second, "expected text-shaped: $second")
+        assertEquals("image", content[2].jsonObject.getValue("type").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `the envelope frame tool command isError data is unchanged when a payload unpacks as json`() {
+        val out = CapturedStream()
+        val exit = Presentation.Json().render(textResult("""{"windows":[]}"""), "list_windows", out.stream)
+
+        assertEquals(CliExit.OK, exit)
+        val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
+        assertEquals(setOf("tool", "command", "isError", "data"), envelope.keys)
+        assertEquals("devrig", envelope.getValue("tool").jsonObject.getValue("name").jsonPrimitive.content)
+        assertEquals("list_windows", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(false, envelope.getValue("isError").jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `console rendering of a json-shaped payload is untouched, printing the raw text verbatim`() {
+        val out = CapturedStream()
+        val payload = """{"windows":[{"windowId":"w1"}]}"""
+
+        val exit = Presentation.Console { tempDir }.render(textResult(payload), "list_windows", out.stream)
+
+        assertEquals(CliExit.OK, exit)
+        assertEquals(payload + "\n", out.text())
     }
 
     // ------------------------------ console image rendering ------------------------------

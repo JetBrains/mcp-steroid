@@ -10,10 +10,16 @@ import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
@@ -261,8 +267,43 @@ fun cliEnvelopeJson(command: String, isError: Boolean, data: JsonObject): String
 fun ToolCallResult.toEnvelopeJson(command: String): String =
     cliEnvelopeJson(command, isError, contentDataJson())
 
-/** Extracts native serialized `content` for command-specific envelopes. */
+/**
+ * Extracts native serialized `content` for command-specific envelopes, unpacking each text item's
+ * payload under `content[].json` instead of `content[].text` when that payload parses whole as a JSON
+ * object or array. `--json`'s entire audience is machine consumers; leaving a tool's own JSON payload
+ * double-encoded as an escaped string forces every caller to parse twice. A bare scalar (`123`, `"hi"`,
+ * `true`) or anything that fails to parse (prose, an `execute_code` transcript with JSON embedded
+ * mid-log) stays under `text`, unchanged and unvalidated — this is presentation, not a schema check.
+ * Image and resource items are untouched. `devrig mcp` (stdio) never calls this: it still serializes
+ * [ToolCallResult] as native MCP content, where a JSON-shaped tool payload staying a text string is
+ * correct wire behavior.
+ */
 fun ToolCallResult.contentDataJson(): JsonObject = buildJsonObject {
     val native = McpJson.encodeToJsonElement(ToolCallResult.serializer(), this@contentDataJson).jsonObject
-    put("content", native.getValue("content"))
+    val content = native.getValue("content").jsonArray
+    put("content", buildJsonArray { for (item in content) add(unpackJsonPayload(item.jsonObject)) })
+}
+
+/** Replaces a text content item's `text` key with `json` when [item]'s `text` payload parses whole as a
+ * JSON object or array; returns [item] unchanged otherwise (non-text items, scalars, parse failures). */
+private fun unpackJsonPayload(item: JsonObject): JsonObject {
+    val text = item["text"] ?: return item
+    val parsed = parseAsJsonContainer(text.jsonPrimitive.content) ?: return item
+    return buildJsonObject {
+        put("type", item.getValue("type"))
+        put("json", parsed)
+    }
+}
+
+/** Parses [text] as JSON, returning it only when the whole document is an object or array. A bare
+ * scalar is prose that happens to look like JSON, not a tool's structured payload, so it is left to the
+ * caller to keep under `text`. Any parse failure (the common case: plain prose, a transcript with JSON
+ * embedded mid-log) is silently `null` — this is a presentation choice, not validation. */
+private fun parseAsJsonContainer(text: String): JsonElement? {
+    val parsed = try {
+        McpJson.parseToJsonElement(text)
+    } catch (e: SerializationException) {
+        return null
+    }
+    return parsed.takeIf { it is JsonObject || it is JsonArray }
 }

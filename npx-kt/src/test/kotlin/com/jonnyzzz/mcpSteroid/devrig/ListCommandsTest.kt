@@ -12,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -70,10 +71,13 @@ class ListCommandsTest {
         val content = envelope.getValue("data").jsonObject.getValue("content").jsonArray
         assertEquals(1, content.size, "a lister returns exactly one text content item")
         assertEquals("text", content[0].jsonObject.getValue("type").jsonPrimitive.content)
+        // list_projects' payload is a JSON object, so under --json it is unpacked as `json`, reachable
+        // in one parse — never double-encoded as an escaped string under `text` (see contentDataJson()).
+        assertTrue("text" !in content[0].jsonObject, "must carry exactly one payload key: ${content[0]}")
         assertEquals(
-            McpJson.encodeToString(ListProjectsResponse.serializer(), oneProject),
-            content[0].jsonObject.getValue("text").jsonPrimitive.content,
-            "the tool's own response must reach the envelope verbatim",
+            McpJson.encodeToJsonElement(ListProjectsResponse.serializer(), oneProject),
+            content[0].jsonObject.getValue("json"),
+            "the tool's own response must reach the envelope verbatim, unpacked as JSON",
         )
     }
 
@@ -98,9 +102,11 @@ class ListCommandsTest {
         val envelope = run.envelope()
         assertEquals("list_windows", envelope.getValue("command").jsonPrimitive.content)
         val content = envelope.getValue("data").jsonObject.getValue("content").jsonArray
+        val item = content.single().jsonObject
+        assertTrue("text" !in item, "must carry exactly one payload key: $item")
         assertEquals(
-            McpJson.encodeToString(ListWindowsResponse.serializer(), response),
-            content.single().jsonObject.getValue("text").jsonPrimitive.content,
+            McpJson.encodeToJsonElement(ListWindowsResponse.serializer(), response),
+            item.getValue("json"),
         )
     }
 
@@ -130,10 +136,10 @@ class ListCommandsTest {
 
     // ------------------------- through the production runCli router -------------------------
 
-    /** The single text payload the `--json` envelope carries. */
-    private fun GeneratedToolRun.payloadText(): String =
+    /** The single JSON payload the `--json` envelope carries, unpacked (not double-encoded as text). */
+    private fun GeneratedToolRun.payloadJson(): JsonObject =
         envelope().getValue("data").jsonObject.getValue("content").jsonArray
-            .single().jsonObject.getValue("text").jsonPrimitive.content
+            .single().jsonObject.getValue("json").jsonObject
 
     @Test
     fun `runCli dispatches a generated list_projects command instead of failing`() {
@@ -141,13 +147,13 @@ class ListCommandsTest {
         // render. Deliberately asserts the SHAPE and not the contents: IDE discovery reads the real
         // `~/.mcp-steroid` markers (HomePaths.markersDir is anchored at the user home by design, so a
         // scratch home cannot isolate it), so this machine's open IDEs may legitimately appear. What is
-        // machine-independent is that the tool ran and its own response reached the envelope — which is
-        // exactly the claim: the arm dispatches rather than throwing.
+        // machine-independent is that the tool ran and its own response reached the envelope, reachable
+        // in one parse — which is exactly the claim: the arm dispatches rather than throwing.
         val run = runCliForToolTest(home, parseRunTool("list_projects", "--json"))
 
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
         assertEquals("list_projects", run.envelope().getValue("command").jsonPrimitive.content)
-        McpJson.decodeFromString(ListProjectsResponse.serializer(), run.payloadText())
+        McpJson.decodeFromJsonElement(ListProjectsResponse.serializer(), run.payloadJson())
     }
 
     @Test
@@ -156,6 +162,6 @@ class ListCommandsTest {
 
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
         assertEquals("list_windows", run.envelope().getValue("command").jsonPrimitive.content)
-        McpJson.decodeFromString(ListWindowsResponse.serializer(), run.payloadText())
+        McpJson.decodeFromJsonElement(ListWindowsResponse.serializer(), run.payloadJson())
     }
 }
