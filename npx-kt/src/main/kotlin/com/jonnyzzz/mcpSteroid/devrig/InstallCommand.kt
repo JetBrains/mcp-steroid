@@ -94,8 +94,7 @@ fun renderInstallDevrigInfo(launcherPath: Path): String = buildString {
     )
     val column = nextSteps.maxOf { it.first.length } + 4
     appendLine("devrig is installed: $launcherPath")
-    appendLine("The launcher and PATH registration self-heal on every devrig run. If 'devrig' is not")
-    appendLine("found, open a new terminal (Windows) or add ${launcherPath.parent} to PATH.")
+    appendLine("If 'devrig' is not found, add ${launcherPath.parent} to PATH.")
     appendLine()
     appendLine("Next steps:")
     for ((command, explanation) in nextSteps) appendLine("  ${command.padEnd(column)}$explanation")
