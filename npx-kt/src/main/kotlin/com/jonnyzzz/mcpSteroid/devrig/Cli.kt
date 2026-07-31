@@ -568,9 +568,9 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
     return try {
         when (command) {
             is DevrigCommand.MCP -> error("runCli called with DevrigCommand.MCP")
-            // Parsing and running are separate lifecycle phases; the runtime that calls the tool behind a
-            // generated command is wired in its own layer, not here.
-            is DevrigCommand.RunTool -> error("no runtime is wired for the generated '${command.commandName}' command")
+            // ONE arm for every generated tool command, whatever the tool: parsing and running are separate
+            // lifecycle phases, and the second one lives in its own layer ([runGeneratedToolCommand]).
+            is DevrigCommand.RunTool -> runGeneratedToolCommand(command)
             is DevrigCommand.DevrigCommandHelp -> printHelp(mcpStdout)
             is DevrigCommand.DevrigCommandVersion -> printVersion(mcpStdout)
             is DevrigCommand.DevrigCommandParseError -> {

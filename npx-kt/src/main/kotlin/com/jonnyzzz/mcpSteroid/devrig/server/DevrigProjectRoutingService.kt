@@ -67,6 +67,11 @@ class DevrigProjectRoutingService(
     }
 }
 
-class ProjectRouteNotFoundException(projectName: String) : IllegalArgumentException(
+/**
+ * [projectName] is exposed, not just interpolated into the message, so a surface that speaks differently can
+ * word its own advice: the message below names the MCP tool, which is right for an MCP client and wrong for
+ * a CLI user, who is told to run `devrig list_projects` instead (see `runGeneratedToolCommand`).
+ */
+class ProjectRouteNotFoundException(val projectName: String) : IllegalArgumentException(
     "project_name '$projectName' is no longer present; call steroid_list_projects to refresh"
 )
