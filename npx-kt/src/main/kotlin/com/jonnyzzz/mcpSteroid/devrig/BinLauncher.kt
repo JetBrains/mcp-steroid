@@ -26,27 +26,36 @@ internal const val ENV_BIN_NO_AUTO_REGISTER = "DEVRIG_BIN_NO_AUTO_REGISTER"
  *  - [ENV_BIN_NO_AUTO_REGISTER] = `yes`/`true`/`1`/`on`  → OFF (explicit opt-out).
  *  - [ENV_BIN_NO_AUTO_REGISTER] = `no`/`false`/`0`/`off` → ON  (explicit opt-in — overrides the default,
  *    which is how the integration test enables it on a SNAPSHOT build).
- *  - unset / unrecognized → ON for release builds, OFF for SNAPSHOT/dev builds (and thus for tests,
- *    whose devrig is always a SNAPSHOT) so a dev build never clobbers the user's real launcher.
+ *  - unset / unrecognized → ON for CI/release builds, OFF for SNAPSHOT/dev builds so a dev build never
+ *    clobbers the user's real launcher.
  *
- * The build version is read straight from the generated [DevrigVersionMetadata]; only the env value is a
- * parameter, so the env-override branches stay unit-testable without faking the version.
+ * The build version defaults to the generated [DevrigVersionMetadata], so production callers never fake
+ * it; [shouldWriteLauncher]'s explicit `devrigVersion` parameter lets tests pin either lane
+ * deterministically (the baked version is SNAPSHOT locally but a `-jb-`/`-gh-` CI version on TeamCity —
+ * see the root build.gradle.kts BUILD_NUMBER handling).
  */
 internal fun binAutoRegisterEnabled(envValue: String? = System.getenv(ENV_BIN_NO_AUTO_REGISTER)): Boolean =
     shouldWriteLauncher(envValue, force = false)
 
 /**
  * Whether to (re)write the launcher. Explicit env wins both ways. With no env: a passive start follows
- * the SNAPSHOT default (off for dev/test, on for release); an explicit `devrig install` ([force]) writes
- * regardless of that default — install is explicit user intent, so it must never leave a dangling
+ * the SNAPSHOT default (off for dev/test, on for CI/release); an explicit `devrig install` ([force])
+ * writes regardless of that default — install is explicit user intent, so it must never leave a dangling
  * registration (a wrapper path registered for the agent but never written) on a dev/SNAPSHOT dist. An
  * explicit opt-out (`DEVRIG_BIN_NO_AUTO_REGISTER=yes`) still wins, even over [force].
+ *
+ * [devrigVersion] defaults to the baked build version; tests inject a fixed version per lane so the
+ * whole matrix runs on every machine regardless of which lane built the test JVM.
  */
-internal fun shouldWriteLauncher(envValue: String?, force: Boolean): Boolean =
+internal fun shouldWriteLauncher(
+    envValue: String?,
+    force: Boolean,
+    devrigVersion: String = DevrigVersionMetadata.getDevrigVersion(),
+): Boolean =
     when (parseBinAutoRegisterOptOut(envValue)) {
         true -> false
         false -> true
-        null -> force || !DevrigVersionMetadata.getDevrigVersion().contains("SNAPSHOT", ignoreCase = true)
+        null -> force || !devrigVersion.contains("SNAPSHOT", ignoreCase = true)
     }
 
 /** `true` = opt-out (disable), `false` = opt-in (enable), `null` = unset/unrecognized (use the default). */

@@ -13,7 +13,11 @@ import kotlin.test.assertTrue
  * End-to-end Docker coverage for the devrig binary OWNING `~/.mcp-steroid/bin/devrig` — the launcher is
  * (re)written on EVERY start, symlinked onto PATH, and the whole chain (wrapper → DEVRIG_JAVA_HOME →
  * install-tree launcher) actually runs. Also pins the undocumented `DEVRIG_BIN_NO_AUTO_REGISTER` gate:
- * OFF by default on this SNAPSHOT dist, ON when the env opt-in is given.
+ * an explicit opt-out never writes on any lane; a passive start (env unset) follows the dist's build
+ * lane — OFF on a SNAPSHOT dist, ON on a CI/release dist. The dist here is built by `installDist` in the
+ * SAME Gradle invocation, so its baked version is a SNAPSHOT locally but a `-jb-`/`-gh-` CI version on
+ * TeamCity (issue #410) — the passive-start test derives its expectation from the dist's own reported
+ * version instead of assuming a lane.
  *
  * Runs the REAL devrig dist inside a throwaway Linux container (see [startDevrigCliContainer]); never on
  * the host, which would create the developer's real `~/.mcp-steroid`.
@@ -73,15 +77,43 @@ class CliBinLauncherIntegrationTest {
     }
 
     @Test
-    fun `without the opt-in, a SNAPSHOT build does NOT touch bin devrig (disabled by default)`() {
+    fun `without the opt-in, a passive start follows the dist's lane - no write on SNAPSHOT, self-heal on CI and release`() {
         val devrig = lifetime.startDevrigCliContainer()
+        // The `devrig version` run IS the passive start under test (every start runs the launcher
+        // self-heal), and its stdout is the dist's baked version — the lane oracle. Deriving the
+        // expectation from it keeps this test meaningful on EVERY lane: a local SNAPSHOT dist must not
+        // touch bin/devrig, while the TC/GH dist (non-SNAPSHOT -jb-/-gh- version) must write it.
         val script = """
+            echo "VERSION=${'$'}("${devrig.launcher}" version 2>/dev/null || echo LAUNCH-FAILED)"
+            echo "WRAPPER_EXISTS=${'$'}([ -e "${'$'}HOME/.mcp-steroid/bin/devrig" ] && echo yes || echo no)"
+        """.trimIndent()
+
+        val out = devrig.runShell(script).assertExitCode(0, "passive-start lane gate").stdout
+        val version = out.lineSequence().first { it.startsWith("VERSION=") }.removePrefix("VERSION=").trim()
+        assertTrue(
+            Regex("\\d+\\.\\d+").containsMatchIn(version) && !version.contains("LAUNCH-FAILED"),
+            "the passive `devrig version` start must print the dist's baked version:\n$out",
+        )
+        val expected = if (version.contains("SNAPSHOT", ignoreCase = true)) "no" else "yes"
+        assertTrue(
+            out.contains("WRAPPER_EXISTS=$expected"),
+            "a passive start on the '$version' dist must ${if (expected == "yes") "self-heal" else "NOT write"} the launcher:\n$out",
+        )
+    }
+
+    @Test
+    fun `the explicit opt-out never writes bin devrig, regardless of the dist's lane`() {
+        val devrig = lifetime.startDevrigCliContainer()
+        // DEVRIG_BIN_NO_AUTO_REGISTER=yes wins on every lane (even over `devrig install`'s force) — so
+        // this asserts the never-writes side deterministically on SNAPSHOT and CI/release dists alike.
+        val script = """
+            export DEVRIG_BIN_NO_AUTO_REGISTER=yes
             "${devrig.launcher}" version >/dev/null 2>&1 || true
             echo "WRAPPER_EXISTS=${'$'}([ -e "${'$'}HOME/.mcp-steroid/bin/devrig" ] && echo yes || echo no)"
         """.trimIndent()
 
-        val out = devrig.runShell(script).assertExitCode(0, "default-off gate").stdout
-        assertTrue(out.contains("WRAPPER_EXISTS=no"), "SNAPSHOT default must not write the launcher:\n$out")
+        val out = devrig.runShell(script).assertExitCode(0, "opt-out gate").stdout
+        assertTrue(out.contains("WRAPPER_EXISTS=no"), "the opt-out must never write the launcher:\n$out")
     }
 
     /** Run a `/bin/sh -c <script>` in the devrig container, returning the finished process result. */

@@ -278,7 +278,7 @@ See git history of this file for the full snippets.)
 |---|---|
 | `DEVRIG_JDK_HOME` | If set, skip JDK download; set JAVA_HOME to this path |
 | `DEVRIG_JAVA_HOME` | Set by the launcher to pin the JDK devrig runs under (its supported runtime). Distinct from `DEVRIG_JDK_HOME` (download opt-out). |
-| `DEVRIG_BIN_NO_AUTO_REGISTER` | Gates the on-every-start launcher self-heal + register. `yes/true/1/on` = OFF; `no/false/0/off` = ON. Unset default = ON for release, **OFF for SNAPSHOT/dev/test** builds (so a dev build never clobbers the real launcher). |
+| `DEVRIG_BIN_NO_AUTO_REGISTER` | Gates the on-every-start launcher self-heal + register. `yes/true/1/on` = OFF; `no/false/0/off` = ON. Unset default follows the baked build lane: ON for CI (`-gh-`/`-jb-`) and release (`-r-`) builds, **OFF for SNAPSHOT/dev** builds (so a dev build never clobbers the real launcher). An explicit `devrig install` writes regardless of the lane default (opt-out still wins). |
 | `DEVRIG_OS` | Override platform-detect (testing only) |
 | `DEVRIG_CPU` | Override architecture-detect |
 | `DEVRIG_DEBUG_NO_EXEC=1` | Stop after cache resolution, print resolved exec path to stderr, exit 45 |
