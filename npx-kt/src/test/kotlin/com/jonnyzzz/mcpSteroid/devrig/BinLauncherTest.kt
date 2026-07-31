@@ -18,45 +18,88 @@ import kotlin.test.assertTrue
 class BinLauncherTest {
 
     // ── env / version gate ──────────────────────────────────────────────────────────────────────
+    // The test JVM's baked DevrigVersionMetadata depends on which lane BUILT it: a local/dev build bakes
+    // "<base>.19999-SNAPSHOT", TeamCity/GitHub bake "<base>.<counter>-(jb|gh)-<hash>", a release bakes
+    // "<base>.0-r-<hash>" (root build.gradle.kts). The gate tests therefore inject one fixed version per
+    // lane so BOTH sides of the SNAPSHOT default run deterministically on every machine (issue #410).
+
+    private val snapshotVersion = "0.101.19999-SNAPSHOT"   // local/dev lane → passive default OFF
+    private val ciVersion = "0.101.595-jb-bf19795"         // TC/GH CI lane  → passive default ON
+    private val releaseVersion = "0.101.0-r-bf19795"       // release lane   → passive default ON
+    private val allLaneVersions = listOf(snapshotVersion, ciVersion, releaseVersion)
 
     @Test
-    fun `env opt-out disables auto-registration regardless of build`() {
+    fun `env opt-out disables auto-registration regardless of build lane`() {
+        for (version in allLaneVersions) {
+            for (v in listOf("yes", "true", "1", "on", "YES", "True", " on ")) {
+                assertFalse(shouldWriteLauncher(v, force = false, devrigVersion = version),
+                    "value '$v' should disable on $version")
+            }
+        }
+        // The production entry point (baked version) — opt-out is lane-independent, so this holds
+        // no matter which lane built this test JVM.
         for (v in listOf("yes", "true", "1", "on", "YES", "True", " on ")) {
             assertFalse(binAutoRegisterEnabled(v), "value '$v' should disable")
         }
     }
 
     @Test
-    fun `env opt-in enables auto-registration even on a SNAPSHOT build`() {
-        // This test JVM runs a SNAPSHOT devrig, so the default (unset) is OFF; the explicit opt-in flips it ON.
+    fun `env opt-in enables auto-registration regardless of build lane`() {
+        for (version in allLaneVersions) {
+            for (v in listOf("no", "false", "0", "off", "NO", "False")) {
+                assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = version),
+                    "value '$v' should enable on $version")
+            }
+        }
+        // The production entry point (baked version) — opt-in overrides the default on every lane.
         for (v in listOf("no", "false", "0", "off", "NO", "False")) {
             assertTrue(binAutoRegisterEnabled(v), "value '$v' should enable")
         }
     }
 
     @Test
-    fun `unset defaults to OFF on this SNAPSHOT test build`() {
-        // The generated DevrigVersionMetadata in any non-release build carries "SNAPSHOT", so the default
-        // (no env override) must be disabled — which is exactly "disabled by default for tests".
-        assertTrue(DevrigVersionMetadata.getDevrigVersion().contains("SNAPSHOT", ignoreCase = true),
-            "test build version should be a SNAPSHOT: ${DevrigVersionMetadata.getDevrigVersion()}")
-        assertFalse(binAutoRegisterEnabled(null))
-        assertFalse(binAutoRegisterEnabled("garbage-unrecognized"))
+    fun `unset or unrecognized defaults to OFF on a SNAPSHOT build and ON on CI and release builds`() {
+        for (v in listOf(null, "garbage-unrecognized")) {
+            // Dev/SNAPSHOT: a passive start must never clobber the user's real launcher.
+            assertFalse(shouldWriteLauncher(v, force = false, devrigVersion = snapshotVersion),
+                "env '$v' must default OFF on $snapshotVersion")
+            // CI and release dists: the binary owns bin/devrig, so passive self-heal is ON.
+            assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = ciVersion),
+                "env '$v' must default ON on $ciVersion")
+            assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = releaseVersion),
+                "env '$v' must default ON on $releaseVersion")
+        }
     }
 
     @Test
-    fun `explicit install (force) writes even on a SNAPSHOT build, but an opt-out still wins`() {
-        // force = explicit `devrig install`: it must write the wrapper despite the SNAPSHOT default-off,
-        // so it never registers a path it didn't create...
-        assertTrue(shouldWriteLauncher(null, force = true))
-        assertTrue(shouldWriteLauncher("garbage", force = true))
-        // ...but a passive start on this SNAPSHOT build still does nothing without an opt-in.
-        assertFalse(shouldWriteLauncher(null, force = false))
-        // ...and an explicit opt-out wins even over force.
-        assertFalse(shouldWriteLauncher("yes", force = true))
-        assertFalse(shouldWriteLauncher("true", force = true))
-        // An explicit opt-in enables both paths.
-        assertTrue(shouldWriteLauncher("no", force = false))
+    fun `the default parameter reads the baked build version - this build's lane decides the passive default`() {
+        // End-to-end over the REAL generated DevrigVersionMetadata: derive this build's lane from the
+        // baked version instead of assuming SNAPSHOT (TC bakes a -jb- version; locally it is a SNAPSHOT).
+        val baked = DevrigVersionMetadata.getDevrigVersion()
+        val passiveDefault = !baked.contains("SNAPSHOT", ignoreCase = true)
+        assertEquals(passiveDefault, binAutoRegisterEnabled(null),
+            "passive default must follow the baked version's lane: $baked")
+        assertEquals(passiveDefault, shouldWriteLauncher("garbage-unrecognized", force = false),
+            "an unrecognized env value must fall back to the baked lane default: $baked")
+    }
+
+    @Test
+    fun `explicit install (force) writes on every lane, but an opt-out still wins`() {
+        for (version in allLaneVersions) {
+            // force = explicit `devrig install`: it must write the wrapper despite a SNAPSHOT default-off,
+            // so it never registers a path it didn't create...
+            assertTrue(shouldWriteLauncher(null, force = true, devrigVersion = version), "force on $version")
+            assertTrue(shouldWriteLauncher("garbage", force = true, devrigVersion = version), "force on $version")
+            // ...and an explicit opt-out wins even over force.
+            assertFalse(shouldWriteLauncher("yes", force = true, devrigVersion = version), "opt-out beats force on $version")
+            assertFalse(shouldWriteLauncher("true", force = true, devrigVersion = version), "opt-out beats force on $version")
+            // An explicit opt-in enables even the passive path.
+            assertTrue(shouldWriteLauncher("no", force = false, devrigVersion = version), "opt-in on $version")
+        }
+        // A passive start without an opt-in follows the lane: nothing on SNAPSHOT, self-heal on CI/release.
+        assertFalse(shouldWriteLauncher(null, force = false, devrigVersion = snapshotVersion))
+        assertTrue(shouldWriteLauncher(null, force = false, devrigVersion = ciVersion))
+        assertTrue(shouldWriteLauncher(null, force = false, devrigVersion = releaseVersion))
     }
 
     // ── launcher rendering ──────────────────────────────────────────────────────────────────────
