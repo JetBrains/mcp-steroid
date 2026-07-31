@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.aiAgents
 
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -79,6 +80,12 @@ class AgentCliNotLaunchableException(
  *
  * On timeout the child is killed and [IllegalStateException] is thrown:
  * a loud, bounded failure instead of an unbounded hang.
+ *
+ * The temp file is deleted on every path — success, timeout, and launch
+ * failure. Windows needs care here (issue #407): the child holds an open
+ * handle on the redirect file, and NTFS forbids deleting a file with an
+ * open handle, so the runner waits for the killed child to actually die
+ * and retries the delete briefly before giving up (loudly, on stderr).
  */
 class ProcessAiAgentCliRunner(
     private val timeout: Duration = 120.seconds,
@@ -97,6 +104,18 @@ class ProcessAiAgentCliRunner(
             runCatching { process.outputStream.close() } // stdin: immediate EOF
             if (!process.waitFor(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly()
+                // destroyForcibly() only INITIATES the kill. The child's stdout IS an open
+                // handle on outputFile, and NTFS refuses to delete a file with an open handle
+                // (POSIX unlink-while-open is fine) — deleting in `finally` while the child is
+                // still going down leaked devrig-agent-cli-*.out on Windows (issue #407). Wait
+                // for the child to actually die; bounded, so a kill-resistant process cannot
+                // re-introduce the unbounded hang this runner exists to prevent.
+                if (!process.waitFor(KILL_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                    System.err.println(
+                        "[mcp-steroid] '${invocation.binary}' is still alive " +
+                            "${KILL_WAIT_MS}ms after destroyForcibly()",
+                    )
+                }
                 throw IllegalStateException(
                     "'${invocation.binary} ${invocation.args.joinToString(" ")}' " +
                         "timed out after $timeout and was killed",
@@ -104,12 +123,46 @@ class ProcessAiAgentCliRunner(
             }
             return AiAgentCliResult(process.exitValue(), Files.readString(outputFile, Charsets.UTF_8))
         } finally {
+            deleteOutputFileWithRetry(outputFile)
+        }
+    }
+
+    /**
+     * Deletes [outputFile], retrying a few times with a short backoff: even after the child
+     * process is dead, Windows can transiently refuse the delete with a sharing violation
+     * (e.g. an antivirus or search indexer briefly holds the freshly written file). On POSIX
+     * the first attempt always succeeds and the loop returns immediately. The final failure
+     * is never swallowed — it is logged to stderr with the last cause.
+     */
+    private fun deleteOutputFileWithRetry(outputFile: Path) {
+        var lastFailure: Exception? = null
+        for (attempt in 1..DELETE_ATTEMPTS) {
             try {
                 Files.deleteIfExists(outputFile)
+                return
             } catch (e: Exception) {
-                System.err.println("[mcp-steroid] could not delete agent CLI output file $outputFile: $e")
+                lastFailure = e // logged below if no later attempt succeeds
+            }
+            if (attempt < DELETE_ATTEMPTS) {
+                try {
+                    Thread.sleep(DELETE_RETRY_DELAY_MS)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break // stop retrying; fall through to the loud final log
+                }
             }
         }
+        System.err.println(
+            "[mcp-steroid] could not delete agent CLI output file $outputFile " +
+                "after $DELETE_ATTEMPTS attempts: $lastFailure",
+        )
+    }
+
+    private companion object {
+        /** How long to wait for the child to actually die after [Process.destroyForcibly]. */
+        const val KILL_WAIT_MS = 10_000L
+        const val DELETE_ATTEMPTS = 10
+        const val DELETE_RETRY_DELAY_MS = 100L
     }
 }
 
