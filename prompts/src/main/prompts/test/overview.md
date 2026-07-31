@@ -62,7 +62,7 @@ Or run [Demo Debug Test](mcp-steroid://test/demo-debug-test) for a one-call end-
 ### Basic Test Execution
 
 - **`run-test-at-caret.md`** - Run/debug at caret position (IDE-agnostic, preferred)
-- **`run-test-class-structured.md`** - Run one Gradle-backed JVM test class and return structured JSON
+- **`run-test-class-structured.md`** - Run one test class and return structured JSON (Gradle-backed in IDEA; SM-based run configuration elsewhere)
 - **`list-run-configurations.md`** - List all run configurations in the project
 - **`run-tests.md`** - Execute a named test run configuration
 - **`wait-for-completion.md`** - Wait for test execution to complete

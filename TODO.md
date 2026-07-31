@@ -1,5 +1,11 @@
 # TODO
 
+- [ ] **KtBlock matrix has no GoLand/WebStorm/RubyMine/DataGrip lane** (noted in the #406 quorum
+  review). Unannotated (all-IDE) prompt fences are compile-verified only against
+  Idea/PyCharm/Rider/CLion (stable+EAP) yet render in GO/WS/RM/DB at runtime. Risk is low while
+  fences stick to platform-level APIs, but if it ever matters, extend `KtBlockCompilationTestBase`
+  with a GoLand or WebStorm distribution — repo-wide infra task, not specific to any one article.
+
 - [ ] **Tool/resource counts drift across surfaces** (found during the 2026-07-31 plugin-description
   rewrite review). The MCP tool surface is **8** (`docs/PHILOSOPHY.md` Tenet 1, canonical; confirmed
   against live registrations), but root `CLAUDE.md` and `ij-plugin/CLAUDE.md` say "10 today", and
