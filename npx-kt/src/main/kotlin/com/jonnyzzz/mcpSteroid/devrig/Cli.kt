@@ -80,13 +80,24 @@ sealed interface DevrigCommand {
     ) : DevrigCommand
 
     /**
-     * `devrig install devrig` — register devrig's OWN `~/.mcp-steroid/bin` launcher + PATH (NOT an agent).
-     * The install scripts call this with every non-trivial parameter explicit: [installScript] (the
-     * install-tree launcher the wrapper execs) and [jdkHome] (pinned as `DEVRIG_JAVA_HOME`).
+     * `devrig install devrig` — register devrig's OWN `~/.mcp-steroid/bin` launcher + PATH (NOT an
+     * agent) and print the next-steps info message. One behavior, same result on every call (issue
+     * #398): registration always derives the install tree + JDK from the running binary. The
+     * `--install-script` / `--jdk-home` flags the install scripts send (a forward contract, by design)
+     * are accepted and ignored today.
      */
     data class DevrigCommandInstallDevrig(
-        val installScript: String? = null,
-        val jdkHome: String? = null,
+        override val debug: Boolean = false,
+        override val json: Boolean = false,
+    ) : DevrigCommand
+
+    /**
+     * `devrig install config` — print the MANUAL MCP configuration recipe: the stdio `mcpServers` JSON
+     * snippet pointing at the stable launcher, plus the per-agent `mcp add` command lines. For MCP
+     * clients devrig cannot configure automatically (issue #398). Informational like `install` overview:
+     * read-only, exits 0, ignores --json (the output already IS the JSON snippet plus its context).
+     */
+    data class DevrigCommandInstallConfig(
         override val debug: Boolean = false,
         override val json: Boolean = false,
     ) : DevrigCommand
@@ -94,8 +105,8 @@ sealed interface DevrigCommand {
     /**
      * `devrig install plugin` — install the MCP Steroid plugin into locally-running JetBrains IDEs via
      * each IDE's built-in REST endpoint (which shows the IDE's own native install dialog). [check] is a
-     * read-only dry-run: report which IDEs would be asked, show no dialog. Also invoked, best-effort, from
-     * `devrig install devrig`.
+     * read-only dry-run: report which IDEs would be asked, show no dialog. The EXPLICIT plugin-install
+     * step — `devrig install devrig` only promotes this command, it never runs it (issue #398).
      */
     data class DevrigCommandInstallPlugin(
         val check: Boolean = false,
@@ -248,7 +259,9 @@ private class InstallCommand(
     parent: DevrigCliktCommand,
 ) : DevrigCliktCommand("install", selected, parent) {
     private val agent by argument("agent").optional()
-    // Only meaningful for `install devrig` (the install scripts pass them); rejected for agents below.
+    // `install devrig` flags the install scripts SEND by design (a forward contract a future devrig
+    // may use); accepted there and IGNORED today (registration derives everything from the running
+    // binary). Rejected for other targets.
     private val installScript: String? by option("--install-script")
     private val jdkHome: String? by option("--jdk-home")
     private val checkFlag by option(
@@ -263,16 +276,25 @@ private class InstallCommand(
             // Bare `devrig install`: overview mode (#277). Target-specific flags still need a target —
             // silently ignoring them would hide a typo like `devrig install --check claude` gone wrong.
             if (checkFlag || installScript != null || jdkHome != null) {
-                throw UsageError("--check / --install-script / --jdk-home require an install target (claude / codex / gemini / plugin / devrig)")
+                throw UsageError("--check / --install-script / --jdk-home require an install target (claude / codex / gemini / plugin / devrig / config)")
             }
             select(DevrigCommand.DevrigCommandInstallOverview(debug = options.debug, json = options.json))
             return
         }
         if (agent == "devrig") {
             if (checkFlag) throw UsageError("--check is only valid for an agent install (claude / codex / gemini) or 'devrig install plugin'")
-            select(DevrigCommand.DevrigCommandInstallDevrig(
-                installScript = installScript, jdkHome = jdkHome, debug = options.debug, json = options.json,
-            ))
+            // --install-script / --jdk-home are IGNORED here (not stored): the command always derives
+            // the install tree + JDK from the running binary, so it behaves identically with or
+            // without them. The install scripts keep SENDING them by design — a forward contract a
+            // future devrig may use (issue #398).
+            select(DevrigCommand.DevrigCommandInstallDevrig(debug = options.debug, json = options.json))
+            return
+        }
+        if (agent == "config") {
+            if (checkFlag || installScript != null || jdkHome != null) {
+                throw UsageError("--check / --install-script / --jdk-home are not valid with 'devrig install config'")
+            }
+            select(DevrigCommand.DevrigCommandInstallConfig(debug = options.debug, json = options.json))
             return
         }
         if (agent == "plugin") {
@@ -283,7 +305,7 @@ private class InstallCommand(
             return
         }
         val target = AiAgentCli.parse(agent)
-            ?: throw UsageError("agent must be one of: claude, codex, gemini, devrig, plugin")
+            ?: throw UsageError("agent must be one of: claude, codex, gemini, devrig, plugin, config")
         if (installScript != null || jdkHome != null) {
             throw UsageError("--install-script / --jdk-home are only valid with 'devrig install devrig'")
         }
@@ -399,7 +421,8 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
             is DevrigCommand.DevrigCommandProject -> runProjectCommand(command)
             is DevrigCommand.DevrigCommandInstall -> runInstallCommand(command)
             is DevrigCommand.DevrigCommandInstallOverview -> runInstallOverviewCommand()
-            is DevrigCommand.DevrigCommandInstallDevrig -> runInstallDevrigCommand(command)
+            is DevrigCommand.DevrigCommandInstallDevrig -> runInstallDevrigCommand()
+            is DevrigCommand.DevrigCommandInstallConfig -> runInstallConfigCommand()
             is DevrigCommand.DevrigCommandInstallPlugin -> runInstallPluginCommand(command)
         }
     } catch (e: ManagedBackendLockException) {

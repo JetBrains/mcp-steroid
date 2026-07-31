@@ -559,8 +559,10 @@ val deployDevrigDist = tasks.register<Sync>("deployDevrigDist") {
 // Local devrig deploy: stage the dist (above), then have devrig regenerate its own stable
 // ~/.mcp-steroid/bin/devrig(.cmd) launcher + PATH registration via `devrig install devrig`
 // — the exact delegation the generated install.sh / install.ps1 use (this build never
-// writes the wrapper itself). The wrapper pins the Gradle daemon's JDK (25, see
-// gradle/gradle-daemon-jvm.properties) through --jdk-home / DEVRIG_JAVA_HOME.
+// writes the wrapper itself). The launcher + JDK flags are SENT by design (a forward
+// contract a future devrig may use); today's devrig ignores them and derives both from its
+// own running process — DEVRIG_JAVA_HOME makes that process run under :npx-kt's toolchain
+// JDK, which devrig then pins into the wrapper.
 val deployDevrig = tasks.register<Exec>("deployDevrig") {
     description = "Deploy devrig to ~/.mcp-steroid/devrig/ and regenerate the ~/.mcp-steroid/bin/devrig launcher."
     group = "deployment"
@@ -595,9 +597,9 @@ val deployDevrig = tasks.register<Exec>("deployDevrig") {
             args(installArgs)
         }
         // DEVRIG_JAVA_HOME beats any JAVA_HOME the caller's shell exported, so the freshly staged
-        // dist always launches on the toolchain JDK (devrig requires it as its runtime).
+        // dist always launches on the toolchain JDK (devrig requires it as its runtime) and pins
+        // exactly that JDK into the wrapper. Setting JAVA_HOME is not needed.
         environment("DEVRIG_JAVA_HOME", jdkHome)
-        environment("JAVA_HOME", jdkHome)
     }
     // `devrig install devrig` is contractually non-interactive (see runInstallDevrigCommand):
     // hand it an already-EOF stdin, mirroring install.sh's `< /dev/null` and install.ps1's `$null |`.

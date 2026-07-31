@@ -29,14 +29,16 @@ PATH. The mcp-steroid Java binary + a matching Amazon Corretto JDK are
 cached under `~/.mcp-steroid/binaries/`. After install, **zero network
 calls** unless `devrig upgrade` is run or a cache directory is missing.
 
-> **Implementation note (PR #117/#124):** the install script no longer writes
-> `bin/devrig` itself (the "bootstrap mode → write the script's own bytes →
-> bin/devrig" step below is stale on this point). After unpack it delegates to
-> the register-only subcommand `devrig install devrig --install-script=<launcher>
-> --jdk-home=<jdk>`; the **devrig binary owns the wrapper + PATH** (atomic
-> self-heal on every start, gated by `DEVRIG_BIN_NO_AUTO_REGISTER`). Motto: the
-> install script passes ALL non-trivial params to the binary — no env-derived
-> magic.
+> **Implementation note (PR #117/#124, revised for #398):** the install script
+> no longer writes `bin/devrig` itself (the "bootstrap mode → write the script's
+> own bytes → bin/devrig" step below is stale on this point). After unpack it
+> delegates to the register-only subcommand `devrig install devrig
+> --install-script=<launcher> --jdk-home=<jdk>`, run under the bundled JDK via a
+> process-scoped `DEVRIG_JAVA_HOME` (the user's `JAVA_HOME` is never touched);
+> the **devrig binary owns the wrapper + PATH** (atomic self-heal on every
+> start, gated by `DEVRIG_BIN_NO_AUTO_REGISTER`). The flags are SENT by design —
+> a forward contract a future devrig may use; today's devrig parses and ignores
+> them, deriving the install tree + JDK from its own running process.
 >
 > **Windows PATH:** the launcher only CHECKS user-PATH membership at startup
 > (pure Java can't persist user PATH; no PowerShell on the start/MCP hot path)

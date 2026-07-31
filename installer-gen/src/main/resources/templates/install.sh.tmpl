@@ -170,25 +170,24 @@ main() {
   [ -x "$jdk_home/bin/java" ] || fail "bin/java not found inside $jdk_home"
 
   # -- hand off to devrig: it OWNS ~/.mcp-steroid/bin/devrig + PATH (no duplicate wrapper here) --
-  # We pass every non-trivial parameter explicitly (the install-tree launcher + the bundled JDK); devrig
-  # registers itself. JAVA_HOME is set only so the unpacked devrig runs under the bundled JDK right now.
+  # The launcher + JDK paths are SENT by design (a forward contract a future devrig may use); today's
+  # devrig ignores them and derives both from its own running process. DEVRIG_JAVA_HOME (devrig's own
+  # variable, honored by the dist launcher; process-scoped so the user's environment is untouched) makes
+  # this one invocation run under the bundled JDK, which devrig then pins into the launcher.
   # Redirect stdin from /dev/null so devrig inherits an already-closed stdin: when this installer is
   # bootstrapped via `curl | sh`, the parent sh reads stdin from a pipe still open to the shell that
   # ran curl. A devrig subprocess that read stdin (or waited on a prompt) would hang forever with no
   # user recourse. `< /dev/null` gives it an already-closed stdin - `devrig install devrig` is
   # contractually non-interactive (see runInstallDevrigCommand; mirrors the install.ps1 `$null |`).
   log "registering devrig (devrig install devrig)..."
-  JAVA_HOME="$jdk_home" "$launcher" install devrig --install-script="$launcher" --jdk-home="$jdk_home" < /dev/null \
+  DEVRIG_JAVA_HOME="$jdk_home" "$launcher" install devrig --install-script="$launcher" --jdk-home="$jdk_home" < /dev/null \
     || fail "'devrig install devrig' failed - the launcher could not register itself"
 
-  # -- done. We do NOT auto-register devrig with agents - that edits agent configs, so it is an
-  #    explicit user step. --
+  # -- done. We do NOT auto-register devrig with agents or install the IDE plugin - both edit state
+  #    outside ~/.mcp-steroid, so they are explicit user steps. The 'devrig install devrig' handoff
+  #    above already printed the one next-steps message (install plugin / connect agent / show config),
+  #    so no duplicate next-steps block here. --
   log "devrig binary is ready."
-  log ""
-  log "To register devrig with your agent, run one of:"
-  log "    devrig install claude"
-  log "    devrig install codex"
-  log "    devrig install gemini"
 }
 
 main "$@"

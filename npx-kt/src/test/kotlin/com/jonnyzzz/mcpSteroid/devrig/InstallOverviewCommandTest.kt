@@ -16,7 +16,7 @@ class InstallOverviewCommandTest {
     @Test
     fun `overview lists every install target and one runnable example`() {
         val text = renderInstallOverview(AiAgentCli.entries.associateWith { null })
-        listOf("claude", "codex", "gemini", "plugin", "devrig").forEach {
+        listOf("claude", "codex", "gemini", "plugin", "devrig", "config").forEach {
             assertTrue(text.contains("  $it"), "overview must list target '$it':\n$text")
         }
         assertTrue(text.contains("devrig install claude"), "overview must show a runnable example:\n$text")

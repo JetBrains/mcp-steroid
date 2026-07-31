@@ -73,9 +73,10 @@ class DevrigBeacon(
             is DevrigCommand.DevrigCommandInstall -> "install"
             is DevrigCommand.DevrigCommandInstallDevrig -> "install"
             is DevrigCommand.DevrigCommandInstallPlugin -> "install"
-            // Overview is informational (help-like); captureStarted is only reached for runsTool()
-            // commands anyway, so this stays a non-event.
+            // Overview and config are informational (help-like); captureStarted is only reached for
+            // runsTool() commands anyway, so these stay non-events.
             is DevrigCommand.DevrigCommandInstallOverview -> null
+            is DevrigCommand.DevrigCommandInstallConfig -> null
             is DevrigCommand.DevrigCommandHelp -> null
             is DevrigCommand.DevrigCommandVersion -> null
             is DevrigCommand.DevrigCommandParseError -> null

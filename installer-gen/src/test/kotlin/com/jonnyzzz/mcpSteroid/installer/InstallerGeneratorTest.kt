@@ -116,19 +116,52 @@ class InstallerGeneratorTest {
     }
 
     @Test
-    fun `final guidance recommends agent-qualified install commands, never bare devrig install`() {
-        // jonnyzzz/mcp-steroid#320: `devrig install` has a required <agent> argument, so the old
-        // "run: devrig install" next-step guidance errored on every fresh install. Both scripts must
-        // print agent-qualified commands instead.
+    fun `scripts leave the next-steps guidance to devrig and never recommend bare devrig install`() {
+        // jonnyzzz/mcp-steroid#398: `devrig install devrig` itself prints the next-steps guidance
+        // (one agent-qualified command per agent WITH CLI detection, plus `devrig install config`), so
+        // the scripts must not print a second, drifting copy of that block — the first-run terminal
+        // shows exactly one next-steps block, devrig's own.
         val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
 
-        listOf("devrig install claude", "devrig install codex", "devrig install gemini").forEach {
-            assertTrue(scripts.sh.contains(it), "install.sh guidance missing '$it'")
-            assertTrue(scripts.ps.contains(it), "install.ps1 guidance missing '$it'")
+        listOf(scripts.sh to "install.sh", scripts.ps to "install.ps1").forEach { (script, name) ->
+            assertTrue(
+                !script.contains("To register devrig with your agent"),
+                "$name must not duplicate devrig's own next-steps guidance",
+            )
+            // jonnyzzz/mcp-steroid#320 regression: `devrig install` has a required <agent> argument, so
+            // a bare `devrig install` recommendation (right before a closing quote) errored on every
+            // fresh install — the scripts must never suggest it.
+            assertTrue(!script.contains("devrig install\""), "$name must not recommend bare 'devrig install'")
         }
-        // A bare `devrig install` right before the closing quote is the broken recommendation.
-        assertTrue(!scripts.sh.contains("devrig install\""), "install.sh must not recommend bare 'devrig install'")
-        assertTrue(!scripts.ps.contains("devrig install\""), "install.ps1 must not recommend bare 'devrig install'")
+    }
+
+    @Test
+    fun `the devrig handoff sends the launcher and jdk flags by design and runs under DEVRIG_JAVA_HOME`() {
+        // jonnyzzz/mcp-steroid#398: the scripts SEND --install-script/--jdk-home by design — a forward
+        // contract a future devrig may use; today's devrig parses and ignores them, deriving both from
+        // its own running process. The one invocation runs under the bundled JDK via DEVRIG_JAVA_HOME —
+        // devrig's own variable, honored by the dist launcher; setting JAVA_HOME is not needed.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        listOf(scripts.sh to "install.sh", scripts.ps to "install.ps1").forEach { (script, name) ->
+            assertTrue(script.contains("--install-script="), "$name must send --install-script")
+            assertTrue(script.contains("--jdk-home="), "$name must send --jdk-home")
+        }
+        assertTrue(
+            scripts.sh.contains("DEVRIG_JAVA_HOME=\"\$jdk_home\" \"\$launcher\" install devrig"),
+            "install.sh must scope DEVRIG_JAVA_HOME to the handoff invocation",
+        )
+        // Anchored: a plain-substring check would trip over DEVRIG_JAVA_HOME= containing JAVA_HOME=.
+        assertTrue(
+            !scripts.sh.contains(Regex("(?<![A-Z_])JAVA_HOME=")),
+            "install.sh sets DEVRIG_JAVA_HOME for the handoff — setting JAVA_HOME is not needed",
+        )
+        assertTrue(scripts.ps.contains("\$env:DEVRIG_JAVA_HOME = \$jdkHome"), "install.ps1 must set DEVRIG_JAVA_HOME for the handoff")
+        assertTrue(
+            scripts.ps.contains("\$env:DEVRIG_JAVA_HOME = \$SteroidPrevDevrigJavaHome"),
+            "install.ps1 runs in the caller's session and must restore DEVRIG_JAVA_HOME after the handoff",
+        )
+        assertTrue(!scripts.ps.contains("\$env:JAVA_HOME"), "install.ps1 sets DEVRIG_JAVA_HOME for the handoff — setting JAVA_HOME is not needed")
     }
 
     @Test

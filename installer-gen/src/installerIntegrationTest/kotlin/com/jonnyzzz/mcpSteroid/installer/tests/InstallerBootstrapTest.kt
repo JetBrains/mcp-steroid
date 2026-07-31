@@ -149,10 +149,12 @@ class InstallerBootstrapTest {
         val run1 = runInstall(install, mapOf("HOME" to homeDir, "DEVRIG_OS" to "linux", "DEVRIG_CPU" to "x64"))
             .assertExitCode(0) { "install.sh run #1 failed:\n$this" }
             .assertOutputContains("downloading devrig", "downloading jdk", message = "run #1 (clean HOME) must download both")
-            // The script ran the UNPACKED devrig with the correct, computed launcher path + bundled JDK.
+            // The script ran the UNPACKED devrig with the computed launcher + JDK flags (sent by design —
+            // today's devrig ignores them, #398) under the bundled JDK via DEVRIG_JAVA_HOME.
             .assertOutputContains(
                 "DEVRIG_INSTALL_DEVRIG", "--install-script=$expectedLauncher", "--jdk-home=$expectedJdkHome",
-                message = "install.sh must delegate to 'devrig install devrig' with the computed launcher + jdk-home",
+                "jdk=$expectedJdkHome",
+                message = "install.sh must delegate to 'devrig install devrig' with the computed flags, under the bundled JDK",
             )
             .assertOutputContains("devrig binary is ready", "devrig install", message = "must report ready + how to register with agents")
         run1.assertNoMessageInOutput("DEVRIG_INSTALL_CALLED") // must NOT auto-register with an AGENT
@@ -237,7 +239,7 @@ class InstallerBootstrapTest {
         val script = buildString {
             append("#!/bin/sh\n")
             append("if [ \"\$1\" = \"install\" ] && [ \"\$2\" = \"devrig\" ]; then\n")
-            append("  echo \"DEVRIG_INSTALL_DEVRIG \$*\"\n")
+            append("  echo \"DEVRIG_INSTALL_DEVRIG \$* jdk=\${DEVRIG_JAVA_HOME:-}\"\n")
             append("  exit 0\n")
             append("fi\n")
             append("case \"\$1\" in\n")

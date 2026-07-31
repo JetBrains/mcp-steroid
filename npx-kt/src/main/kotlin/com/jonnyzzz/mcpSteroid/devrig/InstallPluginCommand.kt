@@ -136,8 +136,8 @@ class KtorPluginRestClient(private val httpClient: HttpClient) : PluginRestClien
  * so IDEs that already have the plugin are skipped.
  *
  * Non-interactive: devrig itself never prompts. The IDE's modal is the only confirmation, and it is shown
- * by the IDE, not devrig — so this is safe to call from the fully non-interactive `devrig install devrig`
- * path (see [tryInstallPluginIntoRunningIdesQuietly]).
+ * by the IDE, not devrig. This is the EXPLICIT plugin-install step — `devrig install devrig` only promotes
+ * this command in its next-steps message and never runs it (issue #398).
  */
 fun DevrigServices.runInstallPluginCommand(command: DevrigCommand.DevrigCommandInstallPlugin): Int {
     val markers = scanMarkersOnce()
@@ -154,39 +154,8 @@ fun DevrigServices.runInstallPluginCommand(command: DevrigCommand.DevrigCommandI
         )
     }
     // Best-effort by design: per-IDE status is printed above, and the real install completes only when the
-    // user approves each IDE's dialog. A blanket exit 0 keeps the command safe to chain from `install devrig`.
+    // user approves each IDE's dialog.
     return 0
-}
-
-/**
- * Best-effort plugin install into running IDEs, called from `devrig install devrig`. Silent when no IDE is
- * running; never throws (any failure is logged to stderr and swallowed) so it can never fail the bootstrap
- * install, and never reads stdin.
- */
-fun DevrigServices.tryInstallPluginIntoRunningIdesQuietly() {
-    try {
-        val markers = scanMarkersOnce()
-        runBlocking(Dispatchers.IO) {
-            val targets = detectProvisionTargets(portDiscovery)
-            // Nothing running → say nothing. The bootstrap installer output stays quiet unless there is an
-            // IDE we can actually act on.
-            if (targets.isEmpty()) return@runBlocking
-            mcpStdout.println()
-            installPluginIntoRunningIdes(
-                out = mcpStdout,
-                err = System.err,
-                check = false,
-                pluginId = MCP_STEROID_PLUGIN_ID,
-                targets = targets,
-                markers = markers,
-                client = KtorPluginRestClient(commandHttpClient),
-            )
-        }
-    } catch (e: Exception) {
-        System.err.println(
-            "[mcp-steroid] installing the plugin into running IDEs was skipped: ${e.message ?: e::class.simpleName}",
-        )
-    }
 }
 
 /**

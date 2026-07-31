@@ -143,10 +143,14 @@ if (-not (Test-Path (Join-Path $jdkHome 'bin\java.exe'))) {
 }
 
 # -- hand off to devrig: it OWNS ~\.mcp-steroid\bin + PATH (no duplicate launcher written here) --
-# Pass every non-trivial parameter explicitly (the install-tree launcher + the bundled JDK); devrig
-# registers itself. JAVA_HOME is set only so the unpacked devrig runs under the bundled JDK right now.
+# The launcher + JDK paths are SENT by design (a forward contract a future devrig may use); today's
+# devrig ignores them and derives both from its own running process. DEVRIG_JAVA_HOME (devrig's own
+# variable, honored by the dist launcher) makes this one invocation run under the bundled JDK, which
+# devrig then pins into the launcher. `irm | iex` runs in the caller's session, so the variable is
+# restored right after the call and the user's JAVA_HOME is never touched.
 Write-Log "registering devrig (devrig install devrig)..."
-$env:JAVA_HOME = $jdkHome
+$SteroidPrevDevrigJavaHome = $env:DEVRIG_JAVA_HOME
+$env:DEVRIG_JAVA_HOME = $jdkHome
 # Pipe $null so the launcher's child process gets an empty stdin that reads EOF immediately. `irm | iex`
 # is a PowerShell OBJECT pipeline (not a POSIX stdin pipe), so the script runs inside the caller's PS
 # host and a native child would otherwise inherit THAT host's stdin handle - an interactive console, or
@@ -154,21 +158,21 @@ $env:JAVA_HOME = $jdkHome
 # waited on a Console.ReadLine style prompt) could block with no user recourse. `$null |` removes that
 # risk - `devrig install devrig` is contractually non-interactive (see runInstallDevrigCommand).
 $null | & $launcher install devrig "--install-script=$launcher" "--jdk-home=$jdkHome"
-if ($LASTEXITCODE -ne 0) { Fail "'devrig install devrig' failed (exit $LASTEXITCODE) - the launcher could not register itself" }
+$devrigExit = $LASTEXITCODE
+$env:DEVRIG_JAVA_HOME = $SteroidPrevDevrigJavaHome
+if ($devrigExit -ne 0) { Fail "'devrig install devrig' failed (exit $devrigExit) - the launcher could not register itself" }
 
-# -- done. We do NOT auto-register devrig with agents - that edits agent configs, so it is an
-#    explicit user step. --
+# -- done. We do NOT auto-register devrig with agents or install the IDE plugin - both edit state
+#    outside ~/.mcp-steroid, so they are explicit user steps. The 'devrig install devrig' handoff above
+#    already printed the one next-steps message (install plugin / connect agent / show config), so no
+#    duplicate next-steps block here. --
 # `devrig install devrig` registers $BinDir on the persistent user PATH (HKCU\Environment), which only
-# reaches NEW shells - but `irm | iex` runs in the caller's session and the guidance below tells the
-# user to run `devrig install <agent>` right away. Prepend $BinDir in THIS session so that works.
+# reaches NEW shells - but `irm | iex` runs in the caller's session and the guidance devrig printed
+# above tells the user to run `devrig install <agent>` right away. Prepend $BinDir in THIS session so
+# that works.
 # ';' + case-insensitive -notcontains are Windows PATH semantics (the pwsh-on-Linux run is smoke only).
 if (($env:PATH -split ';') -notcontains $BinDir) { $env:PATH = "$BinDir;$env:PATH" }
 Write-Log "devrig binary is ready."
-Write-Log ""
-Write-Log "To register devrig with your agent, run one of:"
-Write-Log "    devrig install claude"
-Write-Log "    devrig install codex"
-Write-Log "    devrig install gemini"
 }
 finally {
   # Restore the caller's progress preference so `irm | iex` leaves the session as it found it.
