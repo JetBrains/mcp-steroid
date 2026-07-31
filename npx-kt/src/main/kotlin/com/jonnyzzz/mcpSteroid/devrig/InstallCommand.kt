@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCliResult
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCliRunner
 import com.jonnyzzz.mcpSteroid.aiAgents.ProcessAiAgentCliRunner
@@ -21,9 +22,18 @@ const val INSTALL_CHECK_DRIFT_EXIT_CODE = 1
 /**
  * `devrig install devrig` — generate + register devrig's own `~/.mcp-steroid/bin/devrig`(`.cmd`) launcher
  * and put it on PATH. This is devrig's normal launcher self-registration ([ensureBinLauncher], which runs
- * on every start), here driven from the install script's EXPLICIT parameters: `--install-script` (the
- * unpacked install-tree launcher the wrapper execs) and `--jdk-home` (pinned as `DEVRIG_JAVA_HOME`). It
- * does ONLY that — no agent registration. Quiet: best-effort registration, one confirmation line.
+ * on every start), in one of two modes (issue #398):
+ *
+ *  - **No flags** (hand-run — the bare `devrig install` overview lists this target): re-register the
+ *    launcher + PATH from the RUNNING binary's own install tree and JDK — the same
+ *    `ensureBinLauncher(force = true)` self-heal every `devrig install <agent>` performs.
+ *  - **`--install-script` (with optional `--jdk-home`)** — the generated bootstrap installers: register
+ *    the EXPLICIT unpacked install-tree launcher the wrapper execs, pinning `--jdk-home` as
+ *    `DEVRIG_JAVA_HOME` (falling back to the JDK we run under).
+ *
+ * It does ONLY that — NO agent registration (that edits agent configs, so it stays an explicit
+ * `devrig install <agent>` step). After registering it prints the agent-setup guidance so the user
+ * knows the next step instead of hitting a silent end.
  *
  * **Non-interactive contract.** This command is invoked by the generated bootstrap installers
  * (`install.sh` / `install.ps1`), typically run as `curl | sh` / `irm | iex`. Those installers hand it a
@@ -35,32 +45,89 @@ const val INSTALL_CHECK_DRIFT_EXIT_CODE = 1
  * `Console.readLine` / `readln`. Every input arrives as an explicit flag; any missing input must fail
  * fast (return non-zero) rather than block waiting for a user who cannot answer.
  */
-fun DevrigServices.runInstallDevrigCommand(command: DevrigCommand.DevrigCommandInstallDevrig): Int {
+fun DevrigServices.runInstallDevrigCommand(command: DevrigCommand.DevrigCommandInstallDevrig): Int =
+    runInstallDevrigCommand(
+        command = command,
+        out = mcpStdout,
+        err = System.err,
+        launcherPath = DevrigUserLauncher.path(homePaths),
+        registerOwnInstall = { ensureBinLauncher(homePaths, force = true, registerWindowsPath = true) },
+        registerInstallScriptLauncher = { installScript, jdkHome ->
+            ensureBinLauncherForInstallScript(homePaths, installScript, jdkHome, force = true, registerWindowsPath = true)
+        },
+        detectAgentCli = { findCliOnPath(it.binary) },
+        offerPluginToRunningIdes = { tryInstallPluginIntoRunningIdesQuietly() },
+    )
+
+/**
+ * Testable core of `devrig install devrig`: the lambdas are the command's COMPLETE side-effect surface
+ * (there is deliberately no [AiAgentCliRunner] here — this command must never touch an agent config;
+ * `InstallDevrigCommandTest` locks that in), and it never reads stdin (the non-interactive contract
+ * documented on the [DevrigServices] entry point above).
+ */
+fun runInstallDevrigCommand(
+    command: DevrigCommand.DevrigCommandInstallDevrig,
+    out: PrintStream,
+    err: PrintStream,
+    /** The stable user-facing launcher ([DevrigUserLauncher.path]) both registration modes write. */
+    launcherPath: Path,
+    registerOwnInstall: () -> Unit,
+    registerInstallScriptLauncher: (installScript: Path, jdkHome: Path) -> Unit,
+    detectAgentCli: (AiAgentCli) -> Path?,
+    offerPluginToRunningIdes: () -> Unit,
+): Int {
     val installScript = command.installScript
     if (installScript.isNullOrBlank()) {
-        System.err.println("[mcp-steroid] 'devrig install devrig' requires --install-script=<full path>")
-        return 64
+        // Hand-run, no flags: re-register from the running binary's own install (issue #398).
+        registerOwnInstall()
+    } else {
+        // Install-script mode. --jdk-home is what the wrapper pins as DEVRIG_JAVA_HOME; fall back to
+        // the JDK we run under.
+        val jdkHome = command.jdkHome?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
+            ?: Path.of(System.getProperty("java.home"))
+        registerInstallScriptLauncher(Path.of(installScript), jdkHome)
     }
-    // --jdk-home is what the wrapper pins as DEVRIG_JAVA_HOME; fall back to the JDK we run under.
-    val jdkHome = command.jdkHome?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
-        ?: Path.of(System.getProperty("java.home"))
-    ensureBinLauncherForInstallScript(homePaths, Path.of(installScript), jdkHome, force = true, registerWindowsPath = true)
 
-    val launcher = DevrigUserLauncher.path(homePaths)
-    if (!launcher.isRegularFile()) {
-        System.err.println(
-            "[mcp-steroid] ERROR: 'devrig install devrig' did not create the launcher $launcher " +
+    if (!launcherPath.isRegularFile()) {
+        err.println(
+            "[mcp-steroid] ERROR: 'devrig install devrig' did not create the launcher $launcherPath " +
                 "(DEVRIG_BIN_NO_AUTO_REGISTER may opt out of writing it).",
         )
         return 64
     }
-    System.err.println("[mcp-steroid] devrig is on PATH via $launcher")
+    err.println("[mcp-steroid] devrig launcher registered: $launcherPath")
+
+    // Registering devrig is NOT the whole setup — say what comes next (configuring agents) instead of
+    // ending silently, with per-agent CLI detection so the suggested commands are concrete.
+    out.print(renderInstallDevrigGuidance(launcherPath, AiAgentCli.entries.associateWith(detectAgentCli)))
 
     // Also offer the MCP Steroid plugin to any IDE already running: fire each IDE's native install
     // dialog over REST. Best-effort and fully non-interactive (the IDE — not devrig — shows the dialog),
     // so it is safe inside the `curl | sh` bootstrap: it never reads stdin and never fails the install.
-    tryInstallPluginIntoRunningIdesQuietly()
+    offerPluginToRunningIdes()
     return 0
+}
+
+/**
+ * The next-step guidance `devrig install devrig` prints after registering the launcher: the launcher is
+ * registered, but NO agent was configured — that edits agent configs, so it stays an explicit per-agent
+ * command. Only the launcher file's existence is verified by the caller; PATH linking is best-effort
+ * (narrated on stderr by the registration), so the wording claims registration, not PATH reachability.
+ * [detected] carries the per-agent CLI detection ([findCliOnPath]) so each suggestion says whether its
+ * CLI is actually reachable. Pure renderer for testability.
+ */
+fun renderInstallDevrigGuidance(launcherPath: Path, detected: Map<AiAgentCli, Path?>): String = buildString {
+    appendLine("devrig is registered: $launcherPath")
+    appendLine("PATH setup is best-effort — if 'devrig' is not found, open a new terminal (Windows) or add ${launcherPath.parent} to PATH.")
+    appendLine()
+    appendLine("devrig did NOT configure any AI agent — that edits agent configs, so it is an explicit step:")
+    for (agent in AiAgentCli.entries) {
+        val status = detected[agent]?.let { "${agent.binary} CLI found: $it" }
+            ?: "${agent.binary} CLI not found on PATH"
+        appendLine("  devrig install ${agent.binary.padEnd(8)} ($status)")
+    }
+    appendLine("For agents devrig cannot configure automatically, print the mcp.json snippet:")
+    appendLine("  devrig install config")
 }
 
 fun DevrigServices.runInstallCommand(

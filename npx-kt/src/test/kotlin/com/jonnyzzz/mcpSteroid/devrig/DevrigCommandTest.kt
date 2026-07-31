@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -117,6 +118,43 @@ class DevrigCommandTest {
         assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "--check"))
         assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "--install-script=/x"))
         assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "--jdk-home=/x"))
+    }
+
+    @Test
+    fun `install devrig parses with no flags and with the install-script flags`() {
+        // Hand-run, no flags (issue #398): re-register the launcher from the running binary's own
+        // install — parses cleanly, the command decides the registration mode from the flags.
+        val bare = assertIs<DevrigCommand.DevrigCommandInstallDevrig>(command("install", "devrig"))
+        assertNull(bare.installScript)
+        assertNull(bare.jdkHome)
+        // Install-script mode (the generated install.sh / install.ps1): both parameters stay explicit.
+        val scripted = assertIs<DevrigCommand.DevrigCommandInstallDevrig>(
+            command("install", "devrig", "--install-script=/opt/devrig/bin/devrig", "--jdk-home=/opt/jdk"),
+        )
+        assertEquals("/opt/devrig/bin/devrig", scripted.installScript)
+        assertEquals("/opt/jdk", scripted.jdkHome)
+        // --jdk-home alone is a mistake — only the install scripts pass it, and always with
+        // --install-script. Fail fast instead of guessing which registration mode was meant.
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "devrig", "--jdk-home=/opt/jdk"))
+        // A BLANK --install-script (an unset shell variable in a third-party wrapper) must not silently
+        // flip to the self-registration mode — that would register the running binary and drop the
+        // explicit --jdk-home. Fail fast at parse time, like the old exit-64 behaviour did.
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "devrig", "--install-script="))
+        assertIs<DevrigCommand.DevrigCommandParseError>(
+            command("install", "devrig", "--install-script=", "--jdk-home=/opt/jdk"),
+        )
+    }
+
+    @Test
+    fun `install config selects the manual-config printer and rejects target-specific flags`() {
+        assertIs<DevrigCommand.DevrigCommandInstallConfig>(command("install", "config"))
+        val config = assertIs<DevrigCommand.DevrigCommandInstallConfig>(command("--debug", "install", "config", "--json"))
+        assertTrue(config.debug)
+        assertTrue(config.json)
+        // 'install config' is informational — the agent/devrig flags make no sense here.
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "config", "--check"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "config", "--install-script=/x"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "config", "--jdk-home=/x"))
     }
 
     @Test

@@ -26,7 +26,9 @@ fun renderInstallOverview(detected: Map<AiAgentCli, Path?>): String = buildStrin
         appendLine("  ${agent.binary.padEnd(8)} register devrig as the mcp-steroid MCP server in ${agent.displayName} ($status)")
     }
     appendLine("  ${"plugin".padEnd(8)} install the MCP Steroid plugin into locally-running JetBrains IDEs")
-    appendLine("  ${"devrig".padEnd(8)} re-register devrig's own launcher and PATH (used by the install scripts)")
+    appendLine("  ${"devrig".padEnd(8)} re-register devrig's own launcher and PATH (also used by the install scripts)")
+    appendLine("  ${"config".padEnd(8)} print the manual MCP configuration: the stdio mcpServers JSON (mcp.json)")
+    appendLine("  ${"".padEnd(8)} snippet plus per-agent mcp-add commands")
     appendLine()
     appendLine("Example: devrig install claude")
 }

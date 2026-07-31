@@ -182,13 +182,10 @@ main() {
     || fail "'devrig install devrig' failed - the launcher could not register itself"
 
   # -- done. We do NOT auto-register devrig with agents - that edits agent configs, so it is an
-  #    explicit user step. --
+  #    explicit user step. The 'devrig install devrig' handoff above already printed the next-steps
+  #    guidance (one 'devrig install <agent>' per agent with CLI detection, plus 'devrig install
+  #    config'), so no duplicate next-steps block here. --
   log "devrig binary is ready."
-  log ""
-  log "To register devrig with your agent, run one of:"
-  log "    devrig install claude"
-  log "    devrig install codex"
-  log "    devrig install gemini"
 }
 
 main "$@"

@@ -2,6 +2,13 @@
 package com.jonnyzzz.mcpSteroid.aiAgents
 
 import kotlin.collections.plus
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 
 const val DEFAULT_SERVER_NAME = "mcp-steroid"
 
@@ -58,6 +65,29 @@ data class StdioMcpCommand(
     val command: String,
     val args: List<String> = emptyList(),
 )
+
+private val stdioMcpServersJsonFormat = Json { prettyPrint = true }
+
+/**
+ * The stdio `mcpServers` JSON snippet for MCP clients configured by hand (an mcp.json-style file):
+ * [command] launches the MCP server over stdio — for devrig, the stable `~/.mcp-steroid/bin` launcher
+ * with the `mcp` subcommand (see `DevrigUserLauncher.invocation`). Built with kotlinx.serialization,
+ * never hand-concatenated: the launcher path is dynamic and must be JSON-escaped (a Windows path
+ * contains backslashes, and the Windows `cmd.exe` invocation embeds quotes). Contrast with
+ * [genericMcpServersJson] — the HTTP variant the in-IDE settings page shows for the in-IDE server.
+ */
+fun stdioMcpServersJson(command: StdioMcpCommand, serverName: String = DEFAULT_SERVER_NAME): String =
+    stdioMcpServersJsonFormat.encodeToString(
+        JsonObject.serializer(),
+        buildJsonObject {
+            putJsonObject("mcpServers") {
+                putJsonObject(serverName) {
+                    put("command", command.command)
+                    putJsonArray("args") { command.args.forEach { add(it) } }
+                }
+            }
+        },
+    )
 
 fun genericMcpServersJson(serverUrl: String, serverName: String = DEFAULT_SERVER_NAME) = buildString {
     appendLine("{")

@@ -157,18 +157,16 @@ $null | & $launcher install devrig "--install-script=$launcher" "--jdk-home=$jdk
 if ($LASTEXITCODE -ne 0) { Fail "'devrig install devrig' failed (exit $LASTEXITCODE) - the launcher could not register itself" }
 
 # -- done. We do NOT auto-register devrig with agents - that edits agent configs, so it is an
-#    explicit user step. --
+#    explicit user step. The 'devrig install devrig' handoff above already printed the next-steps
+#    guidance (one 'devrig install <agent>' per agent with CLI detection, plus 'devrig install
+#    config'), so no duplicate next-steps block here. --
 # `devrig install devrig` registers $BinDir on the persistent user PATH (HKCU\Environment), which only
-# reaches NEW shells - but `irm | iex` runs in the caller's session and the guidance below tells the
-# user to run `devrig install <agent>` right away. Prepend $BinDir in THIS session so that works.
+# reaches NEW shells - but `irm | iex` runs in the caller's session and the guidance devrig printed
+# above tells the user to run `devrig install <agent>` right away. Prepend $BinDir in THIS session so
+# that works.
 # ';' + case-insensitive -notcontains are Windows PATH semantics (the pwsh-on-Linux run is smoke only).
 if (($env:PATH -split ';') -notcontains $BinDir) { $env:PATH = "$BinDir;$env:PATH" }
 Write-Log "devrig binary is ready."
-Write-Log ""
-Write-Log "To register devrig with your agent, run one of:"
-Write-Log "    devrig install claude"
-Write-Log "    devrig install codex"
-Write-Log "    devrig install gemini"
 }
 finally {
   # Restore the caller's progress preference so `irm | iex` leaves the session as it found it.

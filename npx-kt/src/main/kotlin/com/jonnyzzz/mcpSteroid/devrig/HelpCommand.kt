@@ -37,6 +37,12 @@ fun printHelp(out: PrintStream) : Int {
                                          MCP Steroid plugin are reachable; exits 1
                                          when install would change anything.
 
+          devrig install config          print the manual MCP configuration for
+                                         agents devrig cannot configure
+                                         automatically: the stdio mcpServers JSON
+                                         (mcp.json) snippet plus the per-agent
+                                         mcp-add commands.
+
           devrig backend download [<id>] [--version <v>] [--json]
                                          no id → list IDEs available for download.
                                          With id, download and install a managed

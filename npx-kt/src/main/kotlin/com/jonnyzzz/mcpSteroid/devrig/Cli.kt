@@ -81,12 +81,24 @@ sealed interface DevrigCommand {
 
     /**
      * `devrig install devrig` — register devrig's OWN `~/.mcp-steroid/bin` launcher + PATH (NOT an agent).
-     * The install scripts call this with every non-trivial parameter explicit: [installScript] (the
-     * install-tree launcher the wrapper execs) and [jdkHome] (pinned as `DEVRIG_JAVA_HOME`).
+     * Two modes (issue #398): hand-run with no flags it re-registers from the RUNNING binary's own
+     * install; the install scripts call it with every non-trivial parameter explicit — [installScript]
+     * (the install-tree launcher the wrapper execs) and [jdkHome] (pinned as `DEVRIG_JAVA_HOME`).
      */
     data class DevrigCommandInstallDevrig(
         val installScript: String? = null,
         val jdkHome: String? = null,
+        override val debug: Boolean = false,
+        override val json: Boolean = false,
+    ) : DevrigCommand
+
+    /**
+     * `devrig install config` — print the MANUAL MCP configuration recipe: the stdio `mcpServers` JSON
+     * snippet pointing at the stable launcher, plus the per-agent `mcp add` command lines. For MCP
+     * clients devrig cannot configure automatically (issue #398). Informational like `install` overview:
+     * read-only, exits 0, ignores --json (the output already IS the JSON snippet plus its context).
+     */
+    data class DevrigCommandInstallConfig(
         override val debug: Boolean = false,
         override val json: Boolean = false,
     ) : DevrigCommand
@@ -263,16 +275,34 @@ private class InstallCommand(
             // Bare `devrig install`: overview mode (#277). Target-specific flags still need a target —
             // silently ignoring them would hide a typo like `devrig install --check claude` gone wrong.
             if (checkFlag || installScript != null || jdkHome != null) {
-                throw UsageError("--check / --install-script / --jdk-home require an install target (claude / codex / gemini / plugin / devrig)")
+                throw UsageError("--check / --install-script / --jdk-home require an install target (claude / codex / gemini / plugin / devrig / config)")
             }
             select(DevrigCommand.DevrigCommandInstallOverview(debug = options.debug, json = options.json))
             return
         }
         if (agent == "devrig") {
             if (checkFlag) throw UsageError("--check is only valid for an agent install (claude / codex / gemini) or 'devrig install plugin'")
+            // A blank --install-script (an unset shell variable in a wrapper: --install-script="$launcher")
+            // must not silently flip to the self-registration mode, which would register the RUNNING
+            // binary and drop an explicit --jdk-home — fail fast instead (issue #398).
+            if (installScript?.isBlank() == true) {
+                throw UsageError("--install-script must not be blank — pass the full path of the unpacked install-tree launcher (or omit the flag to re-register the running install)")
+            }
+            // --jdk-home only makes sense alongside --install-script (the install scripts pass both);
+            // alone it is a mistake — fail fast rather than guess the registration mode (issue #398).
+            if (installScript == null && jdkHome != null) {
+                throw UsageError("--jdk-home is only valid together with --install-script (the install scripts pass both)")
+            }
             select(DevrigCommand.DevrigCommandInstallDevrig(
                 installScript = installScript, jdkHome = jdkHome, debug = options.debug, json = options.json,
             ))
+            return
+        }
+        if (agent == "config") {
+            if (checkFlag || installScript != null || jdkHome != null) {
+                throw UsageError("--check / --install-script / --jdk-home are not valid with 'devrig install config'")
+            }
+            select(DevrigCommand.DevrigCommandInstallConfig(debug = options.debug, json = options.json))
             return
         }
         if (agent == "plugin") {
@@ -283,7 +313,7 @@ private class InstallCommand(
             return
         }
         val target = AiAgentCli.parse(agent)
-            ?: throw UsageError("agent must be one of: claude, codex, gemini, devrig, plugin")
+            ?: throw UsageError("agent must be one of: claude, codex, gemini, devrig, plugin, config")
         if (installScript != null || jdkHome != null) {
             throw UsageError("--install-script / --jdk-home are only valid with 'devrig install devrig'")
         }
@@ -400,6 +430,7 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
             is DevrigCommand.DevrigCommandInstall -> runInstallCommand(command)
             is DevrigCommand.DevrigCommandInstallOverview -> runInstallOverviewCommand()
             is DevrigCommand.DevrigCommandInstallDevrig -> runInstallDevrigCommand(command)
+            is DevrigCommand.DevrigCommandInstallConfig -> runInstallConfigCommand()
             is DevrigCommand.DevrigCommandInstallPlugin -> runInstallPluginCommand(command)
         }
     } catch (e: ManagedBackendLockException) {
