@@ -27,6 +27,11 @@ rather than mirroring their contents into per-folder guides):
 - [`devrig-scanning-research.md`](devrig-scanning-research.md) —
   decision record for on-demand `rebuildSnapshot()` vs background
   scanners (option A).
+- [`install-scripts-contract.md`](install-scripts-contract.md) — locked
+  contract (issue #398): the bootstrap installers install devrig and
+  register it on PATH, NOTHING else — never auto-register devrig with
+  agents, never auto-install the IDE plugin; those commands are only
+  promoted to the user in the `devrig install devrig` info message.
 - [`devrig-deployment-spec.md`](devrig-deployment-spec.md) — locked v7
   design for `~/.mcp-steroid/` install layout: wrapper-driven
   content-addressed cache, bundled Corretto JDK, two-key signed
