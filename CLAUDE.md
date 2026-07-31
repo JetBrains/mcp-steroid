@@ -100,7 +100,16 @@ When changing files across multiple sub-folders, read the guides for each.
   - **Single documented exception: Gemini API key on CI.** TC has no Gemini token and there is no plan to
     add one. `DockerGeminiSession.Companion` opts into `skipTestWhenKeyMissing = true` (see
     `test-helper/.../AISessionBase.kt`), so `requireApiKey()` throws `AssumptionViolatedException` instead
-    of `IllegalStateException` when the key is missing. Constraints when working in this area:
+    of `IllegalStateException` when the key is missing — JUnit 4/5 runners report that as ignored.
+    JUnit 3 / `BasePlatformTestCase` tests (e.g. `CliGeminiIntegrationTest`) get **no** skip from that
+    assumption under the plain bridge — `JUnit38ClassRunner.addError` fires `fireTestFailure` for every
+    `Throwable`, assumptions included (still true in JUnit 4.13.2) — so they must additionally run under
+    `@RunWith(JUnit38AssumeSupportRunner::class)` (the IntelliJ test-framework runner that reroutes
+    `AssumptionViolatedException` to `fireTestAssumptionFailed`, i.e. a real SKIPPED/ignored result) and
+    gate `runBare` early on `skipTestBecauseApiKeyMissing()` so the skip costs no fixture/Docker setup.
+    Do **not** use `UsefulTestCase.shouldRunTest()` for this: it silently reports the test as
+    passed-without-running, hiding that the coverage never executed.
+    Constraints when working in this area:
     1. **Session creation must stay lazy** — called from inside test method bodies, never from
        `setUp()` / class init / `@ClassRule`. `BasePlatformTestCase`-backed tests route every
        `Throwable` through `JUnit38ClassRunner` to `fireTestFailure`, so an early init failure shows
