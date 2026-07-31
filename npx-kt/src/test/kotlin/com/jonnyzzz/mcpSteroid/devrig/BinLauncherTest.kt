@@ -19,14 +19,15 @@ class BinLauncherTest {
 
     // ── env / version gate ──────────────────────────────────────────────────────────────────────
     // The test JVM's baked DevrigVersionMetadata depends on which lane BUILT it: a local/dev build bakes
-    // "<base>.19999-SNAPSHOT", TeamCity/GitHub bake "<base>.<counter>-(jb|gh)-<hash>", a release bakes
-    // "<base>.0-r-<hash>" (root build.gradle.kts). The gate tests therefore inject one fixed version per
-    // lane so BOTH sides of the SNAPSHOT default run deterministically on every machine (issue #410).
+    // "<base>.19999-SNAPSHOT-<hash>", TeamCity/GitHub bake "<base>.<counter>-(jb|gh)-<hash>", a release
+    // bakes "<base>.0-r-<hash>" (root build.gradle.kts). The gate tests therefore inject one fixed version
+    // per lane so BOTH sides of the SNAPSHOT default run deterministically on every machine (issue #410).
 
-    private val snapshotVersion = "0.101.19999-SNAPSHOT"   // local/dev lane → passive default OFF
-    private val ciVersion = "0.101.595-jb-bf19795"         // TC/GH CI lane  → passive default ON
-    private val releaseVersion = "0.101.0-r-bf19795"       // release lane   → passive default ON
-    private val allLaneVersions = listOf(snapshotVersion, ciVersion, releaseVersion)
+    private val snapshotVersion = "0.101.19999-SNAPSHOT-bf19795" // local/dev lane → passive default OFF
+    private val tcCiVersion = "0.101.595-jb-bf19795"             // TeamCity CI lane → passive default ON
+    private val ghCiVersion = "0.101.595-gh-bf19795"             // GitHub CI lane   → passive default ON
+    private val releaseVersion = "0.101.0-r-bf19795"             // release lane     → passive default ON
+    private val allLaneVersions = listOf(snapshotVersion, tcCiVersion, ghCiVersion, releaseVersion)
 
     @Test
     fun `env opt-out disables auto-registration regardless of build lane`() {
@@ -64,8 +65,10 @@ class BinLauncherTest {
             assertFalse(shouldWriteLauncher(v, force = false, devrigVersion = snapshotVersion),
                 "env '$v' must default OFF on $snapshotVersion")
             // CI and release dists: the binary owns bin/devrig, so passive self-heal is ON.
-            assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = ciVersion),
-                "env '$v' must default ON on $ciVersion")
+            assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = tcCiVersion),
+                "env '$v' must default ON on $tcCiVersion")
+            assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = ghCiVersion),
+                "env '$v' must default ON on $ghCiVersion")
             assertTrue(shouldWriteLauncher(v, force = false, devrigVersion = releaseVersion),
                 "env '$v' must default ON on $releaseVersion")
         }
@@ -98,7 +101,8 @@ class BinLauncherTest {
         }
         // A passive start without an opt-in follows the lane: nothing on SNAPSHOT, self-heal on CI/release.
         assertFalse(shouldWriteLauncher(null, force = false, devrigVersion = snapshotVersion))
-        assertTrue(shouldWriteLauncher(null, force = false, devrigVersion = ciVersion))
+        assertTrue(shouldWriteLauncher(null, force = false, devrigVersion = tcCiVersion))
+        assertTrue(shouldWriteLauncher(null, force = false, devrigVersion = ghCiVersion))
         assertTrue(shouldWriteLauncher(null, force = false, devrigVersion = releaseVersion))
     }
 
