@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCliResult
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCliRunner
 import com.jonnyzzz.mcpSteroid.aiAgents.ProcessAiAgentCliRunner
@@ -85,14 +86,19 @@ fun runInstallDevrigCommand(
  * instead of claiming PATH reachability. Pure renderer for testability.
  */
 fun renderInstallDevrigInfo(launcherPath: Path): String = buildString {
+    // Every agent listed on one line, derived from the enum — no favorite named first in prose.
+    val nextSteps = listOf(
+        "devrig install plugin" to "install the MCP Steroid plugin into your running JetBrains IDEs",
+        "devrig install ${AiAgentCli.entries.joinToString("|") { it.binary }}" to "connect devrig to your AI agent",
+        "devrig install config" to "print the mcp.json snippet for any other MCP client",
+    )
+    val column = nextSteps.maxOf { it.first.length } + 4
     appendLine("devrig is installed: $launcherPath")
     appendLine("The launcher and PATH registration self-heal on every devrig run. If 'devrig' is not")
     appendLine("found, open a new terminal (Windows) or add ${launcherPath.parent} to PATH.")
     appendLine()
     appendLine("Next steps:")
-    appendLine("  devrig install plugin    install the MCP Steroid plugin into your running JetBrains IDEs")
-    appendLine("  devrig install claude    connect devrig to Claude Code (also: codex, gemini)")
-    appendLine("  devrig install config    print the mcp.json snippet for any other MCP client")
+    for ((command, explanation) in nextSteps) appendLine("  ${command.padEnd(column)}$explanation")
 }
 
 fun DevrigServices.runInstallCommand(

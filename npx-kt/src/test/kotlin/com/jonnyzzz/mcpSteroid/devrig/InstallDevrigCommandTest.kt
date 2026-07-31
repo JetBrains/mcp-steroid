@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -68,8 +69,8 @@ class InstallDevrigCommandTest {
         assertContains(text, "add ${launcher.parent} to PATH")
         assertContains(text, "devrig install plugin")
         assertContains(text, "install the MCP Steroid plugin into your running JetBrains IDEs")
-        assertContains(text, "devrig install claude")
-        assertContains(text, "codex, gemini")
+        // ALL agents listed on the one agent line, none singled out (derived from the enum).
+        assertContains(text, "devrig install " + AiAgentCli.entries.joinToString("|") { it.binary })
         assertContains(text, "devrig install config")
     }
 
