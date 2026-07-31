@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.EmbeddedResource
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -169,6 +170,40 @@ class CliToolSupportTest {
 
         assertEquals(transcript, item.getValue("text").jsonPrimitive.content)
         assertTrue("json" !in item, "an embedded JSON object mid-transcript must not flip the shape: $item")
+    }
+
+    @Test
+    fun `a pathologically deep payload overflows the parser stack but stays under text, never failing the command`() {
+        // The reviewer proved this is reachable: kotlinx.serialization's recursive-descent JsonTreeReader
+        // throws StackOverflowError (an Error, not an Exception) around ~10,000 nesting levels; no
+        // Exception-typed catch — however broad — can see it. 50,000 levels gives comfortable margin
+        // without making the test slow: building and scanning the string is microseconds, the parse
+        // attempt fails fast once the stack overflows. The claim under test is the contract in
+        // parseAsJsonContainer's KDoc: this is a rendering choice, so it must degrade to "not json", not
+        // propagate an exception and fail the whole --json command.
+        val depth = 50_000
+        val deeplyNested = "[".repeat(depth) + "]".repeat(depth)
+
+        val item = (textResult(deeplyNested).contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+
+        assertEquals(deeplyNested, item.getValue("text").jsonPrimitive.content)
+        assertTrue("json" !in item, "a StackOverflowError while parsing must not be treated as json: $item")
+    }
+
+    @Test
+    fun `a resource content item has no top-level text key and is never mistaken for an unpackable payload`() {
+        // ContentItem.Resource's own `text` (if any) is nested under `resource`, never top-level, so
+        // unpackJsonPayload's `item["text"]` lookup must not find it. Pinned directly rather than left to
+        // inspection, so a future schema change that hoists `text` to the top level fails this test
+        // instead of silently starting to unpack resource payloads.
+        val resource = EmbeddedResource(uri = "mcp-steroid://some/resource", mimeType = "text/markdown", text = "# hi, this could look like json {}")
+        val result = ToolCallResult(content = listOf(ContentItem.Resource(resource)))
+
+        val item = (result.contentDataJson().getValue("content") as JsonArray)[0].jsonObject
+
+        assertEquals("resource", item.getValue("type").jsonPrimitive.content)
+        assertTrue("text" !in item, "a Resource item's own text is nested under resource, not top-level: $item")
+        assertTrue("json" !in item, "a Resource item must never be treated as an unpackable text payload: $item")
     }
 
     @Test

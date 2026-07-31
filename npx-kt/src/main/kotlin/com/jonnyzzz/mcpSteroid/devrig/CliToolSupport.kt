@@ -10,7 +10,6 @@ import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -295,15 +294,22 @@ private fun unpackJsonPayload(item: JsonObject): JsonObject {
     }
 }
 
-/** Parses [text] as JSON, returning it only when the whole document is an object or array. A bare
+/**
+ * Parses [text] as JSON, returning it only when the whole document is an object or array. A bare
  * scalar is prose that happens to look like JSON, not a tool's structured payload, so it is left to the
- * caller to keep under `text`. Any parse failure (the common case: plain prose, a transcript with JSON
- * embedded mid-log) is silently `null` — this is a presentation choice, not validation. */
+ * caller to keep under `text`. Any parse failure — ordinary malformed JSON, but also a pathologically
+ * deep payload that overflows the JSON parser's recursive descent — is silently treated as "not JSON":
+ * this is a presentation choice about whether a payload is reachable in one parse, never a validation
+ * layer, so it must not be able to fail the whole command.
+ *
+ * `runCatching { }.getOrNull()` (never a bare `try`/`catch`) is deliberate, not stylistic: a stack
+ * overflow while parsing surfaces as [StackOverflowError], an [Error] rather than an [Exception], which
+ * no `catch (e: Exception)` — however broad — can see. `runCatching` catches [Throwable] and is the one
+ * construct that treats an ordinary parse failure and that overflow identically, matching the contract
+ * above. No tool in this codebase emits input deep enough to trigger it today; this only guards the
+ * boundary.
+ */
 private fun parseAsJsonContainer(text: String): JsonElement? {
-    val parsed = try {
-        McpJson.parseToJsonElement(text)
-    } catch (e: SerializationException) {
-        return null
-    }
+    val parsed = runCatching { McpJson.parseToJsonElement(text) }.getOrNull() ?: return null
     return parsed.takeIf { it is JsonObject || it is JsonArray }
 }
