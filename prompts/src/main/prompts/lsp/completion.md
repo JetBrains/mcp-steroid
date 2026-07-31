@@ -37,8 +37,13 @@ val result = readAction {
         ?: psiFile.findElementAt(offset - 1)
         ?: return@readAction "No element at position ($line:$column)"
 
-    // Get completion contributor for this file type
-    val contributors = CompletionContributor.forLanguage(psiFile.language)
+    // Get completion contributors registered for this file's language via the
+    // public extension point (CompletionContributor.EP, "com.intellij.completion.contributor").
+    // A bean's `language` attribute is a Language ID; "any" or empty matches all languages.
+    val languageIds = generateSequence(psiFile.language) { it.baseLanguage }.map { it.id }.toSet()
+    val contributors = CompletionContributor.EP.extensionList.filter { ep ->
+        ep.language.isNullOrEmpty() || ep.language == "any" || ep.language in languageIds
+    }
 
     buildString {
         appendLine("Completion at $filePath:$line:$column")
@@ -55,8 +60,8 @@ val result = readAction {
 
         // List available contributors
         appendLine("Available completion contributors:")
-        contributors.take(5).forEach { contributor ->
-            appendLine("  - ${contributor.javaClass.simpleName}")
+        contributors.take(5).forEach { ep ->
+            appendLine("  - ${ep.implementationClass}")
         }
         appendLine()
 
