@@ -355,6 +355,7 @@ Honest limits:
 import com.intellij.execution.ProgramRunnerUtil
 import com.intellij.execution.RunManager
 import com.intellij.execution.executors.DefaultRunExecutor
+import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.testframework.sm.runner.SMTestProxy
 import com.intellij.execution.testframework.sm.runner.SMTRunnerEventsListener
 import com.intellij.execution.ui.RunContentManager
@@ -392,8 +393,9 @@ fun failurePayload(test: SMTestProxy): TestFailureInfo =
 
 // CopyOnWriteArrayList: the TEST_STATUS listener adds from the IDE test thread while the suspend
 // body below scans with firstOrNull — add() is atomic and iteration sees a stable snapshot, so
-// no external lock is needed. The lists only ever contain roots published AFTER this call
-// subscribed, so a leftover tab from an earlier run of the same configuration can never match.
+// no external lock is needed. Runs that finished before this call subscribed never appear here;
+// runs of the same configuration still in progress at launch time are excluded by the
+// pre-launch handler snapshot below.
 val startedRoots = CopyOnWriteArrayList<SMTestProxy.SMRootTestProxy>()
 val finishedRoots = CopyOnWriteArrayList<SMTestProxy.SMRootTestProxy>()
 
@@ -432,24 +434,36 @@ connection.subscribe(
 val settings = RunManager.getInstance(project).allSettings.firstOrNull { it.name == configurationName }
     ?: error("No run configuration named '$configurationName'. Create one for the test class, or list existing configurations first.")
 
+val contentManager = RunContentManager.getInstance(project)
+// Snapshot process handlers that already exist BEFORE this launch. launchedHandler() and
+// matchesTarget() exclude them, so a run of the same configuration that was already in
+// progress when this call started is never reported as this launch's result and never
+// receives destroyProcess() on timeout.
+val preLaunchHandlers = contentManager.allDescriptors.mapNotNull { it.processHandler }
+fun isPreLaunch(handler: ProcessHandler): Boolean = preLaunchHandlers.any { it === handler }
+
 try {
     withContext(Dispatchers.EDT) {
         ProgramRunnerUtil.executeConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance())
     }
 
-    val contentManager = RunContentManager.getInstance(project)
     val startedAt = System.currentTimeMillis()
     val deadline = startedAt + timeoutMs
 
     // The run-content tab of an existing configuration reuses the configuration name.
     fun launchedHandler() = contentManager.allDescriptors
         .filter { it.displayName == configurationName }
-        .firstNotNullOfOrNull { d -> d.processHandler?.takeIf { !it.isProcessTerminated } }
-
-    fun matchesTarget(root: SMTestProxy.SMRootTestProxy): Boolean =
-        contentManager.allDescriptors.any {
-            it.displayName == configurationName && it.processHandler === root.handler
+        .firstNotNullOfOrNull { d ->
+            d.processHandler?.takeIf { !it.isProcessTerminated && !isPreLaunch(it) }
         }
+
+    fun matchesTarget(root: SMTestProxy.SMRootTestProxy): Boolean {
+        val rootHandler = root.handler ?: return false
+        if (isPreLaunch(rootHandler)) return false
+        return contentManager.allDescriptors.any {
+            it.displayName == configurationName && it.processHandler === rootHandler
+        }
+    }
 
     fun finishedTargetRoot(): SMTestProxy.SMRootTestProxy? = finishedRoots.firstOrNull(::matchesTarget)
 
