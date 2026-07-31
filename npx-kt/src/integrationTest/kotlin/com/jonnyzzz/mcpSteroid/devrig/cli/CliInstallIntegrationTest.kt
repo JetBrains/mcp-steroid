@@ -61,8 +61,9 @@ class CliInstallIntegrationTest {
         val result = container.startProcessInContainer {
             this
                 .args("/tmp/${installDir.name}/bin/devrig", "install", agent.cliName)
-                // This dist is a SNAPSHOT, so the bin/devrig self-heal is OFF by default; opt in so
-                // `devrig install` writes ~/.mcp-steroid/bin/devrig and registers THAT stable wrapper.
+                // Belt-and-braces, lane-independent: `devrig install` force-writes the launcher on every
+                // lane anyway, and the explicit opt-in also enables the self-heal on a SNAPSHOT dist —
+                // so ~/.mcp-steroid/bin/devrig is written and THAT stable wrapper gets registered.
                 .addEnv("DEVRIG_BIN_NO_AUTO_REGISTER", "false")
                 .description("devrig install ${agent.cliName}")
                 .timeoutSeconds(120)

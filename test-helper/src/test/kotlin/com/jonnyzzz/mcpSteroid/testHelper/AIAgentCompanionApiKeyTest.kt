@@ -17,8 +17,12 @@ import org.junit.jupiter.api.Test
  *  1. [AIAgentCompanion.isApiKeyAvailable] correctly distinguishes (a) a real key,
  *     (b) a missing key, and (c) an unresolved TeamCity `%credentialsJSON:…%` reference.
  *  2. With `skipTestWhenKeyMissing = true`, `requireApiKey()` (called from `create()`)
- *     throws `AssumptionViolatedException` for case (b) — JUnit 5 reports it as ignored,
- *     and `UsefulTestCase.shouldRunTest()` callers see `false`.
+ *     throws `AssumptionViolatedException` for case (b) — JUnit 4/5 report it as ignored.
+ *     JUnit 3 / `BasePlatformTestCase` tests run under
+ *     `@RunWith(JUnit38AssumeSupportRunner::class)` (the plain JUnit 3↔4 bridge would
+ *     report the assumption as a failure — see [JUnit38BridgeAssumptionTest]) and gate
+ *     `runBare` early on [AIAgentCompanion.skipTestBecauseApiKeyMissing], which is
+ *     `true` only for case (b).
  *  3. With `skipTestWhenKeyMissing = true`, the unresolved-TC-ref branch (case c) still
  *     fails fast with `IllegalStateException` — that case is a real misconfiguration that
  *     must stay visible.
@@ -135,9 +139,43 @@ class AIAgentCompanionApiKeyTest {
 
     @Test
     fun `isApiKeyAvailable resolves null key as not available`() {
-        // Coverage for the path UsefulTestCase shouldRunTest() relies on.
         assertNull((SkipCompanion { null }).readApiKeyForTest())
         assertFalse(SkipCompanion { null }.isApiKeyAvailable())
+    }
+
+    // ── skipTestBecauseApiKeyMissing() — the early-skip predicate JUnit 3 /
+    //    BasePlatformTestCase tests consult from runBare(). The plain JUnit 3↔4
+    //    bridge (JUnit38ClassRunner.addError) reports AssumptionViolatedException
+    //    as a FAILURE (pinned in JUnit38BridgeAssumptionTest), so such classes run
+    //    under @RunWith(JUnit38AssumeSupportRunner::class), which reroutes the
+    //    assumption to fireTestAssumptionFailed => SKIPPED/ignored.
+    //    See CliGeminiIntegrationTest.runBare().
+
+    @Test
+    fun `skipTestBecauseApiKeyMissing true only for skip-companion with truly missing key`() {
+        assertTrue(SkipCompanion { null }.skipTestBecauseApiKeyMissing())
+    }
+
+    @Test
+    fun `skipTestBecauseApiKeyMissing false when a real key is present`() {
+        assertFalse(SkipCompanion { "real-key" }.skipTestBecauseApiKeyMissing())
+    }
+
+    @Test
+    fun `skipTestBecauseApiKeyMissing false for unresolved TC ref — misconfiguration must run and fail`() {
+        // The %credentialsJSON:…% branch must NOT be skipped via shouldRunTest():
+        // the test has to run so requireApiKey() fails hard with IllegalStateException.
+        val companion = SkipCompanion { "%credentialsJSON:abcdef-…%" }
+        assertFalse(companion.skipTestBecauseApiKeyMissing())
+        assertThrows(IllegalStateException::class.java) {
+            invokeRequireApiKey(companion)
+        }
+    }
+
+    @Test
+    fun `skipTestBecauseApiKeyMissing false for fail-fast companions even with missing key`() {
+        // Anthropic / OpenAI never skip — do not extend the Gemini opt-in.
+        assertFalse(FailFastCompanion { null }.skipTestBecauseApiKeyMissing())
     }
 
     @Test
