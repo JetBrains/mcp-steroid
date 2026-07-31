@@ -151,9 +151,17 @@ sealed interface DevrigCommand {
         override val json: Boolean = false,
     ) : DevrigCommand
 
+    /**
+     * Help was asked for. Which text answers is a deliberate split, and [generatedHelp] is where it is
+     * recorded: a generated `devrig <tool>` command ([SchemaToolCliCommand]) carries the help Clikt
+     * produced for that command — its grammar is generated from the tool's declaration, so only a
+     * generated text can stay in step with it — while every lifecycle verb leaves this null and gets
+     * devrig's curated banner, which is the document that explains those verbs.
+     */
     data class DevrigCommandHelp(
         override val debug: Boolean = false,
         override val json: Boolean = false,
+        val generatedHelp: String? = null,
     ) : DevrigCommand
 
     data class DevrigCommandVersion(
@@ -177,15 +185,30 @@ fun parseDevrigCommand(rawArgs: Array<String>): DevrigCommand {
         root.parse(rawArgs)
         selected.command ?: DevrigCommand.DevrigCommandHelp()
     } catch (e: PrintHelpMessage) {
-        // Help was asked for, by the eager `-h`/`--help` every command registers. devrig prints its own
-        // banner, so nothing but the request itself is read from the exception — except `error = true`,
-        // which is Clikt reporting a usage failure BY printing help, and stays a usage failure here.
+        // Help was asked for, by the eager `-h`/`--help` every command registers — except when
+        // `error = true`, which is Clikt reporting a usage failure BY printing help, and stays a usage
+        // failure here.
         if (e.error) parseError(root, e, rawArgs)
-        else DevrigCommand.DevrigCommandHelp(debug = rawArgs.debugRequested(), json = rawArgs.jsonRequested())
+        else DevrigCommand.DevrigCommandHelp(
+            debug = rawArgs.debugRequested(),
+            json = rawArgs.jsonRequested(),
+            generatedHelp = e.generatedToolHelp(),
+        )
     } catch (e: CliktError) {
         parseError(root, e, rawArgs)
     }
 }
+
+/**
+ * Clikt's own help for the command that asked, when that command is a generated `devrig <tool>` one, and
+ * null for every other command — the whole of the split [DevrigCommand.DevrigCommandHelp.generatedHelp]
+ * records. The generated commands are the only ones whose grammar is derived from metadata, so they are
+ * the only ones no hand-written banner can describe; the lifecycle verbs are the reverse, and taking
+ * Clikt's rendering for them would throw devrig's curated banner away. [PrintHelpMessage] carries the
+ * context of the command the eager `--help` fired on, which is exactly the command to ask.
+ */
+private fun PrintHelpMessage.generatedToolHelp(): String? =
+    (context?.command as? SchemaToolCliCommand)?.getFormattedHelp()
 
 private fun parseError(
     root: DevrigRootCommand,
@@ -278,13 +301,15 @@ abstract class DevrigCliktCommand(
     private val parent: DevrigCliktCommand?,
     invokeWithoutSubcommand: Boolean = false,
     hidden: Boolean = false,
+    help: String = "",
 ) : CliktCommand(
     name = name,
+    help = help,
     invokeWithoutSubcommand = invokeWithoutSubcommand,
     hidden = hidden,
 ) {
     private val debugFlag by option("--debug", help = "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)").flag()
-    private val jsonFlag by option("--json", help = "emit JSON output where supported").flag()
+    private val jsonFlag by option("--json", help = DEVRIG_JSON_FLAG_HELP).flag()
 
     /**
      * A devrig framework flag, beside `--json`, accepted on every subcommand and never a tool parameter:
@@ -293,7 +318,7 @@ abstract class DevrigCliktCommand(
      */
     private val outFlag by option(
         "--out",
-        help = "write the image the command returns to this path instead of the devrig temp dir",
+        help = DEVRIG_OUT_FLAG_HELP,
         metavar = "PATH",
     ).path(canBeDir = false)
 
@@ -571,7 +596,10 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
             // ONE arm for every generated tool command, whatever the tool: parsing and running are separate
             // lifecycle phases, and the second one lives in its own layer ([runGeneratedToolCommand]).
             is DevrigCommand.RunTool -> runGeneratedToolCommand(command)
-            is DevrigCommand.DevrigCommandHelp -> printHelp(mcpStdout)
+            is DevrigCommand.DevrigCommandHelp -> {
+                val generated = command.generatedHelp
+                if (generated == null) printHelp(mcpStdout) else printCommandHelp(mcpStdout, generated)
+            }
             is DevrigCommand.DevrigCommandVersion -> printVersion(mcpStdout)
             is DevrigCommand.DevrigCommandParseError -> {
                 System.err.println(command.text)

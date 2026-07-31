@@ -121,6 +121,34 @@ class DevrigCommandOutputTest {
         assertTrue(out.contains("mcp add"), "config must list the per-agent add commands; got:\n$out")
     }
 
+    @Test
+    fun `a lifecycle verb's --help prints devrig's curated banner and nothing else`() {
+        val args = arrayOf("backend", "--help")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(0, exit)
+        assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
+        val curated = ByteArrayOutputStream()
+            .also { printHelp(PrintStream(it, true, Charsets.UTF_8)) }
+            .toString(Charsets.UTF_8)
+            .replace("\r\n", "\n")
+        assertEquals(curated, stdout(), "a lifecycle verb must print the curated banner verbatim")
+    }
+
+    @Test
+    fun `a generated tool command's --help prints that command's own help to stdout`() {
+        val args = arrayOf("execute_code", "--help")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(0, exit)
+        assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
+        val out = stdout()
+        for (token in listOf("execute_code", "--code", "--code-file", "--task_id", "--reason")) {
+            assertTrue(out.contains(token), "execute_code --help must name '$token'; got:\n$out")
+        }
+        assertTrue(out.endsWith("\n"), "help output must end with a newline; got: '${out.takeLast(20)}'")
+    }
+
     // ------------------------------ Version --------------------------------
 
     @Test

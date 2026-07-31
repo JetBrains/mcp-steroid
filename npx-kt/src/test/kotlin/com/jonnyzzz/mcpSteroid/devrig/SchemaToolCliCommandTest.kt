@@ -191,8 +191,12 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `--help on a generated command prints help instead of a missing-option error`() {
-        assertIs<DevrigCommand.DevrigCommandHelp>(parse("execute_code", "--help"))
-        assertIs<DevrigCommand.DevrigCommandHelp>(parse("execute_code", "-h"))
+        // Which help, and what it must name, is CommandHelpRoutingTest's subject; here the claim is only
+        // that the eager --help wins over execute_code's required parameters instead of failing on them.
+        for (spelling in listOf("--help", "-h")) {
+            val help = assertIs<DevrigCommand.DevrigCommandHelp>(parse("execute_code", spelling))
+            assertTrue("execute_code" in (help.generatedHelp ?: ""), "got: ${help.generatedHelp}")
+        }
     }
 
     @Test

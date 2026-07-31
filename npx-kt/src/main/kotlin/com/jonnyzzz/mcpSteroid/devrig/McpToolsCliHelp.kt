@@ -1,0 +1,111 @@
+/* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
+package com.jonnyzzz.mcpSteroid.devrig
+
+import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
+import com.jonnyzzz.mcpSteroid.mcp.InputSchemaParamSpec
+
+/** Help for devrig's own `--json`, stated once and read by both the option declaration and the footer. */
+const val DEVRIG_JSON_FLAG_HELP: String = "emit JSON output where supported"
+
+/** Help for devrig's own `--out`, stated once and read by both the option declaration and the footer. */
+const val DEVRIG_OUT_FLAG_HELP: String =
+    "write the image the command returns to this path instead of the devrig temp dir"
+
+/** The column no generated help line may pass, so the banner survives a 100-column terminal unwrapped. */
+private const val HELP_WIDTH = 100
+
+/**
+ * Renders the "MCP tools as CLI" block of the global `devrig --help` banner from the tools' own
+ * declarations — [CliToolSpec.cli] and the parameters `asCliParams()` exposes — and from nothing else.
+ * Adding a tool, a parameter, a file source or a tool-scoped option surfaces here with no edit to this
+ * file; conversely, nothing here can describe a flag that the command line does not actually accept.
+ *
+ * Per tool: a usage line naming every token the parser accepts, the tool's own command synopsis, then one
+ * line per accepted flag carrying that flag's own declared synopsis. The trailing footer holds only the
+ * facts that belong to no parameter — devrig's framework flags and the cwd inference of `project_name`.
+ */
+fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
+    appendLine("MCP tools as CLI (the same tools the `devrig mcp` server exposes, callable from a shell):")
+    appendLine()
+    for (tool in tools.filterNot { it.cli.hidden }) {
+        appendToolBlock(tool)
+        appendLine()
+    }
+    appendLine("  Common CLI flags (devrig's own, accepted by every command above):")
+    appendLine("    --json        $DEVRIG_JSON_FLAG_HELP")
+    appendLine("    --out=<path>  $DEVRIG_OUT_FLAG_HELP")
+    appendLine("    --project_name is inferred from the current directory when omitted.")
+    appendLine("    Run `devrig <command> --help` for one command's full option list.")
+}
+
+/** One tool's block: the wrapped usage line, the command synopsis, then the per-flag lines. */
+private fun StringBuilder.appendToolBlock(tool: CliToolSpec) {
+    val params = tool.schema.asCliParams().filterNot { it.cliHidden }
+    appendUsageLine(
+        prefix = "  devrig ${tool.cli.name}",
+        tokens = params.map { it.usageToken() } +
+            tool.cli.extraOptions.map { "[${it.flag}]" } +
+            listOfNotNull(tool.cli.aliases.aliasNote()),
+    )
+    appendLine("      ${tool.cli.synopsis}")
+    val entries = params.flatMap { param ->
+        listOfNotNull(
+            HelpEntry(if (param.cliPositional) "<${param.name}>" else param.cliFlag, param.cliSynopsis),
+            param.cliFileSource?.let { HelpEntry(it.flag, it.synopsis) },
+        )
+    } + tool.cli.extraOptions.map { HelpEntry(it.flag, it.synopsis) }
+    val labelWidth = entries.maxOfOrNull { it.label.length } ?: 0
+    for (entry in entries) appendLine("        ${entry.label.padEnd(labelWidth)}  ${entry.synopsis}")
+}
+
+/** One rendered flag line: how the CLI spells the thing, and what the thing's own declaration says of it. */
+private class HelpEntry(val label: String, val synopsis: String)
+
+/**
+ * Appends `prefix` followed by [tokens], breaking to a new line — indented under the first token — before
+ * a token would pass [HELP_WIDTH]. Wrapping happens between whole tokens and never inside one: a token such
+ * as `[--modal=<smart_non_modal | non_modal | unleashed>]` contains spaces but is a single alternation that
+ * would read as two flags if it were split.
+ */
+private fun StringBuilder.appendUsageLine(prefix: String, tokens: List<String>) {
+    val indent = " ".repeat(prefix.length + 1)
+    var line = StringBuilder(prefix)
+    for (token in tokens) {
+        if (line.length > prefix.length && line.length + 1 + token.length > HELP_WIDTH) {
+            appendLine(line)
+            line = StringBuilder(indent).append(token)
+        } else {
+            line.append(' ').append(token)
+        }
+    }
+    appendLine(line)
+}
+
+/**
+ * The usage-line spelling of one parameter: a positional as `<name>`, a boolean switch as its bare flag, an
+ * enum as `--flag=<a | b | c>`, anything else as `--flag=<name>`. A declared
+ * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] is a second way to supply the SAME value, so it renders as an
+ * alternation with the direct form — parenthesized when the tool requires the value (one of the two is then
+ * mandatory, which is what `SchemaCliBinding` enforces), bracketed when it does not. Without a file source
+ * the token is bracketed whenever the CLI treats the parameter as optional: not required, or required but
+ * [InputSchemaParamSpec.cliOptional] because devrig can supply it (cwd-inferred `project_name`).
+ */
+private fun InputSchemaParamSpec.usageToken(): String {
+    val values = enumValues
+    val direct = when {
+        cliPositional -> "<$name>"
+        type == "boolean" -> cliFlag
+        values != null -> "$cliFlag=<${values.joinToString(" | ")}>"
+        else -> "$cliFlag=<$name>"
+    }
+    val fileSource = cliFileSource ?: return if (required && !cliOptional) direct else "[$direct]"
+    val alternation = "$direct | ${fileSource.flag}=<path>"
+    return if (required) "($alternation)" else "[$alternation]"
+}
+
+/** `(alias: prompt)` / `(aliases: a, b)` for a tool that declares any, and null for one that does not. */
+private fun List<String>.aliasNote(): String? = when {
+    isEmpty() -> null
+    size == 1 -> "(alias: ${single()})"
+    else -> "(aliases: ${joinToString(", ")})"
+}

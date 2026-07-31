@@ -59,6 +59,9 @@ class SchemaToolCliCommand(
     name = spec.cli.name,
     selected = selected,
     parent = parent,
+    // The tool's own one-line synopsis heads `devrig <tool> --help` and labels the command in the root
+    // command's subcommand list — the same declared text the generated global section renders.
+    help = spec.cli.synopsis,
 ) {
     private val binding = SchemaCliBinding.bind(this, spec)
 
