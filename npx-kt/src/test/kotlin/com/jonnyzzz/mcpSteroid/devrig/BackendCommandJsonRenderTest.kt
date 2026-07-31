@@ -142,6 +142,16 @@ class BackendCommandJsonRenderTest {
     }
 
     @Test
+    fun `mcpSteroidBackends are sorted by backend_name`() {
+        // Same ordering as the MCP backends[] lookup (#155), whatever the discovery order.
+        val a = markerIde(pid = 1111L)
+        val b = markerIde(pid = 2222L)
+        val expected = listOf(a, b).map { it.backendName }.sorted()
+        val backends = render(s1 = listOf(b, a))["mcpSteroidBackends"]!!.jsonArray
+        assertEquals(expected, backends.map { it.jsonObject["backend_name"]?.jsonPrimitive?.contentOrNull })
+    }
+
+    @Test
     fun `multiple S1 entries are ordered as provided`() {
         val ide1 = markerIde(pid = 1L, build = "IU-261.1")
         val ide2 = markerIde(name = "PyCharm", pid = 2L, build = "PC-253.9")
@@ -174,6 +184,20 @@ class BackendCommandJsonRenderTest {
         val entry = root["otherIdes"]!!.jsonArray.single().jsonObject
         assertEquals(false, entry["compatible"]?.jsonPrimitive?.boolean,
             "port-discovered otherIdes entry must carry compatible=false; entry=$entry")
+    }
+
+    @Test
+    fun `otherIdes entries promote the install command so scripts can act on plugin-less IDEs`() {
+        // Both an incompatible marker (old plugin) and a port-discovered IDE (no plugin) must expose the
+        // one-shot REST installer — that is the actionable next step for every non-compatible IDE.
+        val incompatible = markerIde(pid = 1L, build = "IU-261.1", ideHome = null)
+        val port = portIde(port = 63342, buildNumber = "GO-261.999")
+        val others = render(s1 = listOf(incompatible), s2 = setOf(port))["otherIdes"]!!.jsonArray
+        assertEquals(2, others.size)
+        for (entry in others) {
+            assertEquals("devrig install plugin", entry.jsonObject["installCommand"]?.jsonPrimitive?.contentOrNull,
+                "every otherIdes entry must promote the install command; entry=$entry")
+        }
     }
 
     @Test

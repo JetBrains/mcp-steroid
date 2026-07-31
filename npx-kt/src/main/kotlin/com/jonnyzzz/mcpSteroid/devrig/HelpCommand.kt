@@ -24,15 +24,23 @@ fun printHelp(out: PrintStream) : Int {
                                          `--json` emits a single machine-readable
                                          object on stdout; default is human text.
 
-          devrig install claude|codex|gemini [--check]
+          devrig install [claude|codex|gemini] [--check]
                                          register this devrig binary as the
                                          mcp-steroid stdio MCP server in the
-                                         selected coding agent. `--check` is a
+                                         selected coding agent. With no agent:
+                                         list the install targets and which agent
+                                         CLIs are present on PATH. `--check` is a
                                          read-only dry-run: it reports the current
                                          registration, the changes install would
                                          apply, and how many IDE backends with the
                                          MCP Steroid plugin are reachable; exits 1
                                          when install would change anything.
+
+          devrig install config          print the manual MCP configuration for
+                                         agents devrig cannot configure
+                                         automatically: the stdio mcpServers JSON
+                                         (mcp.json) snippet plus the per-agent
+                                         mcp-add commands.
 
           devrig backend download [<id>] [--version <v>] [--json]
                                          no id → list IDEs available for download.

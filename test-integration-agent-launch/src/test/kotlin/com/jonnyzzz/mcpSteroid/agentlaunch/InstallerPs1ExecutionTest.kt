@@ -103,8 +103,8 @@ class InstallerPs1ExecutionTest {
             // Render install.ps1 through the SHIPPING code path (writeInstallerScripts). All 5
             // platforms must be present in the table (installer-gen contract), but install.ps1
             // reads only its own Windows platform hashtable at runtime.
-            val jdkEntryWin = JdkScriptEntry("$baseUrl/jdk.zip", jdkSha, "zip", "jdk")
-            val jdkEntryPosix = JdkScriptEntry("$baseUrl/jdk.zip", jdkSha, "tar.gz", "jdk")
+            val jdkEntryWin = JdkScriptEntry("$baseUrl/jdk.zip", jdkSha, "zip", "jdk", JDK_VERSION)
+            val jdkEntryPosix = JdkScriptEntry("$baseUrl/jdk.zip", jdkSha, "tar.gz", "jdk", JDK_VERSION)
             val table = ALL_PLATFORMS.associateWith { key ->
                 if (key.startsWith("windows-")) jdkEntryWin else jdkEntryPosix
             }
@@ -243,5 +243,9 @@ class InstallerPs1ExecutionTest {
 
     companion object {
         const val VERSION = "0.0.0-test"
+
+        /** Vendor-native JDK version baked into the synthetic table — DIFFERENT from [VERSION] so the
+         * run exercises the #362 fix (the JDK install dir is named by the JDK's own version). */
+        const val JDK_VERSION = "25.0.7.7.7"
     }
 }

@@ -19,6 +19,28 @@ advance `website` to publish.** This is done as a release step, AFTER the GitHub
 (see "Stage 7c: Advance the `website` branch"), because the generated `install.sh` / `updatePlugins.xml`
 resolve the just-published release.
 
+**Advancing `website` is the rollout trigger, not just a docs update.** The deploy regenerates and
+publishes `version.json` + `install.sh` + `install.ps1` atomically (one `generateWebsite` task, one
+Pages artifact), and devrig **auto-updates** off `version.json`: every `devrig mcp` session that sees
+the promoted version downloads and runs the install script (see
+`docs/updates-check/devrig-auto-update.md`). Two rules follow:
+
+1. **`version.json` may only ever change as part of Stage 7c** — after the GitHub release with the
+   plugin ZIP, the devrig ZIP, and the EULA is published and verified
+   (`release/scripts/verify-release-ready.sh`). There is no other legitimate path that changes the
+   promoted version.
+2. **Never advance `website` inside a release window** — from the moment `VERSION` is bumped on
+   `main` (Stage 3) until the GitHub release is published (Stage 7b), do not merge `main → website`
+   for *any* reason, including unrelated website tweaks: the merge would carry the new `VERSION`,
+   and a deploy would try to promote a version whose release does not exist yet. (The build fails
+   hard in that case — `:website-gen`/`:installer-gen` cannot resolve the missing release, so the
+   old site stays live — but that is the backstop, not the workflow. Hold website tweaks until
+   Stage 7c, or land them before Stage 3.)
+3. **A pulled version number is never re-promoted.** If a release is rolled back (version.json
+   moved backward), fleets keep an `updated-<pulled-version>` record that permanently
+   short-circuits any re-promotion of that same number. A re-release always bumps the base
+   version — never reuses the pulled one.
+
 The `website` branch is **origin-only** — `jb` runs TeamCity only and carries no GitHub Actions, so
 `website` is never synced to `jb`.
 
@@ -41,14 +63,16 @@ Correct order:
 4. Create tags on both remotes
 5. Create the GitHub release (attaches to existing tag) — plugin zip + devrig zip + EULA
 6. Upload to JetBrains Marketplace
-7. **Advance the `website` branch** (merge `main → website`, push `origin website`) — this is what
-   deploys the website; then verify it's live
+7. **Verify release readiness** (`release/scripts/verify-release-ready.sh`), then **advance the
+   `website` branch** (merge `main → website`, push `origin website`) — this is what deploys the
+   website AND promotes `version.json`, starting the devrig auto-update rollout; then verify it's live
 
 **Critical:** Steps 1-2 must complete before step 3. **The push to `main` in step 2 does NOT trigger a
 website deploy** — the Pages workflow only fires on the `website` branch. The website is published in
 step 7 by advancing `website` to `main`, which must happen AFTER the GitHub release exists (step 5) so
 the build can resolve the released ZIP URL + the released devrig binary that the new `install.sh`
-expects.
+expects — and because a live `version.json` immediately starts fleet-wide devrig auto-updates against
+those artifacts.
 
 ## Release Stages
 
@@ -279,14 +303,17 @@ flag needed). Every artifact in the release ZIPs is compiled from source by this
 very invocation; nothing is assembled from cache entries. Expect the build to
 take correspondingly longer than a regular dev build.
 
-The resulting plugin ZIP is in `ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip`.
-The devrig CLI ZIP is in `npx-kt/build/distributions/devrig-<version>-<gitHash>.zip`.
+The resulting plugin ZIP is in `ij-plugin/build/distributions/mcp-steroid-<version>.0-r-<gitHash>.zip`.
+The devrig CLI ZIP is in `npx-kt/build/distributions/devrig-<version>.0-r-<gitHash>.zip`.
 The `<gitHash>` must match the current HEAD (the version bump commit) for both — building
 them in one Gradle invocation guarantees the same hash.
 
 **devrig zip naming.** `:npx-kt:distZip` sets only `archiveBaseName = "devrig"`, so the
-release archive is Gradle's default `devrig-<version>-<gitHash>.zip`, matching the plugin
-zip's `mcp-steroid-<version>-<gitHash>.zip` convention. Local/dev builds (without
+release archive is Gradle's default `devrig-<version>.0-r-<gitHash>.zip`, matching the plugin
+zip's `mcp-steroid-<version>.0-r-<gitHash>.zip` convention. The `.0-r-` infix is the release
+lane of the uniform `<base>.<counter>-<lane>-<hash>` version layout (#360): counter `0` ranks
+below every CI counter and the `r` lane word keeps the git hash out of IntelliJ's version
+comparison. Local/dev builds (without
 `-Pmcp.release.build=true`) carry the SNAPSHOT counter:
 `devrig-<version>.19999-SNAPSHOT-<gitHash>.zip`. Only the non-SNAPSHOT name is a release
 artifact; ignore SNAPSHOT zips left over from dev builds.
@@ -318,8 +345,8 @@ the tag already exists on the remote — drop `--target` from the `gh` command.
 
 ```bash
 gh release create "v<version>" \
-  "ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip" \
-  "npx-kt/build/distributions/devrig-<version>-<gitHash>.zip" \
+  "ij-plugin/build/distributions/mcp-steroid-<version>.0-r-<gitHash>.zip" \
+  "npx-kt/build/distributions/devrig-<version>.0-r-<gitHash>.zip" \
   EULA \
   --repo jonnyzzz/mcp-steroid \
   --notes-file "release/notes/<version>.md" \
@@ -330,7 +357,7 @@ gh release create "v<version>" \
 it with HTTP 422. The release attaches to the existing tag automatically.
 
 **Assets**: The `gh` CLI uses each source filename as the asset name, so the release page
-carries `mcp-steroid-<version>-<gitHash>.zip` (plugin), `devrig-<version>-<gitHash>.zip`
+carries `mcp-steroid-<version>.0-r-<gitHash>.zip` (plugin), `devrig-<version>.0-r-<gitHash>.zip`
 (devrig CLI), and `EULA`.
 
 **EULA**: The root `EULA` file is uploaded directly. The `gh` CLI uses the source
@@ -339,14 +366,20 @@ filename as the asset name — it appears as `EULA` on the release page.
 **Immutable**: Once created, releases cannot have assets added. If a fix is needed,
 delete and recreate the release.
 
-**7c. Advance the `website` branch (this publishes the website):**
+**7c. Advance the `website` branch (this publishes the website AND starts the auto-update rollout):**
 
 The live site deploys from the `website` branch, and the generated `install.sh` / `install.ps1` /
 `updatePlugins.xml` resolve the **just-published** release (Stage 7b) — its plugin ZIP URL and the
-devrig binary whose CLI contract the new install scripts expect. So advance `website` to `main`
-**only now**, after the release exists:
+devrig binary whose CLI contract the new install scripts expect. Once deployed, the new
+`version.json` is the **point of no return**: devrig sessions everywhere start auto-updating to it
+(`docs/updates-check/devrig-auto-update.md`). So advance `website` **only now**, after the release
+exists — and gate the push on the readiness check:
 
 ```bash
+# MANDATORY gate: release exists, is published (not draft/prerelease), and carries
+# mcp-steroid-<version>-*.zip + devrig-<version>-*.zip + EULA. Fails loudly otherwise.
+release/scripts/verify-release-ready.sh
+
 git fetch origin
 git checkout website
 git merge main --ff-only        # website normally trails main by exactly the held commits
@@ -363,7 +396,7 @@ the Pages workflow; the deploy + verification happen in Stage 9.
 ### Stage 8: Upload to JetBrains Marketplace
 
 ```bash
-release/scripts/publish-marketplace.sh "ij-plugin/build/distributions/mcp-steroid-<version>-<gitHash>.zip"
+release/scripts/publish-marketplace.sh "ij-plugin/build/distributions/mcp-steroid-<version>.0-r-<gitHash>.zip"
 ```
 
 Requires `~/.marketplace` (one-line JetBrains permanent token).
@@ -417,6 +450,24 @@ curl -sH "Cache-Control: no-cache" \
 curl -sI "https://devrig.dev/releases/<version>/?_=$(date +%s)" | head -3
 ```
 
+**Verify version.json ↔ install-script agreement (auto-update contract):** devrig's auto-updater
+downloads `install.sh`/`install.ps1` and checks the baked version against `version.json`'s
+`version-base`; while they disagree (CDN propagation), fleets quietly retry (the skew guard), and a
+*persistent* disagreement decays every devrig into a "update manually" notice. Confirm agreement:
+
+```bash
+V_JSON=$(curl -s "https://devrig.dev/version.json?_=$(date +%s)" \
+  | sed -n 's/.*"version-base"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+V_SH=$(curl -s "https://devrig.dev/install.sh?_=$(date +%s)" \
+  | sed -n "s/^VERSION='\(.*\)'/\1/p")
+echo "version.json=$V_JSON install.sh=$V_SH"
+[ "$V_JSON" = "$V_SH" ] && echo AGREE || echo "DISAGREE — recheck after CDN TTL; persistent disagreement breaks auto-update"
+
+# the devrig artifact the served install.sh points at must be downloadable
+curl -s "https://devrig.dev/install.sh?_=$(date +%s)" \
+  | sed -n "s/^DEVRIG_URL='\(.*\)'/\1/p" | xargs curl -sIL -o /dev/null -w 'devrig zip: HTTP %{http_code}\n'
+```
+
 **Cloudflare caching:** The website is behind Cloudflare. Query-string cache-busting
 (`?_=<timestamp>`) bypasses the edge cache. If you see stale content without the
 query string, it will expire within Cloudflare's TTL (typically 2-4 hours for HTML,
@@ -454,7 +505,7 @@ The website template automatically renders an obsolete banner on older release p
 | `CONTRIBUTORS.md` | Contributor acknowledgements (update each release) |
 | `VERSION` | Current plugin version (`X.Y.Z`) |
 | `EULA` | End User License Agreement (uploaded to GitHub releases) |
-| `npx-kt/build/distributions/devrig-<version>-<gitHash>.zip` | devrig CLI archive (`:npx-kt:distZip`); uploaded to GitHub releases |
+| `npx-kt/build/distributions/devrig-<version>.0-r-<gitHash>.zip` | devrig CLI archive (`:npx-kt:distZip`); uploaded to GitHub releases |
 | `release/notes/<version>.md` | Release notes (used as GitHub release body) |
 | `release/scripts/bump-version.sh` | Version bump with rerun guard |
 | `release/scripts/publish-marketplace.sh` | JetBrains Marketplace upload (Stable channel) |

@@ -86,7 +86,9 @@ class DevrigCommandOutputTest {
         assertFalse(out.contains("devrig mpc"), "help must NOT advertise the hidden mpc alias; got:\n$out")
         assertTrue(out.contains("--version"), "help should advertise --version; got:\n$out")
         assertTrue(out.contains("--help"), "help should advertise --help itself; got:\n$out")
-        assertTrue(out.contains("devrig install claude|codex|gemini"), "help should advertise agent install; got:\n$out")
+        // ONE merged install entry (PR #397 review): the bare and agent-qualified forms share it.
+        assertTrue(out.contains("devrig install [claude|codex|gemini] [--check]"), "help should advertise agent install; got:\n$out")
+        assertTrue(out.contains("devrig install config"), "help should advertise the manual-config printer; got:\n$out")
         assertTrue(out.contains("backend download [<id>] [--version <v>] [--json]"), "help should advertise download version override; got:\n$out")
         assertTrue(out.contains("no id → list IDEs available for download"), "help should explain download without id; got:\n$out")
         assertTrue(out.contains("backend start    [<id>] [--version <v>] [--json]"), "help should advertise start version override; got:\n$out")
@@ -102,6 +104,21 @@ class DevrigCommandOutputTest {
         // behave predictably.
         runCliForTest(DevrigCommand.DevrigCommandHelp())
         assertTrue(stdout().endsWith("\n"), "help output must end with a newline; got: '${stdout().takeLast(20)}'")
+    }
+
+    // --------------------------- Install config -----------------------------
+
+    @Test
+    fun `Install config writes the manual MCP configuration to stdout, nothing to stderr`() {
+        // Pasteable output contract: the stdio mcpServers JSON goes to stdout (so
+        // `devrig install config | pbcopy` works); stderr stays clean.
+        val exit = runCliForTest(DevrigCommand.DevrigCommandInstallConfig())
+        assertEquals(0, exit)
+        assertEquals("", stderr(), "stderr must stay clean for install config; got: ${stderr()}")
+        val out = stdout()
+        assertTrue(out.contains("\"mcpServers\""), "config must print the mcpServers JSON snippet; got:\n$out")
+        assertTrue(out.contains("mcp-steroid"), "config must use the canonical server name; got:\n$out")
+        assertTrue(out.contains("mcp add"), "config must list the per-agent add commands; got:\n$out")
     }
 
     // ------------------------------ Version --------------------------------

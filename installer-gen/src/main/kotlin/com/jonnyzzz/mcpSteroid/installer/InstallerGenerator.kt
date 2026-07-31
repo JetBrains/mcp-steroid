@@ -17,7 +17,8 @@ import kotlin.io.path.writeText
  * artifact), a pinned `--devrig-version`, or — by default — the devrig zip on the `v<VERSION>` GitHub
  * release (NOT "latest": "latest" can drift ahead/behind the `--version` the generator runs with, baking
  * a mismatched devrig into the install scripts). Whatever the source, the resolved zip's top dir is
- * ASSERTED to be `devrig-<version>-…` so a mismatch fails generation instead of shipping silently.
+ * ASSERTED to start with `devrig-<version>-` or `devrig-<version>.` (the 0.102+ `.0-r-` release lane,
+ * #360) so a mismatch fails generation instead of shipping silently.
  */
 
 /** The five supported platforms, keyed `<os>-<cpu>`. The script split is by OS. */
@@ -25,8 +26,12 @@ val POSIX_PLATFORMS = listOf("macos-arm64", "linux-arm64", "linux-x64")
 val WINDOWS_PLATFORMS = listOf("windows-x64", "windows-arm64")
 val ALL_PLATFORMS = POSIX_PLATFORMS + WINDOWS_PLATFORMS
 
-/** The per-platform values baked into the scripts (derived from a [JdkArtifact]). */
-data class JdkScriptEntry(val url: String, val sha256: String, val format: String, val javaHome: String)
+/**
+ * The per-platform values baked into the scripts (derived from a [JdkArtifact]). [version] is the
+ * vendor-native JDK version (e.g. Corretto `25.0.3.9.1`) — the scripts name the JDK install dir by it,
+ * NOT by the devrig VERSION (jonnyzzz/mcp-steroid#362).
+ */
+data class JdkScriptEntry(val url: String, val sha256: String, val format: String, val javaHome: String, val version: String)
 
 data class DevrigEntry(
     val url: String,
@@ -59,7 +64,7 @@ internal fun JdkPlatform.scriptKey(): String {
 /** Adapt the resolved [JdkModel] into the platform-keyed table the scripts bake in, and validate it. */
 internal fun jdkScriptTable(model: JdkModel): Map<String, JdkScriptEntry> {
     val table = model.jdks.associate {
-        it.platform.scriptKey() to JdkScriptEntry(it.url, it.sha256, it.archive.extension, it.javaHome)
+        it.platform.scriptKey() to JdkScriptEntry(it.url, it.sha256, it.archive.extension, it.javaHome, it.version)
     }
     validateScriptTable(table)
     return table
@@ -80,6 +85,9 @@ internal fun validateScriptTable(table: Map<String, JdkScriptEntry>) {
             "$key: bad javaHome (must be non-blank, no leading/trailing slash): '${e.javaHome}'"
         }
         require(e.url.startsWith("https://") || e.url.startsWith("http://")) { "$key: url must be absolute http(s), got '${e.url}'" }
+        // The JDK version becomes a path segment of the install dir (jdk-<key>-<version>-<sha12>), so
+        // restrict it to the same tag-safe character class as --devrig-version (also shell-safe).
+        require(e.version.matches(Regex("[A-Za-z0-9._+-]+"))) { "$key: jdk version must be non-blank [A-Za-z0-9._+-], got '${e.version}'" }
         requireShellSafe("$key url", e.url)
         requireShellSafe("$key javaHome", e.javaHome)
     }
@@ -127,6 +135,7 @@ private fun renderShCase(table: Map<String, JdkScriptEntry>): String = buildStri
         appendLine("    jdk_sha256='${j.sha256}'")
         appendLine("    jdk_format='${j.format}'")
         appendLine("    jdk_javahome='${j.javaHome}'")
+        appendLine("    jdk_version='${j.version}'")
         appendLine("    ;;")
     }
 }.trimEnd('\n')
@@ -140,6 +149,7 @@ private fun renderPsTable(table: Map<String, JdkScriptEntry>): String = buildStr
         appendLine("    JdkSha256 = '${j.sha256}'")
         appendLine("    JdkFormat = '${j.format}'")
         appendLine("    JdkJavaHome = '${j.javaHome}'")
+        appendLine("    JdkVersion = '${j.version}'")
         appendLine("  }")
     }
 }.trimEnd('\n')
@@ -195,7 +205,8 @@ private fun resolveDevrigZipUrlForRelease(version: String, http: HttpFetcher): S
  * Resolve devrig coordinates and ASSERT the binary version matches [version]. Local override (a pre-built
  * / fixture zip): `--devrig-zip <file>` + `--devrig-url <public url>`. Otherwise download a published
  * release — pinned `--devrig-version <v>` or, by default, the `v<version>` release (NOT "latest") — and
- * compute sha from the bytes. Whatever the source, the zip's top dir must be `devrig-<version>-…`.
+ * compute sha from the bytes. Whatever the source, the zip's top dir must start with
+ * `devrig-<version>-` or `devrig-<version>.` (0.102+ release lane, #360).
  */
 internal fun resolveDevrig(flags: Map<String, List<String>>, http: HttpFetcher, version: String): DevrigEntry {
     val (url, bytes) = flags["devrig-zip"]?.firstOrNull()?.let { zip ->
@@ -220,11 +231,12 @@ internal fun resolveDevrig(flags: Map<String, List<String>>, http: HttpFetcher, 
         u to http.getBytes(u)
     }
     val (posix, win) = devrigLaunchers(bytes)
-    // The launcher subpath is `<topDir>/bin/devrig`; the top dir is `devrig-<version>-<hash>`. Assert it
-    // matches --version regardless of how devrig was resolved (release / pinned / local zip) — a mismatch
-    // means the install scripts would ship a devrig whose version disagrees with the repo VERSION.
+    // The launcher subpath is `<topDir>/bin/devrig`; the top dir is `devrig-<version>-<hash>` (pre-0.102
+    // releases) or `devrig-<version>.<counter>-<lane>-<hash>` (0.102+, e.g. the `.0-r-` release lane, #360).
+    // Assert it matches --version regardless of how devrig was resolved (release / pinned / local zip) — a
+    // mismatch means the install scripts would ship a devrig whose version disagrees with the repo VERSION.
     val topDir = posix.substringBefore('/')
-    require(topDir.startsWith("devrig-$version-")) {
+    require(topDir.startsWith("devrig-$version-") || topDir.startsWith("devrig-$version.")) {
         "devrig binary version in '$topDir' does not match repo VERSION '$version' — install scripts would ship a mismatched devrig"
     }
     return DevrigEntry(url = url, sha256 = sha256Hex(bytes), launcherPosix = posix, launcherWindows = win)

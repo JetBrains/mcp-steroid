@@ -101,14 +101,28 @@ suspend fun DevrigServices.mainImpl2(
     if (command.runsTool()) {
         backgroundScope.launch {
             delay(Random.nextInt(200, 1300).milliseconds)
-            checkForUpdates(onNotice = { message ->
+            val onNotice: (String) -> Unit = { message ->
                 if (command is DevrigCommand.MCP) {
                     backgroundScope.launch {
                         val core = mcpServerReady.await()
                         core.broadcastLogMessage("warning", "devrig.updates", JsonPrimitive(message))
                     }
                 }
-            })
+            }
+            // One flow for every command (docs/updates-check/devrig-auto-update.md): the first
+            // check runs right after the short startup delay above; MCP sessions then keep
+            // re-checking/retrying every 3–8 h, everything else gets the passive notice once.
+            runAutoUpdateFlow(
+                homePaths = homePaths,
+                mcpSession = command is DevrigCommand.MCP,
+                notify = onNotice,
+                onUpdateEvent = { phase, promoted, exitCode ->
+                    val properties = LinkedHashMap<String, Any>()
+                    properties["target_version"] = promoted
+                    if (exitCode != null) properties["exit_code"] = exitCode
+                    beacon.capture("self_update_$phase", properties)
+                },
+            )
         }
 
         backgroundScope.launch {
@@ -117,6 +131,18 @@ suspend fun DevrigServices.mainImpl2(
     }
 
     if (command is DevrigCommand.MCP) {
+        // Orphan back-stop (#132): stdin EOF only reaps a parent that CLOSES the pipe; a SIGKILL'd
+        // agent leaves this JVM alive forever. exitProcess (not scope cancellation) because the read
+        // loop is parked in a blocking stream read that cancellation cannot interrupt.
+        ParentDeathWatchdog(
+            ancestorsAlive = watchedAncestorLiveness(),
+            onParentDeath = {
+                val message = "parent process died without closing stdin — exiting orphaned 'devrig mcp'"
+                System.err.println("[mcp-steroid] $message")
+                logger<ParentDeathWatchdog>().warn(message)
+                exitProcess(0)
+            },
+        ).launchIn(backgroundScope)
         beacon.runHeartbeat()
         try {
             mainImplMcp(onServerReady = { mcpServerReady.complete(it) })
@@ -149,7 +175,10 @@ private fun DevrigCommand.runsTool(): Boolean = when (this) {
     is DevrigCommand.DevrigCommandBackendProvision,
     is DevrigCommand.DevrigCommandProject,
     is DevrigCommand.DevrigCommandInstall,
-    is DevrigCommand.DevrigCommandInstallDevrig -> true
+    is DevrigCommand.DevrigCommandInstallDevrig,
+    is DevrigCommand.DevrigCommandInstallPlugin -> true
+    is DevrigCommand.DevrigCommandInstallOverview,
+    is DevrigCommand.DevrigCommandInstallConfig,
     is DevrigCommand.DevrigCommandHelp,
     is DevrigCommand.DevrigCommandVersion,
     is DevrigCommand.DevrigCommandParseError -> false

@@ -52,7 +52,8 @@ target path (this disambiguates nested checkouts and git worktrees).
 **Example session:**
 ```
 → steroid_list_projects
-← {"projects":[{"project_name":"my-app-9fk2a0xq","name":"my-app","path":"/path/to/my-app","backend_name":"iu-9fk2a0xq"}]}
+← {"projects":[{"project_name":"my-app-9fk2a0xq","name":"my-app","path":"/path/to/my-app","backend_name":"iu-9fk2a0xq"}],
+   "backends":[{"backend_name":"iu-9fk2a0xq","intellij":{"name":"IntelliJ IDEA 2026.1.3","version":"2026.1.3","build":"IU-261.25134.95"}}]}
 
 → steroid_execute_code(project_name="my-app-9fk2a0xq", code="println(project.name)", ...)
 ← "my-app"
@@ -137,7 +138,9 @@ Give your AI agent a senior developer's toolkit: semantic code understanding, au
 
 **Parameters:** `project_name`, `code` (Kotlin suspend function body), `task_id`, `reason`, `timeout` (optional)
 
-**Returns:** Execution output with `execution_id` for feedback
+**Returns:** `execution_id` plus ONLY what the script explicitly prints (`println` / `printJson` /
+`printCsv` / `printToon`). The last expression's value is ignored by the runtime — a script that
+computes but never prints returns no data, just a `HINT:` about the missing print.
 
 **Complete guide:** `mcp-steroid://skill/coding-with-intellij` (API reference, patterns, examples, best practices)
 
@@ -240,6 +243,9 @@ Built-in helpers available in every script (no imports needed):
 | **Scopes** | `projectScope()`, `allScope()` |
 | **File access** | `findFile()`, `findPsiFile()`, `findProjectFile()`, `findProjectFiles("src/main/**/*.kt")`, `findProjectPsiFile()` |
 | **Analysis** | `runInspectionsDirectly()` |
+
+The output methods are the only way to get data back to the agent — the script's
+last-expression value is ignored by the runtime, so print everything you need.
 
 **Tabular output cheat sheet** — for find-references, call-hierarchy, project-search, document-symbols, or any flat array-of-records result. Signatures are different on purpose; `printCsv` takes parallel lists (positional), `printToon` takes a list of maps (keyed). Mixing them up is the #1 first-try compile error.
 
@@ -359,7 +365,7 @@ or `prompts/list` — the tool is the canonical discovery surface.
 
 ### Common Issues
 - **"Project not found"** - Run `steroid_list_projects` first to get exact project names
-- **No output from execute** - Make sure to call `println()` or `printJson()` to see results
+- **No output from execute** - Only printed values come back; the last expression's value is ignored by the runtime. End the script with `println()` / `printJson()` of everything you need
 - **Timeout** - Increase `timeout` parameter (default 60 seconds)
 - **Script errors** - Check Kotlin syntax; imports are optional
 

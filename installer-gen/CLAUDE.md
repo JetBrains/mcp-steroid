@@ -12,7 +12,10 @@ generators: `:website-gen` depends on it. Two responsibilities:
    builds the installer ships, each field **computed** from the live vendor sources (nothing hand-pinned).
    The vendor logic is split per file: `CorrettoJdk.kt` (Amazon Corretto) and `AzulJdk.kt` (Azul Zulu).
 2. **Installer-script generation** — `InstallerGenerator` + the `install.sh` / `install.ps1` templates
-   (consumes the `JdkModel`). *(Ported from PR #113.)*
+   (consumes the `JdkModel`). *(Ported from PR #113.)* The scripts' scope is LOCKED by
+   [docs/install-scripts-contract.md](../docs/install-scripts-contract.md): install devrig + register
+   PATH (via the `devrig install devrig` handoff), never auto-register agents or auto-install the IDE
+   plugin — those commands are only promoted to the user.
 
 The shared HTTP/cache infra (`Cache.kt`, `HttpFetcher`/`KtorHttpFetcher`) lives here too, so `:website-gen`
 reuses it.

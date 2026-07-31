@@ -72,12 +72,15 @@ if (providedBuildVersion != null) {
     // The CI-computed version keeps the VERSION file content (all components) intact
     // and appends the CI counter plus the -<ci>-<hash> suffix.
     // e.g. VERSION=0.92.0 + counter=441 + hash=abcdef1 → 0.92.0.441-jb-abcdef1
+    // Counter 0 is rejected: `<base>.0` is reserved for the release lane (`<base>.0-r-<hash>`,
+    // see #360) — a zero CI counter would tie with the release and leave the ordering to the
+    // lane word and hash tokens.
     val expected = Regex(
-        "^" + Regex.escape(baseVersion) + "\\.\\d+-(gh|jb)-" + Regex.escape(gitHash) + "$"
+        "^" + Regex.escape(baseVersion) + "\\.[1-9]\\d*-(gh|jb)-" + Regex.escape(gitHash) + "$"
     )
     require(expected.matches(providedBuildVersion)) {
         "mcp.build.version='$providedBuildVersion' does not match expected format " +
-            "'${baseVersion}.<counter>-(gh|jb)-${gitHash}'. " +
+            "'${baseVersion}.<counter>-(gh|jb)-${gitHash}' (counter >= 1; 0 is reserved for the release lane). " +
             "The build number must be composed upstream (GitHub Actions run_number or " +
             "TeamCity buildNumber service message) and passed in unchanged — this build " +
             "does not rewrite it."
@@ -92,8 +95,14 @@ if (providedBuildVersion != null) {
 // compileKotlin is only re-run when sources actually change.
 // The git hash is the only freshness signal.
 val localBuildCounter = "19999-SNAPSHOT"
+// Release lane `<base>.0-r-<hash>` (#360): all lanes share the `<base>.<counter>-<lane>-<hash>`
+// token layout, so IntelliJ's VersionComparatorUtil (the raw comparator behind Marketplace and
+// custom-repository update checks) never reaches the git hash. Counter `0` is an all-zero digit
+// run, ranking below every non-zero CI counter — any gh/jb build of the same base is an update
+// over the release. The `r` lane word is the comparator's own RELEASE keyword, shielding a hash
+// that would otherwise tokenize as the ALPHA/BETA/MILESTONE marker (a/b/m…) or as a number.
 version = when {
-    isReleaseBuild -> "$baseVersion-$gitHash"
+    isReleaseBuild -> "$baseVersion.0-r-$gitHash"
     providedBuildVersion != null -> providedBuildVersion
     else -> "$baseVersion.$localBuildCounter-$gitHash"
 }
@@ -539,10 +548,83 @@ gradle.projectsEvaluated {
 // rest of ~/.mcp-steroid/ (runtime state — backends, caches, logs, markers,
 // eid_* sessions) untouched. Agent registration (claude/codex/gemini) is a
 // one-time setup handled by the devrig launcher's own CLI, not by this task.
-val deployNpx = tasks.register<Sync>("deployNpx") {
+val deployDevrigDist = tasks.register<Sync>("deployDevrigDist") {
     description = "Build :npx-kt:installDist and sync it into ~/.mcp-steroid/devrig/."
     group = "deployment"
     dependsOn(":npx-kt:installDist")
     from(project(":npx-kt").layout.buildDirectory.dir("install/devrig"))
     into(File(System.getProperty("user.home"), ".mcp-steroid/devrig"))
+}
+
+// Local devrig deploy: stage the dist (above), then have devrig regenerate its own stable
+// ~/.mcp-steroid/bin/devrig(.cmd) launcher + PATH registration via `devrig install devrig`
+// — the exact delegation the generated install.sh / install.ps1 use (this build never
+// writes the wrapper itself). The launcher + JDK flags are SENT by design (a forward
+// contract a future devrig may use); today's devrig ignores them and derives both from its
+// own running process — DEVRIG_JAVA_HOME makes that process run under :npx-kt's toolchain
+// JDK, which devrig then pins into the wrapper.
+val deployDevrig = tasks.register<Exec>("deployDevrig") {
+    description = "Deploy devrig to ~/.mcp-steroid/devrig/ and regenerate the ~/.mcp-steroid/bin/devrig launcher."
+    group = "deployment"
+    dependsOn(deployDevrigDist)
+
+    val isWin = System.getProperty("os.name").lowercase().contains("windows")
+    val userHome = File(System.getProperty("user.home"))
+    val installScript = File(userHome, ".mcp-steroid/devrig/bin/" + (if (isWin) "devrig.bat" else "devrig"))
+
+    // The launcher pins the SAME JDK devrig itself is built with in this project — :npx-kt's
+    // Java toolchain (jvmToolchain in npx-kt/build.gradle.kts) — NOT the Gradle daemon's JVM.
+    // Resolved lazily (provider + doFirst): :npx-kt is not configured yet when the root
+    // project's tasks are registered.
+    val jdkHomeProvider = providers.provider {
+        val npx = project(":npx-kt")
+        val spec = npx.extensions.getByType<JavaPluginExtension>().toolchain
+        npx.extensions.getByType<JavaToolchainService>()
+            .launcherFor(spec).get()
+            .metadata.installationPath.asFile.absolutePath
+    }
+
+    doFirst {
+        val jdkHome = jdkHomeProvider.get()
+        val installArgs = listOf("install", "devrig", "--install-script=${installScript.absolutePath}", "--jdk-home=$jdkHome")
+        if (isWin) {
+            // A .bat is not a process image — it needs the cmd interpreter (same shape as
+            // DevrigUserLauncher.invocation: `cmd.exe /d /c <script> …`).
+            executable = "cmd.exe"
+            args(listOf("/d", "/c", installScript.absolutePath) + installArgs)
+        } else {
+            executable = installScript.absolutePath
+            args(installArgs)
+        }
+        // DEVRIG_JAVA_HOME beats any JAVA_HOME the caller's shell exported, so the freshly staged
+        // dist always launches on the toolchain JDK (devrig requires it as its runtime) and pins
+        // exactly that JDK into the wrapper. Setting JAVA_HOME is not needed.
+        environment("DEVRIG_JAVA_HOME", jdkHome)
+    }
+    // `devrig install devrig` is contractually non-interactive (see runInstallDevrigCommand):
+    // hand it an already-EOF stdin, mirroring install.sh's `< /dev/null` and install.ps1's `$null |`.
+    standardInput = java.io.InputStream.nullInputStream()
+
+    doLast {
+        // The Exec already failed on a non-zero exit; this asserts the observable outcome too —
+        // a PRE-EXISTING stale launcher would pass a bare exists() check, so require that the
+        // launcher's content actually hands off to the install tree this task just staged.
+        val launcher = File(userHome, ".mcp-steroid/bin/" + (if (isWin) "devrig.cmd" else "devrig"))
+        require(launcher.isFile) {
+            "deployDevrig: 'devrig install devrig' exited 0 but the launcher $launcher does not exist"
+        }
+        require(launcher.readText().contains(installScript.absolutePath)) {
+            "deployDevrig: $launcher does not point at the freshly staged $installScript — " +
+                "it was not regenerated (a DEVRIG_BIN_NO_AUTO_REGISTER opt-out, or a launcher guard kept it)"
+        }
+        println("deployDevrig: ~/.mcp-steroid/devrig/ refreshed and $launcher regenerated")
+        println("deployDevrig: verify with '~/.mcp-steroid/bin/devrig version'")
+    }
+}
+
+// Backwards-compatible alias — this task was called deployNpx before devrig got its name.
+tasks.register("deployNpx") {
+    description = "Deprecated alias for deployDevrig."
+    group = "deployment"
+    dependsOn(deployDevrig)
 }

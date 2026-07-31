@@ -25,8 +25,11 @@ class ListWindowsToolHandlerIJ : ListWindowsToolHandler {
         val snapshot = service<IdeWindowsCollector>().collect()
         val self = describeSelfBackend()
         return ListWindowsResponse(
+            // windows[]/backgroundTasks[] keep their produced order (#155 sorts list_projects only).
             windows = snapshot.windows.map { it.listed(it.projectName, self.backendName) },
             backgroundTasks = snapshot.backgroundTasks.map { it.listed(it.projectName, self.backendName) },
+            // Unconditional self entry — the identity probe works even with zero open windows (#155).
+            backends = backendsTable(listOf(self.selfBackendRef())),
         )
     }
 }
@@ -136,7 +139,13 @@ class IdeWindowsCollector {
                         WindowInfo(
                             projectName = null,
                             projectPath = null,
-                            title = (window as? Frame)?.title,
+                            // Dialogs are the common case in this fallback branch — a Frame-only cast
+                            // left every dialog with title=null, making them untargetable (issue #309).
+                            title = when (window) {
+                                is Frame -> window.title
+                                is java.awt.Dialog -> window.title
+                                else -> null
+                            },
                             isActive = window.isActive,
                             isVisible = window.isVisible,
                             bounds = WindowBounds(bounds.x, bounds.y, bounds.width, bounds.height),

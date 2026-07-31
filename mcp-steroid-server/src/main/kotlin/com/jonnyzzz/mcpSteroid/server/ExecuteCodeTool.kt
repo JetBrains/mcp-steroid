@@ -4,6 +4,10 @@ import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
 import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.mcp.cliMinimum
+import com.jonnyzzz.mcpSteroid.mcp.cliMissingHint
+import com.jonnyzzz.mcpSteroid.mcp.cliOptional
+import com.jonnyzzz.mcpSteroid.mcp.cliSynopsis
 import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.enumString
 import com.jonnyzzz.mcpSteroid.mcp.get
@@ -14,6 +18,7 @@ import com.jonnyzzz.mcpSteroid.mcp.string
 import com.jonnyzzz.mcpSteroid.mcp.withDefaultValue
 import com.jonnyzzz.mcpSteroid.prompts.Generic
 import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
+import com.jonnyzzz.mcpSteroid.prompts.generated.skill.CodingWithIntelliJContextApiPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.skill.ExecuteCodeToolDescriptionPromptArticle
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -78,24 +83,53 @@ data class ExecCodeParams(
 class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBase() {
     override val name = "steroid_execute_code"
     override val description get() = ExecuteCodeToolDescriptionPromptArticle().readPayload(PromptsContext.Generic)
+    override val cliSynopsis = "run a Kotlin script in the target IDE"
 
     val projectName = CommonToolParams.projectName().registerToSchema()
 
+    // MCP callers must send code directly. The CLI also accepts it as a file (or stdin) via the
+    // declared --code-file source, so it remains MCP-required while the CLI projection treats it as
+    // optional.
     val code = InputSchemaElement.param("code")
-        .description("Kotlin suspend method body")
+        .description(
+            "Kotlin code. The response carries an execution_id header plus ONLY what the script " +
+                "explicitly prints (failed runs add error details) — print everything you need " +
+                "to see (println/printJson/printCsv/printToon); e.g. end with " +
+                "`printJson(results)`, never a bare `results` (a print-less run still succeeds, " +
+                "returning only a HINT line). Not a REPL: the code becomes the " +
+                "body of a " +
+                "`suspend McpScriptContext.() -> Unit` function, the last expression's value is " +
+                "ignored, and `return <value>` does not compile. Read about the McpScriptContext " +
+                "receiver (built-in helpers, print methods, file access, read/write actions) in " +
+                "${CodingWithIntelliJContextApiPromptArticle().uri} — fetch it with " +
+                "steroid_fetch_resource."
+        )
+        .cliSynopsis("Kotlin script body to run (omit when using --code-file)")
+        .cliMissingHint(
+            "missing code. Pass --code-file=<path> (preferred) or --code=\"...\". Example:\n" +
+                "  devrig execute_code --project_name=\"<key>\" --code-file=repro.kts --task_id=t1 --reason=\"reproduce issue\""
+        )
         .string()
         .required()
+        .cliOptional()
+        .cliCodeFileSource()
         .registerToSchema()
 
-    val taskId = CommonToolParams.taskId().registerToSchema()
+    val taskId = CommonToolParams.taskId()
+        .cliMissingHint("missing --task_id. Any string works; reuse it across related calls.")
+        .registerToSchema()
 
-    val reason = CommonToolParams.reason().registerToSchema()
+    val reason = CommonToolParams.reason()
+        .cliMissingHint("missing --reason. Describe your intent and expected outcome for the audit log.")
+        .registerToSchema()
 
     private val defaultTimeoutSeconds = 600
     val timeout = InputSchemaElement.param("timeout")
         .description("Timeout in seconds for your script BODY (default: $defaultTimeoutSeconds, configurable via mcp.steroid.execution.timeout registry key). The smart_non_modal pre-flight commit and smart-mode waits have their own internal deadlock-safety bounds and are not governed by this value.")
+        .cliSynopsis("seconds to allow the script body to run (default 600)")
         .int()
         .withDefaultValue(defaultTimeoutSeconds)
+        .cliMinimum(1.0)
         .registerToSchema()
 
     val modal = InputSchemaElement.param("modal")
@@ -118,6 +152,7 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
                 "dialogs included; for intentional modal-dialog workflows (open/inspect/close a dialog " +
                 "yourself) or trivial / hardcoded IDE actions ONLY, never for PSI/editing."
         )
+        .cliSynopsis("modal-dialog policy for running the script")
         .enumString(ModalMode.entries.associateBy { it.wire })
         .withDefaultValue(ModalMode.SMART_NON_MODAL)
         .registerToSchema()

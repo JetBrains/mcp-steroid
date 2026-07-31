@@ -55,10 +55,20 @@ class InstallerGeneratorTest {
 
     @Test
     fun `validateScriptTable rejects a non-hex sha256 and an absolute javaHome`() {
-        val badSha = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "ZZZ", "zip", "h") }.toTypedArray())
+        val badSha = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "ZZZ", "zip", "h", "25.0.3") }.toTypedArray())
         assertFailsWith<IllegalArgumentException> { validateScriptTable(badSha) }
-        val absHome = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "a".repeat(64), "zip", "/abs") }.toTypedArray())
+        val absHome = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "a".repeat(64), "zip", "/abs", "25.0.3") }.toTypedArray())
         assertFailsWith<IllegalArgumentException> { validateScriptTable(absHome) }
+    }
+
+    @Test
+    fun `validateScriptTable rejects a blank or path-unsafe jdk version`() {
+        // The version becomes a path segment of the install dir (jdk-<key>-<version>-<sha12>) — a blank
+        // value or one carrying a path separator would corrupt the folder layout.
+        for (bad in listOf("", "25.0.3/evil", "25 0 3")) {
+            val table = mapOf(*ALL_PLATFORMS.map { it to JdkScriptEntry("https://x", "a".repeat(64), "zip", "h", bad) }.toTypedArray())
+            assertFailsWith<IllegalArgumentException>("version '$bad' must be rejected") { validateScriptTable(table) }
+        }
     }
 
     // ── render pipeline: scripts bake the table + carry the musl guard, no leftover placeholders ─
@@ -82,6 +92,10 @@ class InstallerGeneratorTest {
         listOf("macos-arm64)", "linux-arm64)", "linux-x64)").forEach {
             assertTrue(scripts.sh.contains(it), "install.sh missing arm $it")
         }
+        // The JDK's own (vendor-native) version is baked per platform — the install dir is named by it,
+        // not by the devrig VERSION (jonnyzzz/mcp-steroid#362).
+        assertTrue(scripts.sh.contains("jdk_version='25.0.3.9.1'"), "install.sh missing baked jdk_version")
+        assertTrue(scripts.ps.contains("JdkVersion = '25.0.3.9.1'"), "install.ps1 missing baked JdkVersion")
         assertTrue(scripts.sh.contains("musl libc (Alpine) is not supported"), "install.sh missing musl guard")
         assertTrue(scripts.sh.contains("DEVRIG_BINSUB='devrig-1.0-abc1234/bin/devrig'"), "install.sh missing computed binsub")
         assertTrue(scripts.sh.contains("install devrig --install-script="), "install.sh must delegate to 'devrig install devrig'")
@@ -98,6 +112,106 @@ class InstallerGeneratorTest {
         assertTrue(
             scripts.ps.contains("\$ProgressPreference = 'SilentlyContinue'"),
             "install.ps1 must silence \$ProgressPreference so Invoke-WebRequest + Expand-Archive stay fast",
+        )
+    }
+
+    @Test
+    fun `scripts leave the next-steps guidance to devrig and never recommend bare devrig install`() {
+        // jonnyzzz/mcp-steroid#398: `devrig install devrig` itself prints the next-steps guidance
+        // (one agent-qualified command per agent WITH CLI detection, plus `devrig install config`), so
+        // the scripts must not print a second, drifting copy of that block — the first-run terminal
+        // shows exactly one next-steps block, devrig's own.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        listOf(scripts.sh to "install.sh", scripts.ps to "install.ps1").forEach { (script, name) ->
+            assertTrue(
+                !script.contains("To register devrig with your agent"),
+                "$name must not duplicate devrig's own next-steps guidance",
+            )
+            // jonnyzzz/mcp-steroid#320 regression: `devrig install` has a required <agent> argument, so
+            // a bare `devrig install` recommendation (right before a closing quote) errored on every
+            // fresh install — the scripts must never suggest it.
+            assertTrue(!script.contains("devrig install\""), "$name must not recommend bare 'devrig install'")
+        }
+    }
+
+    @Test
+    fun `the devrig handoff sends the launcher and jdk flags by design and runs under DEVRIG_JAVA_HOME`() {
+        // jonnyzzz/mcp-steroid#398: the scripts SEND --install-script/--jdk-home by design — a forward
+        // contract a future devrig may use; today's devrig parses and ignores them, deriving both from
+        // its own running process. The one invocation runs under the bundled JDK via DEVRIG_JAVA_HOME —
+        // devrig's own variable, honored by the dist launcher; setting JAVA_HOME is not needed.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        listOf(scripts.sh to "install.sh", scripts.ps to "install.ps1").forEach { (script, name) ->
+            assertTrue(script.contains("--install-script="), "$name must send --install-script")
+            assertTrue(script.contains("--jdk-home="), "$name must send --jdk-home")
+        }
+        assertTrue(
+            scripts.sh.contains("DEVRIG_JAVA_HOME=\"\$jdk_home\" \"\$launcher\" install devrig"),
+            "install.sh must scope DEVRIG_JAVA_HOME to the handoff invocation",
+        )
+        // Anchored: a plain-substring check would trip over DEVRIG_JAVA_HOME= containing JAVA_HOME=.
+        assertTrue(
+            !scripts.sh.contains(Regex("(?<![A-Z_])JAVA_HOME=")),
+            "install.sh sets DEVRIG_JAVA_HOME for the handoff — setting JAVA_HOME is not needed",
+        )
+        assertTrue(scripts.ps.contains("\$env:DEVRIG_JAVA_HOME = \$jdkHome"), "install.ps1 must set DEVRIG_JAVA_HOME for the handoff")
+        assertTrue(
+            scripts.ps.contains("\$env:DEVRIG_JAVA_HOME = \$SteroidPrevDevrigJavaHome"),
+            "install.ps1 runs in the caller's session and must restore DEVRIG_JAVA_HOME after the handoff",
+        )
+        assertTrue(!scripts.ps.contains("\$env:JAVA_HOME"), "install.ps1 sets DEVRIG_JAVA_HOME for the handoff — setting JAVA_HOME is not needed")
+    }
+
+    @Test
+    fun `install_ps1 prepends BinDir to the current session PATH after the devrig handoff`() {
+        // jonnyzzz/mcp-steroid#275: `devrig install devrig` registers the bin dir persistently
+        // (HKCU\Environment), which only reaches NEW shells — but `irm | iex` runs in the caller's
+        // session and the script tells the user to run `devrig install <agent>` immediately. The
+        // template must make devrig resolvable in the calling session itself.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+        assertTrue(
+            scripts.ps.contains("\$env:PATH = \"\$BinDir;\$env:PATH\""),
+            "install.ps1 must prepend \$BinDir to the current session \$env:PATH",
+        )
+    }
+
+    @Test
+    fun `install dirs are named by each artifact's own version - jdk folder carries the JDK version`() {
+        // jonnyzzz/mcp-steroid#362: the JDK used to unpack into jdk-<key>-<DEVRIG VERSION>-<sha12>. Both
+        // scripts must thread a per-artifact version into the install-dir name: $VERSION for devrig, the
+        // baked vendor-native JDK version for the JDK.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        // install.sh: the target dir uses the helper's per-artifact version argument, never $VERSION.
+        assertTrue(
+            scripts.sh.contains("ia_target=\"\$BINARIES_DIR/\${ia_kind}-\${key}-\${ia_version}-\${ia_sha12}\""),
+            "install.sh must name the install dir by the per-artifact ia_version",
+        )
+        assertTrue(!scripts.sh.contains("\${ia_kind}-\${key}-\${VERSION}"), "install.sh must not name install dirs by the devrig VERSION")
+        assertTrue(
+            scripts.sh.contains("install_artifact jdk \"\$jdk_url\" \"\$jdk_sha256\" \"\$jdk_format\" \"\$jdk_version\""),
+            "install.sh must pass the baked jdk_version to install_artifact",
+        )
+        assertTrue(
+            scripts.sh.contains("install_artifact devrig \"\$DEVRIG_URL\" \"\$DEVRIG_SHA256\" \"\$DEVRIG_FORMAT\" \"\$VERSION\""),
+            "install.sh must pass the devrig VERSION to install_artifact",
+        )
+
+        // install.ps1: same split — $Version for devrig, $p.JdkVersion for the JDK.
+        assertTrue(
+            scripts.ps.contains("\$name   = \"\$kind-\$key-\$ver-\$sha12\""),
+            "install.ps1 must name the install dir by the per-artifact \$ver parameter",
+        )
+        assertTrue(!scripts.ps.contains("\"\$kind-\$key-\$Version-\$sha12\""), "install.ps1 must not name install dirs by the devrig \$Version")
+        assertTrue(
+            scripts.ps.contains("Install-Artifact 'jdk'    \$p.JdkUrl  \$p.JdkSha256  \$p.JdkFormat \$p.JdkVersion"),
+            "install.ps1 must pass the baked JdkVersion to Install-Artifact",
+        )
+        assertTrue(
+            scripts.ps.contains("Install-Artifact 'devrig' \$DevrigUrl \$DevrigSha256 \$DevrigFormat \$Version"),
+            "install.ps1 must pass the devrig \$Version to Install-Artifact",
         )
     }
 
@@ -321,6 +435,27 @@ class InstallerGeneratorTest {
             }, version = "0.101")
         }
         assertTrue(ex.message!!.contains("does not match repo VERSION '0.101'"), ex.message!!)
+    }
+
+    @Test
+    fun `resolveDevrig accepts the 0-102-plus release top-dir shape`(@TempDir dir: Path) {
+        val zip = dir.resolve("devrig.zip")
+        // 0.102+ release zips use the uniform lane layout: devrig-<version>.0-r-<hash> (#360)
+        ZipOutputStream(Files.newOutputStream(zip)).use { z ->
+            z.putNextEntry(ZipEntry("devrig-0.102.0-r-abc1234/bin/devrig")); z.write("#!/bin/sh".encodeToByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("devrig-0.102.0-r-abc1234/bin/devrig.bat")); z.write("@echo off".encodeToByteArray()); z.closeEntry()
+        }
+        val flags = mapOf("devrig-zip" to listOf(zip.toString()), "devrig-url" to listOf("https://example.com/devrig-0.102.0-r-abc1234.zip"))
+        val http = object : HttpFetcher {
+            override fun head(url: String) = error("no network")
+            override fun getBytes(url: String) = error("no network")
+        }
+        val devrig = resolveDevrig(flags, http, version = "0.102")
+        assertEquals("devrig-0.102.0-r-abc1234/bin/devrig", devrig.launcherPosix)
+
+        // a differing base still fails fast — and "0.10" must not prefix-match "0.102"
+        val ex = assertFailsWith<IllegalArgumentException> { resolveDevrig(flags, http, version = "0.10") }
+        assertTrue(ex.message!!.contains("does not match repo VERSION '0.10'"), ex.message!!)
     }
 
     @Test

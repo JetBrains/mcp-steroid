@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -103,6 +104,51 @@ class DevrigCommandTest {
     @Test
     fun `removed home flag is not a command`() {
         assertIs<DevrigCommand.DevrigCommandParseError>(command("--home", "/tmp/devrig-home"))
+    }
+
+    @Test
+    fun `bare install selects the overview listing - flags still require a target`() {
+        // jonnyzzz/mcp-steroid#277: the bootstrap installers historically recommended a bare
+        // `devrig install`, so it must guide (list targets + detected CLIs), not error.
+        assertIs<DevrigCommand.DevrigCommandInstallOverview>(command("install"))
+        val overview = assertIs<DevrigCommand.DevrigCommandInstallOverview>(command("--debug", "install", "--json"))
+        assertTrue(overview.debug)
+        assertTrue(overview.json)
+        // Target-specific flags without a target stay an error, not a silent overview.
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "--check"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "--install-script=/x"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "--jdk-home=/x"))
+    }
+
+    @Test
+    fun `install devrig parses to the same flag-less command with or without the install-script flags`() {
+        // ONE behavior, same result on every call (issue #398): the command carries no parameters.
+        val bare = assertIs<DevrigCommand.DevrigCommandInstallDevrig>(command("install", "devrig"))
+        // The --install-script / --jdk-home flags the install scripts send (a forward contract, kept
+        // by design for a future devrig) are accepted and IGNORED — every spelling, including blank
+        // values, parses to the identical command; registration always derives the install tree + JDK
+        // from the running binary.
+        for (legacy in listOf(
+            command("install", "devrig", "--install-script=/opt/devrig/bin/devrig", "--jdk-home=/opt/jdk"),
+            command("install", "devrig", "--install-script=/opt/devrig/bin/devrig"),
+            command("install", "devrig", "--jdk-home=/opt/jdk"),
+            command("install", "devrig", "--install-script="),
+            command("install", "devrig", "--install-script=", "--jdk-home=/opt/jdk"),
+        )) {
+            assertEquals(bare, assertIs<DevrigCommand.DevrigCommandInstallDevrig>(legacy))
+        }
+    }
+
+    @Test
+    fun `install config selects the manual-config printer and rejects target-specific flags`() {
+        assertIs<DevrigCommand.DevrigCommandInstallConfig>(command("install", "config"))
+        val config = assertIs<DevrigCommand.DevrigCommandInstallConfig>(command("--debug", "install", "config", "--json"))
+        assertTrue(config.debug)
+        assertTrue(config.json)
+        // 'install config' is informational — the agent/devrig flags make no sense here.
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "config", "--check"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "config", "--install-script=/x"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "config", "--jdk-home=/x"))
     }
 
     @Test

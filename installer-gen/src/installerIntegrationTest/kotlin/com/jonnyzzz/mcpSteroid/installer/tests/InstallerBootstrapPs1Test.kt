@@ -40,6 +40,7 @@ import java.util.concurrent.TimeUnit
  */
 class InstallerBootstrapPs1Test {
     private val version = INSTALLER_TEST_VERSION
+    private val jdkVersion = INSTALLER_TEST_JDK_VERSION
 
     // Official Microsoft pwsh-on-Ubuntu image, pinned to the LTS 7.4 line on Ubuntu 22.04 (`lts-*`
     // tags carry the PS LTS version; the plain `ubuntu-<os>` tags float). glibc-based, so the same
@@ -74,8 +75,8 @@ class InstallerBootstrapPs1Test {
         //       javaHome="jdk" pointing at the top dir of the fixture zip. Non-Windows entries are
         //       required by validateScriptTable (all 5 platforms) but the ps1 script only reads its own
         //       $Platforms hashtable, which contains only windows-x64 + windows-arm64. ──
-        val jdkEntryWin = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "zip", "jdk")
-        val jdkEntryPosix = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "tar.gz", "jdk")
+        val jdkEntryWin = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "zip", "jdk", jdkVersion)
+        val jdkEntryPosix = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "tar.gz", "jdk", jdkVersion)
         val table = ALL_PLATFORMS.associateWith { key ->
             if (key.startsWith("windows-")) jdkEntryWin else jdkEntryPosix
         }
@@ -106,7 +107,8 @@ class InstallerBootstrapPs1Test {
         verifyMockServes(install, nginxIp, "/jdk.zip")
 
         val devrigKey = "devrig-windows-x64-$version-${devrigSha.take(12)}"
-        val jdkKey = "jdk-windows-x64-$version-${jdkSha.take(12)}"
+        // The JDK dir is named by the JDK's own version, NOT the devrig version (#362).
+        val jdkKey = "jdk-windows-x64-$jdkVersion-${jdkSha.take(12)}"
         // install.ps1 uses Join-Path everywhere; on pwsh-Linux that returns forward-slash paths.
         val expectedLauncher = "$homeDir/.mcp-steroid/binaries/$devrigKey/devrig-$version/bin/devrig.bat"
         val expectedJdkHome = "$homeDir/.mcp-steroid/binaries/$jdkKey/jdk"
@@ -129,10 +131,12 @@ class InstallerBootstrapPs1Test {
         val run1 = runInstall(install, env)
             .assertExitCode(0) { "install.ps1 run #1 failed:\n$this" }
             .assertOutputContains("downloading devrig", "downloading jdk", message = "run #1 (clean HOME) must download both")
-            // The pwsh script ran the UNPACKED devrig launcher with the computed path + bundled JDK.
+            // The pwsh script ran the UNPACKED devrig launcher with the computed launcher + JDK flags
+            // (sent by design — today's devrig ignores them, #398) under the bundled JDK via DEVRIG_JAVA_HOME.
             .assertOutputContains(
                 "DEVRIG_INSTALL_DEVRIG", "--install-script=$expectedLauncher", "--jdk-home=$expectedJdkHome",
-                message = "install.ps1 must delegate to 'devrig install devrig' with the computed launcher + jdk-home",
+                "jdk=$expectedJdkHome",
+                message = "install.ps1 must delegate to 'devrig install devrig' with the computed flags, under the bundled JDK",
             )
             .assertOutputContains("devrig binary is ready", "devrig install", message = "must report ready + how to register with agents")
         // NEVER auto-register with an agent (would edit agent configs — that is an explicit user step).
@@ -179,8 +183,8 @@ class InstallerBootstrapPs1Test {
             )
             val nginxIp = nginx.queryContainerIp() ?: error("nginx side-car has no bridge IP")
 
-            val jdkEntryWin = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "zip", "jdk")
-            val jdkEntryPosix = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "tar.gz", "jdk")
+            val jdkEntryWin = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "zip", "jdk", jdkVersion)
+            val jdkEntryPosix = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "tar.gz", "jdk", jdkVersion)
             val table = ALL_PLATFORMS.associateWith { key -> if (key.startsWith("windows-")) jdkEntryWin else jdkEntryPosix }
             val devrig = DevrigEntry(
                 url = "http://$nginxIp/devrig.zip", sha256 = devrigSha,
@@ -244,8 +248,8 @@ class InstallerBootstrapPs1Test {
             )
             val nginxIp = nginx.queryContainerIp() ?: error("nginx side-car has no bridge IP")
 
-            val jdkEntryWin = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "zip", "jdk")
-            val jdkEntryPosix = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "tar.gz", "jdk")
+            val jdkEntryWin = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "zip", "jdk", jdkVersion)
+            val jdkEntryPosix = JdkScriptEntry("http://$nginxIp/jdk.zip", jdkSha, "tar.gz", "jdk", jdkVersion)
             val table = ALL_PLATFORMS.associateWith { key -> if (key.startsWith("windows-")) jdkEntryWin else jdkEntryPosix }
             val devrig = DevrigEntry(
                 url = "http://$nginxIp/devrig.zip", sha256 = devrigSha,
@@ -334,7 +338,7 @@ class InstallerBootstrapPs1Test {
         val script = buildString {
             append("#!/bin/sh\n")
             append("if [ \"\$1\" = \"install\" ] && [ \"\$2\" = \"devrig\" ]; then\n")
-            append("  echo \"DEVRIG_INSTALL_DEVRIG \$*\"\n")
+            append("  echo \"DEVRIG_INSTALL_DEVRIG \$* jdk=\${DEVRIG_JAVA_HOME:-}\"\n")
             append("  exit 0\n")
             append("fi\n")
             append("case \"\$1\" in\n")

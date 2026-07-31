@@ -134,43 +134,58 @@ class ScriptExecutor(
         // Pre-flight per `modal` profile. Each profile is sugar over the context APIs
         // (closeModalDialogs / syncDocuments / waitForSmartMode / monitorAndCloseModalDialogs),
         // which a script in any mode can also call on demand.
+        //
+        // Stage progress ([PRE]/[RUN]/[POST]) goes to the IDE log ONLY, never into the tool result
+        // (#154): the result carries just the execution_id header plus the script's own output, so a
+        // script that prints a single JSON document stays machine-parseable after stripping the
+        // execution_id line. The same holds for ALL in-flight progress (indexing waits, compile
+        // waits, multi-block progress): ExecutionManager.logProgress delivers it via MCP progress
+        // notifications + idea.log + event storage, never the result content. A failing step
+        // propagates its own error untouched; the per-step [PRE] lines in idea.log localize a stall.
         when (exec.modal) {
             ModalMode.SMART_NON_MODAL -> {
-                resultBuilder.logMessage("[PRE] close modal dialogs")
+                log.info("[$executionId] [PRE] close modal dialogs (modal=${exec.modal.wire})")
                 context.closeModalDialogs()
+                log.info("[$executionId] [PRE] require non-modal (modal=${exec.modal.wire})")
                 requireNonModalOrFail(executionId, exec.modal)
-                resultBuilder.logMessage("[PRE] sync documents")
+                log.info("[$executionId] [PRE] sync documents (modal=${exec.modal.wire})")
                 context.syncDocuments()
-                resultBuilder.logMessage("[PRE] wait for smart mode")
+                log.info("[$executionId] [PRE] wait for smart mode (modal=${exec.modal.wire})")
                 context.waitForSmartMode()
-                resultBuilder.logMessage("[PRE] start modal-dialog monitor")
+                log.info("[$executionId] [PRE] start modal-dialog monitor (modal=${exec.modal.wire})")
                 context.monitorAndCloseModalDialogs()
             }
 
             ModalMode.NON_MODAL -> {
-                resultBuilder.logMessage("[PRE] require non-modal")
+                log.info("[$executionId] [PRE] require non-modal (modal=${exec.modal.wire})")
                 requireNonModalOrFail(executionId, exec.modal)
             }
 
             ModalMode.UNLEASHED -> {
-                resultBuilder.logMessage("[PRE] unleashed — no modality checks")
+                log.info("[$executionId] [PRE] unleashed — no modality checks")
             }
         }
 
         monitorExceptions(context, executionDisposable)
 
-        resultBuilder.logMessage("[RUN] script")
+        log.info("[$executionId] [RUN] script (modal=${exec.modal.wire}, timeout=${exec.timeout}s)")
         executeCodeBlocks(exec, context, evalResult, executionId, resultBuilder)
 
         // Post-flight: re-sync to disk only for `smart_non_modal`, whose profile owns the document-
         // consistency contract. `non_modal` is intentionally start-gate-only and `unleashed` does nothing —
         // neither re-syncs (a fresh isModalEdt() read, since the body may have changed modality).
         if (exec.modal == ModalMode.SMART_NON_MODAL && !isModalEdt()) {
-            resultBuilder.logMessage("[POST] sync documents")
+            log.info("[$executionId] [POST] sync documents (modal=${exec.modal.wire})")
             try {
                 context.syncDocuments()
             } catch (e: ToolCallErrorException) {
-                resultBuilder.logMessage("[POST] sync skipped: ${e.message}")
+                // Non-fatal by design — the script itself succeeded. But this is an anomaly the agent
+                // must see (its edits may not have reached disk), not progress framing, so it stays in
+                // the result as an explicit warning that names the step and profile.
+                log.warn("[$executionId] [POST] sync documents skipped: ${e.message}")
+                resultBuilder.logMessage(
+                    "WARNING: post-flight 'sync documents' (modal=${exec.modal.wire}) was skipped: ${e.message}"
+                )
             }
         }
     }
@@ -251,7 +266,12 @@ class ScriptExecutor(
             // Timeout - report as error (must be caught before CancellationException since it's a subclass)
             log.warn("Execution $executionId timed out: ${e.message}")
             resultBuilder.logRemappedException("Execution timed out", e, evalResult.lineMapping)
-            resultBuilder.reportFailed("Execution timed out after ${exec.timeout} seconds")
+            // Name the phase explicitly: with the [RUN] framing gone from the result (#154), the
+            // error itself must say the timeout hit the script body after pre-flight completed.
+            resultBuilder.reportFailed(
+                "Execution timed out after ${exec.timeout} seconds while running the script body " +
+                    "(modal=${exec.modal.wire}; pre-flight completed)"
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProcessCanceledException) {

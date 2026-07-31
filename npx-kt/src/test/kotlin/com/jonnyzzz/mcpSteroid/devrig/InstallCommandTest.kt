@@ -10,6 +10,7 @@ import java.io.PrintStream
 import java.nio.file.Path
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
@@ -379,6 +380,83 @@ class InstallCommandTest {
         val stdout: String,
         val stderr: String,
     )
+
+    // jonnyzzz/mcp-steroid#342: a missing agent CLI (ProcessAiAgentCliRunner wraps the spawn
+    // IOException into AgentCliNotLaunchableException) must produce guidance, never a raw
+    // stacktrace — while OTHER IOExceptions (temp files, output reads) keep propagating.
+    private val missingCliRunner = AiAgentCliRunner {
+        throw com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException(
+            "claude",
+            java.io.IOException("Cannot run program \"claude\": error=2, No such file or directory"),
+        )
+    }
+
+    @Test
+    fun `an infrastructure IOException is NOT masked as a missing CLI`() {
+        val runner = AiAgentCliRunner { throw java.io.IOException("temp file creation failed") }
+        val stdout = ByteArrayOutputStream()
+        val stderr = ByteArrayOutputStream()
+        val thrown = try {
+            runInstallCommand(
+                command = DevrigCommand.DevrigCommandInstall(AiAgentCli.CLAUDE),
+                mcpCommand = mcpCommand,
+                out = PrintStream(stdout, true, Charsets.UTF_8),
+                err = PrintStream(stderr, true, Charsets.UTF_8),
+                runner = runner,
+            )
+            null
+        } catch (e: java.io.IOException) {
+            e
+        }
+        assertTrue(thrown != null, "a plain IOException must propagate, not become 'install the CLI'")
+        assertFalse(stderr.toString(Charsets.UTF_8).contains("installed and on PATH"))
+    }
+
+    @Test
+    fun `install and check propagate the typed missing-CLI exception to runCli's central handler`() {
+        // The friendly translation lives in runCli (PR #397 review: one handler up the stack, the
+        // ManagedBackend*Exception pattern) — the pure command functions must PROPAGATE the typed
+        // exception untouched, never swallow it.
+        val stdout = ByteArrayOutputStream()
+        val stderr = ByteArrayOutputStream()
+        assertFailsWith<com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException> {
+            runInstallCommand(
+                command = DevrigCommand.DevrigCommandInstall(AiAgentCli.CLAUDE),
+                mcpCommand = mcpCommand,
+                out = PrintStream(stdout, true, Charsets.UTF_8),
+                err = PrintStream(stderr, true, Charsets.UTF_8),
+                runner = missingCliRunner,
+            )
+        }
+        assertFailsWith<com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException> {
+            runInstallCheckCommand(
+                command = DevrigCommand.DevrigCommandInstall(AiAgentCli.CLAUDE, check = true),
+                mcpCommand = mcpCommand,
+                out = PrintStream(stdout, true, Charsets.UTF_8),
+                err = PrintStream(stderr, true, Charsets.UTF_8),
+                runner = missingCliRunner,
+                ideReachability = { IdeReachabilityReport(reachable = 0, discovered = 0) },
+            )
+        }
+    }
+
+    @Test
+    fun `reportAgentCliNotLaunchable prints guidance - not a stacktrace - and exits 64`() {
+        val stderr = ByteArrayOutputStream()
+        val exitCode = reportAgentCliNotLaunchable(
+            com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException(
+                "claude",
+                java.io.IOException("Cannot run program \"claude\": error=2, No such file or directory"),
+            ),
+            PrintStream(stderr, true, Charsets.UTF_8),
+        )
+        assertEquals(64, exitCode)
+        val err = stderr.toString(Charsets.UTF_8)
+        assertContains(err, "could not run the 'claude' CLI")
+        assertContains(err, "Is the Claude CLI installed and on PATH?")
+        assertContains(err, "re-run 'devrig install claude'")
+        assertFalse(err.contains("\tat "), "stacktrace leaked to stderr:\n$err")
+    }
 
     private fun runInstall(agent: AiAgentCli, runner: RecordingRunner): InstallRunResult {
         val stdout = ByteArrayOutputStream()

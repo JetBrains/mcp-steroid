@@ -1,5 +1,59 @@
 # TODO
 
+- [ ] **Tool/resource counts drift across surfaces** (found during the 2026-07-31 plugin-description
+  rewrite review). The MCP tool surface is **8** (`docs/PHILOSOPHY.md` Tenet 1, canonical; confirmed
+  against live registrations), but root `CLAUDE.md` and `ij-plugin/CLAUDE.md` say "10 today", and
+  `README.md` still carries "### 8 MCP Tools" plus a stale "### 58 MCP Resources" heading with
+  per-category counts summing to 60 while there are 106 prompt articles. Reconcile the CLAUDE.md
+  numbers with PHILOSOPHY.md and de-count the README sections (headings without volatile numbers),
+  the way the Marketplace description now does.
+
+- [ ] **KtBlock matrix ignores the production kotlinc language/api pin (drift).**
+  `CodeEvalManager` compiles every `steroid_execute_code` script with the
+  `mcp.steroid.kotlinc.parameters` registry extras (`-language-version 2.3 -api-version 2.3` since
+  2026-07-31; was 2.2), but `KtBlockCompilationTestBase.compileAgainst` passes only
+  `-Werror`/`-jvm-target`/`-no-stdlib` — despite its "must match what KotlincCommandLineBuilder
+  produces" comment. A prompt fence using a language feature/stdlib API newer than the pin passes the
+  matrix yet fails at runtime. Fix: add the same LV/api flags to both the kotlinc invocation and the
+  `compilerOptions` cache-key list in `KtBlockCompilationTestBase`. NOTE: this invalidates the whole
+  KtBlock compile cache (60–120 min recompile) — land it right after a `kotlincVersion` bump (which
+  invalidates the cache anyway), never casually.
+
+- [ ] **steroid_input / take_screenshot #309 follow-ups** (the three core defects — modal-EDT hang,
+  window-relative click coordinates, wrong window_id echo — are fixed and guarded by
+  `SteroidInputDialogIntegrationTest`; remaining hardening surfaced by the 2026-07-30 review):
+  - [ ] Ghost-input hazard: an input step already parked on the EDT when its MCP request dies
+    (client disconnect / handler timeout) still fires later against whatever UI is current.
+    Consider a cancellation check inside each EDT step before dispatching.
+  - [ ] `steroid_take_screenshot` has no handler-level timeout either (P1's `withTimeout` was added
+    to `steroid_input` only); capture() uses `ModalityState.any()` so it does not hang under modals,
+    but a wedged EDT would still stall it — consider the same safety net.
+  - [ ] Update issue #309: causal theory (window_id → P1/P2) disproven; Breakpoints dialog is
+    non-modal (`setModal(false)`); tool docs could state coordinates are window-relative including
+    decorations, and that `screen:` targets exist.
+
+- [ ] **devrig auto-update — follow-ups** (core shipped per `docs/updates-check/devrig-auto-update.md`,
+  3×-quorum approved 2026-07-30; branch `auto-update-install-scripts`):
+  - [ ] `:test-integration` lane: drive the auto-update path end-to-end against the nginx-served
+    installer fixtures (real `install.sh`, real `devrig install devrig` verify + marker authority).
+  - [ ] Windows process-level coverage on a Windows runner: `superviseInstallerProcess` with
+    `powershell.exe -File`, atomic replacement of a RUNNING `devrig.cmd`, and the
+    sharing-violation → non-zero → quiet-retry degradation (retries are uncapped by design; quorum
+    nit; needs the per-OS GH matrix).
+  - [ ] Transitional ping-pong hint: when the launcher version keeps regressing tick-over-tick
+    (a pre-launcher agent registration pointing at an old tree), extend the restart notice with a
+    "re-run `devrig install <agent>`" hint.
+  - [ ] Weekly URL-liveness GH Action: also assert live version.json ↔ install-script VERSION
+    agreement (the release process now gates the website advance via
+    `release/scripts/verify-release-ready.sh` + Stage 9 agreement checks, but a scheduled
+    assertion would catch late CDN/publish drift too).
+  - [ ] Install-script transfer timeouts (`curl --max-time` / `Invoke-WebRequest -TimeoutSec`,
+    generous, e.g. 1 h): bounds the unsupervised-orphan window (design Tradeoff 5) with zero
+    protocol complexity; benefits manual installs too. Template change in `:installer-gen`.
+  - [ ] `binaries/` auto-GC (design Tradeoff 7): after an update lands, sweep `devrig-*` trees not
+    referenced by the current launcher (keep one previous) — auto-update makes disk accretion
+    automatic (~50–200 MB/release). The v7 deployment-spec auto-GC sketch is the model.
+
 - [ ] **Native MCP tools — implement per `docs/native-mcp-tools-design.md`** (spec landed first;
   research 3×-quorum validated + live-tested on IU-261.25134.95, 2026-07-22):
   - [ ] Scenario B (chosen first step): `IntelliJMcpServerProbe.listNativeTools()` (+ drop the
@@ -43,6 +97,28 @@
 - [ ] **list_windows graceful degradation**: devrig's `steroid_list_windows` is all-or-nothing — one
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
+
+- [ ] **devrig CLI must own `--out` and the `--wait` polling loop (#284)**: the schema-driven-command
+  reshape removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a
+  declared `CliExtraOption` on `steroid_open_project`, because neither is a tool input. The tool
+  metadata therefore no longer carries either behavior: the CLI frontend must document `--out` as a
+  framework flag beside `--json` (a render-path redirect writing a returned image to a path — note
+  `steroid_execute_code` also returns PNGs via `logImage`, e.g. the modal-dialog failure screenshot,
+  so it is not screenshot-only) and must implement `--wait` as a `list_windows` poll until the project
+  reports initialized. Without those two, both flags silently vanish from the CLI.
+
+- [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: three review findings deferred from
+  PR #356. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call
+  `register()` after registration and change the advertised `inputSchema`; expose a read-only view
+  (interface with `asMcpJson()`/`asCliParams()` only). (2) No declaration-time flag-collision
+  validation: a parameter flag, its `cliFileSource` flag, and a tool-level `CliExtraOption` flag can
+  collide — builder checks are order-dependent (`.cliFileSource("--x").cliFlag("--x")` passes) and a
+  bare `--` is accepted as a flag; validate per-tool flag/alias uniqueness at registration or pin it
+  with a `devrigToolSpecs()`-wide test. (3) Wire bounds declared via the `extra {}` closure
+  (`success_rating` 0..1) are invisible to `asCliParams()`, while `timeout` carries a CLI-only
+  `cliMinimum` — the generated CLI cannot enforce the wire bound without parsing `asMcpJson()`; also
+  `cliSynopsis` hardcodes "(default 600)" where the MCP description interpolates the constant, so the
+  two can silently diverge.
 
 - [ ] **red-code reporter false-positives on Kotlin files**: `reportProjectRedCode` (PSI reference scan,
   `mcp-steroid-import.kt`) reports Kotlin stdlib/operator references (`mutableMapOf`, `runCatching`,

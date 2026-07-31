@@ -13,7 +13,8 @@ import kotlinx.serialization.Serializable
  */
 class ListWindowsToolSpec(val handler: () -> ListWindowsToolHandler) : McpToolBase() {
     override val name = "steroid_list_windows"
-    override val description = "List open IDE windows and their background tasks, with per-window readiness (modal/indexing/initialized) and a `window_id` for screenshot/input targeting in multi-window setups. Each window and background-task entry references its project by `project_name` — the single routing key for the project-scoped tools; look up that project's human-readable `name` and `path` via steroid_list_projects by the key (they are not duplicated here). `project_name` is null for windows not tied to a project."
+    override val description = "List open IDE windows and their background tasks, with per-window readiness (modal/indexing/initialized) and a `window_id` for screenshot/input targeting in multi-window setups. Each window and background-task entry references its project by `project_name` — the single routing key for the project-scoped tools; look up that project's human-readable `name` and `path` via steroid_list_projects by the key (they are not duplicated here). `project_name` is null for windows not tied to a project. Resolve an entry's `backend_name` to the owning IDE's identity (`intellij` = `{name, version, build}`) via the `backends` lookup in the same response."
+    override val cliSynopsis = "list IDE windows, readiness, and background tasks"
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
         val response = handler().collectListWindowsResponse()
@@ -30,13 +31,24 @@ interface ListWindowsToolHandler {
 
 /**
  * MCP-only output of `steroid_list_windows` — never crosses the devrig<->IDE wire. There is no
- * top-level `ide`/`plugin`/`pid` header: the responding server's identity lives in the MCP server
- * info, and per-entry attribution happens via `backend_name` on each window/task entry.
+ * top-level `ide`/`plugin`/`pid` header (#89): the responding server's identity lives in the MCP
+ * server info, and per-entry attribution happens via `backend_name` on each window/task entry,
+ * resolvable to the owning IDE's identity through the `backends[]` table of the same response (#155).
  */
 @Serializable
 data class ListWindowsResponse(
     val windows: List<ListedWindow>,
     val backgroundTasks: List<ListedBackgroundTask>,
+    /**
+     * Resolution table for this response (#155), sorted by `backend_name`: every `backend_name`
+     * referenced by `windows[]` / `backgroundTasks[]` resolves to exactly one element. On a direct
+     * in-IDE connection it is the single self entry, ALWAYS present even with zero open windows (a
+     * server always describes itself — the identity probe). Via devrig it is derived from the same
+     * routing snapshot the entries come from — a route-owning backend can appear with zero entries in
+     * transient states (e.g. a project registered while its frame is still opening). Identity-only by
+     * design: growth belongs to `devrig backend --json` (#151), never here.
+     */
+    val backends: List<BackendRef> = emptyList(),
 )
 
 /**
@@ -50,9 +62,12 @@ data class ListedWindow(
      * tools (`steroid_execute_code`, `steroid_take_screenshot`, `steroid_input`, …). The SAME `project_name`
      * `steroid_list_projects` reports; look up the project's `name`/`path` there by this key. Null for
      * windows not tied to a project. Treat it as opaque.
+     *
+     * Serialized as snake_case `project_name`/`project_path` (#381) — one spelling of the routing key
+     * across `steroid_list_projects` and `steroid_list_windows`, matching the sibling `backend_name`.
      */
-    val projectName: String?,
-    val projectPath: String?,
+    @SerialName("project_name") val projectName: String?,
+    @SerialName("project_path") val projectPath: String?,
     val title: String?,
     val isActive: Boolean,
     val isVisible: Boolean,
@@ -105,9 +120,9 @@ data class ListedBackgroundTask(
     /**
      * The routing KEY of the project this task belongs to — the same opaque id `steroid_list_projects`
      * reports as `project_name` (look up the project's `name`/`path` there). Null if the task isn't tied
-     * to a known open project.
+     * to a known open project. Serialized as snake_case `project_name` (#381).
      */
-    val projectName: String?,
+    @SerialName("project_name") val projectName: String?,
     /** Owning backend's backend_name; null only when unknown. */
     @SerialName("backend_name") val backendName: String? = null,
 )

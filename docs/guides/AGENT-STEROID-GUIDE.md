@@ -44,8 +44,8 @@ entry names its owning backend via `backend_name`.
 **Response Fields (per window):**
 | Field | Description |
 |-------|-------------|
-| `projectName` | Project name (null if not a project window) |
-| `projectPath` | Project base path |
+| `project_name` | Project routing key — the same `project_name` as `steroid_list_projects` (null if not a project window) |
+| `project_path` | Project base path |
 | `windowId` | Unique window identifier for screenshot/input targeting |
 | `modalDialogShowing` | **True if any modal dialog is showing in IDE** |
 | `indexingInProgress` | **True if project is indexing (dumb mode)** |
@@ -61,7 +61,7 @@ entry names its owning backend via `backend_name`.
 | `text` | Current status text |
 | `fraction` | Progress 0.0-1.0 (null if indeterminate) |
 | `isIndeterminate` | True if no percentage available |
-| `projectName` | Associated project name |
+| `project_name` | Routing key of the associated project |
 | `backend_name` | The backend (IDE) this task runs in |
 
 Use the modality/indexing fields and `backgroundTasks` to poll for project readiness after `steroid_open_project`.
@@ -169,8 +169,14 @@ anyway it is logged and ignored.
 
 Every `projects[]`, `windows[]`, and `backgroundTasks[]` entry in the
 response carries a `backend_name` that identifies which IDE owns it.
-There is no separate top-level `backends[]` array. Backend *discovery*
-lives in `steroid_open_project`.
+Each response also carries a `backends[]` lookup table (#155) resolving
+every referenced `backend_name` to the owning IDE's identity —
+`{ "backend_name": …, "intellij": { "name", "version", "build" } }`
+(`intellij` = the IntelliJ-Platform IDE; a GoLand backend still nests
+under `intellij`). The table is identity-only and referenced-only — a
+direct in-IDE connection always lists exactly one element (itself, even
+with zero open projects). Backend *inventory and discovery* still live
+in `steroid_open_project` and `devrig backend --json`.
 
 To pick a `backend_name` for `open_project`:
 

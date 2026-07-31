@@ -99,9 +99,10 @@ Get services: `project.service<MyService>()` or `service<AppService>()`. Use `ch
   was driven by this rule being violated; A0's boundary catch-all
   (`McpHttpTransport.handlePost`, commit `3a4e7c13`) plus the A2b
   rethrows form the complete fix.
-- One exception: `ScriptExecutor.kt:150` deliberately catches
+- One exception: `ScriptExecutor.executeCodeBlocks` deliberately catches
   `TimeoutCancellationException` BEFORE the generic `CancellationException`
-  catch and calls `reportFailed("Execution timed out after $timeout seconds")`.
+  catch and calls `reportFailed("Execution timed out after $timeout seconds
+  while running the script body (modal=…; pre-flight completed)")`.
   TCE is a CE subclass; the script-timeout case is a domain error that
   needs to surface to the agent, not a control-flow signal to propagate.
 - Use `Logger.getInstance(MyClass::class.java)` for logging.
@@ -336,7 +337,14 @@ thread-dump+screenshot side effects, **skipped on an empty sweep**; does not fai
 cancels it for the rest of the run), `syncDocuments()` (commit+save+VFS; asserts non-modal), `waitForSmartMode()`
 (asserts non-modal; **bounded** by `WAIT_FOR_SMART_MODE_TIMEOUT`). All bounded EDT ops use
 `withTimeout → ToolCallErrorException` so a stuck modal fails fast with a thread dump instead of hanging.
-Stage markers (`[PRE]`/`[RUN]`/`[POST]`) localize a stall.
+Stage markers (`[PRE]`/`[RUN]`/`[POST]`) go to **idea.log only** — never into the tool result (#154: the
+result is the `execution_id:` header plus the script's own output, plus explicit WARNING/ERROR/HINT
+lines on anomalies, so a JSON-printing script stays machine-parseable after stripping that header).
+The same separation applies to ALL in-flight progress (`progress(...)`, indexing/compile waits,
+multi-block progress): `ExecutionManager.logProgress` delivers it via MCP progress notifications
+(when the client passed a `progressToken`) + idea.log + the execution event storage — never the
+result content. A failing pre-flight step propagates the context API's own error untouched;
+a stall is localized via the per-step `[PRE]` lines in idea.log.
 
 **Tests:** unit `ModalModeTest` (wire/default/parse) + `ExecutionManagerTest` profile-pipeline cases;
 integration `DialogKillerIntegrationTest` (Docker) — Step-1 opens a modal with `modal=unleashed` (no
@@ -444,7 +452,8 @@ which never crosses the wire. `ProjectsStreamService` only ever builds `ProjectI
 reversion changed zero emitted bytes.) A **wire-pristineness guard test** (`WirePristinenessTest`,
 `mcp-steroid-server`) asserts `NpxStreamEnvelope` (`/projects/stream`) and `NpxBridgeWindowsResponse`
 (`/windows`) never serialize the devrig-only `backend_name` / `project_name` / `ListedProject`
-keys (`BackendInfo` and `ListedBackendInfo` were deleted in the startable-backends release).
+keys, nor the #155 MCP-only `backends` / `intellij` identity keys (`BackendInfo` and
+`ListedBackendInfo` were deleted in the startable-backends release).
 
 **MCP-surface-only, never wire-crossing:**
 - `OpenProjectParams.backendName: String? = null` is **MCP-surface only** and is **NOT forwarded** to the
@@ -454,9 +463,14 @@ keys (`BackendInfo` and `ListedBackendInfo` were deleted in the startable-backen
 - `ListProjectsResponse` / `ListWindowsResponse` / `ListedProject` are devrig-computed MCP/CLI output types
   (built from devrig's routing snapshot, never fetched from the IDE) — devrig-owned and outside the wire
   contract. Note: `BackendInfo` and `ListedBackendInfo` were **deleted** in the startable-backends release;
-  `backends[]` was **removed** from both response types (they now carry only `projects` / `windows` +
-  `backgroundTasks`). The one-release additive-only waiver that permitted this is recorded in
-  `docs/PHILOSOPHY.md` Tenet 5 and `docs/startable-backends-design.md`.
+  `backends[]` was **removed** from both response types. The one-release additive-only waiver that
+  permitted this is recorded in `docs/PHILOSOPHY.md` Tenet 5 and `docs/startable-backends-design.md`.
+  **#155 re-introduced a deliberately slimmer, identity-only `backends[]`** on both response types:
+  `BackendRef{backend_name, intellij{name, version, build}}` (`IntelliJInfo` is a dedicated presentation
+  type — a projection of the marker `IdeInfo`, drift-gated by `BackendRefSerializationTest`, never
+  wire-crossing). Membership: referenced-only on devrig (derived from the routing snapshot); the direct
+  in-IDE surface always emits its single self entry, even with zero open projects. `projects[]` is sorted
+  by `project_name`, `backends[]` by `backend_name`; windows/tasks keep their produced order.
 
 **`PidMarker` fields added in the startable-backends release (additive, nullable):**
 - `PidMarker.ideHome: String? = null` — the IDE install home (`PathManager.getHomePath()`), written by

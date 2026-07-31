@@ -4,6 +4,8 @@ import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
 import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.mcp.cliMissingHint
+import com.jonnyzzz.mcpSteroid.mcp.cliSynopsis
 import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.get
 import com.jonnyzzz.mcpSteroid.mcp.param
@@ -42,6 +44,7 @@ class VisionInputToolSpec(val handler: () -> VisionInputToolHandler) : McpToolBa
         The input is delivered to the window identified by window_id (from steroid_list_windows) and the focus is forced to that window.
         Click coordinates with the screenshot target (e.g. @120,200) are interpreted relative to the window as reported by steroid_list_windows / steroid_take_screenshot.
     """.trimIndent()
+    override val cliSynopsis = "send keyboard/mouse input to the IDE"
 
     val projectName = CommonToolParams.projectName().registerToSchema()
 
@@ -51,10 +54,17 @@ class VisionInputToolSpec(val handler: () -> VisionInputToolHandler) : McpToolBa
 
     val windowId = CommonToolParams.windowId()
         .required()
+        .cliMissingHint("missing required --window_id (get it from `devrig list_windows`)")
         .registerToSchema()
 
     val sequence = InputSchemaElement.param("sequence")
         .description("Comma-separated input sequence (stick/press/type/click/delay)")
+        .cliSynopsis("comma-separated input steps (stick/press/type/click/delay)")
+        .cliMissingHint(
+            "missing --sequence. Example:\n" +
+                "  devrig input --project_name=\"<key>\" --window_id=\"<win>\" --task_id=t1 --reason=\"...\" \\\n" +
+                "    --sequence=\"press:CTRL+P, type:Main, delay:200, press:ENTER\""
+        )
         .string()
         .required()
         .registerToSchema()
