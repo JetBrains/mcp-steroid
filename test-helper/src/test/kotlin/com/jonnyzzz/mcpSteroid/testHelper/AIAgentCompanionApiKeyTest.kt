@@ -18,9 +18,11 @@ import org.junit.jupiter.api.Test
  *     (b) a missing key, and (c) an unresolved TeamCity `%credentialsJSON:…%` reference.
  *  2. With `skipTestWhenKeyMissing = true`, `requireApiKey()` (called from `create()`)
  *     throws `AssumptionViolatedException` for case (b) — JUnit 4/5 report it as ignored.
- *     JUnit 3 / `BasePlatformTestCase` tests instead gate `shouldRunTest()` on
- *     [AIAgentCompanion.skipTestBecauseApiKeyMissing], which is `true` only for case (b)
- *     — the JUnit 3↔4 bridge would report the assumption as a failure.
+ *     JUnit 3 / `BasePlatformTestCase` tests run under
+ *     `@RunWith(JUnit38AssumeSupportRunner::class)` (the plain JUnit 3↔4 bridge would
+ *     report the assumption as a failure — see [JUnit38BridgeAssumptionTest]) and gate
+ *     `runBare` early on [AIAgentCompanion.skipTestBecauseApiKeyMissing], which is
+ *     `true` only for case (b).
  *  3. With `skipTestWhenKeyMissing = true`, the unresolved-TC-ref branch (case c) still
  *     fails fast with `IllegalStateException` — that case is a real misconfiguration that
  *     must stay visible.
@@ -141,11 +143,13 @@ class AIAgentCompanionApiKeyTest {
         assertFalse(SkipCompanion { null }.isApiKeyAvailable())
     }
 
-    // ── skipTestBecauseApiKeyMissing() — the predicate JUnit 3 / BasePlatformTestCase
-    //    tests consult from UsefulTestCase.shouldRunTest(). The JUnit 3↔4 bridge
-    //    (JUnit38ClassRunner.addError) reports AssumptionViolatedException as a
-    //    FAILURE, so shouldRunTest() is the only not-fail hook on that path.
-    //    See CliGeminiIntegrationTest.shouldRunTest().
+    // ── skipTestBecauseApiKeyMissing() — the early-skip predicate JUnit 3 /
+    //    BasePlatformTestCase tests consult from runBare(). The plain JUnit 3↔4
+    //    bridge (JUnit38ClassRunner.addError) reports AssumptionViolatedException
+    //    as a FAILURE (pinned in JUnit38BridgeAssumptionTest), so such classes run
+    //    under @RunWith(JUnit38AssumeSupportRunner::class), which reroutes the
+    //    assumption to fireTestAssumptionFailed => SKIPPED/ignored.
+    //    See CliGeminiIntegrationTest.runBare().
 
     @Test
     fun `skipTestBecauseApiKeyMissing true only for skip-companion with truly missing key`() {
