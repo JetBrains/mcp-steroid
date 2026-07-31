@@ -25,7 +25,11 @@ import org.junit.jupiter.api.Test
 class CliOptionsIntegrationTest {
 
     private fun runLauncher(vararg args: String): ProcessResult =
-        cli.runDevrig(*args, timeoutSeconds = 30)
+        // The bin-launcher self-heal defaults ON for non-SNAPSHOT lanes (-jb-/-gh-/-r-) and narrates
+        // its (re)write + PATH hint to stderr by design, so the stream-cleanliness assertions here
+        // only hold with registration pinned off (the opt-out itself is contract-tested in
+        // CliBinLauncherIntegrationTest).
+        cli.runDevrig(*args, timeoutSeconds = 30, env = mapOf("DEVRIG_BIN_NO_AUTO_REGISTER" to "yes"))
 
     // -------------------------------- --help --------------------------------
 
