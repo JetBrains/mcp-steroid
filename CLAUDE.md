@@ -100,7 +100,13 @@ When changing files across multiple sub-folders, read the guides for each.
   - **Single documented exception: Gemini API key on CI.** TC has no Gemini token and there is no plan to
     add one. `DockerGeminiSession.Companion` opts into `skipTestWhenKeyMissing = true` (see
     `test-helper/.../AISessionBase.kt`), so `requireApiKey()` throws `AssumptionViolatedException` instead
-    of `IllegalStateException` when the key is missing. Constraints when working in this area:
+    of `IllegalStateException` when the key is missing — JUnit 4/5 runners report that as ignored.
+    JUnit 3 / `BasePlatformTestCase` tests (e.g. `CliGeminiIntegrationTest`) get **no** skip from that
+    assumption — `JUnit38ClassRunner.addError` fires `fireTestFailure` for every `Throwable`, assumptions
+    included (still true in JUnit 4.13.2) — so they must additionally override
+    `UsefulTestCase.shouldRunTest()` gated on `skipTestBecauseApiKeyMissing()` (the platform's only
+    not-fail hook on the JUnit 3 path; the test is then reported without running instead of failing).
+    Constraints when working in this area:
     1. **Session creation must stay lazy** — called from inside test method bodies, never from
        `setUp()` / class init / `@ClassRule`. `BasePlatformTestCase`-backed tests route every
        `Throwable` through `JUnit38ClassRunner` to `fireTestFailure`, so an early init failure shows

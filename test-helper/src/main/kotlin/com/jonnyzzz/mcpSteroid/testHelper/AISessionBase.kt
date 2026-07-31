@@ -52,17 +52,36 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
 
     /**
      * `true` when [readApiKey] returns a real key (not `null`, not an unresolved
-     * `%credentialsJSON:…%` TeamCity reference). Used by JUnit 3 / `BasePlatformTestCase`
-     * tests via `UsefulTestCase.shouldRunTest()` — the JUnit 4 `@Rule` chain there
-     * recognises `AssumptionViolatedException` thrown from a Rule and reports the test
-     * as ignored, unlike exceptions thrown from inside `TestCase.runTest()` which the
-     * JUnit 3↔4 bridge converts to failures. Callers in JUnit 5 paths just rely on
-     * [skipTestWhenKeyMissing] + [requireApiKey].
+     * `%credentialsJSON:…%` TeamCity reference). NOTE: this treats the unresolved-TC-ref
+     * case the same as a missing key, so it must NOT gate `UsefulTestCase.shouldRunTest()` —
+     * that would silently swallow a real TC credentials misconfiguration. Use
+     * [skipTestBecauseApiKeyMissing] for the JUnit 3 skip hook instead.
      */
     fun isApiKeyAvailable(): Boolean {
         val key = readApiKey() ?: return false
         return !key.startsWith("%")
     }
+
+    /**
+     * The predicate JUnit 3 / `BasePlatformTestCase` tests must consult from
+     * `UsefulTestCase.shouldRunTest()`: `true` only when this companion opts into
+     * [skipTestWhenKeyMissing] AND [readApiKey] found nothing.
+     *
+     * Why `shouldRunTest()` and not the [requireApiKey] assumption: the JUnit 3↔4 bridge
+     * (`JUnit38ClassRunner.OldTestClassAdaptingListener.addError`, still true in JUnit 4.13.2)
+     * routes EVERY `Throwable` — including `AssumptionViolatedException` — to
+     * `fireTestFailure`, so an assumption thrown inside a `BasePlatformTestCase` test body
+     * is reported as a FAILURE on CI. `UsefulTestCase.runBare()` checking `shouldRunTest()`
+     * is the platform's only not-fail hook on that path (the JUnit 3 runner then reports
+     * the test as passed-without-running; JUnit 4/5 callers keep getting the real
+     * `AssumptionViolatedException` from [requireApiKey], reported as ignored).
+     *
+     * Deliberately `false` for an unresolved `%credentialsJSON:…%` reference: that test
+     * must still run and fail hard in [requireApiKey] with `IllegalStateException` —
+     * a TeamCity credentials misconfiguration must stay visible.
+     */
+    fun skipTestBecauseApiKeyMissing(): Boolean =
+        skipTestWhenKeyMissing && readApiKey() == null
 
     /** Human-readable description of where the key can come from (for error/skip messages). */
     protected abstract val apiKeyHint: String
@@ -70,10 +89,12 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
     /**
      * Documented exception to the CLAUDE.md "no test-level skips" rule. When `true`
      * and [readApiKey] returns `null`, [requireApiKey] reports the test as **ignored**
-     * (via JUnit's [org.junit.AssumptionViolatedException], honored by JUnit 3/4/5
-     * runners and the IntelliJ test platform) instead of failing. Default `false`
-     * preserves fail-fast for agents whose keys are configured on CI; only Gemini
-     * opts in because the TeamCity server has no Gemini token and there is no
+     * (via JUnit's [org.junit.AssumptionViolatedException], honored by JUnit 4/5
+     * runners). JUnit 3 / `BasePlatformTestCase` tests do NOT get the skip from the
+     * assumption — the JUnit 3↔4 bridge turns it into a failure — and must additionally
+     * gate `shouldRunTest()` on [skipTestBecauseApiKeyMissing] (see its kdoc).
+     * Default `false` preserves fail-fast for agents whose keys are configured on CI;
+     * only Gemini opts in because the TeamCity server has no Gemini token and there is no
      * plan to add one.
      *
      * The unresolved-TC-reference branch (`%credentialsJSON:…%`) still throws
@@ -100,8 +121,11 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
 
         if (skipTestWhenKeyMissing && !isUnresolvedTcRef) {
             // Opt-in skip — see [skipTestWhenKeyMissing] kdoc. Recognised by
-            // JUnit 3/4/5 + IntelliJ's BasePlatformTestCase runner, which
-            // report the result as ignored rather than failed.
+            // JUnit 4/5 runners, which report the result as ignored rather than
+            // failed. JUnit 3 / BasePlatformTestCase never reaches this branch
+            // when wired correctly: shouldRunTest() consults
+            // skipTestBecauseApiKeyMissing() first (the JUnit 3 bridge would
+            // report this assumption as a failure).
             throw org.junit.AssumptionViolatedException(message)
         }
 

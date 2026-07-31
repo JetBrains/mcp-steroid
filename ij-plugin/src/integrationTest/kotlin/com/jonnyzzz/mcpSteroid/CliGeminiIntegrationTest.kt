@@ -24,6 +24,31 @@ class CliGeminiIntegrationTest : CliIntegrationTestBase() {
 
     override fun createAiSession(): AiAgentSession = geminiSession()
 
+    /**
+     * Documented CI exception (root CLAUDE.md, "Single documented exception: Gemini API
+     * key on CI"): TeamCity has no Gemini token by design. This class is JUnit 3
+     * (`BasePlatformTestCase`), where `JUnit38ClassRunner` reports the
+     * `AssumptionViolatedException` thrown by `requireApiKey()` as a test FAILURE
+     * (its `addError` fires `fireTestFailure` for every `Throwable` — JUnit 4.13.2).
+     * `UsefulTestCase.runBare()` checking `shouldRunTest()` is the platform's skip
+     * hook for that path, so gate on the missing key here instead of failing 6 tests
+     * on every TC run.
+     *
+     * An unresolved `%credentialsJSON:…%` reference deliberately does NOT skip:
+     * `skipTestBecauseApiKeyMissing()` returns `false` for it, the test body runs,
+     * and `requireApiKey()` fails hard with `IllegalStateException` — a real TC
+     * misconfiguration must stay visible.
+     */
+    override fun shouldRunTest(): Boolean {
+        if (DockerGeminiSession.skipTestBecauseApiKeyMissing()) {
+            System.err.println(
+                "SKIPPED $name: Gemini API key not found — documented CI exception, see CLAUDE.md"
+            )
+            return false
+        }
+        return super.shouldRunTest()
+    }
+
     fun testGeminiInstalled(): Unit = timeoutRunBlocking(180.seconds) {
         geminiSession()
             .runInContainer(args = listOf("--version"))
