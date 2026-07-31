@@ -97,13 +97,31 @@ fun DevrigServices.runGeneratedToolCommand(
             command.commandName, "devrig ${command.commandName}: ${e.message}", CliExit.USAGE, mcpStdout,
         )
     } catch (e: Exception) {
-        // Everything left is "the call did not reach a working backend" — including an IOException, which
-        // is how a refused connection surfaces, so it must NOT be read here as a filesystem failure.
+        // The catch-all covers two unlike things: no reachable backend (the common case — an IOException is
+        // how a refused connection surfaces, so it must NOT be read here as a filesystem failure) and a
+        // genuine fault inside devrig or a handler, such as an NPE. The frozen table has no internal-error
+        // code, so both must answer UNAVAILABLE; what this message must therefore NOT do is assert the
+        // cause, or a devrig bug would be reported to the user as a fault in their IDE. The exception's own
+        // type is included because it is the one thing that distinguishes the two for whoever reads it.
         return presentation.renderError(
-            command.commandName, "devrig ${command.commandName} failed to reach a backend: ${e.message}",
+            command.commandName,
+            "devrig ${command.commandName} did not complete: ${e.message} (${e.javaClass.simpleName}). " +
+                "Usually no IDE backend is reachable — check `devrig project`.",
             CliExit.UNAVAILABLE, mcpStdout,
         )
     }
+    // Rendering deliberately sits OUTSIDE the pipeline above, which is a decision and not an oversight.
+    // The table classifies failures of reaching and calling the TOOL; a failure to render carries none of
+    // those causes, and feeding it in would label it with one it cannot have (a rendering
+    // IllegalArgumentException is not the caller's usage mistake). The render layer already owns its own
+    // failures and maps them itself: an undecodable image or a failed `--out` write become DATA_ERROR /
+    // IO_ERROR inside [renderWithOut] and [Presentation], which is where the `--out` contract lives.
+    // Console rendering also writes incrementally, item by item, so a failure part-way has already emitted
+    // output — re-rendering it through the table would append a second, contradictory report to the first.
+    // What is left is exotic (an IOError from path resolution, say); it reaches Main.kt's last-resort
+    // handler, which is the right destination for an internal fault because it prints the stack trace an
+    // exit code cannot carry. stdout stays clean either way: under `--json` the envelope string is built
+    // before anything is printed.
     return renderWithOut(presentation, result, command.commandName, command.out, mcpStdout)
 }
 
@@ -131,8 +149,15 @@ fun liveToolSpec(toolName: String, tools: McpSteroidTools): CliToolSpec {
  * that orchestration exists, honouring the flag by ignoring it would be the worst of the three options: the
  * caller asked devrig to wait, devrig said nothing, and the difference is invisible in the exit code. The
  * failure is derived from the declaration ([com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.extraOptions]) and
- * names the FLAG the user typed, so it needs no per-tool knowledge and disappears on its own the moment a
- * runtime consumes the option.
+ * names the FLAG the user typed, so it needs no per-tool knowledge.
+ *
+ * **This function is temporary, and the phase that implements the first extra option must DELETE it** —
+ * together with its test, `CliErrorEnvelopeTest.an extra option no runtime acts on yet fails loudly instead
+ * of being ignored`. That deletion is pre-authorised here, so it does not read as removing a passing test.
+ * It cannot lapse on its own: the condition below is "the declared flag was set", which says nothing about
+ * whether a runtime consumes it, so once `--wait` works this guard would reject the very invocation it is
+ * meant to enable. There is no version of it worth keeping — asking "does a runtime consume this option?"
+ * would need exactly the per-tool registry this design exists to avoid.
  */
 private fun DevrigCommand.RunTool.requireNoUnhandledExtraOption(spec: CliToolSpec) {
     val unhandled = spec.cli.extraOptions.filter { extraOptions[it.name] == true }
@@ -154,8 +179,12 @@ private fun DevrigCommand.RunTool.requireNoUnhandledExtraOption(spec: CliToolSpe
  * The object is REBUILT in [spec]'s own parameter order rather than appended to. A substituted parameter is
  * absent from the parsed arguments by definition (the two spellings are mutually exclusive), so appending it
  * would move it to the end and silently reorder the tool call — `execute_code`'s `code` would follow `reason`
- * instead of `project_name`. Anything the schema does not declare keeps its original relative position
- * rather than being dropped.
+ * instead of `project_name`.
+ *
+ * Iterating the declaration is COMPLETE, not best-effort: every key in either map is a declared parameter's
+ * own name, because `SchemaCliBinding` writes nothing else into them, and `ToolSchema.asCliParams()` returns
+ * every declared parameter — `cliHidden` ones included. The `check` below is what keeps that reasoning
+ * honest, since the failure it guards against would otherwise be a silently dropped argument.
  */
 fun DevrigCommand.RunTool.argumentsWithFileSources(spec: CliToolSpec, stdin: InputStream): JsonObject {
     if (fileSources.isEmpty()) return arguments
@@ -164,8 +193,11 @@ fun DevrigCommand.RunTool.argumentsWithFileSources(spec: CliToolSpec, stdin: Inp
     for (param in spec.schema.asCliParams()) {
         (resolved[param.name] ?: arguments[param.name])?.let { ordered[param.name] = it }
     }
-    for ((name, value) in arguments) ordered.putIfAbsent(name, value)
-    for ((name, value) in resolved) ordered.putIfAbsent(name, value)
+    val undeclared = (arguments.keys + resolved.keys) - ordered.keys
+    check(undeclared.isEmpty()) {
+        "${spec.name}: $undeclared reached the tool call without being declared by the schema, so rebuilding " +
+            "the arguments in declaration order would have dropped them"
+    }
     return JsonObject(ordered)
 }
 

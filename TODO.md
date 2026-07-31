@@ -229,6 +229,14 @@
   bytecode-21 gate itself stays valuable (issue #157: older AS + minimum-supported baselines), but
   the KDoc's "AS 2026.1 bundles JBR 21" premise is stale and should be reworded against reality.
 
+- [ ] **Console mode prints a JSON payload as one minified line (#284)**: `devrig list_projects` (and any
+  generated tool whose result is a single JSON text item) emits one long minified blob, because
+  `Presentation.Console.render` prints a text content item verbatim. The fix does NOT need a per-tool
+  renderer: pretty-printing a text payload that happens to parse as JSON is tool-agnostic, so it belongs in
+  `Presentation.Console` in `CliToolSupport.kt`. Deliberately **console-only** — the `--json` envelope's
+  `data` shape is being changed by separate work, so do not touch that path here. A richer per-tool table
+  (`devrig project`-style columns for the listers) is a different, larger question: it would need declared
+  rendering metadata, since a `when (toolName)` is exactly what #284 removes.
 - [ ] **`devrig <tool> --help` is undocumented (#284, branch `issue-284-cli-engine`)**: `devrig <tool>
   --help` prints the curated global banner rather than the command's own generated help, because the eager
   help option's `PrintHelpMessage` is discarded — so the eight generated subcommands are currently

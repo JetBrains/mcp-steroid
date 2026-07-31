@@ -100,7 +100,9 @@ class CliErrorEnvelopeTest {
 
         assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
         run.assertIsErrorEnvelope("list_windows")
-        assertTrue(run.errorMessage().contains("window_id must be positive"), "got: ${run.errorMessage()}")
+        // Whole string, so the `devrig <command>: ` prefix this arm adds is pinned HERE and not only
+        // incidentally by the --wait test. That exact prefix is the one that shipped doubled.
+        assertEquals("devrig list_windows: window_id must be positive", run.errorMessage())
     }
 
     // ------------------------------------- 65 DATA_ERROR -------------------------------------
@@ -113,7 +115,10 @@ class CliErrorEnvelopeTest {
 
         assertEquals(CliExit.DATA_ERROR, run.exit, "stdout was:\n${run.stdout}")
         run.assertIsErrorEnvelope("list_windows")
-        assertTrue(run.errorMessage().contains("Unexpected JSON token"), "got: ${run.errorMessage()}")
+        assertEquals(
+            "devrig list_windows could not read the backend's response: Unexpected JSON token at offset 0",
+            run.errorMessage(),
+        )
     }
 
     // ------------------------------------- 69 UNAVAILABLE -------------------------------------
@@ -124,7 +129,31 @@ class CliErrorEnvelopeTest {
 
         assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
         run.assertIsErrorEnvelope("list_windows")
-        assertTrue(run.errorMessage().contains("Connection refused"), "got: ${run.errorMessage()}")
+        assertEquals(
+            "devrig list_windows did not complete: Connection refused: no IDE is running " +
+                "(IllegalStateException). Usually no IDE backend is reachable — check `devrig project`.",
+            run.errorMessage(),
+        )
+    }
+
+    @Test
+    fun `the catch-all does not blame the backend for a fault it cannot diagnose`() {
+        // This arm answers 69 for two unlike things — no reachable IDE, and a genuine devrig/handler bug —
+        // because the frozen table has no internal-error code. So the wording must not ASSERT the cause: an
+        // NPE inside a handler must not be reported to the user as a fault in their IDE. The exception type
+        // is what lets whoever reads it tell the two apart, so it is part of the message.
+        val run = failing { throw NullPointerException("windows was null") }
+
+        assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
+        assertEquals(
+            "devrig list_windows did not complete: windows was null (NullPointerException). " +
+                "Usually no IDE backend is reachable — check `devrig project`.",
+            run.errorMessage(),
+        )
+        assertTrue(
+            "failed to reach a backend" !in run.errorMessage(),
+            "the message must not assert a cause it cannot know; got: ${run.errorMessage()}",
+        )
     }
 
     @Test
@@ -135,6 +164,11 @@ class CliErrorEnvelopeTest {
         val run = failing { throw IOException("Connect timeout has expired") }
 
         assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
+        assertEquals(
+            "devrig list_windows did not complete: Connect timeout has expired (IOException). " +
+                "Usually no IDE backend is reachable — check `devrig project`.",
+            run.errorMessage(),
+        )
     }
 
     // ------------------------------------- 1 TOOL_ERROR -------------------------------------
@@ -194,8 +228,12 @@ class CliErrorEnvelopeTest {
         // `--wait` is generated from open_project's declaration and parses today, but the polling that
         // gives it meaning does not exist yet. Ignoring it would be invisible: the caller asked devrig to
         // wait for the project, devrig would open it, return 0, and never wait. Derived from the
-        // declaration, so it names the flag the user typed and needs no per-tool knowledge — and it stops
-        // applying by itself once a runtime consumes the option.
+        // declaration, so it names the flag the user typed and needs no per-tool knowledge.
+        //
+        // DELETE THIS TEST, along with `requireNoUnhandledExtraOption`, in the phase that implements the
+        // first extra option. The deletion is pre-authorised — it is not a weakened test. The rule it pins
+        // fires on "the declared flag was set" and cannot tell whether a runtime consumes the option, so
+        // once `--wait` works this guard would reject the very invocation it exists to protect.
         val command = parseRunTool(
             "open_project", "--json", "--project_path=/tmp/p", "--backend_name=b",
             "--task_id=t", "--reason=r", "--wait",

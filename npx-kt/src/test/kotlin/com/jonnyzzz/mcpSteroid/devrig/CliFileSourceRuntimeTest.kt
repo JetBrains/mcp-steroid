@@ -130,17 +130,27 @@ class CliFileSourceRuntimeTest {
 
         assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
         assertNull(seenCode, "the tool must not be called with an empty value read from an empty stdin")
-        assertTrue(run.errorMessage().contains("standard input"), "got: ${run.errorMessage()}")
-        assertTrue(run.errorMessage().contains("code"), "got: ${run.errorMessage()}")
+        // Whole string: this message is the entire answer a hung-looking non-interactive caller gets, so its
+        // wording is the contract, not an implementation detail. Three defects on this branch reached the
+        // binary through substring assertions.
+        assertEquals(
+            "'code' was to be read from standard input ('-' given) but nothing was piped in; " +
+                "pipe the value or pass a file path instead",
+            run.errorMessage(),
+        )
     }
 
     @Test
     fun `a missing file exits 74`() {
-        val (run, seenCode) = runExecuteCode(work.resolve("absent.kts").toString())
+        val absent = work.resolve("absent.kts")
+        val (run, seenCode) = runExecuteCode(absent.toString())
 
         assertEquals(CliExit.IO_ERROR, run.exit, "stdout was:\n${run.stdout}")
         assertNull(seenCode)
-        assertTrue(run.errorMessage().contains("absent.kts"), "got: ${run.errorMessage()}")
+        assertEquals(
+            "'code' was to be read from '$absent', which is not an existing regular file",
+            run.errorMessage(),
+        )
     }
 
     @Test
@@ -148,6 +158,10 @@ class CliFileSourceRuntimeTest {
         val (run, _) = runExecuteCode(work.toString())
 
         assertEquals(CliExit.IO_ERROR, run.exit, "stdout was:\n${run.stdout}")
+        assertEquals(
+            "'code' was to be read from '$work', which is not an existing regular file",
+            run.errorMessage(),
+        )
     }
 
     @Test
@@ -157,6 +171,13 @@ class CliFileSourceRuntimeTest {
         val (run, _) = runExecuteCode("bad\u0000name.kts")
 
         assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        // The trailing InvalidPathException.reason is the JDK's wording, so only devrig's own half is
+        // pinned — but pinned from the start of the string, which still catches a doubled prefix.
+        assertTrue(
+            run.errorMessage().startsWith("'code' was given the path 'bad"),
+            "got: ${run.errorMessage()}",
+        )
+        assertTrue(run.errorMessage().contains("is not a valid path: "), "got: ${run.errorMessage()}")
     }
 
     // ------------------------------- declaration order -------------------------------
