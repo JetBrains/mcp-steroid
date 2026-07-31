@@ -136,6 +136,35 @@ class InstallerGeneratorTest {
     }
 
     @Test
+    fun `the devrig handoff sends the launcher and jdk flags by design and runs under DEVRIG_JAVA_HOME`() {
+        // jonnyzzz/mcp-steroid#398: the scripts SEND --install-script/--jdk-home by design — a forward
+        // contract a future devrig may use; today's devrig parses and ignores them, deriving both from
+        // its own running process. The one invocation runs under the bundled JDK via DEVRIG_JAVA_HOME —
+        // devrig's own variable, honored by the dist launcher; setting JAVA_HOME is not needed.
+        val scripts = renderInstallerScripts(jdkScriptTable(fullModel()), devrig, "1.2.3")
+
+        listOf(scripts.sh to "install.sh", scripts.ps to "install.ps1").forEach { (script, name) ->
+            assertTrue(script.contains("--install-script="), "$name must send --install-script")
+            assertTrue(script.contains("--jdk-home="), "$name must send --jdk-home")
+        }
+        assertTrue(
+            scripts.sh.contains("DEVRIG_JAVA_HOME=\"\$jdk_home\" \"\$launcher\" install devrig"),
+            "install.sh must scope DEVRIG_JAVA_HOME to the handoff invocation",
+        )
+        // Anchored: a plain-substring check would trip over DEVRIG_JAVA_HOME= containing JAVA_HOME=.
+        assertTrue(
+            !scripts.sh.contains(Regex("(?<![A-Z_])JAVA_HOME=")),
+            "install.sh sets DEVRIG_JAVA_HOME for the handoff — setting JAVA_HOME is not needed",
+        )
+        assertTrue(scripts.ps.contains("\$env:DEVRIG_JAVA_HOME = \$jdkHome"), "install.ps1 must set DEVRIG_JAVA_HOME for the handoff")
+        assertTrue(
+            scripts.ps.contains("\$env:DEVRIG_JAVA_HOME = \$SteroidPrevDevrigJavaHome"),
+            "install.ps1 runs in the caller's session and must restore DEVRIG_JAVA_HOME after the handoff",
+        )
+        assertTrue(!scripts.ps.contains("\$env:JAVA_HOME"), "install.ps1 sets DEVRIG_JAVA_HOME for the handoff — setting JAVA_HOME is not needed")
+    }
+
+    @Test
     fun `install_ps1 prepends BinDir to the current session PATH after the devrig handoff`() {
         // jonnyzzz/mcp-steroid#275: `devrig install devrig` registers the bin dir persistently
         // (HKCU\Environment), which only reaches NEW shells — but `irm | iex` runs in the caller's

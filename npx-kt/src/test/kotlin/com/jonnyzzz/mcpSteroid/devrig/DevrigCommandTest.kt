@@ -121,28 +121,22 @@ class DevrigCommandTest {
     }
 
     @Test
-    fun `install devrig parses with no flags and with the install-script flags`() {
-        // Hand-run, no flags (issue #398): re-register the launcher from the running binary's own
-        // install — parses cleanly, the command decides the registration mode from the flags.
+    fun `install devrig parses to the same flag-less command with or without the install-script flags`() {
+        // ONE behavior, same result on every call (issue #398): the command carries no parameters.
         val bare = assertIs<DevrigCommand.DevrigCommandInstallDevrig>(command("install", "devrig"))
-        assertNull(bare.installScript)
-        assertNull(bare.jdkHome)
-        // Install-script mode (the generated install.sh / install.ps1): both parameters stay explicit.
-        val scripted = assertIs<DevrigCommand.DevrigCommandInstallDevrig>(
+        // The --install-script / --jdk-home flags the install scripts send (a forward contract, kept
+        // by design for a future devrig) are accepted and IGNORED — every spelling, including blank
+        // values, parses to the identical command; registration always derives the install tree + JDK
+        // from the running binary.
+        for (legacy in listOf(
             command("install", "devrig", "--install-script=/opt/devrig/bin/devrig", "--jdk-home=/opt/jdk"),
-        )
-        assertEquals("/opt/devrig/bin/devrig", scripted.installScript)
-        assertEquals("/opt/jdk", scripted.jdkHome)
-        // --jdk-home alone is a mistake — only the install scripts pass it, and always with
-        // --install-script. Fail fast instead of guessing which registration mode was meant.
-        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "devrig", "--jdk-home=/opt/jdk"))
-        // A BLANK --install-script (an unset shell variable in a third-party wrapper) must not silently
-        // flip to the self-registration mode — that would register the running binary and drop the
-        // explicit --jdk-home. Fail fast at parse time, like the old exit-64 behaviour did.
-        assertIs<DevrigCommand.DevrigCommandParseError>(command("install", "devrig", "--install-script="))
-        assertIs<DevrigCommand.DevrigCommandParseError>(
+            command("install", "devrig", "--install-script=/opt/devrig/bin/devrig"),
+            command("install", "devrig", "--jdk-home=/opt/jdk"),
+            command("install", "devrig", "--install-script="),
             command("install", "devrig", "--install-script=", "--jdk-home=/opt/jdk"),
-        )
+        )) {
+            assertEquals(bare, assertIs<DevrigCommand.DevrigCommandInstallDevrig>(legacy))
+        }
     }
 
     @Test
