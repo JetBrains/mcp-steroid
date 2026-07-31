@@ -40,6 +40,8 @@ val result = readAction {
     // Get completion contributors registered for this file's language via the
     // public extension point (CompletionContributor.EP, "com.intellij.completion.contributor").
     // A bean's `language` attribute is a Language ID; "any" or empty matches all languages.
+    // Approximation: the IDE's real lookup additionally matches MetaLanguage IDs
+    // (e.g. "JVM"), so meta-language-bound contributors are not listed here.
     val languageIds = generateSequence(psiFile.language) { it.baseLanguage }.map { it.id }.toSet()
     val contributors = CompletionContributor.EP.extensionList.filter { ep ->
         ep.language.isNullOrEmpty() || ep.language == "any" || ep.language in languageIds
