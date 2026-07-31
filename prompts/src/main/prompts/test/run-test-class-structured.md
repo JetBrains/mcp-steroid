@@ -1,10 +1,12 @@
-Test: Run Gradle Test Class and Return Structured Results
+Test: Run Test Class and Return Structured Results
 
-Run one Gradle-backed JVM test class in a single steroid_execute_code call and print structured pass/fail results.
+Run one test class in a single steroid_execute_code call and print structured pass/fail results collected from the platform SM test runner.
 
 Use this when you need one bounded verification call after an edit: launch a specific
-JUnit/JVM test class through the project's Gradle test task, wait for completion, collect
-SM test-runner events, and return a machine-readable result.
+test class, wait for completion, collect SM test-runner events, and return a
+machine-readable result.
+
+###_IF_IDE[AI,IC,IU]_###
 
 Prefer this over direct `JUnitConfiguration` for IntelliJ Platform plugin tests and other
 Gradle-managed JVM projects. Gradle supplies the test JVM args, classpath, and module
@@ -320,25 +322,255 @@ try {
 }
 ```
 
-Pitfalls:
+Gradle-specific pitfalls:
 - Do not use direct `JUnitConfiguration` for IntelliJ Platform plugin tests unless you also
   reproduce the Gradle/IPGP test JVM args. Missing `--add-opens` flags cause launcher failures
   such as `java.desktop does not open java.awt`, unrelated to the code under test.
 - `isRunAsTest = true` is required. Without it, the Gradle process can run while no
   `SMTRunnerEventsListener.TEST_STATUS` events are published.
+- Remove the temporary run configuration in `finally`, otherwise repeated agent calls leave
+  stale Gradle configurations behind.
+
+###_ELSE_###
+
+The structured-collection machinery is pure platform API: every SM-runner-based test
+configuration — pytest/unittest in PyCharm, `go test` in GoLand, Jest/Mocha/Karma in
+WebStorm, Google Test/Catch2 in CLion, RSpec/Minitest in RubyMine — publishes the same
+`SMTRunnerEventsListener.TEST_STATUS` events. The recipe below launches an existing test
+run configuration by name and returns the same machine-readable summary. First point a
+configuration at the one test class you need (e.g. a pytest target
+`tests/test_foo.py::TestFoo`, a Go test pattern, a Jest test-path filter) — enumerate
+what exists via [List Run Configurations](mcp-steroid://test/list-run-configurations).
+
+Honest limits:
+- **Rider:** native .NET unit tests run through Rider's own test runner and do NOT publish
+  SM `TEST_STATUS` events — launch via the caret context action instead
+  ([Run Test at Caret](mcp-steroid://test/run-test-at-caret)) and read results from Rider's
+  Unit Test tool window. The recipe below applies in Rider only to SM-based configurations
+  (e.g. JavaScript tests).
+- **DataGrip:** no test-framework integration ships out of the box; the recipe applies only
+  when an installed plugin contributes an SM-based test run configuration.
+
+```kotlin
+import com.intellij.execution.ProgramRunnerUtil
+import com.intellij.execution.RunManager
+import com.intellij.execution.executors.DefaultRunExecutor
+import com.intellij.execution.process.ProcessHandler
+import com.intellij.execution.testframework.sm.runner.SMTestProxy
+import com.intellij.execution.testframework.sm.runner.SMTRunnerEventsListener
+import com.intellij.execution.ui.RunContentManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.util.concurrent.CopyOnWriteArrayList
+
+val configurationName = "MyTests" // TODO: existing test run configuration targeting one test class
+val timeoutMs = 180_000L
+val descriptorTimeoutMs = 45_000L
+val terminationGraceMs = 5_000L
+val maxFailuresToPrint = 20
+val maxStackTraceLines = 20
+
+data class TestFailureInfo(
+    val name: String?,
+    val durationMs: Long?,
+    val errorMessage: String?,
+    val stackTrace: String?,
+    val locationUrl: String?,
+)
+
+fun failurePayload(test: SMTestProxy): TestFailureInfo =
+    TestFailureInfo(
+        name = test.name,
+        durationMs = test.duration,
+        errorMessage = test.errorMessage,
+        stackTrace = test.stacktrace
+            ?.lineSequence()
+            ?.take(maxStackTraceLines)
+            ?.joinToString("\n"),
+        locationUrl = test.locationUrl,
+    )
+
+// CopyOnWriteArrayList: the TEST_STATUS listener adds from the IDE test thread while the suspend
+// body below scans with firstOrNull — add() is atomic and iteration sees a stable snapshot, so
+// no external lock is needed. Runs that finished before this call subscribed never appear here;
+// runs of the same configuration still in progress at launch time are excluded by the
+// pre-launch handler snapshot below.
+val startedRoots = CopyOnWriteArrayList<SMTestProxy.SMRootTestProxy>()
+val finishedRoots = CopyOnWriteArrayList<SMTestProxy.SMRootTestProxy>()
+
+// Subscribe before launch. TEST_STATUS is a typed project message-bus topic; no reflection is
+// required. The topic is project-wide, so roots are correlated below by public
+// SMRootTestProxy.getHandler() identity with a RunContentDescriptor of the launched
+// configuration — a concurrent unrelated test run cannot be mistaken for this one.
+val connection = project.messageBus.connect(disposable)
+connection.subscribe(
+    SMTRunnerEventsListener.TEST_STATUS,
+    object : SMTRunnerEventsListener {
+        override fun onTestingStarted(testsRoot: SMTestProxy.SMRootTestProxy) {
+            startedRoots += testsRoot
+        }
+
+        override fun onTestingFinished(testsRoot: SMTestProxy.SMRootTestProxy) {
+            finishedRoots += testsRoot
+        }
+
+        override fun onTestStarted(test: SMTestProxy) {}
+        override fun onTestFinished(test: SMTestProxy) {}
+        override fun onTestFailed(test: SMTestProxy) {}
+        override fun onTestIgnored(test: SMTestProxy) {}
+        override fun onSuiteStarted(suite: SMTestProxy) {}
+        override fun onSuiteFinished(suite: SMTestProxy) {}
+        override fun onTestsCountInSuite(count: Int) {}
+        override fun onCustomProgressTestsCategory(categoryName: String?, count: Int) {}
+        override fun onCustomProgressTestStarted() {}
+        override fun onCustomProgressTestFinished() {}
+        override fun onCustomProgressTestFailed() {}
+        override fun onSuiteTreeNodeAdded(testProxy: SMTestProxy) {}
+        override fun onSuiteTreeStarted(suite: SMTestProxy) {}
+    }
+)
+
+val settings = RunManager.getInstance(project).allSettings.firstOrNull { it.name == configurationName }
+    ?: error("No run configuration named '$configurationName'. Create one for the test class, or list existing configurations first.")
+
+val contentManager = RunContentManager.getInstance(project)
+// Snapshot process handlers that already exist BEFORE this launch. launchedHandler() and
+// matchesTarget() exclude them, so a run of the same configuration that was already in
+// progress when this call started is never reported as this launch's result and never
+// receives destroyProcess() on timeout.
+val preLaunchHandlers = contentManager.allDescriptors.mapNotNull { it.processHandler }
+fun isPreLaunch(handler: ProcessHandler): Boolean = preLaunchHandlers.any { it === handler }
+
+try {
+    withContext(Dispatchers.EDT) {
+        ProgramRunnerUtil.executeConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance())
+    }
+
+    val startedAt = System.currentTimeMillis()
+    val deadline = startedAt + timeoutMs
+
+    // The run-content tab of an existing configuration reuses the configuration name.
+    fun launchedHandler() = contentManager.allDescriptors
+        .filter { it.displayName == configurationName }
+        .firstNotNullOfOrNull { d ->
+            d.processHandler?.takeIf { !it.isProcessTerminated && !isPreLaunch(it) }
+        }
+
+    fun matchesTarget(root: SMTestProxy.SMRootTestProxy): Boolean {
+        val rootHandler = root.handler ?: return false
+        if (isPreLaunch(rootHandler)) return false
+        return contentManager.allDescriptors.any {
+            it.displayName == configurationName && it.processHandler === rootHandler
+        }
+    }
+
+    fun finishedTargetRoot(): SMTestProxy.SMRootTestProxy? = finishedRoots.firstOrNull(::matchesTarget)
+
+    var handler = launchedHandler()
+    var root = finishedTargetRoot()
+    while (handler == null && root == null && System.currentTimeMillis() - startedAt < descriptorTimeoutMs) {
+        delay(250)
+        handler = launchedHandler()
+        root = finishedTargetRoot()
+    }
+
+    if (handler == null && root == null) {
+        printJson(
+            mapOf(
+                "status" to "did_not_run",
+                "check_ran" to false,
+                "configuration" to configurationName,
+                "message" to "No live RunContentDescriptor for the configuration appeared within ${descriptorTimeoutMs}ms.",
+            )
+        )
+        return
+    }
+
+    var terminationGraceDeadline = 0L
+    while (root == null && System.currentTimeMillis() < deadline) {
+        if (handler == null || handler.isProcessTerminated) {
+            // onTestingFinished can arrive shortly after process exit — allow a short grace window.
+            if (terminationGraceDeadline == 0L) {
+                terminationGraceDeadline = System.currentTimeMillis() + terminationGraceMs
+            }
+            if (System.currentTimeMillis() >= terminationGraceDeadline) break
+        }
+        delay(250)
+        root = finishedTargetRoot()
+    }
+
+    if (root == null) {
+        if (handler != null && !handler.isProcessTerminated) {
+            handler.destroyProcess()
+        }
+        val matchingStarted = startedRoots.any(::matchesTarget)
+        printJson(
+            mapOf(
+                "status" to if (matchingStarted || handler == null || handler.isProcessTerminated) "check_failed" else "did_not_run",
+                "check_ran" to matchingStarted,
+                "configuration" to configurationName,
+                "exitCode" to handler?.exitCode,
+                "message" to if (matchingStarted) {
+                    "The matching SM test runner started but did not publish onTestingFinished before process exit or timeout."
+                } else {
+                    "No SM test-runner events were observed — this run configuration may not use the platform SM test runner."
+                },
+            )
+        )
+        return
+    }
+
+    val tests = root.allTests
+        .filterIsInstance<SMTestProxy>()
+        .filter { !it.isSuite }
+    val failed = tests.filter { it.isDefect }
+
+    printJson(
+        if (tests.isEmpty()) {
+            mapOf(
+                "status" to "did_not_run",
+                "check_ran" to true,
+                "configuration" to configurationName,
+                "exitCode" to handler?.exitCode,
+                "message" to "The matching SM test runner finished, but no test leaf events were observed.",
+            )
+        } else {
+            mapOf(
+                "status" to if (failed.isEmpty()) "passed" else "failed",
+                "check_ran" to true,
+                "configuration" to configurationName,
+                "exitCode" to handler?.exitCode,
+                "total" to tests.size,
+                "passed" to tests.count { it.isPassed },
+                "failed" to failed.size,
+                "ignored" to tests.count { it.isIgnored },
+                "durationMs" to root.duration,
+                "failuresShown" to failed.take(maxFailuresToPrint).map(::failurePayload),
+                "failureOutputTruncated" to (failed.size > maxFailuresToPrint),
+            )
+        }
+    )
+} finally {
+    connection.disconnect()
+}
+```
+
+###_END_IF_###
+
+Pitfalls in every IDE:
 - `SMTRunnerEventsListener.TEST_STATUS` is project-wide. Correlate each root's public
   `SMRootTestProxy.getHandler()` identity with the launched descriptor's process handler;
   otherwise a concurrent test run can complete your latch with the wrong result.
 - Do not unwrap `executionConsole` wrappers reflectively. Reflection is only for exploration in
   this repo's prompt corpus. The typed event listener above is the shipped recipe.
-- Remove the temporary run configuration in `finally`, otherwise repeated agent calls leave
-  stale Gradle configurations behind.
 - A massive failure log is not a useful structured result. Keep `failuresShown` and stack traces
   capped, and use `failureOutputTruncated=true` to signal that more failures exist.
 
 # See also
 
 - [Run Test at Caret](mcp-steroid://test/run-test-at-caret) - IDE-agnostic context-action test launch.
+- [List Run Configurations](mcp-steroid://test/list-run-configurations) - Enumerate existing run configurations by name and type.
 - [Inspect Test Results](mcp-steroid://test/inspect-test-results) - Inspect results from an existing run.
 - [Gradle Patterns](mcp-steroid://skill/execute-code-gradle) - Gradle run configuration patterns.
 - [Test Runner Skill Guide](mcp-steroid://prompt/test-skill) - General test runner workflow and pitfalls.
