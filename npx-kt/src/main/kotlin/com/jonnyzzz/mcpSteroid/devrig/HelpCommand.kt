@@ -16,7 +16,7 @@ fun printHelp(out: PrintStream) : Int {
     out.print(LIFECYCLE_COMMANDS)
     out.print(renderMcpToolsCliSection(devrigCliTools()))
     out.println()
-    out.print(GLOBAL_OPTIONS)
+    out.print(ENVIRONMENT_VARIABLES)
     return 0
 }
 
@@ -93,11 +93,14 @@ private val LIFECYCLE_COMMANDS =
 
     """.trimIndent() + "\n"
 
-private val GLOBAL_OPTIONS =
+/**
+ * The banner deliberately has no "options applicable to every mode" block of its own: `--debug`, `--json`
+ * and `--out` are all registered on [DevrigCliktCommand] and accepted everywhere, so they are documented
+ * once, together, in [renderMcpToolsCliSection]'s footer. Splitting them across two headings left one
+ * heading incomplete and the other understating its own scope.
+ */
+private val ENVIRONMENT_VARIABLES =
     """
-    Options applicable to every mode:
-      --debug                        enable verbose stderr logging (DEBUG)
-
     Environment variables:
       DEVRIG_JVM_OPTS                extra JVM options for the devrig launch (for example "-Xmx512m").
 

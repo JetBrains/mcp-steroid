@@ -4,6 +4,14 @@ package com.jonnyzzz.mcpSteroid.devrig
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.InputSchemaParamSpec
 
+/**
+ * Help for devrig's own `--debug`, stated once and read by both the option declaration and the footer.
+ * It names `DEVRIG_DEBUG` because that is the variable [devrigDebugEnvEnabled] actually reads; the banner
+ * used to carry a second, hand-written copy of this line naming a `DEBUG` variable that has never existed.
+ */
+const val DEVRIG_DEBUG_FLAG_HELP: String =
+    "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)"
+
 /** Help for devrig's own `--json`, stated once and read by both the option declaration and the footer. */
 const val DEVRIG_JSON_FLAG_HELP: String = "emit JSON output where supported"
 
@@ -31,7 +39,8 @@ fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
         appendToolBlock(tool)
         appendLine()
     }
-    appendLine("  Common CLI flags (devrig's own, accepted by every command above):")
+    appendLine("  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):")
+    appendLine("    --debug       $DEVRIG_DEBUG_FLAG_HELP")
     appendLine("    --json        $DEVRIG_JSON_FLAG_HELP")
     appendLine("    --out=<path>  $DEVRIG_OUT_FLAG_HELP")
     appendLine("    --project_name is inferred from the current directory when omitted.")
@@ -85,10 +94,21 @@ private fun StringBuilder.appendUsageLine(prefix: String, tokens: List<String>) 
  * The usage-line spelling of one parameter: a positional as `<name>`, a boolean switch as its bare flag, an
  * enum as `--flag=<a | b | c>`, anything else as `--flag=<name>`. A declared
  * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] is a second way to supply the SAME value, so it renders as an
- * alternation with the direct form — parenthesized when the tool requires the value (one of the two is then
- * mandatory, which is what `SchemaCliBinding` enforces), bracketed when it does not. Without a file source
- * the token is bracketed whenever the CLI treats the parameter as optional: not required, or required but
- * [InputSchemaParamSpec.cliOptional] because devrig can supply it (cwd-inferred `project_name`).
+ * alternation with the direct form.
+ *
+ * The two branches test requiredness differently, and deliberately, because the parser does too — each
+ * mirrors the rule that actually rejects the invocation:
+ *  - **without** a file source the CLI demands the parameter only when `required && !cliOptional`, which is
+ *    `SchemaCliBinding`'s own `cliRequired`; a cwd-inferred `project_name` is `required` yet never demanded,
+ *    so it is bracketed;
+ *  - **with** one, `SchemaCliBinding.parsed()` raises `MissingCliValue` on
+ *    `value == null && path == null && spec.required` — `cliOptional` does NOT weaken that, because a
+ *    required parameter offering a file source is `cliOptional` by construction (`ToolSchema.register`
+ *    enforces the pairing) purely so Clikt stops demanding the direct flag. One of the two spellings is
+ *    still mandatory, so the alternation is parenthesized on `required` alone.
+ *
+ * `CliFileSourceUsageTokenTest` pins that agreement by driving the real parser, so the day the binding
+ * changes which rule it enforces, the help does not quietly keep promising the old one.
  */
 private fun InputSchemaParamSpec.usageToken(): String {
     val values = enumValues

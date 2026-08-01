@@ -122,7 +122,11 @@ class DevrigCommandOutputTest {
     }
 
     @Test
-    fun `a lifecycle verb's --help prints devrig's curated banner and nothing else`() {
+    fun `a lifecycle verb's --help routes to printHelp, exactly once, on stdout`() {
+        // What this pins is ROUTING, not text: the expectation is computed by calling printHelp, so it
+        // says "the same thing printHelp produces, once, with nothing appended" and would hold even if
+        // printHelp emitted garbage. The banner's own wording is pinned literally, against no production
+        // call, in McpToolsCliHelpTest. Both matter: doubled output was a real defect on this branch.
         val args = arrayOf("backend", "--help")
         val exit = runCliForTest(parseDevrigCommand(args), *args)
 
@@ -132,7 +136,7 @@ class DevrigCommandOutputTest {
             .also { printHelp(PrintStream(it, true, Charsets.UTF_8)) }
             .toString(Charsets.UTF_8)
             .replace("\r\n", "\n")
-        assertEquals(curated, stdout(), "a lifecycle verb must print the curated banner verbatim")
+        assertEquals(curated, stdout(), "a lifecycle verb must print the banner once and add nothing")
     }
 
     @Test

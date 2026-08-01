@@ -56,12 +56,14 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `every tool block carries its own declared command synopsis`() {
-        val section = section()
         for (tool in visibleTools()) {
+            // Looked up inside the tool's OWN block: a section-wide search would confirm a synopsis
+            // rendered under the wrong tool, and would pick the wrong line if two tools ever shared one.
+            val block = blockOf(tool.cli.name)
             assertEquals(
                 "      ${tool.cli.synopsis}",
-                section.lines().firstOrNull { it.trim() == tool.cli.synopsis },
-                "the synopsis line of ${tool.cli.name} must be its declared cliSynopsis, indented six:\n$section",
+                block.lines().firstOrNull { it.trim() == tool.cli.synopsis },
+                "the synopsis line of ${tool.cli.name} must be its declared cliSynopsis, indented six:\n$block",
             )
         }
     }
@@ -153,13 +155,49 @@ class McpToolsCliHelpTest {
     @Test
     fun `the footer is exactly the framework-level facts that belong to no parameter`() {
         val expected =
-            "  Common CLI flags (devrig's own, accepted by every command above):\n" +
+            "  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):\n" +
+                "    --debug       $DEVRIG_DEBUG_FLAG_HELP\n" +
                 "    --json        $DEVRIG_JSON_FLAG_HELP\n" +
                 "    --out=<path>  $DEVRIG_OUT_FLAG_HELP\n" +
                 "    --project_name is inferred from the current directory when omitted.\n" +
                 "    Run `devrig <command> --help` for one command's full option list.\n"
 
         assertEquals(expected, section().substring(section().indexOf("  Common CLI flags")))
+    }
+
+    @Test
+    fun `each shared framework-flag help string is pinned literally`() {
+        // The footer pin above interpolates these constants, so it stays green through any rewording of
+        // them. That is the right call for the layout assertion — but it leaves the WORDING unpinned, and
+        // the wording is what carried the defect: the banner used to name a `DEBUG` env var that has never
+        // existed, while the only variable the code reads (`System.getenv("DEVRIG_DEBUG")`) is DEVRIG_DEBUG.
+        assertEquals(
+            "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)",
+            DEVRIG_DEBUG_FLAG_HELP,
+        )
+        assertEquals("emit JSON output where supported", DEVRIG_JSON_FLAG_HELP)
+        assertEquals(
+            "write the image the command returns to this path instead of the devrig temp dir",
+            DEVRIG_OUT_FLAG_HELP,
+        )
+    }
+
+    @Test
+    fun `the framework flags are documented under exactly one heading`() {
+        val help = globalHelp()
+        for (flag in listOf("--debug", "--json", "--out")) {
+            // A line that *documents* the flag opens with it; the flag may carry a metavar (`--out=<path>`).
+            val documented = help.lines().filter { line ->
+                val text = line.trimStart()
+                text.startsWith(flag) && (text.length == flag.length || text[flag.length] in " =")
+            }
+            assertEquals(1, documented.size, "$flag must be documented once, not split across headings:\n$help")
+        }
+        assertFalse(
+            "Options applicable to every mode:" in help,
+            "that heading listed only --debug while --json and --out apply just as widely; the footer " +
+                "now documents all three:\n$help",
+        )
     }
 
     @Test
@@ -193,12 +231,82 @@ class McpToolsCliHelpTest {
             "devrig backend provision [<id>] [--json]",
             "devrig install claude|codex|gemini [--check]",
             "devrig --version | -v",
-            "Options applicable to every mode:",
             "Environment variables:",
             "DEVRIG_JVM_OPTS",
         )) {
             assertTrue(marker in help, "curated banner lost '$marker':\n$help")
         }
         assertFalse("devrig mpc" in help, "the hidden mpc alias must stay unadvertised:\n$help")
+    }
+
+    @Test
+    fun `the banner is assembled from a literally-pinned head, the generated section, and a literal tail`() {
+        // The curated halves are spelled out here rather than recomputed from printHelp: an assertion that
+        // calls the thing it is checking pins the assembly but no text, and would pass if the banner
+        // emitted garbage. This diff re-indented both halves, which is exactly when that matters.
+        val head =
+            """
+            Usage:
+
+              devrig mcp                     run as an MCP stdio server,
+                                             register that setup in your coding agent
+
+              devrig backend [--json]        list discovered backends (with versions) and the
+                                             projects each one has open. `--json` emits a
+                                             single machine-readable object on stdout
+                                             (pipe through `jq`); default is human text.
+
+              devrig project [--json]        list open projects across discovered backends.
+                                             `--json` emits a single machine-readable
+                                             object on stdout; default is human text.
+
+              devrig install claude|codex|gemini [--check]
+                                             register this devrig binary as the
+                                             mcp-steroid stdio MCP server in the
+                                             selected coding agent. `--check` is a
+                                             read-only dry-run: it reports the current
+                                             registration, the changes install would
+                                             apply, and how many IDE backends with the
+                                             MCP Steroid plugin are reachable; exits 1
+                                             when install would change anything.
+
+              devrig backend download [<id>] [--version <v>] [--json]
+                                             no id → list IDEs available for download.
+                                             With id, download and install a managed
+                                             backend under the devrig home. Accepts
+                                             <product>, <product>:<version>, or
+                                             <product>-<version>.
+
+              devrig backend start    [<id>] [--version <v>] [--json]
+                                             no id → list installed backends. With id,
+                                             start an installed managed backend in
+                                             detached mode and print its pid/log/config
+                                             paths. Product-only id prefers the
+                                             highest locally installed backend.
+
+              devrig backend stop     [<id>] [--version <v>] [--json]
+                                             no id → list currently running backends.
+                                             With id, stop a managed backend by pid file.
+                                             Product-only id prefers the highest
+                                             locally installed backend.
+
+              devrig backend provision [<id>] [--json]
+                                             no id → list port-discovered IDEs that can be
+                                             provisioned. With id (for example port-63342),
+                                             print manual MCP Steroid plugin install
+                                             instructions for that IDE.
+              devrig --version | -v          print the devrig version and exit
+              devrig --help    | -h          print this help and exit
+
+            """.trimIndent() + "\n"
+        val tail =
+            """
+            Environment variables:
+              DEVRIG_JVM_OPTS                extra JVM options for the devrig launch (for example "-Xmx512m").
+
+
+            """.trimIndent() + "\n"
+
+        assertEquals(head + section() + "\n" + tail, globalHelp())
     }
 }

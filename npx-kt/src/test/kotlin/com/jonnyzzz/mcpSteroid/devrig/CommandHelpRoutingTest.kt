@@ -37,7 +37,11 @@ class CommandHelpRoutingTest {
 
     @Test
     fun `the short -h spelling reaches the same generated help`() {
-        assertEquals(help("execute_code", "-h").generatedHelp, help("execute_code", "--help").generatedHelp)
+        val short = help("execute_code", "-h").generatedHelp
+        // Not just "the two agree": two nulls agree, and null is exactly what the whole feature regressing
+        // looks like. Pin that there IS a text before comparing.
+        assertNotNull(short, "-h must produce generated help, not fall through to the curated banner")
+        assertEquals(short, help("execute_code", "--help").generatedHelp)
     }
 
     @Test
@@ -59,7 +63,9 @@ class CommandHelpRoutingTest {
 
     @Test
     fun `an alias reaches the help of the command it expands to`() {
-        assertEquals(help("fetch_resource", "--help").generatedHelp, help("prompt", "--help").generatedHelp)
+        val canonical = help("fetch_resource", "--help").generatedHelp
+        assertNotNull(canonical, "fetch_resource must produce generated help for the alias to match")
+        assertEquals(canonical, help("prompt", "--help").generatedHelp)
     }
 
     @Test

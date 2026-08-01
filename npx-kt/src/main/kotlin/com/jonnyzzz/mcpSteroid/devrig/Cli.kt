@@ -308,7 +308,7 @@ abstract class DevrigCliktCommand(
     invokeWithoutSubcommand = invokeWithoutSubcommand,
     hidden = hidden,
 ) {
-    private val debugFlag by option("--debug", help = "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)").flag()
+    private val debugFlag by option("--debug", help = DEVRIG_DEBUG_FLAG_HELP).flag()
     private val jsonFlag by option("--json", help = DEVRIG_JSON_FLAG_HELP).flag()
 
     /**
