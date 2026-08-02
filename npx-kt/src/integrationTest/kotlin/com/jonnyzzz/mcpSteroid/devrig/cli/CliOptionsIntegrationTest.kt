@@ -8,10 +8,14 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * End-to-end coverage of the **non-MCP** CLI surface — `--help`, `--version`, no-args, and unknown-arg
- * paths — driven through the real `installDist` launcher (`bin/devrig`).
+ * End-to-end coverage of the **non-MCP** CLI surface — `--help`, `--version`, no-args, unknown-arg paths,
+ * and the generated `devrig <tool>` subcommands issue #284 derives from tool metadata — driven through the
+ * real `installDist` launcher (`bin/devrig`).
  *
  * The launcher runs INSIDE the shared `mcp-cli` container ([DevrigCliContainer]), never on the host — a
  * host run would create the developer's real `~/.mcp-steroid` even for `--help`/`--version` (devrig
@@ -184,6 +188,84 @@ class CliOptionsIntegrationTest {
         assertTrue(r.stdout.contains("Usage:"), "got:\n${r.stdout}")
         assertTrue(!r.stdout.contains("No backends detected") && !r.stdout.contains("Discovered "),
             "help output must not include backend listing artifacts; got:\n${r.stdout}")
+    }
+
+    // ------------------------- generated MCP-tool subcommands (#284) -------------------------
+    //
+    // The schema-driven CLI turns every `steroid_*` tool into a `devrig <tool>` subcommand. Every defect
+    // found in it so far was found by hand-running the built binary — the generated help, the `--json`
+    // envelope and the parse-error path are all assembled at startup from tool metadata, so a unit test
+    // that calls the renderer proves the renderer and not the command a user types. These cases close that
+    // gap in the lane that already spawns the launcher.
+
+    @Test
+    fun `list_projects --json emits exactly one JSON document on stdout`() {
+        // The frozen `--json` contract. Parsing the WHOLE of stdout is the assertion: a second document, a
+        // banner line, or a progress line leaking off stderr would break every `devrig ... --json | jq`
+        // caller, and JSON parsing rejects trailing content after the first document. The container has no
+        // IDE, so the lister answers from an empty routing table and still exits 0.
+        val r = runLauncher("list_projects", "--json")
+
+        assertEquals(0, r.exitCode, "list_projects must exit 0 with no IDE; stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+        val envelope = Json.parseToJsonElement(r.stdout).jsonObject
+        assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals("false", envelope.getValue("isError").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `a generated subcommand's --help names the tool and its own declared flags`() {
+        val r = runLauncher("execute_code", "--help")
+
+        assertEquals(0, r.exitCode, "--help must win over the required parameters; stderr=\n${r.stderr}")
+        assertTrue(r.stdout.contains("execute_code"), "help must name the command; got:\n${r.stdout}")
+        for (flag in listOf("--project_name", "--code", "--code-file", "--task_id", "--reason", "--out")) {
+            assertTrue(flag in r.stdout, "execute_code --help must document $flag; got:\n${r.stdout}")
+        }
+        assertTrue(r.stderr.isBlank(), "--help must keep stderr clean; got:\n${r.stderr}")
+    }
+
+    @Test
+    fun `an unknown flag on a generated subcommand exits 64 with clean stdout`() {
+        val r = runLauncher("list_windows", "--bogus")
+
+        assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+        assertTrue(r.stdout.isBlank(), "a parse error must keep stdout clean; got:\n${r.stdout}")
+        assertTrue(r.stderr.contains("--bogus"), "stderr must echo the offending token; got:\n${r.stderr}")
+    }
+
+    @Test
+    fun `the global banner carries the generated MCP-tools section`() {
+        val r = runLauncher("--help")
+
+        assertTrue(
+            r.stdout.contains("MCP tools as CLI"),
+            "the banner must embed the generated section; got:\n${r.stdout}",
+        )
+        for (tool in listOf("devrig list_projects", "devrig execute_code", "devrig take_screenshot")) {
+            assertTrue(r.stdout.contains(tool), "the generated section must advertise `$tool`; got:\n${r.stdout}")
+        }
+    }
+
+    @Test
+    fun `an argument the tool refuses exits 64 and does not blame the backend`() {
+        // The regression that shipped: `project_name` is schema-required but not demanded by the parser, so
+        // this invocation reaches the tool, which refuses it. Before `GeneratedToolRuntime` grew a
+        // `ToolCallErrorException` arm the refusal fell into the catch-all and came out as exit 69 "Usually
+        // no IDE backend is reachable" — a diagnosis the CLI had no basis for, and a wrong one whenever an
+        // IDE was in fact running. Pinned here because it is only reachable end to end: the two tools that
+        // go all the way through declare no parameters, which is exactly how it escaped.
+        val r = runLauncher("execute_code", "--code=println(1)", "--task_id=t", "--reason=r")
+
+        assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+        assertTrue(r.stdout.isBlank(), "a CLI-level failure must keep stdout clean; got:\n${r.stdout}")
+        assertTrue(
+            r.stderr.contains("Parameter project_name of type string is required"),
+            "the tool's own refusal must reach the user; got:\n${r.stderr}",
+        )
+        assertTrue(
+            !r.stderr.contains("no IDE backend is reachable"),
+            "a refused argument says nothing about the backend; got:\n${r.stderr}",
+        )
     }
 
     private fun String.removeOptionalHeadliner(): String =
