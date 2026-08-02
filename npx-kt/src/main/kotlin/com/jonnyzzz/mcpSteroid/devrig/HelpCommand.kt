@@ -94,10 +94,11 @@ private val LIFECYCLE_COMMANDS =
     """.trimIndent() + "\n"
 
 /**
- * The banner deliberately has no "options applicable to every mode" block of its own: `--debug`, `--json`
- * and `--out` are all registered on [DevrigCliktCommand] and accepted everywhere, so they are documented
- * once, together, in [renderMcpToolsCliSection]'s footer. Splitting them across two headings left one
- * heading incomplete and the other understating its own scope.
+ * The banner deliberately has no "options applicable to every mode" block of its own: `--debug` and
+ * `--json` are registered on [DevrigCliktCommand] and accepted everywhere, `--out` on
+ * [DevrigToolCliktCommand] and accepted by the generated tool commands, and all three are documented once,
+ * each under its true scope, in [renderMcpToolsCliSection]'s footer. Splitting them across two headings
+ * left one heading incomplete and the other understating its own scope.
  */
 private val ENVIRONMENT_VARIABLES =
     """

@@ -30,9 +30,11 @@ private const val HELP_WIDTH = 100
  *
  * Per tool: a usage line naming every token the parser accepts, the tool's own command synopsis, then one
  * line per accepted flag carrying that flag's own declared synopsis. The trailing footer holds only the
- * facts that belong to no parameter: devrig's own framework flags. Nothing may be stated there that the
- * command line does not actually do — the footer once advertised a cwd inference of `project_name` that
- * no code performed.
+ * facts that belong to no parameter: devrig's own framework flags, split by the scope each one really has
+ * (`--debug`/`--json` everywhere, `--out` on the tool commands alone — see [DevrigToolCliktCommand]).
+ * Nothing may be stated there that the command line does not actually do — the footer once advertised a cwd
+ * inference of `project_name` that no code performed, and later listed `--out` as universal while every
+ * lifecycle verb ignored it.
  */
 fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
     appendLine("MCP tools as CLI (the same tools the `devrig mcp` server exposes, callable from a shell):")
@@ -44,6 +46,7 @@ fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
     appendLine("  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):")
     appendLine("    --debug       $DEVRIG_DEBUG_FLAG_HELP")
     appendLine("    --json        $DEVRIG_JSON_FLAG_HELP")
+    appendLine("  Accepted by the tool commands above only, the only commands whose result carries an image:")
     appendLine("    --out=<path>  $DEVRIG_OUT_FLAG_HELP")
     appendLine("    Run `devrig <command> --help` for one command's full option list.")
 }

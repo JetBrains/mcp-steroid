@@ -246,27 +246,37 @@ class SchemaToolCliCommandTest {
         assertTrue("--bogus" in error.text, "got:\n${error.text}")
     }
 
-    // ------------------------------- parse-error command name -------------------------------
+    // --------------------------- --out is scoped to the tool commands ---------------------------
 
     @Test
-    fun `a parse error names the generated command, its alias, or the unknown token`() {
-        assertEquals("list_windows", assertIs<DevrigCommand.DevrigCommandParseError>(parse("list_windows", "--bogus")).commandName)
-        assertEquals("prompt", assertIs<DevrigCommand.DevrigCommandParseError>(parse("prompt", "--bogus")).commandName)
-        assertEquals("backend", assertIs<DevrigCommand.DevrigCommandParseError>(parse("--json", "backend", "--bogus")).commandName)
-        assertEquals("frobnicate", assertIs<DevrigCommand.DevrigCommandParseError>(parse("frobnicate")).commandName)
-        assertEquals("devrig", assertIs<DevrigCommand.DevrigCommandParseError>(parse("--bogus")).commandName)
+    fun `--out is rejected on a lifecycle command, which can never honour it`() {
+        // `--out` redirects the image a tool RESULT carries, and no lifecycle verb returns a result at
+        // all. It used to be declared on the shared base class, so `devrig project --out=/tmp/x.png`
+        // parsed, exited 0, wrote nothing and said nothing. Declaring it only on the generated tool
+        // commands turns that into Clikt's own parse-time refusal — the same answer `--wait` gets, one
+        // phase earlier.
+        for (lifecycle in listOf("project", "backend", "version", "help")) {
+            val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+                parse(lifecycle, "--out=/tmp/x.png"),
+                "'devrig $lifecycle --out' must be refused, not silently accepted",
+            )
+            assertTrue("--out" in error.text, "the refusal must name the flag; got:\n${error.text}")
+        }
     }
 
     @Test
-    fun `command-name recovery knows every token the root accepts, tools included`() {
-        // Derived from the registered command tree, so a newly added tool cannot leave recovery stale.
-        val root = DevrigRootCommand(SelectedDevrigCommand())
-
-        val tokens = root.subcommandTokens()
-
-        for (name in visibleToolNames()) assertTrue(name in tokens, "'$name' missing from $tokens")
-        for (fixed in listOf("mcp", "mpc", "backend", "project", "install", "help", "version", "download")) {
-            assertTrue(fixed in tokens, "'$fixed' missing from $tokens")
-        }
+    fun `--out follows its tool command rather than preceding it`() {
+        // The accepted cost of scoping the declaration: the root no longer accepts `--out`, so it must be
+        // written after the command it applies to. Pinned so the narrowing is a decision and not a
+        // surprise.
+        assertEquals(
+            Path.of("/tmp/shot.png"),
+            assertIs<DevrigCommand.RunTool>(
+                parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png"),
+            ).out,
+        )
+        assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("--out=/tmp/shot.png", "take_screenshot", "--task_id=t1", "--reason=look"),
+        )
     }
 }

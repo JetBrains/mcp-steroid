@@ -155,10 +155,15 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `the footer is exactly the framework-level facts that belong to no parameter`() {
+        // Two headings, because the two scopes are genuinely different: `--debug` / `--json` are registered
+        // on DevrigCliktCommand and reach every verb, while `--out` is registered on
+        // DevrigToolCliktCommand and reaches the generated tool commands alone. One heading over all three
+        // is what let `devrig project --out=/tmp/x.png` be advertised, parse, and do nothing.
         val expected =
             "  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):\n" +
                 "    --debug       $DEVRIG_DEBUG_FLAG_HELP\n" +
                 "    --json        $DEVRIG_JSON_FLAG_HELP\n" +
+                "  Accepted by the tool commands above only, the only commands whose result carries an image:\n" +
                 "    --out=<path>  $DEVRIG_OUT_FLAG_HELP\n" +
                 "    Run `devrig <command> --help` for one command's full option list.\n"
 

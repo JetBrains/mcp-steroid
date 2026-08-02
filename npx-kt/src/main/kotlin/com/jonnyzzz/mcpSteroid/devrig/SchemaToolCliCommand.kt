@@ -55,7 +55,7 @@ class SchemaToolCliCommand(
     private val spec: CliToolSpec,
     selected: SelectedDevrigCommand,
     parent: DevrigCliktCommand?,
-) : DevrigCliktCommand(
+) : DevrigToolCliktCommand(
     name = spec.cli.name,
     selected = selected,
     parent = parent,
@@ -94,7 +94,7 @@ class SchemaToolCliCommand(
                 arguments = values.arguments,
                 fileSources = values.fileSources,
                 extraOptions = values.extraOptions,
-                out = options.out,
+                out = outPath(),
                 debug = options.debug,
                 json = options.json,
             )

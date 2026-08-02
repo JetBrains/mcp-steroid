@@ -169,10 +169,17 @@ sealed interface DevrigCommand {
         override val json: Boolean = false,
     ) : DevrigCommand
 
+    /**
+     * A usage failure Clikt raised while parsing. [text] is the whole rendered report — the message plus
+     * the usage banner — and it is all this carries: [runCli] prints it to stderr and answers 64, and
+     * `--json` deliberately emits no parse-error envelope (the failure precedes any command's options,
+     * `--json` among them, so there is no reliable way to know the caller wanted one). A `commandName`
+     * field lived here to populate that envelope, was read by nothing but its own test, and was recovered
+     * by scanning the raw tokens under an invariant — "every flag that may precede a subcommand is
+     * boolean" — that `--out` falsified. Reinstate it only together with the envelope that needs it.
+     */
     data class DevrigCommandParseError(
         val text: String,
-        /** The subcommand the invocation was aiming at (see [recoverCommandName]); `devrig` when none. */
-        val commandName: String = "devrig",
         override val debug: Boolean = false,
         override val json: Boolean = false,
     ) : DevrigCommand
@@ -188,14 +195,14 @@ fun parseDevrigCommand(rawArgs: Array<String>): DevrigCommand {
         // Help was asked for, by the eager `-h`/`--help` every command registers — except when
         // `error = true`, which is Clikt reporting a usage failure BY printing help, and stays a usage
         // failure here.
-        if (e.error) parseError(root, e, rawArgs)
+        if (e.error) parseError(root, e)
         else DevrigCommand.DevrigCommandHelp(
             debug = rawArgs.debugRequested(),
             json = rawArgs.jsonRequested(),
             generatedHelp = e.generatedToolHelp(),
         )
     } catch (e: CliktError) {
-        parseError(root, e, rawArgs)
+        parseError(root, e)
     }
 }
 
@@ -213,12 +220,10 @@ private fun PrintHelpMessage.generatedToolHelp(): String? =
 private fun parseError(
     root: DevrigRootCommand,
     e: CliktError,
-    rawArgs: Array<String>,
 ): DevrigCommand.DevrigCommandParseError {
     val reported = (e as? UsageError)?.withCuratedMissingHints() ?: e
     return DevrigCommand.DevrigCommandParseError(
         text = root.getFormattedHelp(reported) ?: reported.message ?: "Invalid arguments",
-        commandName = recoverCommandName(rawArgs, root.subcommandTokens()),
     )
 }
 
@@ -250,24 +255,6 @@ private fun UsageError.withCuratedMissingHints(command: SchemaToolCliCommand): U
 }
 
 /**
- * Every subcommand token the command tree accepts, at any depth, aliases included. Derived from what is
- * actually registered rather than from a written-down list, so a newly added tool cannot leave
- * [recoverCommandName] stale.
- */
-fun CliktCommand.subcommandTokens(): Set<String> =
-    aliases().keys + registeredSubcommands().flatMap { setOf(it.commandName) + it.subcommandTokens() }
-
-/**
- * The subcommand a failed invocation was aiming at. A [CliktError] aborts before any command's flags are
- * captured, so this reads the raw tokens: the first token that names a known subcommand ([tokens]), else
- * the first non-flag token (which covers an unknown command such as `devrig frobnicate`), else `devrig`
- * itself. Reliable because devrig's grammar is subcommand-first and every flag that may precede a
- * subcommand is boolean, so an option VALUE can never be mistaken for the command name.
- */
-fun recoverCommandName(rawArgs: Array<String>, tokens: Set<String>): String =
-    rawArgs.firstOrNull { it in tokens } ?: rawArgs.firstOrNull { !it.startsWith("-") } ?: "devrig"
-
-/**
  * `--debug` / `--json` read straight off the raw tokens. Needed only where no Clikt option delegate can be
  * read: an eager `--help` fires before the other options are finalized, and a parse failure can abort
  * before they are seen at all. Exact token matches are enough because both are boolean flags accepted at
@@ -291,8 +278,6 @@ class SelectedDevrigCommand {
 data class GenericOptions(
     val debug: Boolean,
     val json: Boolean,
-    /** The `--out` path, or null when the flag was not given; see [renderWithOut]. */
-    val out: Path?,
 )
 
 abstract class DevrigCliktCommand(
@@ -310,17 +295,6 @@ abstract class DevrigCliktCommand(
 ) {
     private val debugFlag by option("--debug", help = DEVRIG_DEBUG_FLAG_HELP).flag()
     private val jsonFlag by option("--json", help = DEVRIG_JSON_FLAG_HELP).flag()
-
-    /**
-     * A devrig framework flag, beside `--json`, accepted on every subcommand and never a tool parameter:
-     * it redirects the image a tool RESULT carries to a caller-chosen path. The behavior lives in
-     * [renderWithOut]; this is only the declaration.
-     */
-    private val outFlag by option(
-        "--out",
-        help = DEVRIG_OUT_FLAG_HELP,
-        metavar = "PATH",
-    ).path(canBeDir = false)
 
     init {
         context { helpOptionNames = emptySet() }
@@ -342,13 +316,43 @@ abstract class DevrigCliktCommand(
         return GenericOptions(
             debug = debugFlag || parentOptions?.debug == true || devrigDebugEnvEnabled(),
             json = jsonFlag || parentOptions?.json == true,
-            out = outFlag ?: parentOptions?.out,
         )
     }
 
     protected fun select(command: DevrigCommand) {
         selected.command = command
     }
+}
+
+/**
+ * The base of the GENERATED tool commands: a [DevrigCliktCommand] that also accepts `--out`.
+ *
+ * `--out` sits here and not on [DevrigCliktCommand] because it redirects the image a tool RESULT carries
+ * (the behavior is [renderWithOut]), and no lifecycle verb — `project`, `backend`, `install`, `help`,
+ * `version` — ever produces a result at all. Declared on the shared base it parsed everywhere and was read
+ * in one place, so `devrig project --out=/tmp/x.png` exited 0 having written nothing and said nothing.
+ * Accepting a flag and ignoring it is the outcome `requireNoUnhandledExtraOption` argues against for
+ * `--wait`, and the same answer applies: no flag may be accepted and silently dropped. The lever differs
+ * only because the ownership does — `--wait` is declared by a tool's own metadata that devrig cannot
+ * unilaterally withhold, so it can only be refused at runtime, whereas devrig owns this declaration and can
+ * simply not make it. Scoping it wins where it is available: the refusal is Clikt's own unknown-option
+ * error at parse time, and the help of a command that cannot honour `--out` stops listing it.
+ *
+ * The cost is that `--out` must now follow its command (`devrig take_screenshot --out=x`, not
+ * `devrig --out=x take_screenshot`), which is where it reads correctly anyway.
+ */
+abstract class DevrigToolCliktCommand(
+    name: String,
+    selected: SelectedDevrigCommand,
+    parent: DevrigCliktCommand?,
+    help: String,
+) : DevrigCliktCommand(name = name, selected = selected, parent = parent, help = help) {
+    // No `metavar`: `.path()` supplies its own and overwrites anything passed here, so a metavar argument
+    // is dead text that reads as if it were rendering the help it does not reach.
+    private val outFlag by option("--out", help = DEVRIG_OUT_FLAG_HELP).path(canBeDir = false)
+
+    /** The `--out` path, or null when the flag was not given; see [renderWithOut]. */
+    protected fun outPath(): Path? = outFlag
 }
 
 /**
