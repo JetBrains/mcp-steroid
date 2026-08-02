@@ -289,6 +289,73 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `a flag consumed as another option's value is a parse error, not a tool run`() {
+        // `--task_id --help`: Clikt reads `--help` as task_id's value, so the eager --help never fires and
+        // the tool would run with task_id = "--help". A value that spells a registered flag is refused before
+        // any tool call.
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("execute_code", "--task_id", "--help", "--reason=r", "--project_name=key", "--code=x"),
+        )
+
+        assertTrue("--help" in error.text, "the refusal must name the offending flag; got:\n${error.text}")
+    }
+
+    @Test
+    fun `a flag consumed as a file-source path is a parse error`() {
+        // `--code-file --help`: the path becomes "--help", which devrig would try to open. Same rule as a
+        // direct value — a registered flag is not a path.
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("execute_code", "--code-file", "--help", "--task_id=t", "--reason=r", "--project_name=key"),
+        )
+
+        assertTrue("--help" in error.text, "the refusal must name the offending flag; got:\n${error.text}")
+    }
+
+    @Test
+    fun `a blank required parameter is a parse error carrying the curated hint`() {
+        // `--task_id=` reaches the tool as an empty string and returns 0 today; now it is refused at parse
+        // time with task_id's own curated wording.
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("execute_code", "--task_id=", "--reason=r", "--project_name=key", "--code=x"),
+        )
+
+        assertTrue(
+            "Any string works".unwrapped() in error.text.unwrapped(),
+            "expected execute_code's curated task_id hint; got:\n${error.text}",
+        )
+    }
+
+    @Test
+    fun `a single-value parameter given twice is a parse error`() {
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("execute_code", "--task_id=a", "--task_id=b", "--reason=r", "--project_name=key", "--code=x"),
+        )
+
+        assertTrue("--task_id" in error.text, "the refusal must name the repeated flag; got:\n${error.text}")
+        assertTrue("single value".unwrapped() in error.text.unwrapped(), "got:\n${error.text}")
+    }
+
+    @Test
+    fun `a boolean flag and its negative spelling together is a parse error`() {
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("open_project", "--project_path=/tmp/p", "--task_id=t", "--reason=r", "--trust_project", "--no-trust_project"),
+        )
+
+        assertTrue("not both".unwrapped() in error.text.unwrapped(), "got:\n${error.text}")
+    }
+
+    @Test
+    fun `an attached value on a boolean flag is refused with the negative spelling as the fix`() {
+        // `--trust_project=false` only draws Clikt's "does not take a value"; the reworded error names
+        // `--no-trust_project`, the one spelling that actually sets it false.
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("open_project", "--project_path=/tmp/p", "--task_id=t", "--reason=r", "--trust_project=false"),
+        )
+
+        assertTrue("--no-trust_project" in error.text, "expected the negative spelling as the fix; got:\n${error.text}")
+    }
+
+    @Test
     fun `an unknown flag on a generated command is a parse error`() {
         val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("list_windows", "--bogus"))
 

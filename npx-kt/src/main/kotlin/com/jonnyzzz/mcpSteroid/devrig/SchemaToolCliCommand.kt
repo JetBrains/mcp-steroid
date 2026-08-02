@@ -1,9 +1,13 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.github.ajalt.clikt.core.UsageError
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.McpTool
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The one canonical list of tools devrig projects onto the command line: the SAME specs the `devrig mcp`
@@ -86,9 +90,13 @@ class SchemaToolCliCommand(
      */
     fun missingHintFor(paramName: String): String? = binding.paramFor(paramName)?.cliMissingHint
 
+    /** The `--no-<flag>` spelling of [paramName] when it names an optional boolean, else null; feeds A12's wording. */
+    fun negativeFlagFor(paramName: String): String? = binding.paramFor(paramName)?.negativeCliFlag
+
     override fun run() {
         val options = options()
         val values = binding.parsed()
+        rejectFlagLikeValues(values)
         select(
             DevrigCommand.RunTool(
                 toolName = spec.name,
@@ -101,5 +109,35 @@ class SchemaToolCliCommand(
                 json = options.json,
             )
         )
+    }
+
+    /**
+     * Rejects a parsed value that is actually one of this command's own flags. Given `--task_id --help`,
+     * Clikt reads `--help` as `--task_id`'s value and the tool would run with `task_id = "--help"`; given
+     * `--code-file --help` it would try to open a file named `--help`. A value (option, positional, or a
+     * file-source path) that spells a registered flag is far more likely a flag the caller meant to pass on
+     * its own than a literal value, so it fails as a usage error before any tool call — the flag they wanted
+     * never fired, and running the tool with it as data would hide the mistake.
+     */
+    private fun rejectFlagLikeValues(values: SchemaCliValues) {
+        val knownFlags = registeredOptions().flatMap { it.names + it.secondaryNames }.toSet()
+        fun reject(paramName: String, token: String): Nothing = throw UsageError(
+            "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
+                "A flag cannot be another option's value — pass a real value for '$paramName', " +
+                "and give '$token' on its own."
+        )
+        fun scan(paramName: String, element: JsonElement) {
+            val token = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return
+            if (token in knownFlags) reject(paramName, token)
+        }
+        for ((name, element) in values.arguments) {
+            when (element) {
+                is JsonArray -> element.forEach { scan(name, it) }
+                else -> scan(name, element)
+            }
+        }
+        for ((name, path) in values.fileSources) {
+            if (path in knownFlags) reject(name, path)
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
+import com.github.ajalt.clikt.core.IncorrectOptionValueCount
 import com.github.ajalt.clikt.core.MissingArgument
 import com.github.ajalt.clikt.core.MissingOption
 import com.github.ajalt.clikt.core.MultiUsageError
@@ -248,6 +249,16 @@ private fun UsageError.withCuratedMissingHints(): UsageError {
 private fun UsageError.withCuratedMissingHints(command: SchemaToolCliCommand): UsageError {
     if (this is MultiUsageError) {
         return MultiUsageError(errors.map { it.withCuratedMissingHints(command) }).also { it.context = context }
+    }
+    // `--trust_project=false` on an optional boolean is Clikt's IncorrectOptionValueCount ("takes no value"),
+    // which never mentions the one spelling that DOES set it false. Point the caller at the negative flag.
+    if (this is IncorrectOptionValueCount) {
+        val name = paramName ?: return this
+        val negative = command.negativeFlagFor(name) ?: return this
+        return UsageError(
+            "$name is a switch and takes no value; use $negative to set it false, or $name to set it true",
+            paramName = name,
+        ).also { it.context = context }
     }
     if (this !is MissingOption && this !is MissingArgument && this !is MissingCliValue) return this
     val name = paramName ?: return this

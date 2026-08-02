@@ -15,7 +15,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.nullableFlag
 import com.github.ajalt.clikt.parameters.options.option
-import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.options.transformAll
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
@@ -156,6 +156,13 @@ class SchemaCliBinding private constructor(
                 "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
                 paramName = spec.cliParamName,
             )
+            // A required string given as empty or whitespace (`--task_id=`) is present to Clikt but carries
+            // no value; treat it as the "no value at all" case so its cliMissingHint still reaches the user,
+            // rather than sending an empty task id to the tool and returning success.
+            if (spec.cliRequired && value.isBlankString()) throw MissingCliValue(
+                "'${spec.name}' must not be blank: pass a non-empty ${spec.cliParamName}",
+                paramName = spec.cliParamName,
+            )
             if (value != null) arguments[spec.name] = value
             if (path != null) fileSources[spec.name] = path
         }
@@ -273,7 +280,17 @@ private fun bindOption(command: CliktCommand, spec: InputSchemaParamSpec): () ->
         // a required boolean is demanded by `parsed()` instead. Because the pair exists, an absent value is
         // now distinguishable from a deliberate `false` (either spelling means "supplied explicitly"), so
         // the CLI can demand one of them rather than leaving it to a backend error.
+        // `nullableFlag` maps each occurrence to true (the primary spelling) or false (the negative) and
+        // keeps the last, so `--flag --no-flag` would silently resolve to whichever came last. `transformAll`
+        // sees every occurrence, so a caller who supplied both spellings is told they contradict rather than
+        // having the order decide it; absence still yields null (the third state) and one spelling still wins.
         val bound = command.option(spec.cliFlag, help = spec.cliSynopsis).nullableFlag(negativeFlag)
+            .transformAll { calls ->
+                if (calls.contains(true) && calls.contains(false)) fail(
+                    "give either ${spec.cliFlag} or $negativeFlag, not both"
+                )
+                calls.lastOrNull()
+            }
         command.registerOption(bound)
         return { bound.value?.let { JsonPrimitive(it) } }
     }
@@ -284,13 +301,18 @@ private fun bindOption(command: CliktCommand, spec: InputSchemaParamSpec): () ->
         command.registerOption(bound)
         return { bound.value.toJsonArrayOrNull() }
     }
-    if (required) {
-        val bound = typed.required()
-        command.registerOption(bound)
-        return { bound.value }
+    // A single-value option is bound with `.multiple()` so a repeat (`--task_id=a --task_id=b`) is rejected
+    // here rather than silently keeping the last; `.multiple(required)` preserves requiredness, still
+    // reporting the same MissingOption a bare `.required()` would when nothing is supplied.
+    val bound = typed.multiple(required = required)
+    command.registerOption(bound)
+    return {
+        if (bound.value.size > 1) throw UsageError(
+            "${spec.cliParamName} was given ${bound.value.size} times but takes a single value",
+            paramName = spec.cliParamName,
+        )
+        bound.value.singleOrNull()
     }
-    command.registerOption(typed)
-    return { typed.value }
 }
 
 private fun bindPositional(command: CliktCommand, spec: InputSchemaParamSpec): () -> JsonElement? {
@@ -426,6 +448,9 @@ val InputSchemaParamSpec.negativeCliFlag: String?
 
 /** An empty repetition means the flag never appeared, which must contribute no key at all. */
 private fun List<JsonPrimitive>.toJsonArrayOrNull(): JsonArray? = takeIf { it.isNotEmpty() }?.let { JsonArray(it) }
+
+/** A string value that is empty or whitespace only — supplied, yet carrying no usable value. */
+private fun JsonElement?.isBlankString(): Boolean = this is JsonPrimitive && isString && content.isBlank()
 
 /** The only spelling of a boolean value the CLI accepts, for a boolean inside an array or a positional. */
 private val BOOLEAN_CHOICES = arrayOf("true" to true, "false" to false)

@@ -380,6 +380,69 @@ class SchemaCliBindingTest {
     }
 
     @Test
+    fun `a blank required string is rejected as a missing value, keeping its curated hint`() {
+        // A present-but-empty required string (`--task_id=`) is no value at all: reported as MissingCliValue
+        // so its cliMissingHint still reaches the user, never sent on to the tool as an empty string.
+        val flag = param("task_id", "string", required = true).copy(cliMissingHint = "give a task id")
+
+        val command = BindingCommand(listOf(flag))
+        val error = assertFailsWith<MissingCliValue> { command.parse(listOf("--task_id=")) }
+
+        assertEquals("--task_id", error.paramName)
+        assertEquals("give a task id", command.binding.paramFor(error.paramName!!)?.cliMissingHint)
+    }
+
+    @Test
+    fun `a whitespace-only required string is blank too`() {
+        val flag = param("task_id", "string", required = true)
+
+        assertFailsWith<MissingCliValue> { BindingCommand(listOf(flag)).parse(listOf("--task_id=   ")) }
+    }
+
+    @Test
+    fun `a blank value for an optional string is left alone`() {
+        // Only a REQUIRED string may not be blank; an optional one keeps whatever it was given, empty or not.
+        val values = bind(listOf(param("note", "string")), "--note=")
+
+        assertEquals("", values.arguments["note"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a repeated single-value option is a usage error, not last-wins`() {
+        val error =
+            assertFailsWith<UsageError> { BindingCommand(listOf(param("who", "string"))).parse(listOf("--who=a", "--who=b")) }
+
+        assertTrue("--who" in error.message!!, error.message!!)
+        assertEquals("--who", error.paramName)
+    }
+
+    @Test
+    fun `a repeated required single-value option is a usage error`() {
+        val flag = param("who", "string", required = true)
+
+        assertFailsWith<UsageError> { BindingCommand(listOf(flag)).parse(listOf("--who=a", "--who=b")) }
+    }
+
+    @Test
+    fun `a single-value option given once still yields its value`() {
+        assertEquals("a", bind(listOf(param("who", "string")), "--who=a").arguments["who"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a boolean flag together with its negative spelling is a usage error`() {
+        // nullableFlag keeps the last occurrence, so `--trust_project --no-trust_project` would silently
+        // resolve to false; the two spellings contradict, so the CLI rejects the pair instead of ordering it.
+        val trust = toolParam(openProject(), "trust_project")
+
+        val error = assertFailsWith<UsageError> {
+            BindingCommand(listOf(trust)).parse(listOf("--trust_project", "--no-trust_project"))
+        }
+
+        assertTrue("--trust_project" in error.message!!, error.message!!)
+        assertTrue("--no-trust_project" in error.message!!, error.message!!)
+    }
+
+    @Test
     fun `absent optional values contribute no keys`() {
         val values = bind(listOf(param("who", "string"), param("timeout", "integer"), param("ratio", "number")))
 
