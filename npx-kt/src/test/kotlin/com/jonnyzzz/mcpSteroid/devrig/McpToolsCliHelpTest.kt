@@ -140,10 +140,30 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `a boolean switch, an optional flag and a tool-level extra all reach the usage line`() {
+        // The boolean renders as the pair `--trust_project / --no-trust_project`: `false` is reachable
+        // ONLY through the negative spelling, and a banner that named only `--trust_project` hid that half.
         assertTrue(
             "  devrig open_project --project_path=<project_path> --task_id=<task_id> --reason=<reason>\n" +
-                "                      [--trust_project] [--backend_name=<backend_name>] [--wait]\n" in section(),
-            "open_project's usage line must render its boolean, its optional flag and its --wait extra:\n${section()}",
+                "                      [--trust_project / --no-trust_project] [--backend_name=<backend_name>]\n" +
+                "                      [--wait]\n" in section(),
+            "open_project's usage line must render its boolean as a pair, its optional flag and --wait:\n${section()}",
+        )
+    }
+
+    @Test
+    fun `a boolean switch advertises its negative spelling in the banner`() {
+        // Regression A3: `--no-trust_project` is the only way to set the switch false, so the global banner
+        // — not just the per-command --help — must name it. The usage line carries the pair as one wrapped
+        // token; the per-flag detail column stays the bare `--trust_project` so the pair's width does not
+        // stretch the alignment column and push a long synopsis past HELP_WIDTH.
+        val block = blockOf("open_project")
+        assertTrue(
+            "[--trust_project / --no-trust_project]" in block,
+            "open_project's usage line must advertise the negative spelling of its boolean switch:\n$block",
+        )
+        assertNotNull(
+            block.detailLineFor("--trust_project"),
+            "the per-flag detail line stays the bare flag, aligned with its siblings:\n$block",
         )
     }
 

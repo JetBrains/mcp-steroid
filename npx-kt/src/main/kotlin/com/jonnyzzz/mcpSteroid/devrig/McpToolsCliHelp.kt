@@ -63,6 +63,10 @@ private fun StringBuilder.appendToolBlock(tool: CliToolSpec) {
             listOfNotNull(tool.cli.aliases.aliasNote()),
     )
     appendLine("      ${tool.cli.synopsis}")
+    // The per-flag detail line keeps the bare `cliFlag` as its aligned label: a boolean's `--flag / --no-flag`
+    // pair (36 columns for `--trust_project`) would pad every sibling line and push a long synopsis past
+    // HELP_WIDTH. The negative spelling is advertised on the usage line above (see [usageToken]), where it
+    // wraps as a whole token instead of stretching the alignment column.
     val entries = params.flatMap { param ->
         listOfNotNull(
             HelpEntry(if (param.cliPositional) "<${param.name}>" else param.cliFlag, param.cliSynopsis),
@@ -97,7 +101,8 @@ private fun StringBuilder.appendUsageLine(prefix: String, tokens: List<String>) 
 }
 
 /**
- * The usage-line spelling of one parameter: a positional as `<name>`, a boolean switch as its bare flag, an
+ * The usage-line spelling of one parameter: a positional as `<name>`, a boolean switch as the pair
+ * `--flag / --no-flag` (see [cliFlagLabel]), an
  * enum as `--flag=<a | b | c>`, anything else as `--flag=<name>`. A declared
  * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] is a second way to supply the SAME value, so it renders as an
  * alternation with the direct form.
@@ -120,7 +125,7 @@ private fun InputSchemaParamSpec.usageToken(): String {
     val values = enumValues
     val direct = when {
         cliPositional -> "<$name>"
-        type == "boolean" -> cliFlag
+        type == "boolean" -> cliFlagLabel
         values != null -> "$cliFlag=<${values.joinToString(" | ")}>"
         else -> "$cliFlag=<$name>"
     }
@@ -128,6 +133,14 @@ private fun InputSchemaParamSpec.usageToken(): String {
     val alternation = "$direct | ${fileSource.flag}=<path>"
     return if (required) "($alternation)" else "[$alternation]"
 }
+
+/**
+ * The flag spelling shown in help. A boolean switch is shown as the pair `--flag / --no-flag`, because
+ * `false` is reachable only through the negative spelling ([negativeCliFlag]); a banner that named only
+ * `--trust_project` hid that half of the switch. Every other parameter shows its single [cliFlag].
+ */
+private val InputSchemaParamSpec.cliFlagLabel: String
+    get() = negativeCliFlag?.let { "$cliFlag / $it" } ?: cliFlag
 
 /** `(alias: prompt)` / `(aliases: a, b)` for a tool that declares any, and null for one that does not. */
 private fun List<String>.aliasNote(): String? = when {

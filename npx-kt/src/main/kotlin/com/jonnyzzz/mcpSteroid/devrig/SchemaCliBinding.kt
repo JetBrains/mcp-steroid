@@ -417,8 +417,11 @@ private val InputSchemaParamSpec.cliParamName: String get() = if (cliPositional)
  * a flag's secondary name, so no metadata field has to exist for a single mechanical spelling. It is
  * built from [InputSchemaParamSpec.cliFlag] rather than [InputSchemaParamSpec.name] so an overridden flag
  * keeps its pair coherent; for the default flag (`--<name>`) the two are the same string.
+ *
+ * Public because the help renderer ([McpToolsCliHelp]) shows the pair too: a banner that listed only
+ * `--trust_project` hid the fact that `false` is reachable only through `--no-trust_project`.
  */
-private val InputSchemaParamSpec.negativeCliFlag: String?
+val InputSchemaParamSpec.negativeCliFlag: String?
     get() = if (type == "boolean" && !cliPositional) "--no-" + cliFlag.removePrefix("--") else null
 
 /** An empty repetition means the flag never appeared, which must contribute no key at all. */
