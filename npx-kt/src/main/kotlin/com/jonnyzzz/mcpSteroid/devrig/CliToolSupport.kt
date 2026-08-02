@@ -7,8 +7,10 @@ import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import java.io.IOException
 import java.io.PrintStream
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.Base64
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -174,11 +176,21 @@ fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
  *
  * When [outPath] is `null` (the flag was not passed) this delegates straight to [Presentation.render].
  *
- * The user explicitly asked for an image to be saved, so every failure to do that — no image in the
- * result, an undecodable payload, or a write failure — is [CliExit.DATA_ERROR] / [CliExit.IO_ERROR],
- * never a silent no-op: `devrig take_screenshot --out shot.png && open shot.png` must not report success
- * with `shot.png` absent. The accepted cost is that a caller who passes `--out` speculatively (on the
- * chance of a failure screenshot that may never materialize) now fails an otherwise-successful run.
+ * The user explicitly asked for an image to be saved, so every failure to do that on an OTHERWISE
+ * SUCCESSFUL run — no image in the result, an undecodable payload, or a write failure — is
+ * [CliExit.DATA_ERROR] / [CliExit.IO_ERROR], never a silent no-op: `devrig take_screenshot --out shot.png
+ * && open shot.png` must not report success with `shot.png` absent. The accepted cost is that a caller who
+ * passes `--out` speculatively (on the chance of a failure screenshot that may never materialize) now fails
+ * an otherwise-successful run.
+ *
+ * One exception: when the TOOL ITSELF failed and returned no image, the tool's own error is the real story,
+ * so `--out` steps aside and renders it verbatim rather than masking it with a "no image" [CliExit.DATA_ERROR].
+ * The user needs to read why the tool failed, not that a screenshot they never got wasn't saved.
+ *
+ * The chosen path is resolved to a single absolute, normalized [Path] (`..`/`.` segments collapsed) used for
+ * the parent-directory creation, the write, and the reported `savedOut` alike — one form, no drift. The write
+ * is atomic: the bytes land in a sibling temp file that is then moved onto the target, so a reader never sees
+ * a half-written image and an existing file is replaced only once the new bytes are fully on disk.
  *
  * The image that IS written is removed from the rendered content by identity (not "every image") so the
  * console and `--json` presentations agree: its bytes go to [outPath] and only its path is reported
@@ -195,10 +207,13 @@ fun renderWithOut(
     err: PrintStream = System.err,
 ): Int {
     if (outPath == null) return presentation.render(result, command, out, err)
+    val target = outPath.toAbsolutePath().normalize()
 
     val image = result.content.filterIsInstance<ContentItem.Image>().firstOrNull()
     if (image == null) {
-        val message = "--out was given but the $command result carries no image; nothing was written to $outPath"
+        // The tool failed and produced no image: its own error is what the user needs, not a --out miss.
+        if (result.isError) return presentation.render(result, command, out, err)
+        val message = "--out was given but the $command result carries no image; nothing was written to $target"
         return presentation.renderError(command, message, CliExit.DATA_ERROR, out, err)
     }
 
@@ -210,14 +225,14 @@ fun renderWithOut(
     }
 
     try {
-        outPath.toAbsolutePath().normalize().parent?.let { Files.createDirectories(it) }
-        Files.write(outPath, decoded)
+        target.parent?.let { Files.createDirectories(it) }
+        writeAtomically(target, decoded)
     } catch (e: IOException) {
-        val message = "failed to write --out to $outPath: ${e.message}"
+        val message = "failed to write --out to $target: ${e.message}"
         return presentation.renderError(command, message, CliExit.IO_ERROR, out, err)
     }
 
-    val savedOutPath = outPath.toAbsolutePath().toString()
+    val savedOutPath = target.toString()
     val remaining = result.content.filterNot { it === image }
     return when (presentation) {
         is Presentation.Json -> {
@@ -233,6 +248,35 @@ fun renderWithOut(
             val withNote = result.copy(content = remaining + ContentItem.Text("Saved --out: $savedOutPath"))
             presentation.render(withNote, command, out, err)
         }
+    }
+}
+
+/**
+ * Writes [bytes] to [target] so a reader never observes a partial file: the bytes go to a sibling temp file
+ * (same directory, hence the same filesystem, so the move need not copy) which is then moved onto [target],
+ * replacing any existing file in one step. An atomic move is preferred; a filesystem that cannot do one
+ * ([AtomicMoveNotSupportedException]) falls back to a plain replace, which is still whole-file — the temp is
+ * fully written before the move either way. On any failure the temp file is cleaned up before the
+ * [IOException] propagates, so a failed `--out` leaves nothing behind.
+ */
+private fun writeAtomically(target: Path, bytes: ByteArray) {
+    val dir = target.parent ?: target.fileSystem.getPath(".")
+    val temp = Files.createTempFile(dir, ".${target.fileName}.", ".part")
+    try {
+        Files.write(temp, bytes)
+        try {
+            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (e: AtomicMoveNotSupportedException) {
+            System.err.println("--out: atomic move unavailable on this filesystem, replacing $target directly: ${e.message}")
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
+        }
+    } catch (e: IOException) {
+        try {
+            Files.deleteIfExists(temp)
+        } catch (cleanup: IOException) {
+            System.err.println("--out: failed to remove temp file $temp after a write error: ${cleanup.message}")
+        }
+        throw e
     }
 }
 

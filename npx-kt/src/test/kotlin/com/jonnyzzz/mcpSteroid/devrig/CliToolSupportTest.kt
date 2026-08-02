@@ -388,27 +388,84 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `--out with no image in the result is a DATA_ERROR under --json, regardless of the tool result's own exit code`() {
+    fun `--out with no image on an otherwise-successful result is a DATA_ERROR under --json`() {
         val outPath = tempDir.resolve("x.png")
+        val out = CapturedStream()
+        val exit = renderWithOut(
+            Presentation.Json(),
+            textResult("all good, no dialog appeared", isError = false),
+            "execute_code",
+            outPath,
+            out.stream,
+        )
 
-        for (isError in listOf(false, true)) {
-            val out = CapturedStream()
-            val exit = renderWithOut(
-                Presentation.Json(),
-                textResult("all good, no dialog appeared", isError = isError),
-                "execute_code",
-                outPath,
-                out.stream,
-            )
+        // The user explicitly asked for an image and the tool succeeded without producing one: that unmet
+        // expectation is a DATA_ERROR, never a bare CliExit.OK that hides the missing file.
+        assertEquals(CliExit.DATA_ERROR, exit)
+        assertTrue(!Files.exists(outPath), "nothing should be written when there is no image")
+        val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.boolean)
+        assertTrue(firstTextOf(envelope.getValue("data").jsonObject.getValue("content")).contains("no image"))
+    }
 
-            // The user explicitly asked for an image; its absence is an unmet expectation regardless
-            // of whether the underlying tool call itself succeeded — never a bare CliExit.OK/TOOL_ERROR.
-            assertEquals(CliExit.DATA_ERROR, exit, "isError=$isError must not change a --out miss into anything but DATA_ERROR")
-            assertTrue(!Files.exists(outPath), "nothing should be written when there is no image")
-            val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
-            assertEquals(true, envelope.getValue("isError").jsonPrimitive.boolean)
-            assertTrue(firstTextOf(envelope.getValue("data").jsonObject.getValue("content")).contains("no image"))
-        }
+    @Test
+    fun `--out with no image but a failed tool result surfaces the tool's own error, not a --out miss`() {
+        // A14 (D7): when the tool itself FAILED and returned no image, its error is what the user needs.
+        // Masking it with "result carries no image" hides the message; --out must step aside and let the
+        // tool's own error render verbatim, at TOOL_ERROR rather than a --out DATA_ERROR.
+        val outPath = tempDir.resolve("x.png")
+        val out = CapturedStream()
+        val exit = renderWithOut(
+            Presentation.Json(),
+            textResult("compilation failed: unresolved reference foo", isError = true),
+            "execute_code",
+            outPath,
+            out.stream,
+        )
+
+        assertEquals(CliExit.TOOL_ERROR, exit)
+        assertTrue(!Files.exists(outPath), "nothing should be written when there is no image")
+        val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.boolean)
+        val text = firstTextOf(envelope.getValue("data").jsonObject.getValue("content"))
+        assertTrue("unresolved reference foo" in text, "the tool's own error must survive --out; got: $text")
+        assertTrue("no image" !in text, "the --out miss must not mask the tool error; got: $text")
+    }
+
+    @Test
+    fun `--out normalizes the saved path, collapsing dot-dot segments to a single absolute form`() {
+        // A14 (D12): the parent used for mkdir, the file written, and the reported savedOut are all one
+        // normalized path — a caller passing `sub/../ok.png` gets `ok.png`, never a savedOut carrying `..`.
+        val outPath = tempDir.resolve("sub/../ok.png")
+        val out = CapturedStream()
+        val bytes = byteArrayOf(4, 5, 6)
+
+        val exit = renderWithOut(Presentation.Json(), imageResult(bytes), "take_screenshot", outPath, out.stream)
+
+        assertEquals(CliExit.OK, exit)
+        val normalized = tempDir.resolve("ok.png").toAbsolutePath()
+        val savedOut = parseJson.parseToJsonElement(out.text()).jsonObject
+            .getValue("data").jsonObject.getValue("savedOut").jsonPrimitive.content
+        assertEquals(normalized.toString(), savedOut)
+        assertTrue(".." !in savedOut, "savedOut must be normalized: $savedOut")
+        assertTrue(bytes.contentEquals(Files.readAllBytes(normalized)), "the normalized target is the file actually written")
+        // The un-normalized `sub` segment must not be materialized as a spurious directory.
+        assertTrue(!Files.exists(tempDir.resolve("sub")), "no stray directory from the un-normalized parent")
+    }
+
+    @Test
+    fun `--out replaces an existing file atomically, leaving only the new bytes`() {
+        val outPath = tempDir.resolve("existing.png")
+        Files.write(outPath, byteArrayOf(0, 0, 0, 0))
+        val out = CapturedStream()
+        val newBytes = byteArrayOf(7, 8, 9)
+
+        val exit = renderWithOut(Presentation.Json(), imageResult(newBytes), "take_screenshot", outPath, out.stream)
+
+        assertEquals(CliExit.OK, exit)
+        assertTrue(newBytes.contentEquals(Files.readAllBytes(outPath)), "the atomic write must replace the existing file")
+        // The staging temp file must not survive a successful write.
+        assertEquals(listOf(outPath), tempDir.listDirectoryEntries())
     }
 
     @Test
@@ -445,8 +502,9 @@ class CliToolSupportTest {
 
     @Test
     fun `--out to an unwritable path is an IO_ERROR whose message reaches the caller exactly once`() {
-        // tempDir itself is a directory: Files.write onto it fails with IOException ("Is a directory"),
-        // a genuine write failure distinct from the undecodable-payload DATA_ERROR case above.
+        // tempDir itself is a directory: the atomic move that finishes the write cannot land a file onto an
+        // existing directory (rename fails EISDIR), a genuine write IOException distinct from the
+        // undecodable-payload DATA_ERROR case above.
         val jsonOut = CapturedStream()
         val jsonExit = renderWithOut(Presentation.Json(), imageResult(), "take_screenshot", tempDir, jsonOut.stream)
         assertEquals(CliExit.IO_ERROR, jsonExit)
