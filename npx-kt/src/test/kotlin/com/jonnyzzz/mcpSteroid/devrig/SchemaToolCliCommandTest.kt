@@ -61,10 +61,11 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `a parameter colliding with a devrig framework flag fails while the command is built`() {
-        // --json / --debug / --out are registered by the shared base class, so a parameter claiming one of
-        // those spellings would give Clikt two options of the same name and let one silently shadow the
-        // other. Constructing the real root (every test above) is what proves no tool does this today.
-        val spec = FakeToolSpec("steroid_clash", CliCommandSpec(name = "clash", synopsis = "s"))
+        // --json / --debug reach every tool command and --out reaches the image-producing ones, so a
+        // parameter claiming one of those spellings would give Clikt two options of the same name and let one
+        // silently shadow the other. Constructing the real root (every test above) is what proves no tool
+        // does this today. producesImage = true so --out is registered and the clash is reachable.
+        val spec = FakeToolSpec("steroid_clash", CliCommandSpec(name = "clash", synopsis = "s", producesImage = true))
         spec.schema.register(
             InputSchemaElement.param("out").description("d").cliSynopsis("collides with --out").string(),
         )
@@ -303,6 +304,34 @@ class SchemaToolCliCommandTest {
         )
         assertIs<DevrigCommand.DevrigCommandParseError>(
             parse("--out=/tmp/shot.png", "take_screenshot", "--task_id=t1", "--reason=look", "--project_name=key"),
+        )
+    }
+
+    @Test
+    fun `--out is rejected on a tool command whose result carries no image`() {
+        // A2: --out is scoped by CliCommandSpec.producesImage. Only take_screenshot and execute_code
+        // return an image, so every other tool command refuses --out as an unknown option at parse time,
+        // rather than accepting it and failing 65 "result carries no image" after a pointless tool call.
+        val nonImageTools =
+            listOf("list_projects", "list_windows", "open_project", "input", "fetch_resource", "execute_feedback")
+        for (tool in nonImageTools) {
+            val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+                parse(tool, "--out=/tmp/x.png"),
+                "'devrig $tool --out' must be refused: its result carries no image",
+            )
+            assertTrue("--out" in error.text, "the refusal must name the flag; got:\n${error.text}")
+        }
+    }
+
+    @Test
+    fun `--out is accepted on execute_code, the other command whose result can carry an image`() {
+        // The complement of the take_screenshot case above: execute_code also marks producesImage, so its
+        // command must declare --out too — a script's logImage or a dialog-failure screenshot fills it.
+        assertEquals(
+            Path.of("/tmp/x.png"),
+            assertIs<DevrigCommand.RunTool>(
+                parse("execute_code", "--project_name=key", "--code=x", "--task_id=t", "--reason=r", "--out=/tmp/x.png"),
+            ).out,
         )
     }
 }

@@ -161,12 +161,13 @@ fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
     if (json) Presentation.Json() else Presentation.Console(imageDir)
 
 /**
- * `--out` is a devrig CLI framework flag beside `--json`, accepted on every subcommand — never a tool
- * parameter. It redirects the FIRST returned image AFTER the tool call returns to a caller-chosen path
- * instead of [HomePaths.tmpDir]. It is not screenshot-only: `steroid_execute_code` also returns a PNG
- * (the modal-dialog failure screenshot) via `ExecutionManager.logImage`, so any tool's result may carry
- * one — and `execute_code` in particular can carry two (a `logImage` the script produced, plus a
- * dialog-failure screenshot), which is why only the image actually written is removed below.
+ * `--out` is a devrig CLI framework flag beside `--json`, but scoped: it is accepted only on the tool
+ * commands whose result can carry an image — `take_screenshot` and `execute_code`, the ones
+ * [com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.producesImage] marks (see [DevrigToolCliktCommand]) — and is
+ * never a tool parameter. It redirects the FIRST returned image AFTER the tool call returns to a
+ * caller-chosen path instead of [HomePaths.tmpDir]. It is not screenshot-only: `execute_code` also returns a
+ * PNG via `ExecutionManager.logImage` (a script's own `logImage`, or the modal-dialog failure screenshot),
+ * and in particular can carry two of them, which is why only the image actually written is removed below.
  *
  * Composes [Presentation.render] rather than living as a third [Presentation] member: a per-tool
  * rendering method on the shared interface is exactly the duplication [Presentation] exists to avoid.

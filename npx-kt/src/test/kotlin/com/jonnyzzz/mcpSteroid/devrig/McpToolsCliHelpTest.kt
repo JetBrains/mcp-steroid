@@ -128,11 +128,12 @@ class McpToolsCliHelpTest {
     fun `the usage line spells each parameter by its declared shape, wrapped at the help width`() {
         // execute_code covers every shape at once: a plain required parameter (project_name — un-bracketed,
         // the parser demands it), a required value reachable two ways (code / --code-file), plain required
-        // values, an optional number, an enum.
+        // values, an optional number, an enum, and — because its result can carry an image — the framework
+        // [--out=<path>] flag, which non-image commands do not render.
         val expected =
             "  devrig execute_code --project_name=<project_name> (--code=<code> | --code-file=<path>)\n" +
                 "                      --task_id=<task_id> --reason=<reason> [--timeout=<timeout>]\n" +
-                "                      [--modal=<smart_non_modal | non_modal | unleashed>]\n"
+                "                      [--modal=<smart_non_modal | non_modal | unleashed>] [--out=<path>]\n"
 
         assertTrue(expected in section(), "execute_code's usage line must render every declared shape:\n${section()}")
     }
@@ -158,13 +159,15 @@ class McpToolsCliHelpTest {
     fun `the footer is exactly the framework-level facts that belong to no parameter`() {
         // Two headings, because the two scopes are genuinely different: `--debug` / `--json` are registered
         // on DevrigCliktCommand and reach every verb, while `--out` is registered on
-        // DevrigToolCliktCommand and reaches the generated tool commands alone. One heading over all three
-        // is what let `devrig project --out=/tmp/x.png` be advertised, parse, and do nothing.
+        // DevrigToolCliktCommand and reaches only the tool commands whose result can carry an image
+        // (execute_code, take_screenshot — the CliCommandSpec.producesImage set). One heading over all three
+        // is what let `devrig project --out=/tmp/x.png` be advertised, parse, and do nothing; a heading over
+        // every tool command is what let `devrig list_projects --out=x` fail 65 after a pointless call.
         val expected =
             "  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):\n" +
                 "    --debug       $DEVRIG_DEBUG_FLAG_HELP\n" +
                 "    --json        $DEVRIG_JSON_FLAG_HELP\n" +
-                "  Accepted by the tool commands above only, the only commands whose result carries an image:\n" +
+                "  Accepted only by execute_code, take_screenshot — the commands whose result carries an image:\n" +
                 "    --out=<path>  $DEVRIG_OUT_FLAG_HELP\n" +
                 "    Run `devrig <command> --help` for one command's full option list.\n"
 

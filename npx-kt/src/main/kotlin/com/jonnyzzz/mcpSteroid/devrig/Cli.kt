@@ -325,18 +325,23 @@ abstract class DevrigCliktCommand(
 }
 
 /**
- * The base of the GENERATED tool commands: a [DevrigCliktCommand] that also accepts `--out`.
+ * The base of the GENERATED tool commands: a [DevrigCliktCommand] that accepts `--out` when — and only
+ * when — [acceptsOut] says this tool's result can carry an image.
  *
  * `--out` sits here and not on [DevrigCliktCommand] because it redirects the image a tool RESULT carries
  * (the behavior is [renderWithOut]), and no lifecycle verb — `project`, `backend`, `install`, `help`,
- * `version` — ever produces a result at all. Declared on the shared base it parsed everywhere and was read
- * in one place, so `devrig project --out=/tmp/x.png` exited 0 having written nothing and said nothing.
- * Accepting a flag and ignoring it is the outcome `requireNoUnhandledExtraOption` argues against for
- * `--wait`, and the same answer applies: no flag may be accepted and silently dropped. The lever differs
- * only because the ownership does — `--wait` is declared by a tool's own metadata that devrig cannot
- * unilaterally withhold, so it can only be refused at runtime, whereas devrig owns this declaration and can
- * simply not make it. Scoping it wins where it is available: the refusal is Clikt's own unknown-option
- * error at parse time, and the help of a command that cannot honour `--out` stops listing it.
+ * `version` — ever produces a result at all. But not every tool command produces an image either: only
+ * `take_screenshot` (always) and `execute_code` (a script's `logImage` or a dialog-failure screenshot) do,
+ * which is what [com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.producesImage] records. So the option is
+ * registered per command, gated on that flag, rather than declared once for everything: declared for all it
+ * parsed everywhere and was read in one place, so `devrig project --out=/tmp/x.png` (and `devrig
+ * list_projects --out=x`) exited having written nothing. Accepting a flag and ignoring it is the outcome
+ * `requireNoUnhandledExtraOption` argues against for `--wait`, and the same answer applies: no flag may be
+ * accepted and silently dropped. The lever differs only because the ownership does — `--wait` is declared by
+ * a tool's own metadata that devrig cannot unilaterally withhold, so it can only be refused at runtime,
+ * whereas devrig owns this declaration and can simply not make it. Scoping it wins where it is available: on
+ * a command that cannot honour `--out` the refusal is Clikt's own unknown-option error at parse time, and
+ * that command's `--help` stops listing it.
  *
  * The cost is that `--out` must now follow its command (`devrig take_screenshot --out=x`, not
  * `devrig --out=x take_screenshot`), which is where it reads correctly anyway.
@@ -346,13 +351,17 @@ abstract class DevrigToolCliktCommand(
     selected: SelectedDevrigCommand,
     parent: DevrigCliktCommand?,
     help: String,
+    acceptsOut: Boolean,
 ) : DevrigCliktCommand(name = name, selected = selected, parent = parent, help = help) {
     // No `metavar`: `.path()` supplies its own and overwrites anything passed here, so a metavar argument
-    // is dead text that reads as if it were rendering the help it does not reach.
-    private val outFlag by option("--out", help = DEVRIG_OUT_FLAG_HELP).path(canBeDir = false)
+    // is dead text that reads as if it were rendering the help it does not reach. Registered by hand
+    // (not `by`) so a non-image command declares no `--out` at all — Clikt then refuses it as unknown.
+    private val outFlag =
+        if (acceptsOut) option("--out", help = DEVRIG_OUT_FLAG_HELP).path(canBeDir = false).also { registerOption(it) }
+        else null
 
-    /** The `--out` path, or null when the flag was not given; see [renderWithOut]. */
-    protected fun outPath(): Path? = outFlag
+    /** The `--out` path, or null when the flag was not given or this command does not accept it; see [renderWithOut]. */
+    protected fun outPath(): Path? = outFlag?.value
 }
 
 /**

@@ -88,6 +88,12 @@ data class CliCommandSpec(
     val hidden: Boolean = false,
     /** Tool-scoped CLI options the CLI handles itself rather than passing to the tool; see [CliExtraOption]. */
     val extraOptions: List<CliExtraOption> = emptyList(),
+    /**
+     * Whether this tool's result can carry an image, and so whether the framework `--out` flag is offered
+     * on its subcommand. Only `take_screenshot` (always) and `execute_code` (a script's `logImage` or a
+     * dialog-failure screenshot) ever return an image; `--out` on any other command has nothing to write.
+     */
+    val producesImage: Boolean = false,
 )
 
 /** Derives the default CLI subcommand name from an MCP tool [toolName] by stripping the `steroid_` prefix. */
@@ -118,6 +124,12 @@ abstract class McpToolBase : CliToolSpec {
      */
     protected open val cliExtraOptions: List<CliExtraOption> get() = emptyList()
 
+    /**
+     * Whether this tool's result can carry an image, gating the framework `--out` flag on its subcommand;
+     * false by default. Overridden true only by the two tools whose result can hold a [ContentItem.Image].
+     */
+    protected open val cliProducesImage: Boolean get() = false
+
     override val cli: CliCommandSpec
         get() = CliCommandSpec(
             name = defaultCliName(name),
@@ -125,6 +137,7 @@ abstract class McpToolBase : CliToolSpec {
             aliases = cliAliases,
             hidden = cliHidden,
             extraOptions = cliExtraOptions,
+            producesImage = cliProducesImage,
         )
 }
 

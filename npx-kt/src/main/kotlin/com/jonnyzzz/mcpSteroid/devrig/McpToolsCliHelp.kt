@@ -46,7 +46,8 @@ fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
     appendLine("  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):")
     appendLine("    --debug       $DEVRIG_DEBUG_FLAG_HELP")
     appendLine("    --json        $DEVRIG_JSON_FLAG_HELP")
-    appendLine("  Accepted by the tool commands above only, the only commands whose result carries an image:")
+    val imageCommands = tools.filterNot { it.cli.hidden }.filter { it.cli.producesImage }.map { it.cli.name }
+    appendLine("  Accepted only by ${imageCommands.joinToString(", ")} — the commands whose result carries an image:")
     appendLine("    --out=<path>  $DEVRIG_OUT_FLAG_HELP")
     appendLine("    Run `devrig <command> --help` for one command's full option list.")
 }
@@ -58,6 +59,7 @@ private fun StringBuilder.appendToolBlock(tool: CliToolSpec) {
         prefix = "  devrig ${tool.cli.name}",
         tokens = params.map { it.usageToken() } +
             tool.cli.extraOptions.map { "[${it.flag}]" } +
+            listOfNotNull(if (tool.cli.producesImage) "[--out=<path>]" else null) +
             listOfNotNull(tool.cli.aliases.aliasNote()),
     )
     appendLine("      ${tool.cli.synopsis}")

@@ -35,6 +35,9 @@ class VisionScreenshotToolSpec(val handler: () -> VisionScreenshotToolHandler) :
     """.trimIndent()
     override val cliSynopsis = "capture a screenshot of the IDE"
 
+    /** Its result always carries the captured PNG, so `--out` can redirect it. */
+    override val cliProducesImage = true
+
     val projectName = CommonToolParams.projectName().registerToSchema()
 
     val taskId = CommonToolParams.taskId().registerToSchema()

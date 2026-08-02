@@ -90,6 +90,9 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
     override val description get() = ExecuteCodeToolDescriptionPromptArticle().readPayload(PromptsContext.Generic)
     override val cliSynopsis = "run a Kotlin script in the target IDE"
 
+    /** A script can return an image (`logImage`), and a modal-dialog failure attaches one, so `--out` applies. */
+    override val cliProducesImage = true
+
     val projectName = CommonToolParams.projectName().registerToSchema()
 
     // MCP callers must send code directly. The CLI also accepts it as a file (or stdin) via the

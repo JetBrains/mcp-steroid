@@ -95,6 +95,15 @@ class ToolSpecCliMetadataTest {
     }
 
     @Test
+    fun `only take_screenshot and execute_code mark their result as image-producing`() {
+        // producesImage gates the framework --out flag onto a subcommand. Exactly these two tools can return
+        // a ContentItem.Image (take_screenshot always; execute_code via a script's logImage or a
+        // dialog-failure screenshot); every other command must leave --out unregistered.
+        val imageProducing = devrigToolSpecsForTest().filter { it.cli.producesImage }.map { it.name }.toSet()
+        assertEquals(setOf("steroid_take_screenshot", "steroid_execute_code"), imageProducing)
+    }
+
+    @Test
     fun `execute_code code is CLI-optional but remains MCP-required`() {
         val code = executeCode.schema.asCliParams().single { it.name == "code" }
         assertTrue(code.cliOptional)

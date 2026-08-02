@@ -62,6 +62,8 @@ class SchemaToolCliCommand(
     // The tool's own one-line synopsis heads `devrig <tool> --help` and labels the command in the root
     // command's subcommand list — the same declared text the generated global section renders.
     help = spec.cli.synopsis,
+    // Only a tool whose result can carry an image gets `--out`; the rest refuse it as an unknown option.
+    acceptsOut = spec.cli.producesImage,
 ) {
     private val binding = SchemaCliBinding.bind(this, spec)
 
