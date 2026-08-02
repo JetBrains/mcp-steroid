@@ -119,6 +119,28 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `two tools declaring the same alias fail loudly instead of silently collapsing`() {
+        // Building the alias map with a plain `.toMap()` would keep the last pair for a duplicated key, so
+        // the alias would resolve to whichever tool the factory listed last and the downstream uniqueness
+        // check (over `aliases().keys`) would never see two keys to reject. The guard fires on the pair list.
+        val first = FakeToolSpec("steroid_first", CliCommandSpec(name = "first", synopsis = "s", aliases = listOf("dup")))
+        val second =
+            FakeToolSpec("steroid_second", CliCommandSpec(name = "second", synopsis = "s", aliases = listOf("dup")))
+
+        val error = assertFailsWith<IllegalArgumentException> { toolAliasMap(listOf(first, second)) }
+
+        assertTrue("dup" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `distinct aliases map each to its own canonical command`() {
+        val first = FakeToolSpec("steroid_first", CliCommandSpec(name = "first", synopsis = "s", aliases = listOf("a")))
+        val second = FakeToolSpec("steroid_second", CliCommandSpec(name = "second", synopsis = "s", aliases = listOf("b")))
+
+        assertEquals(mapOf("a" to listOf("first"), "b" to listOf("second")), toolAliasMap(listOf(first, second)))
+    }
+
+    @Test
     fun `the alias token declared in the metadata selects the canonical tool`() {
         val aliased = devrigCliTools().filterNot { it.cli.hidden }.filter { it.cli.aliases.isNotEmpty() }
         assertTrue(aliased.isNotEmpty(), "expected at least one tool to declare a CLI alias")

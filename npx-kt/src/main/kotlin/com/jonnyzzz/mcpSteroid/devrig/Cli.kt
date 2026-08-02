@@ -18,6 +18,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
+import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import java.nio.file.Path
 import kotlinx.serialization.json.JsonObject
 
@@ -365,6 +366,22 @@ abstract class DevrigToolCliktCommand(
 }
 
 /**
+ * The alias-token → canonical-command map the visible tools declare, with a fail-fast guard on a collapse
+ * that `toMap()` alone would hide: two tools declaring the SAME alias yield two pairs sharing one key, and
+ * `toMap()` silently keeps the last, so the alias would resolve to whichever tool the factory happened to
+ * list last and the uniqueness check downstream (`aliases().keys`) would never see the duplicate. Detecting
+ * it on the pair LIST — before the map exists — turns that into a loud construction-time failure instead.
+ */
+fun toolAliasMap(tools: List<CliToolSpec>): Map<String, List<String>> {
+    val pairs = tools
+        .filterNot { it.cli.hidden }
+        .flatMap { spec -> spec.cli.aliases.map { alias -> alias to spec.cli.name } }
+    val duplicates = pairs.map { it.first }.groupBy { it }.filterValues { it.size > 1 }.keys
+    require(duplicates.isEmpty()) { "devrig tool alias(es) declared by more than one tool: $duplicates" }
+    return pairs.associate { (alias, name) -> alias to listOf(name) }
+}
+
+/**
  * devrig's root command. Its subcommands are the hand-written lifecycle verbs plus ONE generated command
  * per CLI-visible `steroid_*` tool ([schemaToolCliCommands]): adding a tool to `devrigToolSpecs(...)` adds
  * its `devrig <tool>` subcommand here — no command class, no dispatch arm, no name list.
@@ -409,10 +426,7 @@ class DevrigRootCommand(
      * generated command, so there is exactly one grammar per tool and an alias cannot drift into a second
      * one of its own.
      */
-    override fun aliases(): Map<String, List<String>> = tools
-        .filterNot { it.cli.hidden }
-        .flatMap { spec -> spec.cli.aliases.map { alias -> alias to listOf(spec.cli.name) } }
-        .toMap()
+    override fun aliases(): Map<String, List<String>> = toolAliasMap(tools)
 
     override fun run() {
         val options = options()
