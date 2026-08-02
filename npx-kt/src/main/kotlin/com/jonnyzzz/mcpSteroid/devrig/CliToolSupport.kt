@@ -23,14 +23,16 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * Shared rendering, exit-code, and progress-reporting plumbing for `devrig` subcommands that call
- * through to an existing MCP tool — both the manual, bespoke commands that exist today (`project`,
- * `backend`, `install`) and, once wired up, the tool-backed commands issue #284's schema-driven CLI
- * generates one per `steroid_*` tool. It factors out only the parts every such command repeats:
- * rendering a [ToolCallResult] to stdout/stderr, a stable `--json` envelope, meaningful exit codes
- * ([CliExit]), and progress plumbing ([stderrProgressReporter]). The tool behavior itself always
- * lives behind the existing bridge handlers (single source of truth); this file never reimplements
- * it, only presents the result.
+ * Shared rendering, exit-code and progress-reporting plumbing for the GENERATED tool commands — the one
+ * `devrig <tool>` subcommand issue #284's schema-driven CLI derives per `steroid_*` tool. Those are its
+ * only callers ([GeneratedToolRuntime] and, for [CliExit], `Main.kt`'s last-resort handler): the
+ * hand-written lifecycle verbs (`project`, `backend`, `install`) call no tool, produce no
+ * [ToolCallResult], and hand-roll their own JSON, as [cliEnvelopeJson] below already records.
+ *
+ * It factors out only the parts every generated command repeats: rendering a [ToolCallResult] to
+ * stdout/stderr, a stable `--json` envelope, meaningful exit codes ([CliExit]), and progress plumbing
+ * ([stderrProgressReporter]). The tool behavior itself always lives behind the existing bridge handlers
+ * (single source of truth); this file never reimplements it, only presents the result.
  */
 
 /** Stable process exit codes shared by tool-backed commands. */
