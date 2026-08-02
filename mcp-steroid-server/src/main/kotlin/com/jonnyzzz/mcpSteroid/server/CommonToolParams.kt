@@ -17,7 +17,9 @@ import com.jonnyzzz.mcpSteroid.mcp.string
 object CommonToolParams {
     /**
      * Required `project_name` used to dispatch a tool call to an already-open IDE project.
-     * MCP-required, but CLI-optional because devrig can infer it from the current directory.
+     * MCP-required, but CLI-optional so devrig can eventually infer it from the current directory —
+     * the resolver exists (`server/CwdProjectResolver.kt`) but nothing calls it yet, so omitting the
+     * flag today reaches the backend without it and fails there. Tracked in `TODO.md`.
      */
     fun projectName() =
         InputSchemaElement.param("project_name")

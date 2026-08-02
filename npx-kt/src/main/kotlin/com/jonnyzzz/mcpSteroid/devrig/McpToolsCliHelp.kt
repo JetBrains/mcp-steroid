@@ -30,7 +30,9 @@ private const val HELP_WIDTH = 100
  *
  * Per tool: a usage line naming every token the parser accepts, the tool's own command synopsis, then one
  * line per accepted flag carrying that flag's own declared synopsis. The trailing footer holds only the
- * facts that belong to no parameter — devrig's framework flags and the cwd inference of `project_name`.
+ * facts that belong to no parameter: devrig's own framework flags. Nothing may be stated there that the
+ * command line does not actually do — the footer once advertised a cwd inference of `project_name` that
+ * no code performed.
  */
 fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
     appendLine("MCP tools as CLI (the same tools the `devrig mcp` server exposes, callable from a shell):")
@@ -43,7 +45,6 @@ fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
     appendLine("    --debug       $DEVRIG_DEBUG_FLAG_HELP")
     appendLine("    --json        $DEVRIG_JSON_FLAG_HELP")
     appendLine("    --out=<path>  $DEVRIG_OUT_FLAG_HELP")
-    appendLine("    --project_name is inferred from the current directory when omitted.")
     appendLine("    Run `devrig <command> --help` for one command's full option list.")
 }
 
@@ -99,8 +100,8 @@ private fun StringBuilder.appendUsageLine(prefix: String, tokens: List<String>) 
  * The two branches test requiredness differently, and deliberately, because the parser does too — each
  * mirrors the rule that actually rejects the invocation:
  *  - **without** a file source the CLI demands the parameter only when `required && !cliOptional`, which is
- *    `SchemaCliBinding`'s own `cliRequired`; a cwd-inferred `project_name` is `required` yet never demanded,
- *    so it is bracketed;
+ *    `SchemaCliBinding`'s own `cliRequired`; `project_name` is `required` yet `cliOptional`, so the parser
+ *    never demands it and the usage line brackets it;
  *  - **with** one, `SchemaCliBinding.parsed()` raises `MissingCliValue` on
  *    `value == null && path == null && spec.required` — `cliOptional` does NOT weaken that, because a
  *    required parameter offering a file source is `cliOptional` by construction (`ToolSchema.register`

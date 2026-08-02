@@ -125,8 +125,8 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `the usage line spells each parameter by its declared shape, wrapped at the help width`() {
-        // execute_code covers every shape at once: a cwd-inferred optional (project_name), a required value
-        // reachable two ways (code / --code-file), plain required values, an optional number and an enum.
+        // execute_code covers every shape at once: a `cliOptional` parameter (project_name), a required
+        // value reachable two ways (code / --code-file), plain required values, an optional number, an enum.
         val expected =
             "  devrig execute_code [--project_name=<project_name>] (--code=<code> | --code-file=<path>)\n" +
                 "                      --task_id=<task_id> --reason=<reason> [--timeout=<timeout>]\n" +
@@ -159,10 +159,34 @@ class McpToolsCliHelpTest {
                 "    --debug       $DEVRIG_DEBUG_FLAG_HELP\n" +
                 "    --json        $DEVRIG_JSON_FLAG_HELP\n" +
                 "    --out=<path>  $DEVRIG_OUT_FLAG_HELP\n" +
-                "    --project_name is inferred from the current directory when omitted.\n" +
                 "    Run `devrig <command> --help` for one command's full option list.\n"
 
         assertEquals(expected, section().substring(section().indexOf("  Common CLI flags")))
+    }
+
+    @Test
+    fun `the footer promises no cwd inference, because nothing infers project_name`() {
+        // The footer used to state "--project_name is inferred from the current directory when omitted."
+        // Nothing performs that inference: `resolveProjectFromCwd` has no production caller, so
+        // `devrig execute_code` run from inside an open project without `--project_name` reaches the
+        // backend with the parameter absent and fails ("Parameter project_name of type string is
+        // required"), pointing at an unreachable backend that is in fact reachable.
+        //
+        // Both halves are asserted together on purpose. The first alone would be a wording pin; the
+        // second pins the BEHAVIOUR the sentence described, so whoever implements the inference breaks
+        // this test and has to restore the sentence in the same commit — which is exactly the coupling
+        // whose absence let the help and the runtime drift apart.
+        assertFalse(
+            "inferred from the current directory" in section(),
+            "the footer must not promise an inference the CLI does not perform:\n${section()}",
+        )
+
+        val parsed = parseRunTool("execute_code", "--code=x", "--task_id=t", "--reason=r")
+        assertFalse(
+            "project_name" in parsed.arguments,
+            "nothing fills project_name from the cwd today; if that changed, restore the footer line " +
+                "documenting it. Parsed arguments were: ${parsed.arguments}",
+        )
     }
 
     @Test
