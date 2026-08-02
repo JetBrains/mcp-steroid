@@ -192,34 +192,17 @@ class CliErrorEnvelopeTest {
 
     @Test
     fun `an unreachable backend exits 69`() {
-        val run = failing { throw IllegalStateException("Connection refused: no IDE is running") }
+        // A refused bridge connection surfaces as an IOException — the one failure the frozen table maps to
+        // UNAVAILABLE. The catch arm is scoped to IOException precisely so this stays the ONLY thing reported
+        // as an unreachable IDE; a non-IO fault propagates instead (see the propagation test below).
+        val run = failing { throw IOException("Connection refused: no IDE is running") }
 
         assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
         run.assertIsErrorEnvelope("list_windows")
         assertEquals(
-            "devrig list_windows did not complete: Connection refused: no IDE is running " +
-                "(IllegalStateException). Usually no IDE backend is reachable — check `devrig project`.",
+            "devrig list_windows did not complete: no IDE backend is reachable " +
+                "(IOException: Connection refused: no IDE is running) — check `devrig project`.",
             run.errorMessage(),
-        )
-    }
-
-    @Test
-    fun `the catch-all does not blame the backend for a fault it cannot diagnose`() {
-        // This arm answers 69 for two unlike things — no reachable IDE, and a genuine devrig/handler bug —
-        // because the frozen table has no internal-error code. So the wording must not ASSERT the cause: an
-        // NPE inside a handler must not be reported to the user as a fault in their IDE. The exception type
-        // is what lets whoever reads it tell the two apart, so it is part of the message.
-        val run = failing { throw NullPointerException("windows was null") }
-
-        assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
-        assertEquals(
-            "devrig list_windows did not complete: windows was null (NullPointerException). " +
-                "Usually no IDE backend is reachable — check `devrig project`.",
-            run.errorMessage(),
-        )
-        assertTrue(
-            "failed to reach a backend" !in run.errorMessage(),
-            "the message must not assert a cause it cannot know; got: ${run.errorMessage()}",
         )
     }
 
@@ -232,10 +215,24 @@ class CliErrorEnvelopeTest {
 
         assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
         assertEquals(
-            "devrig list_windows did not complete: Connect timeout has expired (IOException). " +
-                "Usually no IDE backend is reachable — check `devrig project`.",
+            "devrig list_windows did not complete: no IDE backend is reachable " +
+                "(IOException: Connect timeout has expired) — check `devrig project`.",
             run.errorMessage(),
         )
+    }
+
+    // ------------------- internal faults propagate, they are not mapped to 69 -------------------
+
+    @Test
+    fun `an internal fault propagates instead of being reported as an unreachable IDE`() {
+        // The catch arm used to be `catch (e: Exception)`, so a genuine devrig/handler bug — an NPE, a
+        // broken invariant — was mapped to UNAVAILABLE: the user was told to check their IDE for a devrig
+        // bug, and the stack trace was discarded. The arm is now scoped to IOException; every other
+        // throwable propagates out of the dispatcher to `runCliWithLastResortHandling` (Main.kt), which
+        // prints the trace and returns the last-resort code. This proves it leaves the dispatcher rather
+        // than being swallowed; the last-resort mapping itself is pinned by LastResortCrashHandlerTest.
+        assertFailsWith<NullPointerException> { failing { throw NullPointerException("windows was null") } }
+        assertFailsWith<IllegalStateException> { failing { throw IllegalStateException("broken invariant") } }
     }
 
     // ------------------------------------- 1 TOOL_ERROR -------------------------------------
@@ -326,7 +323,7 @@ class CliErrorEnvelopeTest {
         val run = runGeneratedToolForTest(
             home,
             parseRunTool("list_windows"),
-            listWindowsFailing { throw IllegalStateException("Connection refused") },
+            listWindowsFailing { throw IOException("Connection refused") },
         )
 
         assertEquals(CliExit.UNAVAILABLE, run.exit)

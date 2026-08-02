@@ -47,8 +47,14 @@ class CliInputException(message: String, val exit: Int) : RuntimeException(messa
  * | an unreadable or absent file source | [CliExit.IO_ERROR] 74 |
  * | a malformed path, an empty standard input, an argument the CLI or the TOOL rejects, an unknown `project_name` | [CliExit.USAGE] 64 |
  * | unusable data from the backend (an undecodable payload, a malformed response) | [CliExit.DATA_ERROR] 65 |
- * | any other failure reaching the tool — no IDE running, a refused connection, a timeout | [CliExit.UNAVAILABLE] 69 |
+ * | an [IOException] reaching the tool — no IDE running, a refused connection, a timeout | [CliExit.UNAVAILABLE] 69 |
  * | the tool answered with `isError=true` | [CliExit.TOOL_ERROR] 1 |
+ *
+ * Any OTHER throwable — an internal devrig or handler fault such as an NPE or a broken invariant — is
+ * deliberately NOT in that table and is not caught here: it is not an unreachable IDE, and mapping it to
+ * UNAVAILABLE once both blamed the caller's IDE for a devrig bug and discarded the stack trace. Such a
+ * throwable propagates to [runCliWithLastResortHandling] in `Main.kt`, which prints the trace (even under
+ * `--json`, where stdout stays a clean envelope) and returns the last-resort code.
  *
  * `--out` is absent from that table on purpose: a `--out` failure happens while RENDERING a result the
  * tool already returned, so it is classified by [renderWithOut] instead — see the comment above the final
@@ -118,17 +124,18 @@ fun DevrigServices.runGeneratedToolCommand(
         return presentation.renderError(
             command.commandName, "devrig ${command.commandName}: ${e.message}", CliExit.USAGE, mcpStdout,
         )
-    } catch (e: Exception) {
-        // The catch-all covers two unlike things: no reachable backend (the common case — an IOException is
-        // how a refused connection surfaces, so it must NOT be read here as a filesystem failure) and a
-        // genuine fault inside devrig or a handler, such as an NPE. The frozen table has no internal-error
-        // code, so both must answer UNAVAILABLE; what this message must therefore NOT do is assert the
-        // cause, or a devrig bug would be reported to the user as a fault in their IDE. The exception's own
-        // type is included because it is the one thing that distinguishes the two for whoever reads it.
+    } catch (e: IOException) {
+        // The one failure the frozen table maps to UNAVAILABLE: no reachable backend. A refused bridge
+        // connection, a dropped socket and a read timeout all surface as an IOException and all mean the
+        // same thing to the caller — no IDE answered. This arm deliberately catches IOException and NOT
+        // Exception: a genuine fault inside devrig or a handler (an NPE, a broken invariant) is not an
+        // unreachable IDE. Mapping it to 69 here used to blame the caller's IDE for a devrig bug and hide
+        // the trace; it now propagates to `runCliWithLastResortHandling`, which prints the trace and
+        // returns the last-resort code (see the KDoc above).
         return presentation.renderError(
             command.commandName,
-            "devrig ${command.commandName} did not complete: ${e.message} (${e.javaClass.simpleName}). " +
-                "Usually no IDE backend is reachable — check `devrig project`.",
+            "devrig ${command.commandName} did not complete: no IDE backend is reachable " +
+                "(${e.javaClass.simpleName}: ${e.message}) — check `devrig project`.",
             CliExit.UNAVAILABLE, mcpStdout,
         )
     }
