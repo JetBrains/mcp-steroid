@@ -97,19 +97,23 @@ private fun StringBuilder.appendUsageLine(prefix: String, tokens: List<String>) 
  * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] is a second way to supply the SAME value, so it renders as an
  * alternation with the direct form.
  *
- * The two branches test requiredness differently, and deliberately, because the parser does too — each
- * mirrors the rule that actually rejects the invocation:
- *  - **without** a file source the CLI demands the parameter only when `required && !cliOptional`, which is
- *    `SchemaCliBinding`'s own `cliRequired`; `project_name` is `required` yet `cliOptional`, so the parser
- *    never demands it and the usage line brackets it;
- *  - **with** one, `SchemaCliBinding.parsed()` raises `MissingCliValue` on
- *    `value == null && path == null && spec.required` — `cliOptional` does NOT weaken that, because a
- *    required parameter offering a file source is `cliOptional` by construction (`ToolSchema.register`
- *    enforces the pairing) purely so Clikt stops demanding the direct flag. One of the two spellings is
- *    still mandatory, so the alternation is parenthesized on `required` alone.
+ * Both branches test `required` alone, and `cliOptional` is deliberately NOT consulted. What the brackets
+ * claim is that the INVOCATION is legal without the token — not that some particular layer would let it
+ * through. `project_name` is `required` yet `cliOptional`, so Clikt does not demand it; the TOOL then does,
+ * and the CLI reports that refusal as the very same [CliExit.USAGE] 64 the parser would have raised (see
+ * `GeneratedToolRuntime`'s `ToolCallErrorException` arm). Bracketing it would advertise an invocation that
+ * cannot work — the notation twin of the footer sentence, since deleted, that promised a cwd inference
+ * nothing performs. The day devrig really can supply the value from the cwd, `cliOptional` becomes the
+ * right test again and the bracket returns; `CliFileSourceUsageTokenTest` fails then to say so.
  *
- * `CliFileSourceUsageTokenTest` pins that agreement by driving the real parser, so the day the binding
- * changes which rule it enforces, the help does not quietly keep promising the old one.
+ * A required parameter that ALSO declares a file source is parenthesized rather than left bare, because its
+ * two spellings are alternatives of which exactly one is mandatory: `SchemaCliBinding.parsed()` raises
+ * `MissingCliValue` on `value == null && path == null && spec.required`. Such a parameter is `cliOptional`
+ * by construction (`ToolSchema.register` enforces the pairing) purely so Clikt stops demanding the direct
+ * flag — the same reason `cliOptional` must not weaken the rule above.
+ *
+ * `CliFileSourceUsageTokenTest` pins both claims by driving the real parser, so the day the binding changes
+ * which rule it enforces, the help does not quietly keep promising the old one.
  */
 private fun InputSchemaParamSpec.usageToken(): String {
     val values = enumValues
@@ -119,7 +123,7 @@ private fun InputSchemaParamSpec.usageToken(): String {
         values != null -> "$cliFlag=<${values.joinToString(" | ")}>"
         else -> "$cliFlag=<$name>"
     }
-    val fileSource = cliFileSource ?: return if (required && !cliOptional) direct else "[$direct]"
+    val fileSource = cliFileSource ?: return if (required) direct else "[$direct]"
     val alternation = "$direct | ${fileSource.flag}=<path>"
     return if (required) "($alternation)" else "[$alternation]"
 }

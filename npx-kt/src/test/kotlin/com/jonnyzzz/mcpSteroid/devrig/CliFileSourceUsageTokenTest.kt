@@ -2,6 +2,9 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -23,6 +26,9 @@ import kotlin.test.assertTrue
  * promising a mandatory alternation the CLI no longer enforces.
  */
 class CliFileSourceUsageTokenTest {
+
+    @TempDir
+    lateinit var home: Path
 
     private fun section(): String = renderMcpToolsCliSection(devrigCliTools())
 
@@ -67,17 +73,41 @@ class CliFileSourceUsageTokenTest {
     }
 
     @Test
-    fun `a cwd-inferable parameter without a file source stays bracketed`() {
-        // The contrast case: project_name is schema-required too, but cliOptional and file-source-free, so
-        // the CLI never demands it and the token must be bracketed. Without this, the test above would be
-        // satisfied by a renderer that simply parenthesized everything `required`.
+    fun `a required parameter the parser does not demand still renders as demanded`() {
+        // The contrast case, and the one the brackets are easiest to get wrong on. `project_name` is
+        // schema-`required` but `cliOptional` and file-source-free: Clikt does not demand it, so the token
+        // is neither parenthesized (there is no alternation) nor bracketed (the invocation is NOT legal
+        // without it — the TOOL refuses, and `GeneratedToolRuntime` reports that refusal as the same exit
+        // 64 the parser would have). Bracketing it would promise a working invocation, the notation twin
+        // of the footer sentence, since deleted, that promised a cwd inference nothing performs.
+        //
+        // Bare, not parenthesized, is also what keeps the first test here honest: a renderer that simply
+        // wrapped everything `required` in parentheses would fail this one.
         assertTrue(
-            "[--project_name=<project_name>]" in section(),
-            "a required-but-cliOptional parameter must render bracketed:\n${section()}",
+            " --project_name=<project_name> " in section(),
+            "a required parameter must render as demanded, bare:\n${section()}",
         )
         assertTrue(
-            " --project_name=<project_name>" !in section().replace("[--project_name=<project_name>]", ""),
-            "project_name must never render as demanded:\n${section()}",
+            "[--project_name" !in section(),
+            "the CLI cannot supply project_name, so no usage line may bracket it:\n${section()}",
         )
+        assertTrue(
+            "(--project_name" !in section(),
+            "project_name declares no file source, so it is not an alternation:\n${section()}",
+        )
+    }
+
+    @Test
+    fun `and the tool really does reject an invocation that omits it, at the same exit code`() {
+        // The claim the un-bracketed token makes, driven through the real command tree and the real
+        // runtime: the parse SUCCEEDS (Clikt does not demand a cliOptional parameter) and the call then
+        // fails 64. Both halves matter — the first is why the token cannot be parenthesized, the second is
+        // why it cannot be bracketed. `CliErrorEnvelopeTest` pins the message.
+        val parsed = parseRunTool("execute_code", "--code=x", "--task_id=t", "--reason=r")
+        assertTrue("project_name" !in parsed.arguments, "got: ${parsed.arguments}")
+
+        val run = runCliForToolTest(home, parsed)
+
+        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
     }
 }

@@ -151,11 +151,14 @@
   inside an open project without `--project_name` reach the tool with the parameter absent, and the tool
   refuses: exit 64, `devrig execute_code: Parameter project_name of type string is required — run
   \`devrig execute_code --help\` …`. That is an honest usage failure, so the flag is simply mandatory in
-  practice. The generated help used to promise the inference; that sentence was removed rather than left
-  lying (Task 9). Wiring it needs two decisions the Phase B plan never settled: what
-  `CwdProjectMatch.Ambiguous` should print, and whether inference applies to every tool declaring
-  `project_name` or only some. `McpToolsCliHelpTest`'s `the footer promises no cwd inference…` fails the
-  moment the inference lands, which is the reminder to restore the footer line in the same commit.
+  practice, and the generated usage line renders it un-bracketed to say so. The generated help used to
+  promise the inference; that sentence was removed rather than left lying (Task 9). Wiring it needs two
+  decisions the Phase B plan never settled: what `CwdProjectMatch.Ambiguous` should print, and whether
+  inference applies to every tool declaring `project_name` or only some. Two tests fail the moment the
+  inference lands, and both are deliberate reminders: `McpToolsCliHelpTest`'s
+  `the footer promises no cwd inference…` (restore the footer line in the same commit) and
+  `CliFileSourceUsageTokenTest`'s `a required parameter the parser does not demand still renders as
+  demanded` (re-bracket the token).
 
   *Not* to be confused with the separate defect this entry used to describe — that the failure came out as
   exit 69 `… Usually no IDE backend is reachable`, misdiagnosing a reachable IDE. That was a missing

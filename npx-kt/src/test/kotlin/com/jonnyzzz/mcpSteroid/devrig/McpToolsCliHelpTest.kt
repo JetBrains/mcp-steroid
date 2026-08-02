@@ -125,10 +125,11 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `the usage line spells each parameter by its declared shape, wrapped at the help width`() {
-        // execute_code covers every shape at once: a `cliOptional` parameter (project_name), a required
-        // value reachable two ways (code / --code-file), plain required values, an optional number, an enum.
+        // execute_code covers every shape at once: a `cliOptional` parameter (project_name — required, so
+        // un-bracketed, because the tool refuses the call without it), a required value reachable two ways
+        // (code / --code-file), plain required values, an optional number, an enum.
         val expected =
-            "  devrig execute_code [--project_name=<project_name>] (--code=<code> | --code-file=<path>)\n" +
+            "  devrig execute_code --project_name=<project_name> (--code=<code> | --code-file=<path>)\n" +
                 "                      --task_id=<task_id> --reason=<reason> [--timeout=<timeout>]\n" +
                 "                      [--modal=<smart_non_modal | non_modal | unleashed>]\n"
 
@@ -147,7 +148,7 @@ class McpToolsCliHelpTest {
     @Test
     fun `a tool's declared aliases trail its usage line`() {
         assertTrue(
-            "  devrig fetch_resource --uri=<uri> [--project_name=<project_name>] (alias: prompt)\n" in section(),
+            "  devrig fetch_resource --uri=<uri> --project_name=<project_name> (alias: prompt)\n" in section(),
             "fetch_resource must advertise its declared `prompt` alias:\n${section()}",
         )
     }
@@ -168,9 +169,9 @@ class McpToolsCliHelpTest {
     fun `the footer promises no cwd inference, because nothing infers project_name`() {
         // The footer used to state "--project_name is inferred from the current directory when omitted."
         // Nothing performs that inference: `resolveProjectFromCwd` has no production caller, so
-        // `devrig execute_code` run from inside an open project without `--project_name` reaches the
-        // backend with the parameter absent and fails ("Parameter project_name of type string is
-        // required"), pointing at an unreachable backend that is in fact reachable.
+        // `devrig execute_code` run from inside an open project without `--project_name` reaches the tool
+        // with the parameter absent and the tool refuses it ("Parameter project_name of type string is
+        // required") — an honest exit 64, which is why the usage line renders the flag un-bracketed.
         //
         // Both halves are asserted together on purpose. The first alone would be a wording pin; the
         // second pins the BEHAVIOUR the sentence described, so whoever implements the inference breaks
