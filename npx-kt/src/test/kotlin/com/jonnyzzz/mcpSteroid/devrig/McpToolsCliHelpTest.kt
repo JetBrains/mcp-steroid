@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -125,9 +126,9 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `the usage line spells each parameter by its declared shape, wrapped at the help width`() {
-        // execute_code covers every shape at once: a `cliOptional` parameter (project_name — required, so
-        // un-bracketed, because the tool refuses the call without it), a required value reachable two ways
-        // (code / --code-file), plain required values, an optional number, an enum.
+        // execute_code covers every shape at once: a plain required parameter (project_name — un-bracketed,
+        // the parser demands it), a required value reachable two ways (code / --code-file), plain required
+        // values, an optional number, an enum.
         val expected =
             "  devrig execute_code --project_name=<project_name> (--code=<code> | --code-file=<path>)\n" +
                 "                      --task_id=<task_id> --reason=<reason> [--timeout=<timeout>]\n" +
@@ -173,10 +174,9 @@ class McpToolsCliHelpTest {
     @Test
     fun `the footer promises no cwd inference, because nothing infers project_name`() {
         // The footer used to state "--project_name is inferred from the current directory when omitted."
-        // Nothing performs that inference: `resolveProjectFromCwd` has no production caller, so
-        // `devrig execute_code` run from inside an open project without `--project_name` reaches the tool
-        // with the parameter absent and the tool refuses it ("Parameter project_name of type string is
-        // required") — an honest exit 64, which is why the usage line renders the flag un-bracketed.
+        // Nothing performs that inference: `resolveProjectFromCwd` has no production caller, so the flag is
+        // simply mandatory — `devrig execute_code` without `--project_name` fails at PARSE time, which is
+        // why the usage line renders the flag un-bracketed.
         //
         // Both halves are asserted together on purpose. The first alone would be a wording pin; the
         // second pins the BEHAVIOUR the sentence described, so whoever implements the inference breaks
@@ -187,11 +187,11 @@ class McpToolsCliHelpTest {
             "the footer must not promise an inference the CLI does not perform:\n${section()}",
         )
 
-        val parsed = parseRunTool("execute_code", "--code=x", "--task_id=t", "--reason=r")
-        assertFalse(
-            "project_name" in parsed.arguments,
-            "nothing fills project_name from the cwd today; if that changed, restore the footer line " +
-                "documenting it. Parsed arguments were: ${parsed.arguments}",
+        val command = parseDevrigCommand(arrayOf("execute_code", "--code=x", "--task_id=t", "--reason=r"))
+        assertIs<DevrigCommand.DevrigCommandParseError>(
+            command,
+            "nothing fills project_name from the cwd today, so the parser must demand it; if that changed, " +
+                "restore the footer line documenting the inference. Got: $command",
         )
     }
 

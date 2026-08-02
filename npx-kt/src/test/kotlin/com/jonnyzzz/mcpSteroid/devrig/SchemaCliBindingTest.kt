@@ -370,11 +370,13 @@ class SchemaCliBindingTest {
 
     @Test
     fun `a CLI-optional MCP-required parameter is not demanded by the CLI`() {
-        // project_name is MCP-required but inferable from the cwd, so the CLI must not force it.
-        val projectName = toolParam(executeCode(), "project_name")
-        assertTrue(projectName.required && projectName.cliOptional, "fixture expects required + cliOptional")
+        // The gate is cliRequired (required && !cliOptional), not required: a parameter the CLI can supply
+        // itself is never demanded. No tool declares a required, file-source-free, cliOptional parameter
+        // today, so this drives a synthetic one.
+        val inferred = param("inferred", "string", required = true).copy(cliOptional = true)
+        assertTrue(inferred.required && inferred.cliOptional, "fixture expects required + cliOptional")
 
-        assertTrue(bind(listOf(projectName)).arguments.isEmpty())
+        assertTrue(bind(listOf(inferred)).arguments.isEmpty())
     }
 
     @Test
@@ -472,7 +474,7 @@ class SchemaCliBindingTest {
     fun `a file source flag yields a deferred path and no tool argument`() {
         val values = bind(
             executeCode(),
-            "--code-file=repro.kts", "--task_id=t1", "--reason=reproduce",
+            "--code-file=repro.kts", "--task_id=t1", "--reason=reproduce", "--project_name=key",
         )
 
         assertEquals(mapOf("code" to "repro.kts"), values.fileSources)
@@ -485,7 +487,7 @@ class SchemaCliBindingTest {
         // still succeed: the binding only records it.
         val values = bind(
             executeCode(),
-            "--code-file=/no/such/directory/repro.kts", "--task_id=t1", "--reason=reproduce",
+            "--code-file=/no/such/directory/repro.kts", "--task_id=t1", "--reason=reproduce", "--project_name=key",
         )
 
         assertEquals(mapOf("code" to "/no/such/directory/repro.kts"), values.fileSources)
@@ -493,14 +495,14 @@ class SchemaCliBindingTest {
 
     @Test
     fun `a stdin file source is recorded verbatim, never consumed while parsing`() {
-        val values = bind(executeCode(), "--code-file=-", "--task_id=t1", "--reason=reproduce")
+        val values = bind(executeCode(), "--code-file=-", "--task_id=t1", "--reason=reproduce", "--project_name=key")
 
         assertEquals(mapOf("code" to "-"), values.fileSources)
     }
 
     @Test
     fun `the direct flag alone yields the value and no file source`() {
-        val values = bind(executeCode(), "--code=println(1)", "--task_id=t1", "--reason=reproduce")
+        val values = bind(executeCode(), "--code=println(1)", "--task_id=t1", "--reason=reproduce", "--project_name=key")
 
         assertEquals("println(1)", values.arguments["code"]?.jsonPrimitive?.content)
         assertTrue(values.fileSources.isEmpty(), "got ${values.fileSources}")
@@ -510,7 +512,7 @@ class SchemaCliBindingTest {
     fun `the direct flag together with its file source is a usage error`() {
         val error = assertFailsWith<UsageError> {
             ToolCommand(executeCode()).parse(
-                listOf("--code=println(1)", "--code-file=repro.kts", "--task_id=t1", "--reason=reproduce")
+                listOf("--code=println(1)", "--code-file=repro.kts", "--task_id=t1", "--reason=reproduce", "--project_name=key")
             )
         }
 
@@ -523,7 +525,7 @@ class SchemaCliBindingTest {
         // execute_code's code is MCP-required and cliOptional (so Clikt does not demand --code on its own);
         // the exclusivity rule is what makes "one of the two" mandatory. No per-tool code is involved.
         val error = assertFailsWith<UsageError> {
-            ToolCommand(executeCode()).parse(listOf("--task_id=t1", "--reason=reproduce"))
+            ToolCommand(executeCode()).parse(listOf("--task_id=t1", "--reason=reproduce", "--project_name=key"))
         }
 
         assertEquals("--code", error.paramName)
@@ -575,7 +577,7 @@ class SchemaCliBindingTest {
         // execute_feedback's code is NOT MCP-required: omitting both forms is legal. Same binding code.
         val values = bind(
             executeFeedback(),
-            "--task_id=t1", "--success_rating=0.9", "--explanation=ok",
+            "--task_id=t1", "--success_rating=0.9", "--explanation=ok", "--project_name=key",
         )
 
         assertFalse(values.arguments.containsKey("code"), "got ${values.arguments}")
@@ -648,7 +650,7 @@ class SchemaCliBindingTest {
         // name), so the binding must be able to turn that string back into the spec carrying cliMissingHint.
         val command = ToolCommand(executeCode())
 
-        val error = assertFailsWith<MissingOption> { command.parse(listOf("--code=x", "--reason=r")) }
+        val error = assertFailsWith<MissingOption> { command.parse(listOf("--code=x", "--reason=r", "--project_name=key")) }
 
         val spec = command.binding.paramFor(error.paramName!!)
         assertEquals("task_id", spec?.name)

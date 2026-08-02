@@ -98,11 +98,10 @@ fun DevrigServices.runGeneratedToolCommand(
             CliExit.DATA_ERROR, mcpStdout,
         )
     } catch (e: ToolCallErrorException) {
-        // The one way the schema layer refuses the caller's arguments: `McpSchema`'s `required()` parser
-        // for an absent required parameter, and its enum parser for an unknown value. It extends
+        // A tool-side rejection of the caller's arguments: `McpSchema`'s enum parser for an unknown value,
+        // or its `required()` parser for a value the command line could not enforce itself. It extends
         // RuntimeException and NOT IllegalArgumentException, so it needs its own arm — without one it fell
-        // into the catch-all below, and `devrig execute_code` without `--project_name` (required, yet not
-        // demanded by the parser) reported a perfectly reachable IDE as unreachable, at exit 69.
+        // into the catch-all below and a perfectly reachable IDE was reported as unreachable, at exit 69.
         // `McpToolRegistry.callTool` catches the same type for the same reason; the CLI bypasses the
         // registry precisely so typed exceptions can be classified, so it must classify this one too.
         //

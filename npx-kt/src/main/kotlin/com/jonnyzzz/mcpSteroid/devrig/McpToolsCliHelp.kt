@@ -102,18 +102,14 @@ private fun StringBuilder.appendUsageLine(prefix: String, tokens: List<String>) 
  *
  * Both branches test `required` alone, and `cliOptional` is deliberately NOT consulted. What the brackets
  * claim is that the INVOCATION is legal without the token — not that some particular layer would let it
- * through. `project_name` is `required` yet `cliOptional`, so Clikt does not demand it; the TOOL then does,
- * and the CLI reports that refusal as the very same [CliExit.USAGE] 64 the parser would have raised (see
- * `GeneratedToolRuntime`'s `ToolCallErrorException` arm). Bracketing it would advertise an invocation that
- * cannot work — the notation twin of the footer sentence, since deleted, that promised a cwd inference
- * nothing performs. The day devrig really can supply the value from the cwd, `cliOptional` becomes the
- * right test again and the bracket returns; `CliFileSourceUsageTokenTest` fails then to say so.
+ * through.
  *
  * A required parameter that ALSO declares a file source is parenthesized rather than left bare, because its
  * two spellings are alternatives of which exactly one is mandatory: `SchemaCliBinding.parsed()` raises
  * `MissingCliValue` on `value == null && path == null && spec.required`. Such a parameter is `cliOptional`
  * by construction (`ToolSchema.register` enforces the pairing) purely so Clikt stops demanding the direct
- * flag — the same reason `cliOptional` must not weaken the rule above.
+ * flag — testing `cliRequired` here would wrongly bracket it as omissible, so `cliOptional` must not weaken
+ * the rule above.
  *
  * `CliFileSourceUsageTokenTest` pins both claims by driving the real parser, so the day the binding changes
  * which rule it enforces, the help does not quietly keep promising the old one.

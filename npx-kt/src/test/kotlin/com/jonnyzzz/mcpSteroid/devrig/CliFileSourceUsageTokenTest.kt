@@ -73,13 +73,10 @@ class CliFileSourceUsageTokenTest {
     }
 
     @Test
-    fun `a required parameter the parser does not demand still renders as demanded`() {
+    fun `a plain required parameter renders bare, demanded`() {
         // The contrast case, and the one the brackets are easiest to get wrong on. `project_name` is
-        // schema-`required` but `cliOptional` and file-source-free: Clikt does not demand it, so the token
-        // is neither parenthesized (there is no alternation) nor bracketed (the invocation is NOT legal
-        // without it — the TOOL refuses, and `GeneratedToolRuntime` reports that refusal as the same exit
-        // 64 the parser would have). Bracketing it would promise a working invocation, the notation twin
-        // of the footer sentence, since deleted, that promised a cwd inference nothing performs.
+        // schema-`required` with no file source, so the token is neither parenthesized (there is no
+        // alternation) nor bracketed (the invocation is NOT legal without it — the parser demands it).
         //
         // Bare, not parenthesized, is also what keeps the first test here honest: a renderer that simply
         // wrapped everything `required` in parentheses would fail this one.
@@ -89,7 +86,7 @@ class CliFileSourceUsageTokenTest {
         )
         assertTrue(
             "[--project_name" !in section(),
-            "the CLI cannot supply project_name, so no usage line may bracket it:\n${section()}",
+            "project_name is required, so no usage line may bracket it:\n${section()}",
         )
         assertTrue(
             "(--project_name" !in section(),
@@ -98,16 +95,13 @@ class CliFileSourceUsageTokenTest {
     }
 
     @Test
-    fun `and the tool really does reject an invocation that omits it, at the same exit code`() {
-        // The claim the un-bracketed token makes, driven through the real command tree and the real
-        // runtime: the parse SUCCEEDS (Clikt does not demand a cliOptional parameter) and the call then
-        // fails 64. Both halves matter — the first is why the token cannot be parenthesized, the second is
-        // why it cannot be bracketed. `CliErrorEnvelopeTest` pins the message.
-        val parsed = parseRunTool("execute_code", "--code=x", "--task_id=t", "--reason=r")
-        assertTrue("project_name" !in parsed.arguments, "got: ${parsed.arguments}")
+    fun `and the parser really does demand it`() {
+        // The claim the un-bracketed token makes, driven through the real command tree: omitting
+        // `project_name` fails at PARSE time (Clikt demands the required parameter) — the parse never
+        // reaches an inert RunTool. `CliErrorEnvelopeTest` pins the message the runtime path would print.
+        val command = parseDevrigCommand(arrayOf("execute_code", "--code=x", "--task_id=t", "--reason=r"))
 
-        val run = runCliForToolTest(home, parsed)
-
-        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(command, "got: $command")
+        assertTrue("project_name" in error.text, "the failure must name project_name; got:\n${error.text}")
     }
 }

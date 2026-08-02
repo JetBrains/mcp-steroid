@@ -147,18 +147,18 @@
 - [ ] **`--project_name` is not inferred from the current directory (#284)**: `resolveProjectFromCwd`
   in `npx-kt/.../devrig/server/CwdProjectResolver.kt` is fully written and unit-tested (`One` / `None` /
   `Ambiguous`) but has **zero production call sites** — confirmed by PSI `ReferencesSearch`, not grep.
-  So `devrig execute_code` / `take_screenshot` / `input` / `execute_feedback` / `fetch_resource` run from
-  inside an open project without `--project_name` reach the tool with the parameter absent, and the tool
-  refuses: exit 64, `devrig execute_code: Parameter project_name of type string is required — run
-  \`devrig execute_code --help\` …`. That is an honest usage failure, so the flag is simply mandatory in
-  practice, and the generated usage line renders it un-bracketed to say so. The generated help used to
-  promise the inference; that sentence was removed rather than left lying (Task 9). Wiring it needs two
-  decisions the Phase B plan never settled: what `CwdProjectMatch.Ambiguous` should print, and whether
-  inference applies to every tool declaring `project_name` or only some. Two tests fail the moment the
-  inference lands, and both are deliberate reminders: `McpToolsCliHelpTest`'s
-  `the footer promises no cwd inference…` (restore the footer line in the same commit) and
-  `CliFileSourceUsageTokenTest`'s `a required parameter the parser does not demand still renders as
-  demanded` (re-bracket the token).
+  Because no inference runs, `project_name` is simply a mandatory parameter: `CommonToolParams.projectName()`
+  drops `.cliOptional()`, so the command-line parser itself demands it and `devrig execute_code`
+  (or `take_screenshot` / `input` / `execute_feedback` / `fetch_resource`) run without `--project_name`
+  fail at **parse time** — exit 64 naming `project_name`, before any tool call. The generated usage line
+  renders it un-bracketed to say so. The generated help used to promise the inference; that sentence was
+  removed rather than left lying (Task 9). Wiring the inference needs two decisions the Phase B plan never
+  settled: what `CwdProjectMatch.Ambiguous` should print, and whether inference applies to every tool
+  declaring `project_name` or only some. When it lands, restore `.cliOptional()` on `projectName()` (so
+  the parser stops demanding it), and these deliberate reminders flip back: `McpToolsCliHelpTest`'s
+  `the footer promises no cwd inference…` (restore the footer line in the same commit),
+  `CliFileSourceUsageTokenTest`'s `a plain required parameter renders bare, demanded` /
+  `and the parser really does demand it` (re-bracket the token, and the parser must stop demanding it).
 
   *Not* to be confused with the separate defect this entry used to describe — that the failure came out as
   exit 69 `… Usually no IDE backend is reachable`, misdiagnosing a reachable IDE. That was a missing

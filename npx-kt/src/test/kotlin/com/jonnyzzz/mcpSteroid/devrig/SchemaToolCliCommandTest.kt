@@ -130,7 +130,9 @@ class SchemaToolCliCommandTest {
 
         // fetch_resource's `prompt` alias shares the canonical grammar: the alias token expands to the
         // canonical command, so there is exactly one grammar to keep working.
-        val run = assertIs<DevrigCommand.RunTool>(parse("prompt", "--uri=mcp-steroid://prompt/skill"))
+        val run = assertIs<DevrigCommand.RunTool>(
+            parse("prompt", "--project_name=key", "--uri=mcp-steroid://prompt/skill"),
+        )
         assertEquals("steroid_fetch_resource", run.toolName)
         assertEquals("mcp-steroid://prompt/skill", run.arguments["uri"]?.jsonPrimitive?.content)
     }
@@ -170,7 +172,7 @@ class SchemaToolCliCommandTest {
     @Test
     fun `a file source contributes a deferred path, never a tool argument`() {
         val run = assertIs<DevrigCommand.RunTool>(
-            parse("execute_code", "--code-file=repro.kts", "--task_id=t1", "--reason=repro"),
+            parse("execute_code", "--code-file=repro.kts", "--task_id=t1", "--reason=repro", "--project_name=key"),
         )
 
         assertEquals(mapOf("code" to "repro.kts"), run.fileSources)
@@ -180,7 +182,7 @@ class SchemaToolCliCommandTest {
     @Test
     fun `--out is accepted on a generated command and travels as plain data`() {
         val run = assertIs<DevrigCommand.RunTool>(
-            parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png"),
+            parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png", "--project_name=key"),
         )
 
         assertEquals(Path.of("/tmp/shot.png"), run.out)
@@ -201,7 +203,9 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `a missing required parameter reports the tool's own curated wording`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("execute_code", "--code=x", "--reason=r"))
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("execute_code", "--code=x", "--reason=r", "--project_name=key"),
+        )
 
         assertTrue(
             "missing --task_id. Any string works; reuse it across related calls.".unwrapped() in error.text.unwrapped(),
@@ -212,7 +216,9 @@ class SchemaToolCliCommandTest {
     @Test
     fun `a missing required parameter without a curated hint keeps Clikt's default wording`() {
         // take_screenshot reuses the shared task_id factory, which declares no cliMissingHint.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("take_screenshot", "--reason=r"))
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("take_screenshot", "--reason=r", "--project_name=key"),
+        )
 
         assertTrue("--task_id" in error.text, "expected Clikt's own missing-option wording; got:\n${error.text}")
         assertFalse("Any string works" in error.text, "no hint is declared here; got:\n${error.text}")
@@ -221,7 +227,7 @@ class SchemaToolCliCommandTest {
     @Test
     fun `giving both a parameter and its file source is a usage error`() {
         val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-            parse("execute_code", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r"),
+            parse("execute_code", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r", "--project_name=key"),
         )
 
         assertTrue("--code-file" in error.text.unwrapped(), "got:\n${error.text}")
@@ -230,12 +236,32 @@ class SchemaToolCliCommandTest {
     @Test
     fun `giving neither a required parameter nor its file source reports the curated wording`() {
         val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-            parse("execute_code", "--task_id=t", "--reason=r"),
+            parse("execute_code", "--task_id=t", "--reason=r", "--project_name=key"),
         )
 
         assertTrue(
             "Pass --code-file=<path> (preferred)".unwrapped() in error.text.unwrapped(),
             "expected execute_code's curated code hint; got:\n${error.text}",
+        )
+    }
+
+    @Test
+    fun `a bare tool invocation reports every parser-demanded missing parameter in one error`() {
+        // Before project_name was parse-time required it surfaced a step behind task_id and reason: the
+        // parser demanded task_id/reason, then the tool refused the absent project_name on a second run.
+        // Now every parameter the parser demands is missing at once, so one error names them together
+        // (Clikt aggregates them into a MultiUsageError). The file-source `code` is checked a phase later,
+        // once these are supplied, so it is deliberately not asserted here.
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("execute_code"))
+
+        for (name in listOf("--project_name", "--task_id", "--reason")) {
+            assertTrue(name in error.text, "the one error must name $name; got:\n${error.text}")
+        }
+        // project_name is now a demanded parameter like the others, so it carries the same curated wording
+        // (from the shared CommonToolParams.projectName() factory) rather than Clikt's bald default.
+        assertTrue(
+            "Get the routing key from".unwrapped() in error.text.unwrapped(),
+            "expected project_name's curated hint; got:\n${error.text}",
         )
     }
 
@@ -272,11 +298,11 @@ class SchemaToolCliCommandTest {
         assertEquals(
             Path.of("/tmp/shot.png"),
             assertIs<DevrigCommand.RunTool>(
-                parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png"),
+                parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png", "--project_name=key"),
             ).out,
         )
         assertIs<DevrigCommand.DevrigCommandParseError>(
-            parse("--out=/tmp/shot.png", "take_screenshot", "--task_id=t1", "--reason=look"),
+            parse("--out=/tmp/shot.png", "take_screenshot", "--task_id=t1", "--reason=look", "--project_name=key"),
         )
     }
 }

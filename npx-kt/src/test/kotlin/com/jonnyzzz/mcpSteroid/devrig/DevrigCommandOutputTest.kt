@@ -216,7 +216,8 @@ class DevrigCommandOutputTest {
     fun `a usage error the schema binding derives after finalization also exits 64`() {
         // Both --code and its file source: a rule Clikt's grammar cannot express, so SchemaCliBinding
         // raises it one step later (from run(), not from finalization). It must still exit 64, not 1.
-        val args = arrayOf("execute_code", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r")
+        val args =
+            arrayOf("execute_code", "--project_name=key", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r")
         val exit = runCliForTest(parseDevrigCommand(args), *args)
 
         assertEquals(CliExit.USAGE, exit)

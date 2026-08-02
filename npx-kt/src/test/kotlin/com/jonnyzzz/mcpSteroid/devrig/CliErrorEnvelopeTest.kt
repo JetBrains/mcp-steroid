@@ -19,9 +19,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
  * The frozen exit-code table and envelope shape, asserted through the ONE runtime error-mapping pipeline
@@ -112,12 +114,26 @@ class CliErrorEnvelopeTest {
         // parameter, and its enum parser for an unknown value. Both throw ToolCallErrorException, which
         // extends RuntimeException and NOT IllegalArgumentException, so before it had its own arm every
         // tool-side rejection fell through to the catch-all and was reported as an unreachable IDE at
-        // exit 69. It is reachable on five of the eight subcommands' minimal invocation, `project_name`
-        // being required-but-not-demanded-by-the-parser.
+        // exit 69.
+        //
+        // The command-line parser now demands every required scalar, `project_name` included, so a real
+        // parse can never reach the schema layer with one absent. This test therefore hand-builds a RunTool
+        // that omits `project_name` — the parser cannot produce it, but the schema layer's own `required()`
+        // rejection must still map to this arm. That is defense in depth: it keeps this arm proven for any
+        // required parameter a future parser might not enforce itself.
         //
         // Driven through the REAL spec rather than a throwing double: what is under test is that the
         // schema layer's own rejection reaches this arm, and a double would prove only the arm exists.
-        val command = parseRunTool("execute_code", "--json", "--code=1", "--task_id=t", "--reason=r")
+        val command = DevrigCommand.RunTool(
+            toolName = "steroid_execute_code",
+            commandName = "execute_code",
+            arguments = buildJsonObject {
+                put("code", "1")
+                put("task_id", "t")
+                put("reason", "r")
+            },
+            json = true,
+        )
 
         val run = runGeneratedToolForTest(
             home,

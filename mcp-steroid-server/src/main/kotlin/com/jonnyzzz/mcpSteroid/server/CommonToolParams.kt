@@ -2,7 +2,7 @@ package com.jonnyzzz.mcpSteroid.server
 
 import com.jonnyzzz.mcpSteroid.mcp.InputSchemaElement
 import com.jonnyzzz.mcpSteroid.mcp.cliFileSource
-import com.jonnyzzz.mcpSteroid.mcp.cliOptional
+import com.jonnyzzz.mcpSteroid.mcp.cliMissingHint
 import com.jonnyzzz.mcpSteroid.mcp.cliSynopsis
 import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.param
@@ -16,10 +16,9 @@ import com.jonnyzzz.mcpSteroid.mcp.string
  */
 object CommonToolParams {
     /**
-     * Required `project_name` used to dispatch a tool call to an already-open IDE project.
-     * MCP-required, but CLI-optional so devrig can eventually infer it from the current directory —
-     * the resolver exists (`server/CwdProjectResolver.kt`) but nothing calls it yet, so omitting the
-     * flag today reaches the backend without it and fails there. Tracked in `TODO.md`.
+     * Required `project_name` used to dispatch a tool call to an already-open IDE project. It is the
+     * unique routing key from steroid_list_projects / `devrig list_projects`, not the raw folder name,
+     * and the command line demands it like any other required parameter.
      */
     fun projectName() =
         InputSchemaElement.param("project_name")
@@ -29,9 +28,9 @@ object CommonToolParams {
                         "to pass here) and `name` (the raw folder name, informational only); they are not equal."
             )
             .cliSynopsis("routing key from `devrig list_projects`, not the folder name")
+            .cliMissingHint("missing --project_name. Get the routing key from `devrig list_projects` (not the folder name).")
             .string()
             .required()
-            .cliOptional()
 
     /** Required `task_id` used to group related executions in audit logs. */
     fun taskId() =
