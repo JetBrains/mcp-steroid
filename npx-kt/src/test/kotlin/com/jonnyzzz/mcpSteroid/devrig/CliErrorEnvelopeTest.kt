@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.devrig.server.ProjectRouteNotFoundException
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
@@ -103,6 +104,56 @@ class CliErrorEnvelopeTest {
         // Whole string, so the `devrig <command>: ` prefix this arm adds is pinned HERE and not only
         // incidentally by the --wait test. That exact prefix is the one that shipped doubled.
         assertEquals("devrig list_windows: window_id must be positive", run.errorMessage())
+    }
+
+    @Test
+    fun `an argument the tool itself rejects exits 64 and never blames the backend`() {
+        // The rejection the SCHEMA layer raises — `McpSchema`'s `required()` parser for an absent required
+        // parameter, and its enum parser for an unknown value. Both throw ToolCallErrorException, which
+        // extends RuntimeException and NOT IllegalArgumentException, so before it had its own arm every
+        // tool-side rejection fell through to the catch-all and was reported as an unreachable IDE at
+        // exit 69. It is reachable on five of the eight subcommands' minimal invocation, `project_name`
+        // being required-but-not-demanded-by-the-parser.
+        //
+        // Driven through the REAL spec rather than a throwing double: what is under test is that the
+        // schema layer's own rejection reaches this arm, and a double would prove only the arm exists.
+        val command = parseRunTool("execute_code", "--json", "--code=1", "--task_id=t", "--reason=r")
+
+        val run = runGeneratedToolForTest(
+            home,
+            command,
+            FakeMcpSteroidTools().with(
+                ExecuteCodeToolHandler::class.java,
+                FixedExecuteCode(ToolCallResult(content = listOf(ContentItem.Text("must never run")))),
+            ),
+        )
+
+        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        run.assertIsErrorEnvelope("execute_code")
+        assertEquals(
+            "devrig execute_code: Parameter project_name of type string is required — run " +
+                "`devrig execute_code --help` for the flags this command accepts",
+            run.errorMessage(),
+        )
+        assertTrue(
+            "no IDE backend is reachable" !in run.errorMessage(),
+            "an argument the tool refused says nothing about the backend; got: ${run.errorMessage()}",
+        )
+    }
+
+    @Test
+    fun `an unknown enum value the tool rejects is the same 64`() {
+        // The schema layer's second ToolCallErrorException site. `--modal` is validated by Clikt's choice
+        // conversion first, so this drives the tool's own parser directly with an argument the CLI cannot
+        // produce — the arm must classify the exception, not the flag that happened to raise it.
+        val run = failing { throw ToolCallErrorException("Unknown value 'x' for modal. Expected one of: a, b") }
+
+        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        assertEquals(
+            "devrig list_windows: Unknown value 'x' for modal. Expected one of: a, b — run " +
+                "`devrig list_windows --help` for the flags this command accepts",
+            run.errorMessage(),
+        )
     }
 
     // ------------------------------------- 65 DATA_ERROR -------------------------------------

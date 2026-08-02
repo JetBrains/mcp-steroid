@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.devrig.server.ProjectRouteNotFoundException
 import com.jonnyzzz.mcpSteroid.devrig.server.StubMcpSteroidTools
 import com.jonnyzzz.mcpSteroid.devrig.server.callToolViaSpec
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import java.io.IOException
 import java.io.InputStream
@@ -43,11 +44,15 @@ class CliInputException(message: String, val exit: Int) : RuntimeException(messa
  *
  * | failure | exit |
  * |---|---|
- * | an unreadable/absent file source, a failed `--out` write | [CliExit.IO_ERROR] 74 |
- * | a malformed path, an empty standard input, a rejected argument, an unknown `project_name` | [CliExit.USAGE] 64 |
+ * | an unreadable or absent file source | [CliExit.IO_ERROR] 74 |
+ * | a malformed path, an empty standard input, an argument the CLI or the TOOL rejects, an unknown `project_name` | [CliExit.USAGE] 64 |
  * | unusable data from the backend (an undecodable payload, a malformed response) | [CliExit.DATA_ERROR] 65 |
  * | any other failure reaching the tool — no IDE running, a refused connection, a timeout | [CliExit.UNAVAILABLE] 69 |
  * | the tool answered with `isError=true` | [CliExit.TOOL_ERROR] 1 |
+ *
+ * `--out` is absent from that table on purpose: a `--out` failure happens while RENDERING a result the
+ * tool already returned, so it is classified by [renderWithOut] instead — see the comment above the final
+ * `return`.
  *
  * A parse-time usage failure never arrives here: [parseDevrigCommand] turns it into
  * [DevrigCommand.DevrigCommandParseError], which [runCli] answers with the same 64. That split is
@@ -91,6 +96,24 @@ fun DevrigServices.runGeneratedToolCommand(
             command.commandName,
             "devrig ${command.commandName} could not read the backend's response: ${e.message}",
             CliExit.DATA_ERROR, mcpStdout,
+        )
+    } catch (e: ToolCallErrorException) {
+        // The one way the schema layer refuses the caller's arguments: `McpSchema`'s `required()` parser
+        // for an absent required parameter, and its enum parser for an unknown value. It extends
+        // RuntimeException and NOT IllegalArgumentException, so it needs its own arm — without one it fell
+        // into the catch-all below, and `devrig execute_code` without `--project_name` (required, yet not
+        // demanded by the parser) reported a perfectly reachable IDE as unreachable, at exit 69.
+        // `McpToolRegistry.callTool` catches the same type for the same reason; the CLI bypasses the
+        // registry precisely so typed exceptions can be classified, so it must classify this one too.
+        //
+        // The message carries the schema's own wording and asserts nothing beyond it — this arm knows the
+        // tool refused the arguments and knows no reason why, so pointing at the command's own help is the
+        // most it may say.
+        return presentation.renderError(
+            command.commandName,
+            "devrig ${command.commandName}: ${e.message} — run `devrig ${command.commandName} --help` " +
+                "for the flags this command accepts",
+            CliExit.USAGE, mcpStdout,
         )
     } catch (e: IllegalArgumentException) {
         return presentation.renderError(

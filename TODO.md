@@ -147,15 +147,21 @@
 - [ ] **`--project_name` is not inferred from the current directory (#284)**: `resolveProjectFromCwd`
   in `npx-kt/.../devrig/server/CwdProjectResolver.kt` is fully written and unit-tested (`One` / `None` /
   `Ambiguous`) but has **zero production call sites** — confirmed by PSI `ReferencesSearch`, not grep.
-  So `devrig execute_code` / `take_screenshot` / `input` / `execute_feedback` run from inside an open
-  project without `--project_name` reach the backend with the parameter absent and fail with exit 69 and
-  `Parameter project_name of type string is required … Usually no IDE backend is reachable`, which
-  misdiagnoses a perfectly reachable backend. The generated help used to promise the inference; that
-  sentence was removed rather than left lying (Task 9), so today the flag is simply mandatory in
-  practice. Wiring it needs two decisions the Phase B plan never settled: what `CwdProjectMatch.Ambiguous`
-  should print, and whether inference applies to every tool declaring `project_name` or only some.
-  `McpToolsCliHelpTest`'s `the footer promises no cwd inference…` fails the moment the inference lands,
-  which is the reminder to restore the footer line in the same commit.
+  So `devrig execute_code` / `take_screenshot` / `input` / `execute_feedback` / `fetch_resource` run from
+  inside an open project without `--project_name` reach the tool with the parameter absent, and the tool
+  refuses: exit 64, `devrig execute_code: Parameter project_name of type string is required — run
+  \`devrig execute_code --help\` …`. That is an honest usage failure, so the flag is simply mandatory in
+  practice. The generated help used to promise the inference; that sentence was removed rather than left
+  lying (Task 9). Wiring it needs two decisions the Phase B plan never settled: what
+  `CwdProjectMatch.Ambiguous` should print, and whether inference applies to every tool declaring
+  `project_name` or only some. `McpToolsCliHelpTest`'s `the footer promises no cwd inference…` fails the
+  moment the inference lands, which is the reminder to restore the footer line in the same commit.
+
+  *Not* to be confused with the separate defect this entry used to describe — that the failure came out as
+  exit 69 `… Usually no IDE backend is reachable`, misdiagnosing a reachable IDE. That was a missing
+  `ToolCallErrorException` arm in `GeneratedToolRuntime.kt`'s error pipeline, fixed independently and
+  pinned by `CliErrorEnvelopeTest`. It affected EVERY tool-side argument rejection, not just an absent
+  `project_name`, so it would have outlived the inference work.
 
 - [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: three review findings deferred from
   PR #356. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call
