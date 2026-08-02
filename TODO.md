@@ -134,14 +134,28 @@
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
 
-- [ ] **devrig CLI must own `--out` and the `--wait` polling loop (#284)**: the schema-driven-command
-  reshape removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a
-  declared `CliExtraOption` on `steroid_open_project`, because neither is a tool input. The tool
-  metadata therefore no longer carries either behavior: the CLI frontend must document `--out` as a
-  framework flag beside `--json` (a render-path redirect writing a returned image to a path — note
-  `steroid_execute_code` also returns PNGs via `logImage`, e.g. the modal-dialog failure screenshot,
-  so it is not screenshot-only) and must implement `--wait` as a `list_windows` poll until the project
-  reports initialized. Without those two, both flags silently vanish from the CLI.
+- [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
+  removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared
+  `CliExtraOption` on `steroid_open_project`, because neither is a tool input, so the tool metadata
+  carries neither behavior. **`--out` is done**: it is a devrig framework flag registered on every
+  command in `Cli.kt` and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
+  `devrig take_screenshot --out=<path>` writes the PNG and prints `Saved --out: <path>`). `--wait` is
+  **not**: it parses, and a generic guard in `GeneratedToolRuntime.kt` then refuses with exit 64
+  (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a
+  `list_windows` poll until the project reports initialized, and delete that guard plus its test.
+
+- [ ] **`--project_name` is not inferred from the current directory (#284)**: `resolveProjectFromCwd`
+  in `npx-kt/.../devrig/server/CwdProjectResolver.kt` is fully written and unit-tested (`One` / `None` /
+  `Ambiguous`) but has **zero production call sites** — confirmed by PSI `ReferencesSearch`, not grep.
+  So `devrig execute_code` / `take_screenshot` / `input` / `execute_feedback` run from inside an open
+  project without `--project_name` reach the backend with the parameter absent and fail with exit 69 and
+  `Parameter project_name of type string is required … Usually no IDE backend is reachable`, which
+  misdiagnoses a perfectly reachable backend. The generated help used to promise the inference; that
+  sentence was removed rather than left lying (Task 9), so today the flag is simply mandatory in
+  practice. Wiring it needs two decisions the Phase B plan never settled: what `CwdProjectMatch.Ambiguous`
+  should print, and whether inference applies to every tool declaring `project_name` or only some.
+  `McpToolsCliHelpTest`'s `the footer promises no cwd inference…` fails the moment the inference lands,
+  which is the reminder to restore the footer line in the same commit.
 
 - [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: three review findings deferred from
   PR #356. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call
@@ -233,14 +247,8 @@
   generated tool whose result is a single JSON text item) emits one long minified blob, because
   `Presentation.Console.render` prints a text content item verbatim. The fix does NOT need a per-tool
   renderer: pretty-printing a text payload that happens to parse as JSON is tool-agnostic, so it belongs in
-  `Presentation.Console` in `CliToolSupport.kt`. Deliberately **console-only** — the `--json` envelope's
-  `data` shape is being changed by separate work, so do not touch that path here. A richer per-tool table
+  `Presentation.Console` in `CliToolSupport.kt`. Deliberately **console-only** — the `--json` envelope now
+  unpacks a JSON text payload under a `json` key (`contentDataJson`, so `jq` reaches it in one parse); that
+  path is settled and must not be reshaped again for a console concern. A richer per-tool table
   (`devrig project`-style columns for the listers) is a different, larger question: it would need declared
   rendering metadata, since a `when (toolName)` is exactly what #284 removes.
-- [ ] **`devrig <tool> --help` is undocumented (#284, branch `issue-284-cli-engine`)**: `devrig <tool>
-  --help` prints the curated global banner rather than the command's own generated help, because the eager
-  help option's `PrintHelpMessage` is discarded — so the eight generated subcommands are currently
-  undocumented from the CLI. Known and assigned; do not release from this branch until it is closed.
-  (The other half of this entry — `runCli`'s `RunTool` arm being `error("no runtime is wired ...")`, which
-  made `devrig list_windows` parse and then throw — is fixed: the runtime dispatcher is wired and both
-  listers run end to end.)
