@@ -61,9 +61,14 @@ fun runGeneratedToolForTest(
 
 /**
  * Runs [command] through the whole [runCli] router — the production path, including the `RunTool` arm —
- * against the real [com.jonnyzzz.mcpSteroid.devrig.server.StubMcpSteroidTools] wiring. With [home] a
- * scratch directory no IDE marker is discoverable, so the project-scoped handlers see no backends and
- * every lister answers from an empty routing table without opening a connection.
+ * against the real [com.jonnyzzz.mcpSteroid.devrig.server.StubMcpSteroidTools] wiring, with an EMPTY IDE
+ * routing table.
+ *
+ * The empty table is injected, not hoped for. A scratch [home] does not isolate IDE discovery:
+ * [HomePaths.markersDir] is anchored at the real `user.home` by design, so on a developer machine with an
+ * IDE open these tests would reach it over localhost — and `list_windows` is all-or-nothing, so one stale
+ * pid marker or one `/windows` fetch failing would turn a green CI test red on that machine. With no route
+ * the listers answer from a known table and open no connection.
  */
 fun runCliForToolTest(home: Path, command: DevrigCommand): GeneratedToolRun =
     withDevrigServices(home, ByteArray(0)) { runCli(command) }
@@ -81,6 +86,7 @@ private fun withDevrigServices(
             homePaths = HomePaths(home).also { it.mkdirsAll() },
             mcpStdin = ByteArrayInputStream(stdin),
             mcpStdout = PrintStream(out, true, Charsets.UTF_8),
+            ideStateProvider = { emptyList() },
         ).block()
     } finally {
         lifetime.closeAllStacks()

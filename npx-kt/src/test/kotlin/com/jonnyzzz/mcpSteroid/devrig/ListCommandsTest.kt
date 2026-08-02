@@ -144,16 +144,18 @@ class ListCommandsTest {
     @Test
     fun `runCli dispatches a generated list_projects command instead of failing`() {
         // The whole production path: parse → runCli's RunTool arm → the real StubMcpSteroidTools wiring →
-        // render. Deliberately asserts the SHAPE and not the contents: IDE discovery reads the real
-        // `~/.mcp-steroid` markers (HomePaths.markersDir is anchored at the user home by design, so a
-        // scratch home cannot isolate it), so this machine's open IDEs may legitimately appear. What is
-        // machine-independent is that the tool ran and its own response reached the envelope, reachable
-        // in one parse — which is exactly the claim: the arm dispatches rather than throwing.
+        // render. `runCliForToolTest` injects an EMPTY IDE routing table, so the outcome is fixed rather
+        // than dependent on which IDEs the developer happens to have open — see its KDoc for why a scratch
+        // home does not achieve that on its own.
         val run = runCliForToolTest(home, parseRunTool("list_projects", "--json"))
 
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
         assertEquals("list_projects", run.envelope().getValue("command").jsonPrimitive.content)
-        McpJson.decodeFromJsonElement(ListProjectsResponse.serializer(), run.payloadJson())
+        assertEquals(
+            ListProjectsResponse(projects = emptyList()),
+            McpJson.decodeFromJsonElement(ListProjectsResponse.serializer(), run.payloadJson()),
+            "with no route the lister must answer empty, not reach out",
+        )
     }
 
     @Test
@@ -162,6 +164,10 @@ class ListCommandsTest {
 
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
         assertEquals("list_windows", run.envelope().getValue("command").jsonPrimitive.content)
-        McpJson.decodeFromJsonElement(ListWindowsResponse.serializer(), run.payloadJson())
+        assertEquals(
+            ListWindowsResponse(windows = emptyList(), backgroundTasks = emptyList()),
+            McpJson.decodeFromJsonElement(ListWindowsResponse.serializer(), run.payloadJson()),
+            "with no route the lister must answer empty, not reach out",
+        )
     }
 }
