@@ -517,4 +517,73 @@ class CliToolSupportTest {
         assertEquals(CliExit.IO_ERROR, consoleExit)
         assertEquals(1, countOccurrences(consoleErr.text(), "failed to write"), "expected exactly one diagnostic, got: ${consoleErr.text()}")
     }
+
+    // ------------------------------ steroid_ → devrig CLI translation ------------------------------
+
+    @Test
+    fun `the CLI name translation rewrites every steroid_ tool mention to its devrig command`() {
+        assertEquals("devrig list_projects", steroidToolNamesToDevrigCli("steroid_list_projects"))
+        assertEquals("devrig execute_code", steroidToolNamesToDevrigCli("steroid_execute_code"))
+        // Underscores INSIDE the tool name survive; only the prefix is replaced.
+        assertEquals(
+            "run devrig list_projects to refresh",
+            steroidToolNamesToDevrigCli("run steroid_list_projects to refresh"),
+        )
+        // Two mentions in one string are both translated.
+        assertEquals(
+            "devrig open_project then devrig take_screenshot",
+            steroidToolNamesToDevrigCli("steroid_open_project then steroid_take_screenshot"),
+        )
+    }
+
+    @Test
+    fun `the CLI name translation leaves the mcp-steroid resource scheme and base64 payloads untouched`() {
+        // `mcp-steroid://` has no underscore after `steroid`, so the resource scheme is never mangled.
+        val uri = "mcp-steroid://skill/design-philosophy"
+        assertEquals(uri, steroidToolNamesToDevrigCli(uri))
+        // Base64 cannot contain `_`, so an image payload can never match — assert a representative sample is inert.
+        val b64 = Base64.getEncoder().encodeToString("steroid".toByteArray())
+        assertEquals(b64, steroidToolNamesToDevrigCli(b64))
+    }
+
+    @Test
+    fun `a tool result that names a steroid_ tool renders as devrig under --json, never leaking the MCP name`() {
+        val out = CapturedStream()
+        val result = textResult("project_name is gone — call steroid_list_projects to refresh", isError = true)
+
+        Presentation.Json().render(result, "open_project", out.stream)
+
+        val text = out.text()
+        assertTrue("steroid_" !in text, "no MCP tool name may reach CLI output: $text")
+        assertTrue("devrig list_projects" in text, "the MCP name must render as its devrig command: $text")
+    }
+
+    @Test
+    fun `a tool result that names a steroid_ tool renders as devrig on the console, never leaking the MCP name`() {
+        val out = CapturedStream()
+        val err = CapturedStream()
+        val result = textResult("no candidates — start an IDE or call steroid_list_projects.", isError = true)
+
+        Presentation.Console { tempDir }.render(result, "open_project", out.stream, err.stream)
+
+        // An error result prints to stderr; assert on the stream that actually carried it.
+        val text = err.text()
+        assertTrue("steroid_" !in text, "no MCP tool name may reach CLI output: $text")
+        assertTrue("devrig list_projects" in text, "the MCP name must render as its devrig command: $text")
+    }
+
+    @Test
+    fun `a CLI-level error message naming a steroid_ tool is translated in both presentations`() {
+        val message = "unknown project_name — run steroid_list_projects to refresh"
+
+        val jsonOut = CapturedStream()
+        Presentation.Json().renderError("open_project", message, CliExit.USAGE, jsonOut.stream)
+        assertTrue("steroid_" !in jsonOut.text(), "json renderError leaked an MCP name: ${jsonOut.text()}")
+        assertTrue("devrig list_projects" in jsonOut.text())
+
+        val consoleErr = CapturedStream()
+        Presentation.Console { tempDir }.renderError("open_project", message, CliExit.USAGE, CapturedStream().stream, consoleErr.stream)
+        assertTrue("steroid_" !in consoleErr.text(), "console renderError leaked an MCP name: ${consoleErr.text()}")
+        assertTrue("devrig list_projects" in consoleErr.text())
+    }
 }

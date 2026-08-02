@@ -58,6 +58,23 @@ object CliExit {
     const val IO_ERROR: Int = 74
 }
 
+/**
+ * Rewrites the MCP tool names that leak into CLI output — `steroid_list_projects`, `steroid_execute_code`,
+ * whether devrig authored the text or the IDE tool did — into the `devrig <command>` a CLI user actually
+ * types. The suffix after `steroid_` IS the generated subcommand name (a tool's CLI name is its MCP name
+ * with the prefix stripped — see `defaultCliName`), so the rewrite is the literal `steroid_` → `devrig `.
+ *
+ * It is deliberately applied ONLY on the CLI rendering path (both [Presentation] members and [renderWithOut]).
+ * The same tool-owned texts are shared with the `devrig mcp` stdio surface, where the agent really does call
+ * the `steroid_*` tools devrig advertises and those names must stand untouched.
+ *
+ * Rewriting the already-rendered string is safe: base64 image payloads cannot contain the match (`_` is not
+ * in the base64 alphabet) and no envelope key or field is a `steroid_*` token, so only tool-name mentions in
+ * text are ever touched.
+ */
+fun steroidToolNamesToDevrigCli(rendered: String): String =
+    rendered.replace(Regex("\\bsteroid_(\\w+)"), "devrig $1")
+
 /** A [McpProgressReporter] that streams progress to stderr so stdout stays clean for data. */
 fun stderrProgressReporter(err: PrintStream = System.err): McpProgressReporter =
     object : McpProgressReporter {
@@ -84,7 +101,7 @@ sealed interface Presentation {
     /** `--json`: one stable envelope on stdout. */
     class Json : Presentation {
         override fun render(result: ToolCallResult, command: String, out: PrintStream, err: PrintStream): Int {
-            out.println(result.toEnvelopeJson(command))
+            out.println(steroidToolNamesToDevrigCli(result.toEnvelopeJson(command)))
             return if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
 
@@ -97,7 +114,7 @@ sealed interface Presentation {
                     })
                 }
             }
-            out.println(cliEnvelopeJson(command, isError = true, data = data))
+            out.println(steroidToolNamesToDevrigCli(cliEnvelopeJson(command, isError = true, data = data)))
             return exit
         }
     }
@@ -108,7 +125,7 @@ sealed interface Presentation {
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
-                    is ContentItem.Text -> sink.println(item.text)
+                    is ContentItem.Text -> sink.println(steroidToolNamesToDevrigCli(item.text))
                     is ContentItem.Image -> {
                         // A hard image failure (undecodable payload, unwritable disk) outranks the tool's
                         // own success/failure: abort rendering immediately and report it as the exit code,
@@ -119,7 +136,7 @@ sealed interface Presentation {
                     is ContentItem.Resource -> {
                         val res = item.resource
                         sink.println("[resource: ${res.uri}${res.mimeType?.let { " ($it)" } ?: ""}]")
-                        res.text?.let { sink.println(it) }
+                        res.text?.let { sink.println(steroidToolNamesToDevrigCli(it)) }
                     }
                 }
             }
@@ -152,7 +169,7 @@ sealed interface Presentation {
         }
 
         override fun renderError(command: String, message: String, exit: Int, out: PrintStream, err: PrintStream): Int {
-            err.println(message)
+            err.println(steroidToolNamesToDevrigCli(message))
             return exit
         }
     }
@@ -241,7 +258,7 @@ fun renderWithOut(
                 for ((key, value) in strippedResult.contentDataJson()) put(key, value)
                 put("savedOut", savedOutPath)
             }
-            out.println(cliEnvelopeJson(command, isError = result.isError, data = data))
+            out.println(steroidToolNamesToDevrigCli(cliEnvelopeJson(command, isError = result.isError, data = data)))
             if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
         is Presentation.Console -> {
