@@ -112,6 +112,9 @@
   - Put the pure Remote Development NDJSON parser/workflow contracts on a normal CI-backed task; the
     experimental task's direct-invocation guard currently keeps them out of aggregate CI runs.
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).
+  - Add bounded retry-on-read-timeout to the shared IDE downloader. It already resumes a pre-existing
+    `.tmp` with `Range`, but a socket stall currently waits 15 minutes and fails the whole Gradle test or
+    backend download instead of reconnecting and resuming within the same invocation (observed 2026-08-03).
   - Consider enriching `backend --json` / `backend download --json` with release date + download channel so agents can reason about staleness; consider exposing `IdeProduct` metadata (license tier, launcher) for richer IDE choice.
   - Optional explicit `open_project` target (by managed-backend id / pid) for the case where the agent wants a specific backend even when several are running — today the global lock makes "prefer managed" sufficient.
 
@@ -137,8 +140,8 @@
 - [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
   removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared
   `CliExtraOption` on `steroid_open_project`, because neither is a tool input, so the tool metadata
-  carries neither behavior. **`--out` is done**: it is a devrig framework flag registered on every
-  command in `Cli.kt` and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
+  carries neither behavior. **`--out` is done**: it is a devrig framework flag registered only on
+  `execute_code` and `take_screenshot`, and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
   `devrig take_screenshot --out=<path>` writes the PNG and prints `Saved --out: <path>`). `--wait` is
   **not**: it parses, and a generic guard in `GeneratedToolRuntime.kt` then refuses with exit 64
   (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a
