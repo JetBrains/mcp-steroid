@@ -72,16 +72,23 @@ class PluginVerificationTest {
     // already covers 261 + 262 via local() routing in-process. These Docker-based
     // cases additionally validate that the verifier runs from a clean checkout in a
     // container — belt-and-braces for the release pipeline.
+    // The injected entries use IPGP's create(type, version) — the ide(...) factory was
+    // removed from the ides {} DSL (IPGP 2.18: "Unresolved reference 'ide'", run 1020027380) —
+    // and the fully-qualified IntelliJPlatformType, because the target build script's real
+    // block uses local() and no longer imports the enum (preflight: "Unresolved reference
+    // 'IntelliJPlatformType'"). Stable versions resolve via installer; EAP snapshots have none.
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
     fun `verify plugin against IntelliJ 2026_1`() =
-        BuildCompatInfra.verifyPlugin("""ide(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1")""")
+        BuildCompatInfra.verifyPlugin(
+            ideEntry = """create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaUltimate, "2026.1") { useInstaller = true }""",
+        )
 
     @Test
     @Timeout(value = 30, unit = TimeUnit.MINUTES)
     fun `verify plugin against IntelliJ 262 EAP`() =
         BuildCompatInfra.verifyPlugin(
-            ideEntry = """ide(IntelliJPlatformType.IntellijIdeaUltimate, "262-EAP-SNAPSHOT")""",
+            ideEntry = """create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdeaUltimate, "262-EAP-SNAPSHOT") { useInstaller = false }""",
         )
 }
 
