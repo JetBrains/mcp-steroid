@@ -62,7 +62,7 @@ class LastResortCrashHandlerTest {
         try {
             val exit = runCliWithLastResortHandling(command, out.stream) { error("boom deep in the bridge") }
 
-            assertEquals(CliExit.USAGE, exit)
+            assertEquals(CliExit.SOFTWARE, exit)
             val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
             assertEquals(true, envelope.getValue("isError").jsonPrimitive.boolean)
             val content = envelope.getValue("data").jsonObject.getValue("content")
@@ -99,7 +99,7 @@ class LastResortCrashHandlerTest {
                 throw NullPointerException("windows was null in a handler")
             }
 
-            assertEquals(CliExit.USAGE, exit)
+            assertEquals(CliExit.SOFTWARE, exit)
             assertEquals("", out.text(), "stdout must stay clean outside --json")
             assertTrue(err.text().contains("windows was null in a handler"), err.text())
             assertTrue(err.text().contains("\tat "), "expected an actual stack trace, got: ${err.text()}")
@@ -118,7 +118,7 @@ class LastResortCrashHandlerTest {
         try {
             val exit = runCliWithLastResortHandling(command, out.stream) { error("boom deep in the bridge") }
 
-            assertEquals(CliExit.USAGE, exit)
+            assertEquals(CliExit.SOFTWARE, exit)
             assertEquals("", out.text(), "stdout must stay clean outside --json")
             assertTrue(err.text().contains("boom deep in the bridge"), err.text())
             assertTrue(err.text().contains("\tat "), "expected an actual stack trace, got: ${err.text()}")

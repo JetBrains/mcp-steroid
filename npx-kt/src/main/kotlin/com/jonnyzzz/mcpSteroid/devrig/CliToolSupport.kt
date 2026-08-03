@@ -54,6 +54,14 @@ object CliExit {
     /** The command could not reach a backend / the bridge failed (no IDE running, connection refused). */
     const val UNAVAILABLE: Int = 69
 
+    /**
+     * An internal devrig fault — an unhandled crash out of the bridge or a broken invariant (an NPE, a
+     * failed `check`) — as opposed to a caller mistake ([USAGE]) or an unreachable IDE ([UNAVAILABLE]).
+     * The stack trace always reaches stderr; this is the exit code that says "the failure is devrig's, not
+     * yours". `EX_SOFTWARE` in the BSD `sysexits.h` convention the rest of this table follows.
+     */
+    const val SOFTWARE: Int = 70
+
     /** A filesystem read/write failure. */
     const val IO_ERROR: Int = 74
 }

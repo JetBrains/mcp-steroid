@@ -53,7 +53,7 @@ fun main(rawArgs: Array<String>) {
         System.err.println("Unexpected error ${t.message}")
         t.printStackTrace(System.err)
         logger<DevrigLastResortCrashHandler>().error("Unexpected error running $command. ${t.message}", t)
-        64
+        CliExit.SOFTWARE
     } finally {
         lifetime.closeAllStacks()
     }
@@ -158,7 +158,7 @@ suspend fun DevrigServices.mainImpl2(
             System.err.println("Unexpected error ${t.message}")
             t.printStackTrace(System.err)
             logger<DevrigLastResortCrashHandler>().error("Unexpected error serving 'devrig mcp'. ${t.message}", t)
-            return@coroutineScope 64
+            return@coroutineScope CliExit.SOFTWARE
         }
     }
 
@@ -206,12 +206,12 @@ fun runCliWithLastResortHandling(command: DevrigCommand, mcpStdout: PrintStream,
         if (command.json) {
             Presentation.Json().renderError(
                 "devrig", "unexpected error: ${t.message ?: t.javaClass.simpleName}",
-                // No dedicated "internal crash" exit code exists; this reuses the same 64 that main()'s
-                // and the MCP branch's own last-resort handlers already return for an unhandled crash.
-                exit = CliExit.USAGE, out = mcpStdout,
+                // An unhandled crash is devrig's own fault, not the caller's — SOFTWARE (70), never the
+                // USAGE (64) that flags an argument mistake. The same code main() and the MCP branch return.
+                exit = CliExit.SOFTWARE, out = mcpStdout,
             )
         } else {
-            CliExit.USAGE
+            CliExit.SOFTWARE
         }
     }
 }
