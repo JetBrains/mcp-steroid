@@ -22,10 +22,18 @@ private const val REAPER_IMAGE_TAG = "mcp-steroid-reaper:latest"
  *   and [startDockerContainerAndForget] — the reaper container is NOT registered in any
  *   lifetime; it exits by itself once the socket closes and cleanup is done.
  * - Connects via TCP socket and sends line-based commands
- * - Protocol: `container=<id>` registers a container, `ping` keeps alive
+ * - Protocol: `container=<id-or-name>` registers a container, `ping` keeps alive
  * - Reaper kills all registered containers if no ping for 3 seconds or connection lost
- * - Container IDs are buffered in a [Channel] with capacity 128 before connection is established
+ * - Registrations are buffered in a [Channel] with capacity 128 before connection is established
  * - The reaper's own container ID is filtered out of the channel
+ *
+ * Three complementary cleanup layers (issue #412 — leaked full-IDE containers starved the
+ * TC agent's Docker daemon into 5-minute `docker run` timeouts):
+ * 1. [registerContainerName] BEFORE `docker run` — the reaper can `docker rm -f <name>` a
+ *    container whose `docker run` client was killed by timeout and never returned an ID.
+ * 2. [registerContainer] with the ID once the start succeeded (historical path).
+ * 3. [sweepTestRunContainers] on JVM exit — force-removes everything labeled with this
+ *    run's [testRunId], catching containers whose registration never reached the reaper.
  *
  * No mutable fields: socket and writer are local to [start] and captured by coroutines.
  * [shutdown] cancels child coroutines, whose `finally` blocks close the socket.
@@ -33,9 +41,47 @@ private const val REAPER_IMAGE_TAG = "mcp-steroid-reaper:latest"
  */
 object DockerReaper {
 
+    /** Docker label key stamped on every test container; the value is [testRunId]. */
+    const val TEST_RUN_LABEL = "com.jonnyzzz.mcp-steroid.test-run"
+
     private val started = AtomicBoolean(false)
     private val containerChannel = Channel<String>(128)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val sweepHookInstalled = AtomicBoolean(false)
+
+    /**
+     * Identifies one test run for container labels and names: the TeamCity build id on CI, a
+     * per-JVM session id locally. All Gradle test JVMs of one TC build share the id, so each
+     * JVM-exit sweep collects the whole build's strays (safe: the docker-heavy test tasks are
+     * serialised by the ciIntegrationTests mustRunAfter chain, so no sibling task can have live
+     * containers when a test JVM exits). Locally each JVM only ever sweeps its own containers.
+     */
+    val testRunId: String by lazy {
+        val raw = teamCityBuildId()?.let { "tc-$it" }
+            ?: "local-${ProcessHandle.current().pid()}-${System.currentTimeMillis()}"
+        // The id is embedded into container names, which only allow [a-zA-Z0-9_.-].
+        raw.replace(Regex("[^a-zA-Z0-9_.-]"), "-")
+    }
+
+    private fun teamCityBuildId(): String? {
+        System.getenv("TEAMCITY_BUILD_ID")?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+
+        // TeamCity does not export the build id as an env var by default, but every build
+        // exposes `teamcity.build.id` via the build properties file.
+        val propertiesPath = System.getenv("TEAMCITY_BUILD_PROPERTIES_FILE")?.trim()?.takeIf { it.isNotEmpty() }
+        if (propertiesPath != null) {
+            try {
+                val properties = java.util.Properties()
+                File(propertiesPath).inputStream().use { properties.load(it) }
+                properties.getProperty("teamcity.build.id")?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+            } catch (e: Exception) {
+                System.err.println("[REAPER] Failed to read TeamCity build properties $propertiesPath: ${e.message}")
+            }
+        }
+
+        // TeamCity (and Jenkins) also export the per-configuration build counter.
+        return System.getenv("BUILD_NUMBER")?.trim()?.takeIf { it.isNotEmpty() }
+    }
 
     /**
      * The container ID of the running reaper container, or null if not started.
@@ -86,6 +132,7 @@ object DockerReaper {
                 .volumes(ContainerVolume(File("/var/run/docker.sock"), "/var/run/docker.sock"))
                 .ports(port8080)
                 .quietly()
+                .withoutReaperRegistration()
         )
 
         reaperContainerId = containerDriver.containerId
@@ -172,16 +219,95 @@ object DockerReaper {
     }
 
     /**
-     * Register a container for cleanup.
+     * Register a container for cleanup by ID.
      * Implicitly starts the reaper on a daemon thread if not already started.
-     * Container IDs are buffered in a [Channel] with capacity 128 —
+     * Registrations are buffered in a [Channel] with capacity 128 —
      * safe to call before the reaper connection is established.
      */
     fun registerContainer(container: ContainerDriver) {
-        containerChannel.trySend(container.containerId)
+        registerForCleanup(container.containerId)
+    }
+
+    /**
+     * Register a container NAME for cleanup — called BEFORE `docker run` even starts.
+     * `docker kill` / `docker rm -f` accept names, so a container whose `docker run` client was
+     * killed by timeout (its ID never reached this JVM) is still reaped when the socket closes.
+     */
+    fun registerContainerName(containerName: String) {
+        registerForCleanup(containerName)
+    }
+
+    private fun registerForCleanup(containerIdOrName: String) {
+        ensureTestRunSweepOnJvmExit()
+
+        val sendResult = containerChannel.trySend(containerIdOrName)
+        if (sendResult.isFailure) {
+            // Buffer overflowed before the reaper connection drained it — the reaper will miss
+            // this container; the test-run label sweep is the remaining safety net.
+            System.err.println("[REAPER] Could not buffer '$containerIdOrName' for the reaper: $sendResult")
+        }
 
         if (!started.get()) {
             scope.launch { start() }
+        }
+    }
+
+    /**
+     * The JVM-exit sweep complements the reaper container: shutdown hooks do not run on SIGKILL
+     * (the reaper covers that), but they DO run on normal JVM exit — where they catch containers
+     * whose registration never made it into the reaper (channel overflow, reaper start failure).
+     */
+    private fun ensureTestRunSweepOnJvmExit() {
+        if (!sweepHookInstalled.compareAndSet(false, true)) return
+        Runtime.getRuntime().addShutdownHook(Thread({ sweepTestRunContainers() }, "docker-test-run-sweep"))
+    }
+
+    /**
+     * Force-remove every container labeled [TEST_RUN_LABEL]=[testRunId] — the strays of this
+     * test run. Idempotent and safe to race with the reaper container's own cleanup: both sides
+     * issue `docker rm -f`, and "No such container" failures are tolerated.
+     */
+    fun sweepTestRunContainers() {
+        val list = RunProcessRequest()
+            .logPrefix("REAPER")
+            .command("docker", "ps", "-aq", "--filter", "label=$TEST_RUN_LABEL=$testRunId")
+            .description("List stray containers of test run $testRunId")
+            .timeoutSeconds(30)
+            .quietly()
+            .startProcess()
+            .awaitForProcessFinish()
+
+        if (list.exitCode != 0) {
+            System.err.println(
+                "[REAPER] Test-run sweep failed to list containers of run $testRunId " +
+                        "(exit code ${list.exitCode}): ${list.stderr.trim()}"
+            )
+            return
+        }
+
+        val containerIds = list.stdout.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        if (containerIds.isEmpty()) {
+            println("[REAPER] Test-run sweep: no stray containers for test run $testRunId")
+            return
+        }
+
+        println("[REAPER] Test-run sweep: force-removing ${containerIds.size} container(s) of test run $testRunId: $containerIds")
+        val rm = RunProcessRequest()
+            .logPrefix("REAPER")
+            .command(listOf("docker", "rm", "-f") + containerIds)
+            .description("Force-remove stray containers of test run $testRunId")
+            .timeoutSeconds(120)
+            .quietly()
+            .startProcess()
+            .awaitForProcessFinish()
+
+        if (rm.exitCode == 0) {
+            println("[REAPER] Test-run sweep removed ${containerIds.size} container(s)")
+        } else {
+            System.err.println(
+                "[REAPER] Test-run sweep could not remove all containers of run $testRunId " +
+                        "(exit code ${rm.exitCode}): ${rm.stderr.trim()}"
+            )
         }
     }
 
