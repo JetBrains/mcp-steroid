@@ -171,7 +171,7 @@ class McpToolsCliHelpTest {
             "list_projects must advertise its declared plural and legacy singular aliases:\n${section()}",
         )
         assertTrue(
-            "  devrig fetch_resource --uri=<uri> --project_name=<project_name> (alias: prompt)\n" in section(),
+            "  devrig fetch_resource <uri> --project_name=<project_name> (alias: prompt)\n" in section(),
             "fetch_resource must advertise its declared `prompt` alias:\n${section()}",
         )
     }

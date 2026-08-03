@@ -6,6 +6,7 @@ import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.cliMissingHint
+import com.jonnyzzz.mcpSteroid.mcp.cliPositional
 import com.jonnyzzz.mcpSteroid.mcp.cliSynopsis
 import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.get
@@ -70,7 +71,8 @@ class FetchResourceToolHandler(
         .description("The mcp-steroid:// URI to fetch (see the tool description for canonical entry points, " +
             "or fetch ${SkillPromptArticle().uri} for the index)")
         .cliSynopsis("mcp-steroid:// resource URI to fetch")
-        .cliMissingHint("missing --uri. Example:\n  devrig fetch_resource --uri=${SkillPromptArticle().uri}")
+        .cliMissingHint("missing uri. Example:\n  devrig prompt ${SkillPromptArticle().uri}")
+        .cliPositional()
         .string()
         .required()
         .registerToSchema()
