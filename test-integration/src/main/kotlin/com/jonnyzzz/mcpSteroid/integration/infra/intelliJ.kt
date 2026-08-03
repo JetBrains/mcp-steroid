@@ -144,6 +144,8 @@ class IntelliJDriver(
         driver.mkdirs(logsGuestDir)
         driver.mkdirs(pluginsGuestDir)
 
+        seedGradleCacheFromImage()
+
         driver.startProcessInContainer {
             this
                 .args("ls", "-la", intelliJGuestHomeDir)
@@ -231,6 +233,43 @@ class IntelliJDriver(
         }
 
         return idea
+    }
+
+    /**
+     * Copy the image-baked Gradle cache seed into `~/.gradle` BEFORE the IDE launches.
+     *
+     * `/home/agent/.gradle` is bind-mounted from a host cache dir
+     * ([IdeTestFolders.dependencyCacheVolumes]) that SHADOWS anything baked into the image at that
+     * path — and on CI the host dir starts cold every build, so the first in-IDE Gradle sync used
+     * to download the Gradle distribution + kotlin-gradle-plugin + deps inside the import's 480s
+     * wait (issue #412). The ide-agent image bakes that state into `/home/agent/gradle-cache-seed`
+     * at image-build time (see the ide-agent Dockerfile); this step rsyncs it into the mounted
+     * cache. `--ignore-existing` keeps an already-warm host cache authoritative, so re-runs on the
+     * same host only fill gaps. Non-IDEA agent images carry no seed dir — then this is a logged
+     * no-op (the `if [ -d ]` guard), never a skipped-by-error path: any rsync failure fails loudly.
+     */
+    private fun seedGradleCacheFromImage() {
+        val seedDir = "/home/agent/gradle-cache-seed"
+        driver.startProcessInContainer {
+            this
+                .args(
+                    "bash", "-c",
+                    """
+                    set -e
+                    if [ -d "$seedDir" ]; then
+                      mkdir -p /home/agent/.gradle
+                      rsync -a --ignore-existing "$seedDir/" /home/agent/.gradle/
+                      echo "Gradle cache seeded from image: $(du -sh "$seedDir" | cut -f1)"
+                    else
+                      echo "No baked Gradle cache seed in this image - skipping"
+                    fi
+                    """.trimIndent(),
+                )
+                .timeoutSeconds(300)
+                .description("Seed ~/.gradle from the image-baked cache")
+        }.awaitForProcessFinish().assertExitCode(0) {
+            "Failed to seed ~/.gradle from the image-baked Gradle cache"
+        }
     }
 
     private fun generateVmOptions() {

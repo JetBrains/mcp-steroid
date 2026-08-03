@@ -32,12 +32,21 @@ fun buildIdeImage(dockerFileBase: String, ideArchive: File): ImageDriver {
     val contextKey = sha256Hex(ideArchive.absolutePath).take(16)
     val contextDir = prepareContext("docker-$dockerFileBase-$contextKey", "ide-base", dockerFileBase)
 
+    // The ide-agent Dockerfile pre-bakes the test project's Gradle caches (wrapper dist +
+    // dependencies) by running the REAL project build during the image build — stage the
+    // project into the context for its COPY. Staged for every IDE flavor because the context
+    // prep is shared; non-IDEA Dockerfiles simply never reference it (a few KB of context).
+    IdeTestFolders.copyDockerFiles("test-project", File(contextDir, "test-project"))
+
     linkIdeArchive(contextDir, ideArchive)
 
     val imageId = buildDockerImage(
         logPrefix = "IDE",
         dockerfilePath = File(contextDir, "Dockerfile"),
-        timeoutSeconds = 900,
+        // 1800s, not 900: the once-per-day uncached build now includes the Gradle pre-bake
+        // (wrapper distribution + kotlin-gradle-plugin + dependency downloads + a compile),
+        // which on slow agent egress can add several minutes on top of the IDE extraction.
+        timeoutSeconds = 1800,
         buildArgs = mapOf("BASE_IMAGE" to resolvedBaseImageId.imageId),
     )
     return imageId

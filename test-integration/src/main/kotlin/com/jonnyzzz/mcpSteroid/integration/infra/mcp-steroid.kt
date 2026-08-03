@@ -43,6 +43,14 @@ enum class ModalMode(val wire: String) {
 }
 
 data class McpProjectInfo(
+    /**
+     * The within-IDE-unique `project_name` ROUTING KEY (opaque, `<name>-<hash>`), the value the
+     * project-scoped tools (`steroid_execute_code`, …) require. NOT stable across a Gradle import:
+     * the first sync renames the project from its folder name to `rootProject.name`, which changes
+     * this key too — see [McpSteroidDriver.mcpExecuteCode] for the re-resolve-on-rename handling.
+     */
+    val projectName: String,
+    /** Raw IntelliJ `Project.name` (folder name, or `rootProject.name` after import) — display only. */
     val name: String,
     val path: String,
 )
@@ -82,6 +90,16 @@ private const val INDEXING_POLL_BUDGET_MS = 60 * 60 * 1000L
 
 /** Pure: does this tool-result text say the IDE is still indexing (so we should call again)? */
 internal fun isIndexingInProgress(text: String): Boolean = text.contains(INDEXING_IN_PROGRESS_MARKER)
+
+/**
+ * Pure: does this tool-result text say the server could not route the given `project_name`? Mirrors the
+ * error `ProjectScopedToolHandler.resolveProject` raises (`Project not found: "<key>". Available
+ * project_name values: …`) — the coupling is the documented tool-result contract, same as
+ * [INDEXING_IN_PROGRESS_MARKER]. Matches the quoted key exactly so a script's own output can never
+ * masquerade as the routing failure.
+ */
+fun isProjectNotFound(text: String, projectName: String): Boolean =
+    text.contains("Project not found: \"$projectName\"")
 
 /** The message the plugin logs (SteroidsMcpServer) when its MCP web server cannot start. */
 internal const val MCP_SERVER_STARTUP_FAILURE_MARKER = "Failed to start MCP server"
@@ -266,6 +284,8 @@ class McpSteroidDriver(
                 ?.jsonArray
                 ?.map {
                     McpProjectInfo(
+                        projectName = it.jsonObject["project_name"]?.jsonPrimitive?.contentOrNull
+                            ?: throw McpRequestFailedError("steroid_list_projects entry missing 'project_name': $payload"),
                         name = it.jsonObject["name"]?.jsonPrimitive?.contentOrNull
                             ?: throw McpRequestFailedError("steroid_list_projects entry missing 'name': $payload"),
                         path = it.jsonObject["path"]?.jsonPrimitive?.contentOrNull
@@ -279,7 +299,11 @@ class McpSteroidDriver(
     }
 
     /**
-     * Find the project name for the guest project directory.
+     * The current `project_name` ROUTING KEY of the project at the guest project directory.
+     *
+     * Resolves by PATH (rename-immune), but the returned KEY itself is invalidated when Gradle's
+     * first sync renames the project (folder name → `rootProject.name` — the key hashes the name);
+     * treat it as a snapshot, not a constant. [mcpExecuteCode] re-resolves on that rename.
      */
     fun resolveProjectName(): String {
         val guestProjectDir = ijDriver.getGuestProjectDir()
@@ -364,7 +388,10 @@ class McpSteroidDriver(
     }
 
     private fun resolveProjectName(projectPath: String): String? {
-        return mcpListProjects().firstOrNull { it.path == projectPath }?.name
+        // Match by PATH (stable across the Gradle import rename), return the project_name routing
+        // key — the value the server-side ProjectScopedToolHandler resolves FIRST and unambiguously.
+        // The raw `name` is only an ambiguity-prone fallback on the server (#92).
+        return mcpListProjects().firstOrNull { it.path == projectPath }?.projectName
     }
 
     /**
@@ -374,8 +401,6 @@ class McpSteroidDriver(
      * All operations are best-effort — failures are logged but do not propagate.
      */
     fun mcpOpenFileAndBuildToolWindow(openFileOnStart: String? = null) {
-        val projectName = resolveProjectName()
-
         // Escape the openFileOnStart path for embedding in Kotlin string template
         val filePathLiteral = if (openFileOnStart != null) {
             "\"$openFileOnStart\""
@@ -483,7 +508,6 @@ try {
         try {
             mcpExecuteCode(
                 code = code,
-                projectName = projectName,
                 reason = "Open project file and build tool window for agent orientation",
                 timeout = 30,
             )
@@ -502,7 +526,9 @@ try {
      * @param taskId Task identifier (default: "integration-test")
      * @param reason Human-readable reason for execution
      * @param timeout Timeout in seconds (default: 600)
-     * @param projectName Project name (defaults to the project at guestProjectDir)
+     * @param projectName Explicit `project_name` routing key, or null (default) for "the project at
+     *        the guest project dir" — resolved when the call starts and RE-resolved when the Gradle
+     *        import rename invalidates the key mid-call (see below)
      * @return MCP tool result as JSON string
      *
      * If the IDE is still indexing, each call waits a short window and returns an "INDEXING IN PROGRESS"
@@ -514,24 +540,48 @@ try {
         taskId: String = "integration-test",
         reason: String = "Integration test execution",
         timeout: Int = 600,
-        projectName: String = resolveProjectName(),
+        projectName: String? = null,
         /**
          * How exec_code treats IDE modality around the script. Mindfully defaulted to [ModalMode.DEFAULT]
          * and always sent explicitly on the wire, so every driver-issued exec_code makes a deliberate
          * modality choice rather than relying on the server's implicit default.
          */
         modal: ModalMode = ModalMode.DEFAULT,
-    ): ProcessResult =
+    ): ProcessResult {
+        // Resolved eagerly (not per attempt) so a genuinely-not-open project still fails fast here
+        // instead of being retried for the whole indexing budget.
+        var effectiveProjectName = projectName ?: resolveProjectName()
+
         // Retry-while-busy, the same way an agent would: just call again. The exception types from the
         // request layer drive the wait, so no try/catch is needed here: a transient TransientMcpRequestException
         // (IDE too busy to answer, curl killed, exit -1) is a plain exception that waitFor swallows-and-retries,
         // while a fatal McpRequestFailedError (a WaitAbortedError) stops the loop at once instead of
         // retrying a genuine crash for the whole budget. The last "busy" signal is a clean INDEXING IN
         // PROGRESS result → null → call again.
-        waitForValue(INDEXING_POLL_BUDGET_MS, "exec_code '$taskId' to run (IDE busy with import/indexing)") {
-            mcpExecuteCodeOnce(code, taskId, reason, timeout, projectName, modal)
-                .takeUnless { isIndexingInProgress(it.stdout) }
+        return waitForValue(INDEXING_POLL_BUDGET_MS, "exec_code '$taskId' to run (IDE busy with import/indexing)") {
+            val result = mcpExecuteCodeOnce(code, taskId, reason, timeout, effectiveProjectName, modal)
+            when {
+                isIndexingInProgress(result.stdout) -> null // still indexing → call again
+
+                // Gradle's first sync renames the project (folder name → rootProject.name, e.g.
+                // project-home → demo-project), which changes the project_name routing key mid-run —
+                // a key resolved before the rename stops routing and the server answers "Project not
+                // found" (#412). Only when the caller did NOT pin a name: re-resolve by path, and if
+                // the key genuinely changed retry with the fresh one. Any other not-found (key
+                // unchanged, project gone, or an explicitly pinned name) stays a hard failure.
+                projectName == null && result.exitCode != 0 && isProjectNotFound(result.stdout, effectiveProjectName) -> {
+                    val freshName = resolveProjectName(ijDriver.getGuestProjectDir())
+                    if (freshName != null && freshName != effectiveProjectName) {
+                        println("[MCP] project_name '$effectiveProjectName' was renamed to '$freshName' (build-system import) — retrying")
+                        effectiveProjectName = freshName
+                        null // retry with the fresh routing key
+                    } else result
+                }
+
+                else -> result
+            }
         }
+    }
 
     private fun mcpExecuteCodeOnce(
         code: String,
