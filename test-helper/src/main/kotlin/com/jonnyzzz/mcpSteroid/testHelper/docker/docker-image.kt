@@ -12,6 +12,13 @@ import kotlin.io.path.createTempFile
 data class ImageDriver(
     val imageId: String,
     val logPrefix: String,
+    /**
+     * Combined stdout+stderr of the `docker build` that produced this image (empty for images
+     * obtained without a build, e.g. `docker commit`). [buildDockerImage] forces
+     * `--progress=plain`, so tests can assert on BuildKit step markers (`#<id> CACHED`)
+     * instead of flaky wall-clock timings.
+     */
+    val buildOutput: String = "",
 ) {
     val imageIdToLog get() = imageId.take(10)
 
@@ -61,6 +68,17 @@ fun ContainerDriver.commitContainerToImage(imageTag: String? = null): ImageDrive
 }
 
 /**
+ * CACHE_BUST drives the "daily refresh boundary" in the agent-CLI Dockerfiles (ide-base):
+ * layers below it (the `npm install -g` agent-CLI steps) rebuild whenever the token changes.
+ * Pinned ONCE per JVM — not re-read on every [buildDockerImage] call — so a test run that
+ * crosses midnight keeps a single token for its whole lifetime; otherwise the date flip
+ * invalidates every already-built image mid-run and the incremental-build guarantees
+ * (and image reuse between tests) silently break. A fresh run still picks up the new date,
+ * preserving the once-per-day agent-CLI refresh.
+ */
+private val cacheBustToken: String = DateTimeFormatter.ISO_DATE.format(LocalDateTime.now())
+
+/**
  * Build a Docker image and return its content-addressable image ID (sha256:...).
  *
  * @param buildArgs Extra `--build-arg KEY=VALUE` entries (e.g. `BASE_IMAGE` for derived images)
@@ -77,7 +95,6 @@ fun buildDockerImage(
         "File does not exist: $dockerfilePath"
     }
 
-    val nowDate = DateTimeFormatter.ISO_DATE.format(LocalDateTime.now())
     val iidFile = createTempFile("docker-iid", ".txt").toFile()
     try {
         val command = buildList {
@@ -85,8 +102,12 @@ fun buildDockerImage(
             add("build")
             add("--iidfile")
             add(iidFile.absolutePath)
+            // Plain BuildKit progress renders one deterministic `#<id> ...` line per step regardless
+            // of TTY, so [ImageDriver.buildOutput] is machine-parseable (incremental-build tests
+            // assert on the `#<id> CACHED` markers).
+            add("--progress=plain")
 
-            for ((k, v) in buildArgs + ("CACHE_BUST" to nowDate)) {
+            for ((k, v) in buildArgs + ("CACHE_BUST" to cacheBustToken)) {
                 add("--build-arg")
                 add("$k=$v")
             }
@@ -94,7 +115,7 @@ fun buildDockerImage(
             add(".")
         }
 
-        RunProcessRequest()
+        val buildResult = RunProcessRequest()
             .logPrefix(logPrefix)
             .command(command)
             .description("Build Docker image $dockerfilePath")
@@ -113,6 +134,8 @@ fun buildDockerImage(
         return ImageDriver(
             imageId = imageId.removePrefix("sha256:").trim(),
             logPrefix = logPrefix,
+            // BuildKit writes progress to stderr; keep stdout too for legacy-builder output.
+            buildOutput = buildResult.stdout + "\n" + buildResult.stderr,
         )
     } finally {
         iidFile.delete()
