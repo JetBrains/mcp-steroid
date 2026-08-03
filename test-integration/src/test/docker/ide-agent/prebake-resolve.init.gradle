@@ -1,0 +1,36 @@
+// Runs ONLY during the ide-agent Docker image build (see the Dockerfile's Gradle
+// pre-bake step). The in-container IDE Gradle sync resolves every source-set
+// classpath AND downloads -sources jars (the import enables gradle.download.sources),
+// so `testClasses` alone leaves testRuntimeClasspath + sources cold and the first
+// in-IDE sync still hits the network. This init script registers a task that resolves
+// exactly that remainder into ~/.gradle. Kept as an init script so the test project's
+// own build files stay exactly what the integration tests exercise.
+allprojects { project ->
+    project.tasks.register("prebakeResolveAll") {
+        doLast {
+            ["compileClasspath", "runtimeClasspath", "testCompileClasspath", "testRuntimeClasspath"].each { configurationName ->
+                def configuration = project.configurations.findByName(configurationName)
+                if (configuration == null) {
+                    println("[PREBAKE] ${project.path}: no configuration '${configurationName}'")
+                } else {
+                    def files = configuration.resolve()
+                    println("[PREBAKE] ${project.path}:${configurationName} -> ${files.size()} file(s)")
+                }
+            }
+
+            // -sources jars, the same way the IDE sync fetches them (gradle.download.sources=true).
+            def componentIds = project.configurations.getByName("testRuntimeClasspath")
+                .incoming.resolutionResult.allDependencies
+                .findAll { it instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult }
+                .collect { it.selected.id }
+            def resolved = project.dependencies.createArtifactResolutionQuery()
+                .forComponents(componentIds)
+                .withArtifacts(
+                    org.gradle.jvm.JvmLibrary,
+                    org.gradle.language.base.artifact.SourcesArtifact,
+                )
+                .execute()
+            println("[PREBAKE] ${project.path}: sources fetched for ${resolved.resolvedComponents.size()} component(s)")
+        }
+    }
+}
