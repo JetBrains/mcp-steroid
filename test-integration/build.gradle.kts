@@ -186,6 +186,26 @@ tasks.test {
         filter { includeTestsMatching(pattern) }
     }
 
+    // Lane split for TeamCity (#412): the compat/verification legs each bake or download a
+    // multi-GB per-IDE distribution and start their own IDE container, so TC runs them in a
+    // dedicated build configuration (mcp_steroid_IntegrationTests_CompatTests, lane=compat)
+    // on a fresh agent instead of 4-5 hours into the main matrix (lane=main). The excluded
+    // classes are not hidden from reports — they report from the compat configuration, the
+    // same visibility model as the per-OS and per-IDE build splits. Unset = full suite, so
+    // local invocations keep running everything.
+    val compatLaneClasses = listOf(
+        "*.PluginVerificationTest",
+        "*.PluginBuildCompatibilityTest",
+        "*.PluginRuntimeCompatibilityTest",
+        "*.AndroidStudioRuntimeCompatTest",
+    )
+    when (val lane = project.findProperty("mcp.testIntegration.lane")?.toString()) {
+        null -> {}
+        "compat" -> filter { compatLaneClasses.forEach { includeTestsMatching(it) } }
+        "main" -> filter { compatLaneClasses.forEach { excludeTestsMatching(it) } }
+        else -> error("Unknown mcp.testIntegration.lane='$lane' — use 'compat', 'main', or unset for the full suite")
+    }
+
     // Prevent this task from being silently triggered by root-level './gradlew test' aggregation.
     // Integration tests require Docker, API keys, and IDE containers — they must be invoked explicitly.
     //
