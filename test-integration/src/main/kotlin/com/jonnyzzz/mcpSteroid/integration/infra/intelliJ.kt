@@ -259,7 +259,14 @@ class IntelliJDriver(
                     set -e
                     if [ -d "$seedDir" ]; then
                       mkdir -p /home/agent/.gradle
-                      rsync -a --ignore-existing "$seedDir/" /home/agent/.gradle/
+                      # -rlE, not -a: ~/.gradle is a bind mount whose root the container
+                      # user cannot chown/chmod/utime — with -a rsync exits 23 on
+                      # "failed to set times on /home/agent/.gradle/." and the fail-fast
+                      # below killed every container start (TC run 1019886137). The cache
+                      # only needs content + executability (wrapper bin/gradle), so copy
+                      # structure (-r), links (-l) and executable bits (-E) and skip all
+                      # ownership/permission/mtime preservation.
+                      rsync -rlE --ignore-existing "$seedDir/" /home/agent/.gradle/
                       echo "Gradle cache seeded from image: $(du -sh "$seedDir" | cut -f1)"
                     else
                       echo "No baked Gradle cache seed in this image - skipping"

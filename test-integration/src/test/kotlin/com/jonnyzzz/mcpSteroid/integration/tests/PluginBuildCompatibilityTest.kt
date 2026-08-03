@@ -147,12 +147,18 @@ private object BuildCompatInfra {
             val container = prepareContainer(lifetime, "verify")
             applyPatches(container, extraPatches)
 
-            // Replace the pluginVerification ides block with the target IDE
+            // Replace the whole pluginVerification block with one that verifies only the
+            // target IDE. Balanced-brace recursion ((?1) re-enters group 1) is required:
+            // the block nests braces — `create(...) { useInstaller = true }` ides entries,
+            // comments — and the previous non-greedy `.*?\}` cut at the first inner `}`,
+            // leaving dangling braces behind (TC run 1019886135: "Unexpected symbol" at
+            // build.gradle.kts:305). Verified against the intellijPlatform.caching.ides
+            // block staying untouched.
             container.startProcessInContainer {
                 this
                     .args(
                         "perl", "-i", "-0pe",
-                        """s/pluginVerification \{.*?ides \{.*?\}\s*\}/pluginVerification { ides { $ideEntry } }/s""",
+                        """s/pluginVerification\s*(\{(?:[^{}]++|(?1))*+\})/pluginVerification { ides { $ideEntry } }/s""",
                         "$BUILD_GUEST/ij-plugin/build.gradle.kts",
                     )
                     .description("Set verifier IDE to $ideEntry")
