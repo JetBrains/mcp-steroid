@@ -215,16 +215,19 @@ fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
  *
  * When [outPath] is `null` (the flag was not passed) this delegates straight to [Presentation.render].
  *
- * The user explicitly asked for an image to be saved, so every failure to do that on an OTHERWISE
- * SUCCESSFUL run — no image in the result, an undecodable payload, or a write failure — is
+ * A failure to save an image that the result DOES carry — an undecodable payload or a write failure — is
  * [CliExit.DATA_ERROR] / [CliExit.IO_ERROR], never a silent no-op: `devrig take_screenshot --out shot.png
- * && open shot.png` must not report success with `shot.png` absent. The accepted cost is that a caller who
- * passes `--out` speculatively (on the chance of a failure screenshot that may never materialize) now fails
- * an otherwise-successful run.
+ * && open shot.png` must not report success with `shot.png` absent. take_screenshot always returns an image
+ * on success, so a missing file there is a genuine fault worth the non-zero exit.
  *
- * One exception: when the TOOL ITSELF failed and returned no image, the tool's own error is the real story,
- * so `--out` steps aside and renders it verbatim rather than masking it with a "no image" [CliExit.DATA_ERROR].
- * The user needs to read why the tool failed, not that a screenshot they never got wasn't saved.
+ * A SUCCESSFUL run that simply carried NO image is a different case and is NOT a failure. The tool already
+ * ran — an `execute_code` script may have created files — so failing the run would invite a re-run that
+ * repeats those side effects. Such a run warns on stderr that `--out` matched nothing and renders the result
+ * at its own (success) exit code; the file is genuinely optional for the image-producing tools that reach
+ * this branch (take_screenshot never does on success).
+ *
+ * When the TOOL ITSELF failed and returned no image, the tool's own error is the real story, so `--out`
+ * steps aside and renders it verbatim rather than masking it with a `--out` miss.
  *
  * The chosen path is resolved to a single absolute, normalized [Path] (`..`/`.` segments collapsed) used for
  * the parent-directory creation, the write, and the reported `savedOut` alike — one form, no drift. The write
@@ -250,10 +253,16 @@ fun renderWithOut(
 
     val image = result.content.filterIsInstance<ContentItem.Image>().firstOrNull()
     if (image == null) {
-        // The tool failed and produced no image: its own error is what the user needs, not a --out miss.
-        if (result.isError) return presentation.render(result, command, out, err)
-        val message = "--out was given but the $command result carries no image; nothing was written to $target"
-        return presentation.renderError(command, message, CliExit.DATA_ERROR, out, err)
+        // No image to redirect. This is NOT a failure: the tool already ran (an execute_code script may have
+        // written files), so failing the run would invite a re-run that repeats those side effects. When the
+        // run SUCCEEDED, warn on stderr that --out matched nothing and render the result at its own exit
+        // code; when the TOOL failed, its own error is the real story. Either way stdout stays the tool's
+        // result. take_screenshot always returns an image on success, so `--out shot.png && open shot.png`
+        // still holds — only the image-optional tools ever reach here.
+        if (!result.isError) {
+            err.println("--out was given but the $command result carries no image; nothing was written to $target")
+        }
+        return presentation.render(result, command, out, err)
     }
 
     val decoded = try {

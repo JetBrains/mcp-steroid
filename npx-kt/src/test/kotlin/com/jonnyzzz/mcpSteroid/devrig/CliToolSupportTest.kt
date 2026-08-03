@@ -388,24 +388,27 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `--out with no image on an otherwise-successful result is a DATA_ERROR under --json`() {
+    fun `--out with no image on an otherwise-successful result succeeds and warns, never repeating the run's side effects`() {
         val outPath = tempDir.resolve("x.png")
         val out = CapturedStream()
+        val err = CapturedStream()
         val exit = renderWithOut(
             Presentation.Json(),
             textResult("all good, no dialog appeared", isError = false),
             "execute_code",
             outPath,
             out.stream,
+            err.stream,
         )
 
-        // The user explicitly asked for an image and the tool succeeded without producing one: that unmet
-        // expectation is a DATA_ERROR, never a bare CliExit.OK that hides the missing file.
-        assertEquals(CliExit.DATA_ERROR, exit)
+        // The tool already RAN — an execute_code script may have written files — so a missing image is not a
+        // failure that should be re-run: --out warns on stderr and the run renders at its own success code.
+        assertEquals(CliExit.OK, exit)
         assertTrue(!Files.exists(outPath), "nothing should be written when there is no image")
         val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
-        assertEquals(true, envelope.getValue("isError").jsonPrimitive.boolean)
-        assertTrue(firstTextOf(envelope.getValue("data").jsonObject.getValue("content")).contains("no image"))
+        assertEquals(false, envelope.getValue("isError").jsonPrimitive.boolean)
+        assertTrue("all good, no dialog appeared" in firstTextOf(envelope.getValue("data").jsonObject.getValue("content")))
+        assertEquals(1, countOccurrences(err.text(), "no image"), "expected exactly one stderr warning, got: ${err.text()}")
     }
 
     @Test
@@ -469,16 +472,18 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `--out with no image in the result is a DATA_ERROR on the console, with the diagnostic printed exactly once`() {
+    fun `--out with no image on an otherwise-successful console result succeeds, warning exactly once`() {
         val outPath = tempDir.resolve("x.png")
         val out = CapturedStream()
         val err = CapturedStream()
 
         val exit = renderWithOut(Presentation.Console { tempDir }, textResult("all good"), "execute_code", outPath, out.stream, err.stream)
 
-        assertEquals(CliExit.DATA_ERROR, exit)
+        // The successful run renders normally on stdout and merely warns — once — that --out matched nothing.
+        assertEquals(CliExit.OK, exit)
         assertTrue(!Files.exists(outPath))
-        assertEquals(1, countOccurrences(err.text(), "no image"), "expected exactly one diagnostic, got: ${err.text()}")
+        assertTrue("all good" in out.text(), "the tool's own result still renders on stdout")
+        assertEquals(1, countOccurrences(err.text(), "no image"), "expected exactly one warning, got: ${err.text()}")
     }
 
     @Test
