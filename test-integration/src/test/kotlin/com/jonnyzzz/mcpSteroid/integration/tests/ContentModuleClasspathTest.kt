@@ -50,6 +50,17 @@ class ContentModuleClasspathTest {
         // Each entry is listed explicitly so the test catches any change in
         // module loading behavior across IDE versions.
         //
+        // ROLLING-CHANNEL DRIFT (this WILL recur): the test resolves the
+        // NEWEST IDEA on the stable channel (IdeDistribution.Latest,
+        // channel=STABLE, version=null in intelliJ-download.kt), so the
+        // resolved major slides without any change in this repo. The 261→262
+        // slide (issue #412, IU-262.8665.337) re-organized content modules:
+        // 39 new plugins/*/lib/modules jars, 22 stale entries. Expect the
+        // same at 263: add UNLOADED_CONTENT_MODULES_IU_263 (= the 262 set
+        // minus its stale entries plus the new jars, TRANSCRIBED verbatim
+        // from the failure output) and dispatch on the major in
+        // unloadedContentModules().
+        //
         // When updating to a new IDE version:
         //   1. Run the test — it will fail listing unexpected JARs
         //   2. Investigate each new JAR: is it intentionally unloaded?
@@ -234,6 +245,134 @@ class ContentModuleClasspathTest {
         }
 
         /**
+         * Entries of [UNLOADED_CONTENT_MODULES_IU_261] that are STALE on IU 2026.2
+         * (IU-262.8665.337): no longer on the filesystem, or now loaded. Transcribed
+         * verbatim from the test failure of TC run 1019004081 (issue #412) — 21 of
+         * the 22 reported stale entries; the 22nd, intellij.database.mcp.jar, is not
+         * part of the 261 set (it is gated via isDatabaseMcpUnloaded, which returns
+         * false for 262+).
+         *
+         * The vcs frontend-split pair relocated: intellij.platform.vcs.frontend.split
+         * and intellij.vcs.git.frontend.split moved from cwm-plugin (dropped here) to
+         * platform-vcs-split-plugin / vcs-git (added in the NEW list below).
+         */
+        private val UNLOADED_CONTENT_MODULES_DROPPED_IN_IU_262 = setOf(
+            "plugins/cwm-plugin/lib/modules/intellij.platform.identifiers.highlighting.shared.jar",
+            "plugins/cwm-plugin/lib/modules/intellij.platform.inline.completion.frontend.split.jar",
+            "plugins/cwm-plugin/lib/modules/intellij.platform.kernel.frontend.split.jar",
+            "plugins/cwm-plugin/lib/modules/intellij.platform.progress.frontend.split.jar",
+            "plugins/cwm-plugin/lib/modules/intellij.platform.project.frontend.split.jar",
+            "plugins/cwm-plugin/lib/modules/intellij.platform.vcs.frontend.split.jar",
+            "plugins/cwm-plugin/lib/modules/intellij.vcs.git.frontend.split.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.dataspell.jupyter.customCells.sql.backend.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.dataspell.jupyter.customCells.sql.common.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.dataspell.jupyter.customCells.sql.frontend.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.py.dap.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.py.ift.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.py.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.py.pro.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.py.psi.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.py.wsl.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.split.backend.py.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.split.frontend.jar",
+            "plugins/jupyter-plugin/lib/modules/intellij.jupyter.split.frontend.py.jar",
+            "plugins/kotlin-jupyter-plugin/lib/modules/intellij.kotlin.jupyter.k1.jar",
+            "plugins/spring-boot-plugin/lib/modules/intellij.spring.boot.rewrite.jar",
+        )
+
+        /**
+         * Content modules NEW in IU 2026.2 (IU-262.8665.337): on the filesystem but
+         * not loaded, absent in 261. Transcribed verbatim from the test failure of
+         * TC run 1019004081 (issue #412) — the 39 plugins/&lt;name&gt;/lib/modules jars
+         * of the 41 reported (the other 2 are the lib-level REMOTE_DEV_CLIENT_BOOT_JARS).
+         */
+        private val UNLOADED_CONTENT_MODULES_NEW_IN_IU_262 = buildSet {
+            // --- Frontend-split modules (thin client / remote dev only) ---
+            addAll(listOf(
+                "plugins/clouds-docker-impl/lib/modules/intellij.clouds.docker.compose.frontend.split.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.cwm.connection.frontend.split.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.cwm.frontend.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.platform.frontend.split.base.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.platform.frontend.split.connection.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.platform.frontend.split.devSources.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.platform.frontend.split.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.platform.frontend.split.startup.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.platform.kernel.base.frontend.split.jar",
+                "plugins/cwm-plugin/lib/modules/intellij.rd.eel.frontend.jar",
+                "plugins/java/lib/modules/intellij.debugger.logpoints.frontend.split.jar",
+                "plugins/javascript-plugin/lib/modules/intellij.javascript.frontend.split.jar",
+                "plugins/performanceTesting/lib/modules/intellij.driver.frontend.split.jar",
+                "plugins/performanceTesting/lib/modules/intellij.performanceTesting.frontend.split.jar",
+                "plugins/platform-daemon-plugin/lib/modules/intellij.platform.daemon.frontend.split.jar",
+                "plugins/platform-testRunner-plugin/lib/modules/intellij.platform.smRunner.frontend.split.jar",
+                // Relocated from cwm-plugin in 261 — see UNLOADED_CONTENT_MODULES_DROPPED_IN_IU_262.
+                "plugins/platform-vcs-split-plugin/lib/modules/intellij.platform.vcs.frontend.split.jar",
+                "plugins/vcs-git/lib/modules/intellij.vcs.git.frontend.split.jar",
+            ))
+
+            // --- AI / ML per-language completion modules (loaded on demand) ---
+            addAll(listOf(
+                "plugins/DatabaseTools/lib/modules/intellij.database.completionMlRanking.jar",
+                "plugins/Kotlin/lib/modules/intellij.kotlin.completion.ml.jar",
+                "plugins/gradle-java-plugin/lib/modules/intellij.gradle.java.groovy.ml.jar",
+                "plugins/javascript-plugin/lib/modules/intellij.javascript.completion.ml.jar",
+            ))
+
+            // --- Rider-specific modules (bundled with IU, loaded only in Rider) ---
+            addAll(listOf(
+                "plugins/fullLine/lib/modules/intellij.fullLine.rider.hlsl.jar",
+                "plugins/fullLine/lib/modules/intellij.ml.llm.rider.hlsl.completion.jar",
+            ))
+
+            // --- Gateway standalone modules (loaded only in JetBrains Gateway) ---
+            addAll(listOf(
+                "plugins/gateway-plugin/lib/modules/intellij.gateway.standalone.jar",
+                "plugins/gateway-plugin/lib/modules/intellij.gateway.standalone.ssh.jar",
+            ))
+
+            // --- Qodana per-language modules (loaded only in Qodana context) ---
+            addAll(listOf(
+                "plugins/qodana/lib/modules/intellij.qodana.cpp.jar",
+                "plugins/qodana/lib/modules/intellij.qodana.go.jar",
+                "plugins/qodana/lib/modules/intellij.qodana.php.jar",
+                "plugins/qodana/lib/modules/intellij.qodana.poly.jar",
+                "plugins/qodana/lib/modules/intellij.qodana.python.community.jar",
+                "plugins/qodana/lib/modules/intellij.qodana.python.coverage.jar",
+            ))
+
+            // --- Miscellaneous unloaded modules (per-IDE / on-demand) ---
+            addAll(listOf(
+                "plugins/dev/lib/modules/intellij.php.dev.jar",
+                "plugins/javascript-plugin/lib/modules/intellij.javascript.devkit.jar",
+                "plugins/javascript-plugin/lib/modules/intellij.javascript.newProject.jcef.jar",
+                "plugins/maven-plugin/lib/modules/intellij.maven.errorProne.compiler.jar",
+                "plugins/protoeditor/lib/modules/intellij.protoeditor.python.jar",
+                "plugins/sh-plugin/lib/modules/intellij.sh.python.jar",
+                "plugins/vcs-github/lib/modules/intellij.vcs.github.tracker.jar",
+            ))
+        }
+
+        /**
+         * Unloaded content modules for IntelliJ IDEA Ultimate (IU) 2026.2, derived
+         * from the 261 set by applying the 261→262 drift (verbatim from the failure
+         * output — see the delta sets above). The require() calls fail fast if a
+         * future edit to the 261 set silently invalidates the derivation.
+         */
+        private val UNLOADED_CONTENT_MODULES_IU_262: Set<String> = run {
+            val notIn261 = UNLOADED_CONTENT_MODULES_DROPPED_IN_IU_262 - UNLOADED_CONTENT_MODULES_IU_261
+            require(notIn261.isEmpty()) {
+                "DROPPED_IN_IU_262 entries missing from the 261 set (typo or 261-set edit?): $notIn261"
+            }
+            val alreadyIn261 = UNLOADED_CONTENT_MODULES_NEW_IN_IU_262 intersect UNLOADED_CONTENT_MODULES_IU_261
+            require(alreadyIn261.isEmpty()) {
+                "NEW_IN_IU_262 entries already present in the 261 set (typo or 261-set edit?): $alreadyIn261"
+            }
+            UNLOADED_CONTENT_MODULES_IU_261 -
+                UNLOADED_CONTENT_MODULES_DROPPED_IN_IU_262 +
+                UNLOADED_CONTENT_MODULES_NEW_IN_IU_262
+        }
+
+        /**
          * Build-gated module: plugins/DatabaseTools/lib/modules/intellij.database.mcp.jar.
          *
          * The set of unloaded content modules drifts within a single major because
@@ -255,7 +394,7 @@ class ContentModuleClasspathTest {
         /**
          * Whether intellij.database.mcp.jar is expected as an unloaded content module
          * for the given build. True for builds below 261.25134 (e.g. .22158), false for
-         * 261.25134 and newer.
+         * 261.25134 and newer, and false for every 262+ build.
          *
          * Fails CLOSED: if the build string is missing or unparseable, default to
          * INCLUDING the entry so older/unknown builds keep prior behavior (the entry
@@ -273,10 +412,24 @@ class ContentModuleClasspathTest {
             val build = parts?.getOrNull(1)?.toIntOrNull()
             // Fail closed: unknown/unparseable → keep the entry (prior behavior).
             if (major == null || build == null) return true
-            // Only gate the 261 major; other majors keep prior (include) behavior until
-            // a data point says otherwise.
+            // IU-262.8665.337 data point (issue #412): the JAR is gone from the
+            // distribution entirely — it was one of the 22 stale allowlist entries.
+            // Never expected on 262 and newer.
+            if (major >= 262) return false
+            // Only gate the 261 major; older majors keep prior (include) behavior
+            // until a data point says otherwise.
             if (major != 261) return true
             return build < DATABASE_MCP_DROPPED_BUILD
+        }
+
+        /**
+         * Parses the IDE major (branch) number from a build string like
+         * "IU-262.8665.337" or "262.8665.337". Null when missing/unparseable.
+         */
+        private fun parseIdeMajor(ideBuild: String?): Int? {
+            // Strip an optional product prefix like "IU-" → "262.8665.337".
+            return ideBuild?.substringAfterLast('-')?.trim()
+                ?.split('.')?.getOrNull(0)?.toIntOrNull()
         }
 
         /**
@@ -284,14 +437,21 @@ class ContentModuleClasspathTest {
          * product and resolved build. Fails if the product has no known allowlist —
          * forces adding one explicitly.
          *
-         * The set is build-aware: :test-integration resolves the latest build of a
-         * major dynamically, so some entries are gated on the build number (see
-         * isDatabaseMcpUnloaded). All other entries are unconditional.
+         * Dispatched on the parsed major because the stable channel is rolling (see
+         * the ROLLING-CHANNEL DRIFT note above): 262+ gets the 262 set, everything
+         * else (261, older, or unparseable — fail-closed) keeps the 261 set. Some
+         * entries are additionally gated on the build number within a major (see
+         * isDatabaseMcpUnloaded).
          */
         private fun unloadedContentModules(ideProduct: String, ideBuild: String?): Set<String> {
             return when (ideProduct) {
                 "IU" -> buildSet {
-                    addAll(UNLOADED_CONTENT_MODULES_IU_261)
+                    val major = parseIdeMajor(ideBuild)
+                    if (major != null && major >= 262) {
+                        addAll(UNLOADED_CONTENT_MODULES_IU_262)
+                    } else {
+                        addAll(UNLOADED_CONTENT_MODULES_IU_261)
+                    }
                     if (isDatabaseMcpUnloaded(ideBuild)) add(DATABASE_MCP_MODULE)
                 }
                 else -> error(
@@ -300,6 +460,18 @@ class ContentModuleClasspathTest {
                 )
             }
         }
+
+        /**
+         * JetBrains Client (remote development) frontend boot JARs, shipped at the
+         * top-level lib/ since IU 2026.2 — OUTSIDE the plugins/&lt;name&gt;/lib/modules
+         * content-module shape, so the module allowlist cannot cover them. They
+         * bootstrap the separate remote-dev frontend process and are never on plugin
+         * classloaders in monolith (full IDE) mode.
+         */
+        private val REMOTE_DEV_CLIENT_BOOT_JARS = setOf(
+            "lib/intellij.rd.client.jar",
+            "lib/intellij.rd.client.base.jar",
+        )
 
         /**
          * JARs in these locations are NOT loaded by plugin classloaders by design.
@@ -317,6 +489,8 @@ class ContentModuleClasspathTest {
             if (path.startsWith("lib/") && path.removePrefix("lib/").contains("/")) return true
             // lib/nio-fs.jar — standalone NIO filesystem provider, not a plugin
             if (path == "lib/nio-fs.jar") return true
+            // Remote-dev JetBrains Client boot jars (262+) — separate frontend process
+            if (path in REMOTE_DEV_CLIENT_BOOT_JARS) return true
             // modules/ — module descriptors metadata, not plugin JARs
             if (path.startsWith("modules/")) return true
 
