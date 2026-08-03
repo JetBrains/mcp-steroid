@@ -12,6 +12,13 @@ import kotlin.io.path.createTempFile
 data class ImageDriver(
     val imageId: String,
     val logPrefix: String,
+    /**
+     * Combined stdout+stderr of the `docker build` that produced this image (empty for images
+     * obtained without a build, e.g. `docker commit`). [buildDockerImage] forces
+     * `--progress=plain`, so tests can assert on BuildKit step markers (`#<id> CACHED`)
+     * instead of flaky wall-clock timings.
+     */
+    val buildOutput: String = "",
 ) {
     val imageIdToLog get() = imageId.take(10)
 
@@ -85,6 +92,10 @@ fun buildDockerImage(
             add("build")
             add("--iidfile")
             add(iidFile.absolutePath)
+            // Plain BuildKit progress renders one deterministic `#<id> ...` line per step regardless
+            // of TTY, so [ImageDriver.buildOutput] is machine-parseable (incremental-build tests
+            // assert on the `#<id> CACHED` markers).
+            add("--progress=plain")
 
             for ((k, v) in buildArgs + ("CACHE_BUST" to nowDate)) {
                 add("--build-arg")
@@ -94,7 +105,7 @@ fun buildDockerImage(
             add(".")
         }
 
-        RunProcessRequest()
+        val buildResult = RunProcessRequest()
             .logPrefix(logPrefix)
             .command(command)
             .description("Build Docker image $dockerfilePath")
@@ -113,6 +124,8 @@ fun buildDockerImage(
         return ImageDriver(
             imageId = imageId.removePrefix("sha256:").trim(),
             logPrefix = logPrefix,
+            // BuildKit writes progress to stderr; keep stdout too for legacy-builder output.
+            buildOutput = buildResult.stdout + "\n" + buildResult.stderr,
         )
     } finally {
         iidFile.delete()
