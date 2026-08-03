@@ -67,27 +67,36 @@ object CliExit {
 }
 
 /**
- * Rewrites the MCP tool names that leak into CLI output — `steroid_list_projects`, `steroid_execute_code`,
- * whether devrig authored the text or the IDE tool did — into the `devrig <command>` a CLI user actually
- * types. The suffix after `steroid_` IS the generated subcommand name (a tool's CLI name is its MCP name
- * with the prefix stripped — see `defaultCliName`), so the rewrite is the literal `steroid_` → `devrig `.
+ * Rewrites the MCP tool names devrig ITSELF emits — `steroid_list_projects`, `steroid_execute_code` — into
+ * the `devrig <command>` a CLI user actually types. The suffix after `steroid_` IS the generated subcommand
+ * name (a tool's CLI name is its MCP name with the prefix stripped — see `defaultCliName`), so the rewrite
+ * is the literal `steroid_` → `devrig `.
  *
- * It is deliberately applied ONLY on the CLI rendering path (both [Presentation] members and [renderWithOut]).
- * The same tool-owned texts are shared with the `devrig mcp` stdio surface, where the agent really does call
- * the `steroid_*` tools devrig advertises and those names must stand untouched.
+ * It is applied ONLY to devrig-AUTHORED strings: the CLI-level failure messages [Presentation.renderError]
+ * renders, and the progress lines [stderrProgressReporter] streams (the IDE names the running tool by its
+ * MCP name). It is NEVER applied to a tool's own RESULT content — an `execute_code` transcript that prints
+ * `steroid_list_projects` is the script's data, and rewriting it would corrupt the output. That is why the
+ * two [Presentation.render] members and [renderWithOut]'s envelope leave the payload verbatim: the same
+ * tool-owned texts are shared with the `devrig mcp` stdio surface, where the agent really does call the
+ * `steroid_*` tools and the names must stand untouched either way.
  *
- * Rewriting the already-rendered string is safe: base64 image payloads cannot contain the match (`_` is not
- * in the base64 alphabet) and no envelope key or field is a `steroid_*` token, so only tool-name mentions in
- * text are ever touched.
+ * Applied only to plain devrig-authored strings, never to a serialized JSON blob, so no escaping can split a
+ * token: an earlier version rewrote the already-serialized envelope, where a `\n` escape put a word char
+ * before `steroid` and the `\b` failed to match. Operating on the message before it is serialized removes
+ * that hazard.
  */
 fun steroidToolNamesToDevrigCli(rendered: String): String =
     rendered.replace(Regex("\\bsteroid_(\\w+)"), "devrig $1")
 
-/** A [McpProgressReporter] that streams progress to stderr so stdout stays clean for data. */
+/**
+ * A [McpProgressReporter] that streams progress to stderr so stdout stays clean for data. The IDE names the
+ * running tool by its MCP name (`Tool call started: steroid_execute_code`); this is a devrig-authored CLI
+ * surface, so the name is translated to the `devrig <command>` the caller typed.
+ */
 fun stderrProgressReporter(err: PrintStream = System.err): McpProgressReporter =
     object : McpProgressReporter {
         override fun report(message: String) {
-            err.println(message)
+            err.println(steroidToolNamesToDevrigCli(message))
         }
     }
 
@@ -109,7 +118,9 @@ sealed interface Presentation {
     /** `--json`: one stable envelope on stdout. */
     class Json : Presentation {
         override fun render(result: ToolCallResult, command: String, out: PrintStream, err: PrintStream): Int {
-            out.println(steroidToolNamesToDevrigCli(result.toEnvelopeJson(command)))
+            // The result is the tool's own data — rendered verbatim, never name-translated (see
+            // steroidToolNamesToDevrigCli): a script that prints `steroid_*` keeps it.
+            out.println(result.toEnvelopeJson(command))
             return if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
 
@@ -118,11 +129,13 @@ sealed interface Presentation {
                 putJsonArray("content") {
                     add(buildJsonObject {
                         put("type", "text")
-                        put("text", message)
+                        // A devrig-authored failure message: translate the MCP name before it is serialized,
+                        // so the plain string is rewritten (never the escaped JSON blob).
+                        put("text", steroidToolNamesToDevrigCli(message))
                     })
                 }
             }
-            out.println(steroidToolNamesToDevrigCli(cliEnvelopeJson(command, isError = true, data = data)))
+            out.println(cliEnvelopeJson(command, isError = true, data = data))
             return exit
         }
     }
@@ -133,7 +146,8 @@ sealed interface Presentation {
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
-                    is ContentItem.Text -> sink.println(steroidToolNamesToDevrigCli(item.text))
+                    // Tool payload: printed verbatim, never name-translated (see steroidToolNamesToDevrigCli).
+                    is ContentItem.Text -> sink.println(item.text)
                     is ContentItem.Image -> {
                         // A hard image failure (undecodable payload, unwritable disk) outranks the tool's
                         // own success/failure: abort rendering immediately and report it as the exit code,
@@ -144,7 +158,7 @@ sealed interface Presentation {
                     is ContentItem.Resource -> {
                         val res = item.resource
                         sink.println("[resource: ${res.uri}${res.mimeType?.let { " ($it)" } ?: ""}]")
-                        res.text?.let { sink.println(steroidToolNamesToDevrigCli(it)) }
+                        res.text?.let { sink.println(it) }
                     }
                 }
             }
@@ -266,7 +280,7 @@ fun renderWithOut(
                 for ((key, value) in strippedResult.contentDataJson()) put(key, value)
                 put("savedOut", savedOutPath)
             }
-            out.println(steroidToolNamesToDevrigCli(cliEnvelopeJson(command, isError = result.isError, data = data)))
+            out.println(cliEnvelopeJson(command, isError = result.isError, data = data))
             if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
         is Presentation.Console -> {

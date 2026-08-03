@@ -547,29 +547,44 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `a tool result that names a steroid_ tool renders as devrig under --json, never leaking the MCP name`() {
+    fun `a tool RESULT is the tool's own data and is never name-translated under --json`() {
+        // The exact dogfooding regression: an execute_code script that prints `steroid_list_projects` is
+        // producing data, not a devrig instruction. Rewriting it to `devrig list_projects` corrupts the
+        // script's output. Only devrig-AUTHORED messages (renderError, progress) are translated.
         val out = CapturedStream()
-        val result = textResult("project_name is gone — call steroid_list_projects to refresh", isError = true)
+        val result = textResult("my script printed steroid_list_projects on purpose")
 
-        Presentation.Json().render(result, "open_project", out.stream)
+        Presentation.Json().render(result, "execute_code", out.stream)
 
         val text = out.text()
-        assertTrue("steroid_" !in text, "no MCP tool name may reach CLI output: $text")
-        assertTrue("devrig list_projects" in text, "the MCP name must render as its devrig command: $text")
+        assertTrue("steroid_list_projects" in text, "the tool's own payload must survive verbatim: $text")
+        assertTrue("devrig list_projects" !in text, "the payload must not be rewritten: $text")
     }
 
     @Test
-    fun `a tool result that names a steroid_ tool renders as devrig on the console, never leaking the MCP name`() {
+    fun `a tool RESULT is the tool's own data and is never name-translated on the console`() {
         val out = CapturedStream()
         val err = CapturedStream()
-        val result = textResult("no candidates — start an IDE or call steroid_list_projects.", isError = true)
+        val result = textResult("my script printed steroid_list_projects on purpose")
 
-        Presentation.Console { tempDir }.render(result, "open_project", out.stream, err.stream)
+        Presentation.Console { tempDir }.render(result, "execute_code", out.stream, err.stream)
 
-        // An error result prints to stderr; assert on the stream that actually carried it.
+        val text = out.text()
+        assertTrue("steroid_list_projects" in text, "the tool's own payload must survive verbatim: $text")
+        assertTrue("devrig list_projects" !in text, "the payload must not be rewritten: $text")
+    }
+
+    @Test
+    fun `a progress line naming the running tool by its MCP name is translated to its devrig command`() {
+        // The IDE reports progress as `Tool call started: steroid_execute_code`; the CLI's stderr progress
+        // is a devrig-authored surface, so the MCP name becomes the `devrig <command>` the caller typed.
+        val err = CapturedStream()
+
+        stderrProgressReporter(err.stream).report("Tool call started: steroid_execute_code")
+
         val text = err.text()
-        assertTrue("steroid_" !in text, "no MCP tool name may reach CLI output: $text")
-        assertTrue("devrig list_projects" in text, "the MCP name must render as its devrig command: $text")
+        assertTrue("steroid_execute_code" !in text, "the progress line leaked an MCP name: $text")
+        assertTrue("devrig execute_code" in text, "the MCP name must render as its devrig command: $text")
     }
 
     @Test
