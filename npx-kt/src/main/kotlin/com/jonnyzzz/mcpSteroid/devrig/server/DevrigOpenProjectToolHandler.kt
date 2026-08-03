@@ -50,7 +50,7 @@ private fun chooseBackendMessage(candidates: List<BackendCandidate>): String {
 }
 
 private fun candidateList(candidates: List<BackendCandidate>): String {
-    if (candidates.isEmpty()) return "No candidates are currently available; start an IDE or call steroid_list_projects."
+    if (candidates.isEmpty()) return "No candidates are currently available; start an IDE or run `devrig list_projects`."
     val items = candidates.joinToString("\n") { c ->
         val tag = if (c.startable != null) " (startable)" else ""
         "  ${c.backendName} — ${c.displayName}$tag"

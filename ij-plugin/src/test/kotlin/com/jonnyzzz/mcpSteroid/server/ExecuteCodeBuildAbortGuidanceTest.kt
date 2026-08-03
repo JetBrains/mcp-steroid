@@ -16,8 +16,6 @@ import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeText
 
 class ExecuteCodeBuildAbortGuidanceTest {
-    private val fetchResourceTool = "steroid_fetch_resource"
-
     private val tempDirs = mutableListOf<Path>()
 
     @After
@@ -37,8 +35,9 @@ class ExecuteCodeBuildAbortGuidanceTest {
 
         assertNotNull(guidance)
         assertTrue("should make the recovery mandatory: $guidance", guidance!!.contains("REQUIRED ACTION"))
-        assertTrue("should name the declared fetch tool: $guidance", guidance.contains(fetchResourceTool))
-        assertTrue("should identify that tool as the next call: $guidance", guidance.contains("NEXT TOOL CALL"))
+        assertTrue("should name the surface-neutral fetch action: $guidance", guidance.contains("resource-fetch tool or command"))
+        assertTrue("should identify that tool as the next action: $guidance", guidance.contains("NEXT ACTION"))
+        assertFalse("runtime guidance must not leak an MCP-only tool name: $guidance", guidance.contains("steroid_"))
         assertTrue("should include Gradle resource URI: $guidance", guidance.contains(ExecuteCodeGradlePromptArticle().uri))
         assertFalse("should not include Maven URI for a Gradle project: $guidance", guidance.contains(ExecuteCodeMavenPromptArticle().uri))
         assertTrue("should tell the agent not to jump straight to Bash: $guidance", guidance.contains("before using Bash"))
@@ -159,7 +158,7 @@ class ExecuteCodeBuildAbortGuidanceTest {
 
         assertFalse("guidance should not be glued to the aborted flag: $text", text.contains("trueREQUIRED ACTION"))
         assertTrue("guidance should start on a separate line: $text", text.contains("true\nREQUIRED ACTION"))
-        assertTrue("guidance should name the declared fetch tool: $text", text.contains(fetchResourceTool))
+        assertTrue("guidance should name the surface-neutral fetch action: $text", text.contains("resource-fetch tool or command"))
     }
 
     private fun tempProjectRoot(): Path {

@@ -46,7 +46,7 @@ class VisionInputToolHandlerIJ : VisionInputToolHandler {
 
         try {
             log("execution_id: ${executionId.executionId}")
-            log("WARNING: Heavy endpoint. Prefer steroid_execute_code for regular automation.")
+            log("WARNING: Heavy endpoint. Prefer the code-execution tool or command for regular automation.")
             log("Using window_id: $windowId")
 
             withTimeout(timeoutMs.milliseconds) {

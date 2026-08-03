@@ -49,7 +49,7 @@ class ExecutionSuggestionService(
     ): List<String> {
         if (!isFailed) {
             // Successful execution that printed NOTHING is the #1 reason agents
-            // think `steroid_execute_code` is broken: their last expression's value
+            // think the code-execution tool is broken: their last expression's value
             // is not auto-printed (Kotlin script != REPL). Tell them once, plainly.
             if (userOutputCount == 0) return listOf(emptyOutputHint)
             return emptyList()
@@ -66,7 +66,7 @@ class ExecutionSuggestionService(
      * Hint shown when a script SUCCEEDED but produced zero user output.
      * Public for unit tests; pattern-matched on the `println(...)` substring.
      */
-    val emptyOutputHint: String = "TIP: Script ran with NO output. The last expression's value is NOT auto-printed in steroid_execute_code (this is a Kotlin script, not a REPL). Wrap your final value in `println(value)` for plain text or `printJson(value)` for structured data, otherwise the agent sees an empty result."
+    val emptyOutputHint: String = "TIP: Script ran with NO output. The last expression's value is NOT auto-printed by the code-execution tool (this is a Kotlin script, not a REPL). Wrap your final value in `println(value)` for plain text or `printJson(value)` for structured data, otherwise the agent sees an empty result."
 
     /**
      * Returns error-specific hint based on pattern matching against the error message.
@@ -124,13 +124,13 @@ class ExecutionSuggestionService(
             errorMessage.contains("NullPointerException (no message)") ->
                 "TIP: A bare NullPointerException usually means `!!` on a null lookup. " +
                     "findProjectFile()/findFile() return null when the file is missing — prefer " +
-                    "`?: error(\"not found: \$path\")` over `!!` so the failure names the path. " +
+                    $$"`?: error(\"not found: $path\")` over `!!` so the failure names the path. " +
                     "Both helpers accept project-relative and absolute paths; outside read/write " +
                     "actions the lookup always refreshes the file from disk (snapshot-only inside). " +
                     "For directory refresh and other VFS recipes, fetch ${CodingWithIntelliJVfsPromptArticle().uri}."
 
             errorMessage.contains("breakpoint", ignoreCase = true) || errorMessage.contains("debug", ignoreCase = true) ->
-                "TIP: For debugger help, fetch ${DebuggerOverview().uri} via steroid_fetch_resource"
+                "TIP: For debugger help, fetch ${DebuggerOverview().uri} with the resource-fetch tool or command"
 
             errorMessage.contains("runBlocking") ->
                 "TIP: Never use runBlocking - the script body already runs in a coroutine context."
