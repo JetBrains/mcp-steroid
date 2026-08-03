@@ -3,7 +3,6 @@ package com.jonnyzzz.mcpSteroid.integration.infra
 
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStack
 import com.jonnyzzz.mcpSteroid.testHelper.docker.*
-import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import kotlin.concurrent.thread
 
 class XcvbVideoDriver(
@@ -90,7 +89,7 @@ class XcvbVideoDriver(
         }
     }
 
-    private fun rsyncCommand(): String = "  rsync --inplace $videoInternalPath $videoGuestPath 2>/dev/null"
+    private fun rsyncCommand(): String = "rsync --inplace $videoInternalPath $videoGuestPath"
 
     /**
      * Periodically rsync the growing video file from the container-local path
@@ -104,7 +103,7 @@ class XcvbVideoDriver(
         println("[xcvb] Starting periodic video rsync to $videoGuestPath...")
         val rsyncScript = buildString {
             appendLine("while true; do")
-            appendLine(rsyncCommand())
+            appendLine("  ${rsyncCommand()} 2>/dev/null")
             appendLine("  sleep 1")
             appendLine("done")
         }
@@ -134,19 +133,61 @@ class XcvbVideoDriver(
         }
 
         // Copy the finalized video from the container-local path to the mounted volume.
-        // Using cp (open-write-close) instead of letting ffmpeg write directly to the
+        // Using rsync (open-write-close) instead of letting ffmpeg write directly to the
         // mount avoids the virtiofs stale-data issue.
-        driver.startProcessInContainer {
-            this
-                .args("bash", "-c", "${rsyncCommand()} && sync")
-                .timeoutSeconds(30)
-                .quietly()
-                .description("rsync video and sync")
-        }.assertExitCode(0) { "Failed to copy video" }
+        //
+        // `sync $videoGuestPath` fsyncs only the video file. A bare `sync` flushes
+        // every filesystem on the host and can stall for minutes while the CI agent
+        // is under I/O load — those stalls blew the previous 30s budget (issue #412).
+        //
+        // A copy-out failure is demoted to a loud log + artifact note instead of an
+        // assertion: this runs in cleanup after the test methods already passed, and
+        // the periodic 1s rsync has left a valid fragmented MP4 on the host — at
+        // worst the final fragment is missing. Losing it must never fail a green
+        // test class.
+        try {
+            val result = driver.startProcessInContainer {
+                this
+                    .args("bash", "-c", "${rsyncCommand()} && sync $videoGuestPath")
+                    .timeoutSeconds(120)
+                    .quietly()
+                    .description("rsync video and sync")
+            }.awaitForProcessFinish()
+
+            if (result.exitCode != 0) {
+                reportVideoCopyOutFailure(
+                    "exit code ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}"
+                )
+            }
+        } catch (e: Exception) {
+            reportVideoCopyOutFailure("exception: $e")
+        }
 
         runCatching {
             val hostVideoFile = driver.mapGuestPathToHostPath(videoGuestPath)
             println("Check out screen recording at $hostVideoFile")
+        }
+    }
+
+    /**
+     * The final video copy-out is diagnostics-only, so it must never throw: shout
+     * to stderr and drop a note at the run-dir root explaining the truncated
+     * recording. The note lands at the root (not under `video/`) because the TC
+     * publish tree bundles run-dir root files but excludes `video/` — and the
+     * publish tree is built AFTER this cleanup in LIFO order
+     * (see [setupGuiContainerServices]).
+     */
+    private fun reportVideoCopyOutFailure(details: String) {
+        val message = "[xcvb] WARNING: final video copy-out to $videoGuestPath failed; " +
+                "the host-side recording is the last periodic rsync copy " +
+                "(a valid MP4 missing at most the final fragments). $details"
+        System.err.println(message)
+        try {
+            val runDirOnHost = driver.mapGuestPathToHostPath(videoDirInContainer).parentFile
+                ?: error("host video dir has no parent directory")
+            runDirOnHost.resolve("video-copy-out-failed.txt").writeText(message + "\n")
+        } catch (e: Exception) {
+            System.err.println("[xcvb] Failed to write video-copy-out-failed.txt: $e")
         }
     }
 
