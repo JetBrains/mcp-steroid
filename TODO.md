@@ -182,6 +182,19 @@
   `cliSynopsis` hardcodes "(default 600)" where the MCP description interpolates the constant, so the
   two can silently diverge.
 
+- [ ] **Harvest test coverage from the abandoned `issue-284-schema-driven-cli-phase-b` branch (#284)**: that
+  parallel branch (superseded by `issue-284-cli-engine`, not merged) carries ~12 test classes this branch
+  lacks — MCP-as-CLI contract/parse tests, per-command tests (execute_code / fetch_resource / feedback /
+  screenshot), a layered `help execute_code` topic test, and a Docker live-IDE MCP-as-CLI smoke
+  (`CliDevrigToolsIntegrationTest`). They assert against phase-b's command-class architecture, so port the
+  INTENT into the generated-runtime structure, don't copy the files.
+
+- [ ] **The `devrig --help` banner does not list `install plugin` / `install devrig` (#284)**: the curated
+  `LIFECYCLE_COMMANDS` in `HelpCommand.kt` documents `install [claude|codex|gemini]` and `install config`
+  (pinned by `DevrigCommandOutputTest` + `McpToolsCliHelpTest`), but the `install plugin` and `install devrig`
+  subcommands have no banner entry (main did not document them either — pre-existing, not a Phase B
+  regression). Add their one-line descriptions to the curated banner and extend the pinned test head.
+
 - [ ] **red-code reporter false-positives on Kotlin files**: `reportProjectRedCode` (PSI reference scan,
   `mcp-steroid-import.kt`) reports Kotlin stdlib/operator references (`mutableMapOf`, `runCatching`,
   `trim()`, `!!`, `=`) as UNRESOLVED — 95/646 on the stock Gradle test-project's `SsrRunCatchingDemo.kt`
