@@ -247,20 +247,16 @@ class CliOptionsIntegrationTest {
     }
 
     @Test
-    fun `an argument the tool refuses exits 64 and does not blame the backend`() {
-        // The regression that shipped: `project_name` is schema-required but not demanded by the parser, so
-        // this invocation reaches the tool, which refuses it. Before `GeneratedToolRuntime` grew a
-        // `ToolCallErrorException` arm the refusal fell into the catch-all and came out as exit 69 "Usually
-        // no IDE backend is reachable" — a diagnosis the CLI had no basis for, and a wrong one whenever an
-        // IDE was in fact running. Pinned here because it is only reachable end to end: the two tools that
-        // go all the way through declare no parameters, which is exactly how it escaped.
+    fun `a missing project_name exits 64 at parse time and does not blame the backend`() {
+        // project_name is required by the generated command itself until cwd inference exists. This must
+        // stop before dispatch, with the curated CLI hint rather than a tool/backend diagnosis.
         val r = runLauncher("execute_code", "--code=println(1)", "--task_id=t", "--reason=r")
 
         assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
         assertTrue(r.stdout.isBlank(), "a CLI-level failure must keep stdout clean; got:\n${r.stdout}")
         assertTrue(
-            r.stderr.contains("Parameter project_name of type string is required"),
-            "the tool's own refusal must reach the user; got:\n${r.stderr}",
+            r.stderr.contains("missing --project_name") && r.stderr.contains("devrig list_projects"),
+            "the parse-time project hint must reach the user; got:\n${r.stderr}",
         )
         assertTrue(
             !r.stderr.contains("no IDE backend is reachable"),

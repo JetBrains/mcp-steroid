@@ -11,11 +11,13 @@ import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
 import com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import java.io.IOException
+import java.nio.file.Files
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
@@ -52,6 +54,19 @@ class CliErrorEnvelopeTest {
             execCodeParams: ExecCodeParams,
             callProgress: McpProgressReporter,
         ): ToolCallResult = result
+    }
+
+    private class CountingExecuteCode : ExecuteCodeToolHandler {
+        var called: Boolean = false
+
+        override suspend fun executeCode(
+            projectName: String,
+            execCodeParams: ExecCodeParams,
+            callProgress: McpProgressReporter,
+        ): ToolCallResult {
+            called = true
+            return ToolCallResult(content = listOf(ContentItem.Text("ran")))
+        }
     }
 
     private fun listWindowsFailing(failure: () -> Nothing) =
@@ -219,6 +234,28 @@ class CliErrorEnvelopeTest {
                 "(IOException: Connect timeout has expired) — check `devrig project`.",
             run.errorMessage(),
         )
+    }
+
+    @Test
+    fun `an invalid --out parent fails before the stateful tool is called`() {
+        val parentFile = home.resolve("not-a-directory")
+        Files.writeString(parentFile, "blocker")
+        val target = parentFile.resolve("shot.png")
+        val handler = CountingExecuteCode()
+        val command = parseRunTool(
+            "execute_code", "--json", "--project_name=demo", "--code=1", "--task_id=t", "--reason=r",
+            "--out=$target",
+        )
+
+        val run = runGeneratedToolForTest(
+            home,
+            command,
+            FakeMcpSteroidTools().with(ExecuteCodeToolHandler::class.java, handler),
+        )
+
+        assertEquals(CliExit.IO_ERROR, run.exit, "stdout was:\n${run.stdout}")
+        assertFalse(handler.called, "a deterministic --out path failure must be detected before execute_code runs")
+        assertTrue("failed to prepare --out" in run.errorMessage(), run.errorMessage())
     }
 
     // ------------------- internal faults propagate, they are not mapped to 69 -------------------

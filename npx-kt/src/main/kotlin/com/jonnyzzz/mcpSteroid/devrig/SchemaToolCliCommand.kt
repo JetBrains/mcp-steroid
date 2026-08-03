@@ -5,9 +5,6 @@ import com.github.ajalt.clikt.core.UsageError
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.McpTool
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The one canonical list of tools devrig projects onto the command line: the SAME specs the `devrig mcp`
@@ -96,7 +93,7 @@ class SchemaToolCliCommand(
     override fun run() {
         val options = options()
         val values = binding.parsed()
-        rejectFlagLikeValues(values)
+        rejectFlagConsumedAsValue()
         select(
             DevrigCommand.RunTool(
                 toolName = spec.name,
@@ -121,30 +118,33 @@ class SchemaToolCliCommand(
      *
      * The `=` form is the opposite and is NOT rejected: `--code=--help` and `--reason=--json` bind the token
      * to the flag explicitly — an odd value, but an unambiguous one the caller clearly typed on purpose.
-     * The parsed values alone cannot tell the two apart (both yield `code = "--help"`), so the raw argv
-     * decides: a flag given `=`-joined never appears as its own token, while the forgotten-value form leaves
-     * it standing alone. Only a value that also stands alone in [rawArgs] is refused.
+     * The parsed values alone cannot tell the two apart (both yield `code = "--help"`), so the raw argv is
+     * scanned positionally: only a value-taking option immediately followed by a registered flag token is
+     * refused (including an assignment-shaped token such as `--json=true`). An `=`-bound value never occupies
+     * that next-token position, even when the same flag also appears later for real
+     * (`--reason=--json --json`).
      */
-    private fun rejectFlagLikeValues(values: SchemaCliValues) {
+    private fun rejectFlagConsumedAsValue() {
         val knownFlags = registeredOptions().flatMap { it.names + it.secondaryNames }.toSet()
-        val standaloneTokens = rawArgs().toSet()
-        fun reject(paramName: String, token: String): Nothing = throw UsageError(
-            "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
-                "A flag cannot be another option's value — pass a real value for '$paramName', " +
-                "give '$token' on its own, or bind it explicitly as '$paramName=$token' if you truly meant it."
-        )
-        fun scan(paramName: String, element: JsonElement) {
-            val token = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return
-            if (token in knownFlags && token in standaloneTokens) reject(paramName, token)
-        }
-        for ((name, element) in values.arguments) {
-            when (element) {
-                is JsonArray -> element.forEach { scan(name, it) }
-                else -> scan(name, element)
+        val valueOptions = buildMap {
+            for (param in spec.schema.asCliParams()) {
+                if (param.cliHidden || param.cliPositional) continue
+                put(param.cliFlag, param.name)
+                param.cliFileSource?.let { put(it.flag, param.name) }
             }
+            if (spec.cli.producesImage) put("--out", "out")
         }
-        for ((name, path) in values.fileSources) {
-            if (path in knownFlags && path in standaloneTokens) reject(name, path)
+        val args = rawArgs()
+        for (index in 0 until args.lastIndex) {
+            val option = args[index]
+            val paramName = valueOptions[option] ?: continue
+            val token = args[index + 1]
+            if (token.substringBefore('=') !in knownFlags) continue
+            throw UsageError(
+                "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
+                    "Pass a real value for '$paramName' and give '$token' on its own, or bind the literal " +
+                    "explicitly as '$option=$token'."
+            )
         }
     }
 }

@@ -339,6 +339,35 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `an equals-bound flag-like value stays bound when the real framework flag is also present`() {
+        // Presence must be associated with the token that consumed it, not checked globally. The standalone
+        // --json is the presentation flag; the equal-joined one is deliberately reason's literal value.
+        val run = assertIs<DevrigCommand.RunTool>(
+            parse("execute_code", "--reason=--json", "--json", "--task_id=t", "--project_name=key", "--code=x"),
+        )
+
+        assertEquals("--json", run.arguments["reason"]?.jsonPrimitive?.content)
+        assertTrue(run.json)
+    }
+
+    @Test
+    fun `an assignment-shaped flag token consumed as a value is rejected`() {
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse(
+                "execute_code",
+                "--reason", "--json=true",
+                "--json",
+                "--task_id=t",
+                "--project_name=key",
+                "--code=x",
+            ),
+        )
+
+        assertTrue(error.text.contains("'--json=true' is a devrig flag, not a value"))
+        assertTrue(error.text.contains("--reason=--json=true"))
+    }
+
+    @Test
     fun `a blank required parameter is a parse error carrying the curated hint`() {
         // `--task_id=` reaches the tool as an empty string and returns 0 today; now it is refused at parse
         // time with task_id's own curated wording.

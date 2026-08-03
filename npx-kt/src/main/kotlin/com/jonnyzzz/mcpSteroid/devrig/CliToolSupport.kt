@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.mcp.defaultCliName
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import java.io.IOException
 import java.io.PrintStream
@@ -67,36 +68,24 @@ object CliExit {
 }
 
 /**
- * Rewrites the MCP tool names devrig ITSELF emits — `steroid_list_projects`, `steroid_execute_code` — into
- * the `devrig <command>` a CLI user actually types. The suffix after `steroid_` IS the generated subcommand
- * name (a tool's CLI name is its MCP name with the prefix stripped — see `defaultCliName`), so the rewrite
- * is the literal `steroid_` → `devrig `.
- *
- * It is applied ONLY to devrig-AUTHORED strings: the CLI-level failure messages [Presentation.renderError]
- * renders, and the progress lines [stderrProgressReporter] streams (the IDE names the running tool by its
- * MCP name). It is NEVER applied to a tool's own RESULT content — an `execute_code` transcript that prints
- * `steroid_list_projects` is the script's data, and rewriting it would corrupt the output. That is why the
- * two [Presentation.render] members and [renderWithOut]'s envelope leave the payload verbatim: the same
- * tool-owned texts are shared with the `devrig mcp` stdio surface, where the agent really does call the
- * `steroid_*` tools and the names must stand untouched either way.
- *
- * Applied only to plain devrig-authored strings, never to a serialized JSON blob, so no escaping can split a
- * token: an earlier version rewrote the already-serialized envelope, where a `\n` escape put a word char
- * before `steroid` and the `\b` failed to match. Operating on the message before it is serialized removes
- * that hazard.
+ * Streams progress to stderr so stdout stays clean for data. The bridge's FIRST event is the exact
+ * lifecycle line `Tool call started: <mcpToolName>`; only that bridge-owned line is respelled for the CLI.
+ * Every later message is handler/script data and is emitted verbatim — `progress("steroid_list_projects")`
+ * must never be rewritten merely because it resembles a tool name.
  */
-fun steroidToolNamesToDevrigCli(rendered: String): String =
-    rendered.replace(Regex("\\bsteroid_(\\w+)"), "devrig $1")
-
-/**
- * A [McpProgressReporter] that streams progress to stderr so stdout stays clean for data. The IDE names the
- * running tool by its MCP name (`Tool call started: steroid_execute_code`); this is a devrig-authored CLI
- * surface, so the name is translated to the `devrig <command>` the caller typed.
- */
-fun stderrProgressReporter(err: PrintStream = System.err): McpProgressReporter =
+fun stderrProgressReporter(mcpToolName: String, err: PrintStream = System.err): McpProgressReporter =
     object : McpProgressReporter {
+        private var firstMessage = true
+
         override fun report(message: String) {
-            err.println(steroidToolNamesToDevrigCli(message))
+            val bridgeStart = "Tool call started: $mcpToolName"
+            val rendered = if (firstMessage && message == bridgeStart) {
+                "Tool call started: devrig ${defaultCliName(mcpToolName)}"
+            } else {
+                message
+            }
+            firstMessage = false
+            err.println(rendered)
         }
     }
 
@@ -118,8 +107,7 @@ sealed interface Presentation {
     /** `--json`: one stable envelope on stdout. */
     class Json : Presentation {
         override fun render(result: ToolCallResult, command: String, out: PrintStream, err: PrintStream): Int {
-            // The result is the tool's own data — rendered verbatim, never name-translated (see
-            // steroidToolNamesToDevrigCli): a script that prints `steroid_*` keeps it.
+            // The result is the tool's own data — a script that prints `steroid_*` keeps it verbatim.
             out.println(result.toEnvelopeJson(command))
             return if (result.isError) CliExit.TOOL_ERROR else CliExit.OK
         }
@@ -129,9 +117,8 @@ sealed interface Presentation {
                 putJsonArray("content") {
                     add(buildJsonObject {
                         put("type", "text")
-                        // A devrig-authored failure message: translate the MCP name before it is serialized,
-                        // so the plain string is rewritten (never the escaped JSON blob).
-                        put("text", steroidToolNamesToDevrigCli(message))
+                        // CLI-owned call sites already use CLI spellings. Preserve interpolated user data.
+                        put("text", message)
                     })
                 }
             }
@@ -146,7 +133,7 @@ sealed interface Presentation {
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
-                    // Tool payload: printed verbatim, never name-translated (see steroidToolNamesToDevrigCli).
+                    // Tool payload: printed verbatim, never name-translated.
                     is ContentItem.Text -> sink.println(item.text)
                     is ContentItem.Image -> {
                         // A hard image failure (undecodable payload, unwritable disk) outranks the tool's
@@ -191,7 +178,7 @@ sealed interface Presentation {
         }
 
         override fun renderError(command: String, message: String, exit: Int, out: PrintStream, err: PrintStream): Int {
-            err.println(steroidToolNamesToDevrigCli(message))
+            err.println(message)
             return exit
         }
     }
@@ -200,6 +187,27 @@ sealed interface Presentation {
 /** Maps the `--json` flag onto a concrete [Presentation]; the only place the boolean is branched on. */
 fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
     if (json) Presentation.Json() else Presentation.Console(imageDir)
+
+/**
+ * Resolves and probes an `--out` target before a stateful tool runs. Creating the parent and a sibling temp
+ * file catches deterministic failures (a parent that is a file, permissions, an existing directory target)
+ * before `execute_code` can mutate the project. The probe is removed immediately; [renderWithOut] still
+ * performs the final atomic write because disk exhaustion and filesystem races remain possible afterwards.
+ */
+fun preflightOutTarget(outPath: Path?): Path? {
+    if (outPath == null) return null
+    val target = outPath.toAbsolutePath().normalize()
+    if (Files.isDirectory(target)) throw IOException("--out target is a directory: $target")
+    val directory = target.parent ?: throw IOException("--out target has no parent directory: $target")
+    Files.createDirectories(directory)
+    val probe = Files.createTempFile(directory, ".devrig-out-", ".probe")
+    try {
+        Files.delete(probe)
+    } catch (e: IOException) {
+        throw IOException("failed to remove --out probe $probe", e)
+    }
+    return target
+}
 
 /**
  * `--out` is a devrig CLI framework flag beside `--json`, but scoped: it is accepted only on the tool

@@ -77,10 +77,20 @@ fun DevrigServices.runGeneratedToolCommand(
 ): Int {
     val spec = liveToolSpec(command.toolName, tools)
     val presentation = presentationFor(command.json, homePaths::tmpDir)
+    val preparedOut = try {
+        preflightOutTarget(command.out)
+    } catch (e: IOException) {
+        return presentation.renderError(
+            command.commandName,
+            "failed to prepare --out at ${command.out}: ${e.message}",
+            CliExit.IO_ERROR,
+            mcpStdout,
+        )
+    }
     val result = try {
         command.requireNoUnhandledExtraOption(spec)
         val arguments = command.argumentsWithFileSources(spec, mcpStdin)
-        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, stderrProgressReporter()) }
+        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, stderrProgressReporter(spec.name)) }
     } catch (e: CliInputException) {
         return presentation.renderError(command.commandName, e.message.orEmpty(), e.exit, mcpStdout)
     } catch (e: ProjectRouteNotFoundException) {
@@ -151,7 +161,7 @@ fun DevrigServices.runGeneratedToolCommand(
     // handler, which is the right destination for an internal fault because it prints the stack trace an
     // exit code cannot carry. stdout stays clean either way: under `--json` the envelope string is built
     // before anything is printed.
-    return renderWithOut(presentation, result, command.commandName, command.out, mcpStdout)
+    return renderWithOut(presentation, result, command.commandName, preparedOut, mcpStdout)
 }
 
 /**
