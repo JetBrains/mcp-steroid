@@ -12,6 +12,8 @@ data class ContainerDriver(
     val logPrefix: String,
     val containerId: String,
     val startRequest: StartContainerRequest,
+    /** The `--name` passed to `docker run`; pre-registered with [DockerReaper] before the start. */
+    val containerName: String? = null,
     private val wrapContainerExec: List<ExecContainerProcessRequest.() -> ExecContainerProcessRequest> = listOf(),
     private val wrapHostRun: List<RunProcessRequest.() -> RunProcessRequest> = listOf(),
 ) {
