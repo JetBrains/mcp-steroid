@@ -13,6 +13,7 @@ import com.jonnyzzz.mcpSteroid.mcp.builder
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
+import com.jonnyzzz.mcpSteroid.storage.SerialWriteQueue
 import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import com.jonnyzzz.mcpSteroid.demo.executionEventBroadcaster
 import kotlinx.coroutines.*
@@ -141,16 +142,17 @@ class ExecutionManager(
 
     private fun responseBuilder(parentScope: CoroutineScope, executionId: ExecutionId, mcpProgress: McpProgressReporter) = object : ExecutionResultBuilder {
         private val responseBuilder = ToolCallResult.builder()
-        // Supervised job for tracking storage writes - must be completed before build() returns
-        private val storageJob = SupervisorJob()
-        // Create child scope with proper context: inherit parent + add our elements
-        // Uses Dispatchers.IO for concurrent storage writes (no artificial parallelism limit)
-        private val innerScope = CoroutineScope(
-            parentScope.coroutineContext +
-            storageJob +
-            Dispatchers.IO +
-            CoroutineName("storage-$executionId") +
-            ModalityState.any().asContextElement()
+        // Storage writes go through a single-worker queue so output.jsonl lines land in the
+        // exact order they were emitted (fan-out onto Dispatchers.IO used to scramble them,
+        // #284) and a genuine write failure surfaces from build() instead of being logged and
+        // ACKed as success (#433 follow-up). The queue owns a supervised child of this scope.
+        private val storageQueue = SerialWriteQueue(
+            CoroutineScope(
+                parentScope.coroutineContext +
+                Dispatchers.IO +
+                CoroutineName("storage-$executionId") +
+                ModalityState.any().asContextElement()
+            )
         )
         private var failed = false
         private val _errorMessages = mutableListOf<String>()
@@ -170,10 +172,10 @@ class ExecutionManager(
         }
 
         suspend fun build(): ToolCallResult {
-            // Wait for all storage writes to complete before returning the result
-            // This prevents data loss if the parent scope is cancelled immediately
-            storageJob.complete()
-            storageJob.join()
+            // Drain every queued storage write before returning the result — this both prevents
+            // data loss if the parent scope is cancelled immediately AND re-raises any write
+            // failure (a genuine IO error must fail the tool call, never be ACKed as success).
+            storageQueue.awaitCompletion()
             return responseBuilder.build()
         }
 
@@ -182,7 +184,7 @@ class ExecutionManager(
             mcpProgress.report(message)
             // Broadcast output event for Demo Mode
             executionEventBroadcaster.onOutput(executionId, message)
-            innerScope.launch {
+            storageQueue.submit {
                 project.executionStorage.appendExecutionEvent(executionId, message)
             }
         }
@@ -197,14 +199,14 @@ class ExecutionManager(
             mcpProgress.report(message)
             // Broadcast progress event for Demo Mode
             executionEventBroadcaster.onProgress(executionId, message)
-            innerScope.launch {
+            storageQueue.submit {
                 project.executionStorage.appendExecutionEvent(executionId, message)
             }
         }
 
         override fun logImage(mimeType: String, data: String, fileName: String) {
             responseBuilder.addContent(ContentItem.Image(data = data, mimeType = mimeType))
-            innerScope.launch {
+            storageQueue.submit {
                 project.executionStorage.appendExecutionEvent(
                     executionId,
                     "IMAGE: $fileName ($mimeType)"
@@ -218,7 +220,7 @@ class ExecutionManager(
             mcpProgress.report(text)
             _errorMessages.add(throwable.message ?: message)
 
-            innerScope.launch {
+            storageQueue.submit {
                 project.executionStorage.appendExecutionEvent(executionId, text)
             }
         }
@@ -230,7 +232,7 @@ class ExecutionManager(
             responseBuilder.markAsError()
             failed = true
             _errorMessages.add(message)
-            innerScope.launch {
+            storageQueue.submit {
                 project.executionStorage.appendExecutionEvent(executionId, text)
                 project.executionStorage.writeCodeErrorEvent(executionId, text)
             }
