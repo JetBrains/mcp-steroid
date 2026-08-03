@@ -82,6 +82,12 @@ data class ExecCodeParams(
     @Transient val executionBackend: ExecutionBackendProvenance? = null,
 )
 
+/** Article URIs a `devrig help execute_code` renders alongside the subcommand's synopsis. */
+val executeCodeGuideUris = listOf(
+    ExecuteCodeToolDescriptionPromptArticle().uri,
+    CodingWithIntelliJContextApiPromptArticle().uri,
+)
+
 /**
  * Handler for the steroid_execute_code MCP tool.
  */
@@ -92,6 +98,8 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
 
     /** A script can return an image (`logImage`), and a modal-dialog failure attaches one, so `--out` applies. */
     override val cliProducesImage = true
+
+    override val cliGuideUris = executeCodeGuideUris
 
     val projectName = CommonToolParams.projectName().registerToSchema()
 

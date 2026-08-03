@@ -4,6 +4,8 @@ package com.jonnyzzz.mcpSteroid.server
 import com.jonnyzzz.mcpSteroid.mcp.CliOptionType
 import com.jonnyzzz.mcpSteroid.mcp.CliOutputStyle
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
+import com.jonnyzzz.mcpSteroid.prompts.Generic
+import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -294,5 +296,16 @@ class ToolSpecCliMetadataTest {
             openProject.schema.asCliParams().any { it.name == "backend_name" },
             "the in-IDE open_project must still advertise no backend_name",
         )
+    }
+
+    @Test
+    fun `execute_code declares resolvable guide URIs and other tools default to none`() {
+        val specs = devrigToolSpecsForTest()
+        val executeCode = specs.single { it.name == "steroid_execute_code" }
+        assertTrue(executeCode.cli.guideUris.isNotEmpty(), "execute_code must seed guide URIs for `devrig help execute_code`")
+        for (uri in executeCode.cli.guideUris) {
+            assertEquals(uri, resolveResourceArticle(uri, PromptsContext.Generic)?.uri, "guide uri $uri must resolve")
+        }
+        assertTrue(specs.single { it.name == "steroid_list_windows" }.cli.guideUris.isEmpty(), "a tool that declares none has none")
     }
 }
