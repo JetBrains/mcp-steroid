@@ -112,23 +112,30 @@ class SchemaToolCliCommand(
     }
 
     /**
-     * Rejects a parsed value that is actually one of this command's own flags. Given `--task_id --help`,
-     * Clikt reads `--help` as `--task_id`'s value and the tool would run with `task_id = "--help"`; given
-     * `--code-file --help` it would try to open a file named `--help`. A value (option, positional, or a
-     * file-source path) that spells a registered flag is far more likely a flag the caller meant to pass on
-     * its own than a literal value, so it fails as a usage error before any tool call — the flag they wanted
-     * never fired, and running the tool with it as data would hide the mistake.
+     * Rejects a parsed value that is actually one of this command's own flags, given SPACE-SEPARATED. With
+     * `--task_id --help` Clikt reads `--help` as `--task_id`'s value and the tool would run with
+     * `task_id = "--help"`; with `--code-file --help` it would try to open a file named `--help`. A flag
+     * appearing where a value belongs is far more likely a flag the caller meant to pass on its own than a
+     * literal value, so it fails as a usage error before any tool call — the flag they wanted never fired,
+     * and running the tool with it as data would hide the mistake.
+     *
+     * The `=` form is the opposite and is NOT rejected: `--code=--help` and `--reason=--json` bind the token
+     * to the flag explicitly — an odd value, but an unambiguous one the caller clearly typed on purpose.
+     * The parsed values alone cannot tell the two apart (both yield `code = "--help"`), so the raw argv
+     * decides: a flag given `=`-joined never appears as its own token, while the forgotten-value form leaves
+     * it standing alone. Only a value that also stands alone in [rawArgs] is refused.
      */
     private fun rejectFlagLikeValues(values: SchemaCliValues) {
         val knownFlags = registeredOptions().flatMap { it.names + it.secondaryNames }.toSet()
+        val standaloneTokens = rawArgs().toSet()
         fun reject(paramName: String, token: String): Nothing = throw UsageError(
             "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
                 "A flag cannot be another option's value — pass a real value for '$paramName', " +
-                "and give '$token' on its own."
+                "give '$token' on its own, or bind it explicitly as '$paramName=$token' if you truly meant it."
         )
         fun scan(paramName: String, element: JsonElement) {
             val token = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return
-            if (token in knownFlags) reject(paramName, token)
+            if (token in knownFlags && token in standaloneTokens) reject(paramName, token)
         }
         for ((name, element) in values.arguments) {
             when (element) {
@@ -137,7 +144,7 @@ class SchemaToolCliCommand(
             }
         }
         for ((name, path) in values.fileSources) {
-            if (path in knownFlags) reject(name, path)
+            if (path in knownFlags && path in standaloneTokens) reject(name, path)
         }
     }
 }

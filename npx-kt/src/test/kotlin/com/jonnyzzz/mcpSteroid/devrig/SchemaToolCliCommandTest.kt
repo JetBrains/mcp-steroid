@@ -312,6 +312,29 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `a flag-like value bound with '=' is kept, not rejected as a forgotten value`() {
+        // `--code=--help` explicitly binds "--help" as code's value: odd, but unambiguous — the caller
+        // typed the token joined to the flag, so it cannot be the "I forgot the value and --help got
+        // swallowed" mistake the space-separated form is. It must run, not fail 64.
+        val run = assertIs<DevrigCommand.RunTool>(
+            parse("execute_code", "--code=--help", "--task_id=t", "--reason=r", "--project_name=key"),
+        )
+
+        assertEquals("--help", run.arguments["code"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a framework-flag-like value bound with '=' is kept`() {
+        // `--reason=--json`: the framework flag `--json` never appears as its own token, so it is a
+        // deliberate value for reason and is not confused with the standalone `--json` flag.
+        val run = assertIs<DevrigCommand.RunTool>(
+            parse("execute_code", "--reason=--json", "--task_id=t", "--project_name=key", "--code=x"),
+        )
+
+        assertEquals("--json", run.arguments["reason"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `a blank required parameter is a parse error carrying the curated hint`() {
         // `--task_id=` reaches the tool as an empty string and returns 0 today; now it is refused at parse
         // time with task_id's own curated wording.

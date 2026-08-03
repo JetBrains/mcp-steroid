@@ -189,6 +189,7 @@ sealed interface DevrigCommand {
 
 fun parseDevrigCommand(rawArgs: Array<String>): DevrigCommand {
     val selected = SelectedDevrigCommand()
+    selected.rawArgs = rawArgs.toList()
     val root = DevrigRootCommand(selected)
     return try {
         root.parse(rawArgs)
@@ -285,6 +286,14 @@ private fun devrigDebugEnvEnabled(): Boolean = !System.getenv("DEVRIG_DEBUG").is
 
 class SelectedDevrigCommand {
     var command: DevrigCommand? = null
+
+    /**
+     * The raw argv this parse was handed, verbatim. A command needs it to tell a value supplied as
+     * `--code=--help` (the token joined to its flag — an explicit, if odd, value) from `--code --help`
+     * (the flag and a separate token — the ambiguous forgotten-value case), a distinction the parsed
+     * values alone have lost. Set once by [parseDevrigCommand]; read via [DevrigCliktCommand.rawArgs].
+     */
+    var rawArgs: List<String> = emptyList()
 }
 
 data class GenericOptions(
@@ -334,6 +343,9 @@ abstract class DevrigCliktCommand(
     protected fun select(command: DevrigCommand) {
         selected.command = command
     }
+
+    /** The raw argv this parse was handed; see [SelectedDevrigCommand.rawArgs]. */
+    protected fun rawArgs(): List<String> = selected.rawArgs
 }
 
 /**
