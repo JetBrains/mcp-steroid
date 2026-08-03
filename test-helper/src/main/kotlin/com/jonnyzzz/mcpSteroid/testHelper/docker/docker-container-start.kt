@@ -2,9 +2,10 @@
 package com.jonnyzzz.mcpSteroid.testHelper.docker
 
 import com.jonnyzzz.mcpSteroid.testHelper.process.RunProcessRequest
-import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.startProcess
 import java.time.Duration
+import java.util.concurrent.ThreadLocalRandom
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.collections.forEach
@@ -22,6 +23,7 @@ data class StartContainerRequest private constructor(
     val init: Boolean = false,
     val quietly: Boolean = false,
     val timeout: Duration = Duration.ofMinutes(5),
+    val reaperRegistration: Boolean = true,
 ) {
     companion object {
         operator fun invoke(): StartContainerRequest = StartContainerRequest()
@@ -41,6 +43,13 @@ data class StartContainerRequest private constructor(
     fun enableInit() = copy(init = true)
     fun timeout(timeout: Duration) = copy(timeout = timeout)
     fun quietly() = copy(quietly = true)
+
+    /**
+     * Opt out of the up-front [DockerReaper] name registration in [startDockerContainerAndForget].
+     * Only the reaper's own container uses this — registering the reaper with itself would make it
+     * kill itself mid-cleanup once the socket closes.
+     */
+    fun withoutReaperRegistration() = copy(reaperRegistration = false)
 }
 
 /**
@@ -50,16 +59,45 @@ data class StartContainerRequest private constructor(
  */
 const val DOCKER_HOST_ALIAS = "host.docker.internal"
 
+private val containerNameCounter = AtomicInteger()
+
+/**
+ * Run-scoped, collision-free container name. The random suffix keeps names unique across the
+ * sequential Gradle test JVMs that share one [DockerReaper.testRunId] on a TC build (each JVM's
+ * counter restarts at 1).
+ */
+private fun newTestContainerName(): String {
+    val randomSuffix = ThreadLocalRandom.current().nextLong().toULong().toString(16)
+    return "mcpsteroid-${DockerReaper.testRunId}-${containerNameCounter.incrementAndGet()}-$randomSuffix"
+}
+
 fun startDockerContainerAndForget(
     request: StartContainerRequest,
 ): ContainerDriver {
     val imageId = request.image ?: error("No image name")
     val logPrefix = request.logPrefix ?: error("No log prefix")
 
+    // The name is generated and registered with DockerReaper BEFORE `docker run` so cleanup is
+    // idempotent: `docker rm -f <name>` works whether or not the daemon ever created the container.
+    // A timeout-killed `docker run` client returns no container ID, so ID-based-only cleanup can
+    // never reach the daemon-side straggler (issue #412: one TC build logged 119 "Container
+    // started" but at most 93 removals — the leaked full-IDE containers starved the daemon into
+    // 5-minute `docker run` timeouts for every subsequent test).
+    val containerName = newTestContainerName()
+    if (request.reaperRegistration) {
+        DockerReaper.registerContainerName(containerName)
+    }
+
     val command = buildList {
         add("docker")
         add("run")
         add("-d")
+        add("--name")
+        add(containerName)
+        // The per-test-run label lets DockerReaper.sweepTestRunContainers() reap a build's strays
+        // without knowing their IDs or names.
+        add("--label")
+        add("${DockerReaper.TEST_RUN_LABEL}=${DockerReaper.testRunId}")
         if (request.autoRemove) add("--rm")
         if (request.init) add("--init")
         add("--add-host=$DOCKER_HOST_ALIAS:host-gateway")
@@ -113,19 +151,48 @@ fun startDockerContainerAndForget(
         .withTimeout(request.timeout)
         .quietly(request.quietly)
         .startProcess()
-        .assertExitCode(0) {
-            "Failed to start Docker container: $stderr"
-        }
+        .awaitForProcessFinish()
 
     val containerId = result.stdout.trim()
-    if (containerId.isEmpty()) {
-        throw IllegalStateException("Failed to start Docker container: ${result.stderr}")
+    if (result.exitCode != 0 || containerId.isEmpty()) {
+        // The daemon may materialize (or keep running) the container even though the client call
+        // failed or was killed by timeout — remove it by the pre-generated name right away. If it
+        // appears only later, the reaper registration above and the test-run label sweep collect it.
+        forceRemoveContainerAfterFailedStart(logPrefix, containerName)
+        throw IllegalStateException(
+            "Failed to start Docker container (exit code ${result.exitCode}): ${result.stderr}"
+        )
     }
 
     println("[$logPrefix] Container started: $containerId")
     return ContainerDriver(
         logPrefix = logPrefix,
         containerId = containerId,
+        containerName = containerName,
         startRequest = request,
     )
+}
+
+private fun forceRemoveContainerAfterFailedStart(logPrefix: String, containerName: String) {
+    val result = RunProcessRequest()
+        .command("docker", "rm", "-f", containerName)
+        .logPrefix(logPrefix)
+        .description("Remove container $containerName after failed docker run")
+        .timeoutSeconds(30)
+        .quietly()
+        .startProcess()
+        .awaitForProcessFinish()
+
+    when {
+        result.exitCode == 0 ->
+            println("[$logPrefix] Removed straggler container $containerName left by the failed docker run")
+        result.stderr.contains("No such container") ->
+            println("[$logPrefix] No straggler container $containerName after the failed docker run")
+        else ->
+            System.err.println(
+                "[$logPrefix] Could not remove container $containerName after the failed docker run " +
+                        "(exit code ${result.exitCode}): ${result.stderr.trim()} — " +
+                        "DockerReaper and the test-run sweep remain responsible for it"
+            )
+    }
 }

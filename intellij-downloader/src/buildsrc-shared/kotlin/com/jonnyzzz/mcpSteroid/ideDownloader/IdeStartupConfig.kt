@@ -94,6 +94,60 @@ fun ideUserStartupConfigFiles(
     ),
 )
 
+/**
+ * Google's Android Studio consent state, pre-seeded (relative to the IDE user's home) so the
+ * usage-statistics dialog (`com.android.tools.idea.stats.ConsentDialog`) never opens. That dialog is
+ * MODAL and fires on the EDT before the project frame appears — in a fresh container it permanently
+ * blocks project-open, and `waitForMcpReady` then polls `list_projects` to its full deadline
+ * (`AndroidStudioRuntimeCompatTest`, issue #412).
+ *
+ * `ConsentDialog.showConsentDialogIfNeeded` early-returns without showing anything when the user has
+ * already answered the JetBrains-platform consent (`consentsToShow.second == false` — our
+ * `-Djb.consents.confirmation.enabled=false` vmoption already forces that) AND
+ * `AnalyticsSettings.hasUserBeenPromptedForOptin(major, minor)` is true. The latter reads
+ * `~/.android/analytics.settings` (analytics-library `shared`, `AnalyticsPaths`: `ANDROID_PREFS_ROOT`
+ * -> `ANDROID_SDK_HOME` -> `${user.home}/.android`); absent file means "never prompted" and the
+ * dialog fires. So:
+ *
+ * 1. `.android/analytics.settings` — Gson-parsed by `AnalyticsSettingsData.DataTypeAdapter.read`;
+ *    recognized field names are exactly `userId`, `hasOptedIn`, `debugDisablePublishing`,
+ *    `lastOptinPromptVersion` (misspelled names are silently `skipValue()`d). `userId` is MANDATORY:
+ *    `AnalyticsSettings.isValid` discards a parsed file whose `userId` is null and replaces it with
+ *    fresh never-prompted settings. The value is a fixed synthetic UUID — nothing is ever published
+ *    (`hasOptedIn=false` + `debugDisablePublishing=true`). `lastOptinPromptVersion` is compared by
+ *    `hasUserBeenPromptedForOptin` as `currentMajor == lastMajor ? currentMinor <= lastMinor
+ *    : currentMajor <= lastMajor` — the Android Studio lane resolves the UNPINNED current stable
+ *    (`IdeDistribution.Latest`), so a real version like "2026.1" would silently re-arm the dialog on
+ *    the next Studio release; the far-future `9999.9999` keeps the check true for any real version.
+ *
+ * 2. `.local/share/Google/consentOptions/accepted` — the JetBrains-platform confirmed-consents file
+ *    under Android Studio's vendor dir. Path per `ConsentOptions.getConfirmedConsentsFile()` =
+ *    `PathManager.getCommonDataPath()/consentOptions/accepted`, where the Linux common data path is
+ *    `${XDG_DATA_HOME:-~/.local/share}/<vendor>` and Android Studio's vendor is `Google` (NOT
+ *    `.config/...` — that is the config-dir root, not the common-data one). Record format per
+ *    `ConfirmedConsent.fromString`: `id:version:accepted(1|0):acceptanceTime`, `;`-separated. The
+ *    acceptanceTime token goes straight into `Long.parseLong`, so the content MUST NOT end with a
+ *    newline — a trailing `\n` silently drops the record. `0` = declined: consent recorded as
+ *    answered while staying opted out.
+ *
+ * Deliberately NOT part of [ideUserStartupConfigFiles]: devrig's ManagedBackend writes that list into
+ * the REAL user home on developer machines, and overwriting a real `~/.android/analytics.settings`
+ * would clobber the developer's actual Android Studio analytics identity/opt-in choice. Only the
+ * throwaway test containers (test-integration `intelliJ.kt`) consume this list.
+ */
+fun androidStudioUserStartupConfigFiles(
+    timestampMillis: Long = System.currentTimeMillis() - 1_000L,
+): List<IdeStartupConfigFile> = listOf(
+    IdeStartupConfigFile(
+        relativePath = ".android/analytics.settings",
+        content = """{"userId":"00000000-0000-0000-0000-000000000000","hasOptedIn":false,"debugDisablePublishing":true,"lastOptinPromptVersion":"9999.9999"}""",
+    ),
+    IdeStartupConfigFile(
+        relativePath = ".local/share/Google/consentOptions/accepted",
+        content = "rsch.send.usage.stat:1.1:0:$timestampMillis",
+    ),
+)
+
 fun writeIdeStartupConfigFiles(configDir: Path) {
     for (file in ideStartupConfigFiles()) {
         val target = configDir.resolve(file.relativePath)

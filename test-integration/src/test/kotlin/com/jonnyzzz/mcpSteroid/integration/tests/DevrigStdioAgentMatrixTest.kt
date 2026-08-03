@@ -47,7 +47,12 @@ class DevrigStdioAgentMatrixTest {
         )
             .assertExitCode(0) { "Prompt failed (${agent.displayName} via devrig stdio)" }
             .assertNoErrorsInOutput("exec_code via devrig stdio must have no errors (${agent.displayName})")
-            .assertNoMessageInOutput("CODE_EXECUTION_FAILED")
+            // The sentinel is part of the PROMPT, and agents (codex especially) narrate their
+            // instructions verbatim ("...respond with the word CODE_EXECUTION_FAILED"), so a
+            // substring-anywhere match false-positives on successful runs. A real failure answer is
+            // the sentinel standing alone on its own line (markdown decoration/punctuation allowed,
+            // no other words) — anchor to that.
+            .assertNoMessageInOutput("""(?m)^[^\w\r\n]*CODE_EXECUTION_FAILED[^\w\r\n]*$""")
             .assertOutputContains("MCP_STEROID_WORKS")
     }
 

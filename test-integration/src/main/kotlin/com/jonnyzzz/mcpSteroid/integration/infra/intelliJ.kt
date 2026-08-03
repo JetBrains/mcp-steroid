@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.infra
 
+import com.jonnyzzz.mcpSteroid.ideDownloader.androidStudioUserStartupConfigFiles
 import com.jonnyzzz.mcpSteroid.ideDownloader.ideStartupConfigFiles
 import com.jonnyzzz.mcpSteroid.ideDownloader.ideUserStartupConfigFiles
 import com.jonnyzzz.mcpSteroid.integration.infra.McpSteroidDriver.Companion.MCP_STEROID_PORT
@@ -144,6 +145,8 @@ class IntelliJDriver(
         driver.mkdirs(logsGuestDir)
         driver.mkdirs(pluginsGuestDir)
 
+        seedGradleCacheFromImage()
+
         driver.startProcessInContainer {
             this
                 .args("ls", "-la", intelliJGuestHomeDir)
@@ -231,6 +234,43 @@ class IntelliJDriver(
         }
 
         return idea
+    }
+
+    /**
+     * Copy the image-baked Gradle cache seed into `~/.gradle` BEFORE the IDE launches.
+     *
+     * `/home/agent/.gradle` is bind-mounted from a host cache dir
+     * ([IdeTestFolders.dependencyCacheVolumes]) that SHADOWS anything baked into the image at that
+     * path — and on CI the host dir starts cold every build, so the first in-IDE Gradle sync used
+     * to download the Gradle distribution + kotlin-gradle-plugin + deps inside the import's 480s
+     * wait (issue #412). The ide-agent image bakes that state into `/home/agent/gradle-cache-seed`
+     * at image-build time (see the ide-agent Dockerfile); this step rsyncs it into the mounted
+     * cache. `--ignore-existing` keeps an already-warm host cache authoritative, so re-runs on the
+     * same host only fill gaps. Non-IDEA agent images carry no seed dir — then this is a logged
+     * no-op (the `if [ -d ]` guard), never a skipped-by-error path: any rsync failure fails loudly.
+     */
+    private fun seedGradleCacheFromImage() {
+        val seedDir = "/home/agent/gradle-cache-seed"
+        driver.startProcessInContainer {
+            this
+                .args(
+                    "bash", "-c",
+                    """
+                    set -e
+                    if [ -d "$seedDir" ]; then
+                      mkdir -p /home/agent/.gradle
+                      rsync -a --ignore-existing "$seedDir/" /home/agent/.gradle/
+                      echo "Gradle cache seeded from image: $(du -sh "$seedDir" | cut -f1)"
+                    else
+                      echo "No baked Gradle cache seed in this image - skipping"
+                    fi
+                    """.trimIndent(),
+                )
+                .timeoutSeconds(300)
+                .description("Seed ~/.gradle from the image-baked cache")
+        }.awaitForProcessFinish().assertExitCode(0) {
+            "Failed to seed ~/.gradle from the image-baked Gradle cache"
+        }
     }
 
     private fun generateVmOptions() {
@@ -339,6 +379,43 @@ class IntelliJDriver(
         for (file in ideUserStartupConfigFiles()) {
             driver.writeFileInContainer("/home/agent/${file.relativePath}", file.content)
         }
+        writeAndroidStudioConsentStubs()
+    }
+
+    /**
+     * Pre-seed Google's Android Studio consent state (see [androidStudioUserStartupConfigFiles] for
+     * the file contract) so its usage-statistics ConsentDialog never modally blocks the EDT before
+     * project-open. Written for EVERY IDE lane: the files are inert outside Android Studio (JetBrains
+     * IDEs resolve the `JetBrains` vendor dir, and an opted-out `~/.android/analytics.settings` is
+     * exactly the state the bundled Android plugin defaults to anyway).
+     *
+     * MUST be written as the in-container `agent` user, NOT via [writeFileInContainer]: that path is
+     * `docker cp`-backed for container-local files, which creates them root-owned — and Android
+     * Studio's `AnalyticsSettings.loadSettingsData` opens the settings file with
+     * `RandomAccessFile(file, "rw")`, so a root-owned copy fails with EACCES, falls back to fresh
+     * never-prompted settings, and the dialog fires anyway. `printf '%s'` (not a heredoc/echo) keeps
+     * the consent file free of a trailing newline, which `ConfirmedConsent.fromString` rejects.
+     */
+    private fun writeAndroidStudioConsentStubs() {
+        val script = buildString {
+            appendLine("set -euo pipefail")
+            for (file in androidStudioUserStartupConfigFiles()) {
+                val path = "/home/agent/${file.relativePath}"
+                // Contents are embedded single-quoted; enforced by AndroidStudioConsentStubTest too.
+                require(!file.content.contains('\'') && !path.contains('\'')) {
+                    "Android Studio consent stub for $path must stay single-quote free to be shell-embeddable"
+                }
+                appendLine("mkdir -p '${path.substringBeforeLast('/')}'")
+                appendLine("printf '%s' '${file.content}' > '$path'")
+            }
+        }
+        driver.startProcessInContainer {
+            this
+                .user("agent")
+                .args("bash", "-lc", script)
+                .timeoutSeconds(30)
+                .description("pre-seed Android Studio (Google) consent state in /home/agent")
+        }.assertExitCode(0) { "Failed to pre-seed Android Studio consent state: $stderr" }
     }
 
     private fun writeStartupConfigFiles() {
