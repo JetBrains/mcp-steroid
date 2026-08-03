@@ -12,7 +12,6 @@ import com.jonnyzzz.mcpSteroid.mcp.get
 import com.jonnyzzz.mcpSteroid.mcp.param
 import com.jonnyzzz.mcpSteroid.mcp.required
 import com.jonnyzzz.mcpSteroid.mcp.string
-import com.jonnyzzz.mcpSteroid.prompts.generated.ResourcesIndex
 import com.jonnyzzz.mcpSteroid.prompts.generated.ide.FindDuplicatesPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.ide.InspectAndFixPromptArticle
 import com.jonnyzzz.mcpSteroid.prompts.generated.ide.TypeHierarchyPromptArticle
@@ -85,10 +84,7 @@ class FetchResourceToolHandler(
         log.info("steroid_fetch_resource: $uri")
 
         val promptsContext = handler().buildPromptsContext(projectName)
-        val article = ResourcesIndex().roots.values
-            .asSequence()
-            .flatMap { it.articles.values.asSequence() }
-            .firstOrNull { it.uri == uri && it.filter.matches(promptsContext) }
+        val article = resolveResourceArticle(uri, promptsContext)
             ?: return ToolCallResult(
                 content = listOf(ContentItem.Text(text = "ERROR: Resource not found: $uri")),
                 isError = true
