@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.storage
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecutionBackendProvenance
 import com.jonnyzzz.mcpSteroid.server.FeedbackParams
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -26,6 +27,7 @@ import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -315,6 +317,31 @@ class ExecutionStorageTest {
         val outputJsonl = tempDir.resolve(executionId.executionId).resolve("output.jsonl")
         assertTrue(Files.exists(outputJsonl), "output.jsonl should exist")
         assertEquals(2, Files.readAllLines(outputJsonl).size, "two events should produce two lines")
+    }
+
+    /**
+     * #284 regression: emitting many events through the serialized write pipeline must
+     * land in output.jsonl in exact submission order. Before the fix each event was
+     * launched as an independent coroutine on Dispatchers.IO, so 500 lines scrambled
+     * into hundreds of distinct orderings across runs.
+     */
+    @Test
+    fun `serialized event emission preserves submission order in output jsonl`() = runStorageTest {
+        val executionId = storage.writeNewExecution(testExecParams("test"))
+
+        val queue = SerialWriteQueue(CoroutineScope(coroutineContext))
+        val count = 500
+        repeat(count) { index ->
+            queue.submit { storage.appendExecutionEvent(executionId, "line-$index") }
+        }
+        queue.awaitCompletion()
+
+        val outputJsonl = tempDir.resolve(executionId.executionId).resolve("output.jsonl")
+        val texts = Files.readAllLines(outputJsonl).map {
+            storage.oneLineJson.decodeFromString(TextMessage.serializer(), it).text
+        }
+        assertEquals((0 until count).map { "line-$it" }, texts,
+            "output.jsonl lines must be in submission order")
     }
 
     @Test
