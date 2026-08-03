@@ -187,3 +187,23 @@
 - [ ] **Corpus-wide `[IU]` → `[IU,IC,AI]` sweep.** This PR converted only its own articles. Audit the rest of
   `prompts/src/main/prompts/**` for `[IU]` fences/sections whose APIs are actually in IC/AI and widen them
   (leaving genuinely Ultimate-bound ones, e.g. `skill/coding-with-intellij-spring.md`, as `[IU]`).
+
+## Test-infra consent/stub findings (from #412 T7, Android Studio ConsentDialog)
+
+- [ ] **JetBrains user-home consent stub path is likely dead weight.** `ideUserStartupConfigFiles()`
+  writes `.config/JetBrains/consentOptions/accepted`, but `ConsentOptions.getConfirmedConsentsFile()`
+  resolves `PathManager.getCommonDataPath()` = `${XDG_DATA_HOME:-~/.local/share}/<vendor>` on Linux —
+  so the platform never reads the `.config` copy. JetBrains-IDE consent dialogs are actually
+  suppressed by `-Djb.consents.confirmation.enabled=false` in the vmoptions. Either move the stub to
+  `.local/share/JetBrains/consentOptions/accepted` (careful: devrig's ManagedBackend writes this list
+  into REAL user homes — macOS resolves to `~/Library/Application Support/JetBrains/...`) or drop it.
+- [ ] **`writeFileInContainer` to container-local paths leaves files root-owned.** The `docker cp`
+  branch creates files as `root:root` (mode from the host temp file, umask 0644): readable by the
+  uid-1000 `agent` IDE but NOT rewritable. Anything the IDE must open read-write from `$HOME` cannot
+  use it — `writeAndroidStudioConsentStubs` in `intelliJ.kt` had to shell-write as the `agent` user
+  for exactly this reason (`AnalyticsSettings` opens its file with `RandomAccessFile(file, "rw")`).
+  Audit the other `/home/agent/...` stubs (`.java/.userPrefs/...`) for the same read-write trap.
+- [ ] **`AndroidStudioRuntimeCompatTest` KDoc claims AS 2026.1 bundles JBR 21 — it ships JBR 25.**
+  Both #412 AS-lane runs log `JDK: 25.0.2` in idea.log for AI-261.26222.65 (2026.1.3). The
+  bytecode-21 gate itself stays valuable (issue #157: older AS + minimum-supported baselines), but
+  the KDoc's "AS 2026.1 bundles JBR 21" premise is stale and should be reworded against reality.
