@@ -230,7 +230,15 @@ fun DevrigContainer.Companion.create(lifetime: CloseableStack, opts: DevrigConta
         // skip-if-exists. RW so the cache self-populates. IdeDownloader names archives `<hash>-<filename>`
         // (hash of URL + checksum), so Community and Ultimate — which BOTH ship as `idea-<version>.tar.gz` —
         // never collide in this shared dir.
-        val ideDownloadsCache = IdeTestFolders.ideDownloadDir.also { it.mkdirs() }
+        val ideDownloadsCache = IdeTestFolders.ideDownloadDir.also {
+            it.mkdirs()
+            // a+rwx (same as devrig-logs above) so the in-container `agent` (uid 1000) can create the
+            // `.tmp` download file through the bind mount on Linux CI (no UID remap). Must run even when
+            // the dir pre-exists: the host-side IDE-image download creates it first with default 0755
+            // (intelliJ-download.kt), which leaves it read-only for uid 1000 -> devrig's backend download
+            // fails with FileNotFoundException (Permission denied) and exit code 64.
+            it.setReadable(true, false); it.setWritable(true, false); it.setExecutable(true, false)
+        }
         add(ContainerVolume(ideDownloadsCache, DEVRIG_GUEST_DOWNLOADS_DIR, "rw"))
     }
 
