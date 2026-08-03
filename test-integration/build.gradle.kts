@@ -202,7 +202,14 @@ tasks.test {
     when (val lane = project.findProperty("mcp.testIntegration.lane")?.toString()) {
         null -> {}
         "compat" -> filter { compatLaneClasses.forEach { includeTestsMatching(it) } }
-        "main" -> filter { compatLaneClasses.forEach { excludeTestsMatching(it) } }
+        "main" -> filter {
+            compatLaneClasses.forEach { excludeTestsMatching(it) }
+            // Playgrounds park indefinitely (Thread.currentThread().join()) for interactive
+            // debugger-attach sessions — on CI that burns the whole per-test 240-min timeout
+            // (IdeaPlaygroundTest, run 1020027382). Lane-unset local runs keep them reachable
+            // via --tests per test-integration/AGENTS.md.
+            excludeTestsMatching("*PlaygroundTest")
+        }
         else -> error("Unknown mcp.testIntegration.lane='$lane' — use 'compat', 'main', or unset for the full suite")
     }
 
