@@ -2,13 +2,16 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.parameters.arguments.ProcessedArgument
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.convert
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.groups.ParameterGroup
 import com.github.ajalt.clikt.parameters.options.NullableOption
+import com.github.ajalt.clikt.parameters.options.Option
 import com.github.ajalt.clikt.parameters.options.RawOption
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
@@ -20,6 +23,7 @@ import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.restrictTo
+import com.github.ajalt.clikt.parsers.Invocation
 import com.jonnyzzz.mcpSteroid.mcp.CliExtraOption
 import com.jonnyzzz.mcpSteroid.mcp.CliOptionType
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
@@ -118,18 +122,17 @@ class SchemaCliBinding private constructor(
      * Reads the parsed values into the three destinations of [SchemaCliValues]. Touches no filesystem and
      * no standard input — a file source contributes its *path*, never its content.
      *
-     * Throws [UsageError] for the three requirements Clikt itself cannot express, each derived from the
-     * shape of the declaration and none needing a per-tool rule — the two "no value at all" cases as the
-     * more specific [MissingCliValue], so a caller can substitute the curated wording for exactly those.
-     * Two follow from a
-     * [com.jonnyzzz.mcpSteroid.mcp.CliFileSource] being a second source for one value: both forms given at
-     * once, and neither form given for a parameter the tool requires — the latter is what makes "one of the
-     * two" mandatory, because a required parameter offering a file source is `cliOptional` by construction
-     * (`ToolSchema.register` enforces that pairing) and Clikt therefore never demands the direct flag. The
-     * third is a required boolean, whose switch pair cannot carry Clikt's `.required()`; demanding one of
-     * its two spellings here is what keeps [InputSchemaParamSpec.cliRequired] — the file's one requiredness
-     * rule — true for booleans as well, and keeps the failure on the parse-time path where `paramName` →
-     * [paramFor] → [InputSchemaParamSpec.cliMissingHint] still reaches the user.
+     * The requirements Clikt itself cannot express — a [com.jonnyzzz.mcpSteroid.mcp.CliFileSource]'s "one of
+     * the two, not both" and a required boolean's switch pair — are NOT enforced here. They are raised at
+     * parse time by the checks [bindParam] registers (see [ParseTimeCheckGroup]), so they aggregate with
+     * Clikt's own missing-option errors into the single report a bare invocation deserves, rather than
+     * surfacing one at a time only after every Clikt-`.required()` option is already supplied. By the time
+     * this runs those rules are satisfied.
+     *
+     * One requirement stays here as a [MissingCliValue]: a required string given empty or whitespace
+     * (`--task_id=`) is *present* to Clikt, so only reading the value back reveals it carries nothing.
+     * Keying it on `paramName` keeps `paramName` → [paramFor] → [InputSchemaParamSpec.cliMissingHint]
+     * reaching the user.
      */
     fun parsed(): SchemaCliValues {
         val arguments = LinkedHashMap<String, JsonElement>()
@@ -138,27 +141,6 @@ class SchemaCliBinding private constructor(
             val spec = bound.spec
             val value = bound.value()
             val path = bound.filePath()
-            val fileSource = spec.cliFileSource
-            if (fileSource != null) {
-                // Keyed by cliParamName, the same name paramFor() resolves, so a command can still reach
-                // this parameter's cliMissingHint — including for a positional, whose name is not a flag.
-                if (value != null && path != null) throw UsageError(
-                    "give either ${spec.cliParamName} or ${fileSource.flag} for '${spec.name}', not both",
-                    paramName = spec.cliParamName,
-                )
-                if (value == null && path == null && spec.required) throw MissingCliValue(
-                    "'${spec.name}' is required: pass ${spec.cliParamName} or ${fileSource.flag}",
-                    paramName = spec.cliParamName,
-                )
-            }
-            val negativeFlag = spec.negativeCliFlag
-            if (negativeFlag != null && spec.cliRequired && value == null) throw MissingCliValue(
-                "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
-                paramName = spec.cliParamName,
-            )
-            // A required string given as empty or whitespace (`--task_id=`) is present to Clikt but carries
-            // no value; treat it as the "no value at all" case so its cliMissingHint still reaches the user,
-            // rather than sending an empty task id to the tool and returning success.
             if (spec.cliRequired && value.isBlankString()) throw MissingCliValue(
                 "'${spec.name}' must not be blank: pass a non-empty ${spec.cliParamName}",
                 paramName = spec.cliParamName,
@@ -252,7 +234,71 @@ private fun bindParam(command: CliktCommand, spec: InputSchemaParamSpec): BoundP
     val fileOption = spec.cliFileSource?.let { source ->
         command.option(source.flag, help = source.synopsis, metavar = "PATH").also { command.registerOption(it) }
     }
-    return BoundParam(spec, value) { fileOption?.value }
+    val filePath: () -> String? = { fileOption?.value }
+    registerRequirednessChecks(command, spec, value, filePath)
+    return BoundParam(spec, value, filePath)
+}
+
+/**
+ * Registers, as parse-time checks, the two requiredness rules Clikt's own parameter model cannot state:
+ * a [com.jonnyzzz.mcpSteroid.mcp.CliFileSource]'s "give one of the two spellings, never both", and a
+ * required boolean whose switch pair cannot carry Clikt's `.required()`. Both would otherwise be reachable
+ * only from [SchemaCliBinding.parsed] at `run()` — the phase Clikt reaches only once every `.required()`
+ * option is already supplied — so a bare invocation would report the ordinary required options and stay
+ * silent about these until a second run. Raising them here folds them into the same aggregated report.
+ *
+ * A file-source parameter offering both `--code` and `--code-file` is `cliOptional` by construction
+ * (`ToolSchema.register` enforces the pairing), so Clikt never demands its direct flag; the "neither given"
+ * check is what makes "one of the two" mandatory. The errors are keyed on [cliParamName] — the same name
+ * [SchemaCliBinding.paramFor] resolves — as the more specific [MissingCliValue] for the "no value at all"
+ * cases, so their curated [InputSchemaParamSpec.cliMissingHint] still reaches the user.
+ */
+private fun registerRequirednessChecks(
+    command: CliktCommand,
+    spec: InputSchemaParamSpec,
+    value: () -> JsonElement?,
+    filePath: () -> String?,
+) {
+    val fileSource = spec.cliFileSource
+    if (fileSource != null) {
+        command.registerOptionGroup(ParseTimeCheckGroup {
+            val v = value()
+            val path = filePath()
+            if (v != null && path != null) throw UsageError(
+                "give either ${spec.cliParamName} or ${fileSource.flag} for '${spec.name}', not both",
+                paramName = spec.cliParamName,
+            )
+            if (v == null && path == null && spec.required) throw MissingCliValue(
+                "'${spec.name}' is required: pass ${spec.cliParamName} or ${fileSource.flag}",
+                paramName = spec.cliParamName,
+            )
+        })
+    }
+    val negativeFlag = spec.negativeCliFlag
+    if (negativeFlag != null && spec.cliRequired) {
+        command.registerOptionGroup(ParseTimeCheckGroup {
+            if (value() == null) throw MissingCliValue(
+                "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
+                paramName = spec.cliParamName,
+            )
+        })
+    }
+}
+
+/**
+ * A nameless, option-less [ParameterGroup] whose only role is to run [check] during Clikt's finalize pass.
+ * Clikt gathers the [UsageError]s thrown by every parameter and group of one finalize pass into a single
+ * [com.github.ajalt.clikt.core.MultiUsageError], so a rule expressed as such a check is reported ALONGSIDE
+ * Clikt's own `MissingOption`s, not after them. Groups finalize after options within a pass, so [check]
+ * reads already-finalized option values; should it read one too early, that surfaces as an
+ * `IllegalStateException` which Clikt's finalize loop retries after the options settle — the ordering is a
+ * fast path, not a dependency this relies on. Carrying no name and no options, it adds nothing to `--help`.
+ */
+private class ParseTimeCheckGroup(private val check: () -> Unit) : ParameterGroup {
+    override val groupName: String? = null
+    override val groupHelp: String? = null
+    override fun finalize(context: Context, invocationsByOption: Map<Option, List<Invocation>>) = check()
+    override fun postValidate(context: Context) {}
 }
 
 private fun bindExtra(command: CliktCommand, option: CliExtraOption): BoundExtra =

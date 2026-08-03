@@ -269,22 +269,26 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
-    fun `a bare tool invocation reports every parser-demanded missing parameter in one error`() {
-        // Before project_name was parse-time required it surfaced a step behind task_id and reason: the
-        // parser demanded task_id/reason, then the tool refused the absent project_name on a second run.
-        // Now every parameter the parser demands is missing at once, so one error names them together
-        // (Clikt aggregates them into a MultiUsageError). The file-source `code` is checked a phase later,
-        // once these are supplied, so it is deliberately not asserted here.
+    fun `a bare tool invocation reports every missing required parameter in one error, file source included`() {
+        // A bare invocation must name EVERY missing required parameter at once, so the caller fixes them in
+        // one pass. That includes the file-source `code`, whose "one of --code / --code-file" rule Clikt
+        // cannot state: its parse-time check aggregates into the same MultiUsageError as the ordinary
+        // required options rather than surfacing only after they are supplied.
         val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("execute_code"))
 
         for (name in listOf("--project_name", "--task_id", "--reason")) {
             assertTrue(name in error.text, "the one error must name $name; got:\n${error.text}")
         }
-        // project_name is now a demanded parameter like the others, so it carries the same curated wording
+        // project_name is a demanded parameter like the others, so it carries the same curated wording
         // (from the shared CommonToolParams.projectName() factory) rather than Clikt's bald default.
         assertTrue(
             "Get the routing key from".unwrapped() in error.text.unwrapped(),
             "expected project_name's curated hint; got:\n${error.text}",
+        )
+        // The file-source `code` is named in the SAME error, via its curated code hint — no second run.
+        assertTrue(
+            "Pass --code-file=<path> (preferred)".unwrapped() in error.text.unwrapped(),
+            "the one error must also name the required code / --code-file; got:\n${error.text}",
         )
     }
 
