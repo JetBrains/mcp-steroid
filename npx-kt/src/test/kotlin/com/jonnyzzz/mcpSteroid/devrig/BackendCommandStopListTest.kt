@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 
 class BackendCommandStopListTest {
 
@@ -21,10 +22,12 @@ class BackendCommandStopListTest {
     fun `text lists only currently running managed backends`(@TempDir tempDir: Path) {
         val homePaths = HomePaths(tempDir)
         homePaths.mkdirsAll()
+        backendFixture(homePaths, "idea-community-2025.3.3", "idea-community", "IC", "2025.3.3")
+        backendFixture(homePaths, "pycharm-community-2025.3.3", "pycharm-community", "PC", "2025.3.3")
         Files.writeString(homePaths.pidFile("idea-community-2025.3.3"), "12345\n")
         Files.writeString(homePaths.pidFile("pycharm-community-2025.3.3"), "54321\n")
 
-        val rows = collectRunningBackendListRows(homePaths, FakeProcessInspector(alivePids = setOf(12345L)))
+        val rows = collectRunningBackendListRows(homePaths, ownedLegacyProcessInspector(homePaths))
         val text = renderStopText(rows)
 
         assertTrue(text.startsWith("Running backends:"), text)
@@ -39,6 +42,7 @@ class BackendCommandStopListTest {
     fun `empty text says nothing is running`(@TempDir tempDir: Path) {
         val homePaths = HomePaths(tempDir)
         homePaths.mkdirsAll()
+        backendFixture(homePaths, "idea-community-2025.3.3", "idea-community", "IC", "2025.3.3")
         Files.writeString(homePaths.pidFile("idea-community-2025.3.3"), "12345\n")
 
         val text = renderStopText(collectRunningBackendListRows(homePaths, FakeProcessInspector()))
@@ -50,9 +54,10 @@ class BackendCommandStopListTest {
     fun `json lists running schema`(@TempDir tempDir: Path) {
         val homePaths = HomePaths(tempDir)
         homePaths.mkdirsAll()
+        backendFixture(homePaths, "idea-community-2025.3.3", "idea-community", "IC", "2025.3.3")
         Files.writeString(homePaths.pidFile("idea-community-2025.3.3"), "12345\n")
 
-        val root = renderStopJson(collectRunningBackendListRows(homePaths, FakeProcessInspector(alivePids = setOf(12345L))))
+        val root = renderStopJson(collectRunningBackendListRows(homePaths, ownedLegacyProcessInspector(homePaths)))
 
         assertEquals(setOf("tool", "running"), root.keys)
         val running = root["running"]!!.jsonArray.single().jsonObject
@@ -61,6 +66,54 @@ class BackendCommandStopListTest {
         assertEquals(12345L, running["pid"]!!.jsonPrimitive.long)
         assertEquals("IntelliJ IDEA Community 2025.3.3", running["displayName"]!!.jsonPrimitive.content)
         assertEquals(homePaths.cacheDir("idea-community-2025.3.3").resolve("logs/managed.log").toString(), running["logPath"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `reused pid with a different process start time is omitted`(@TempDir tempDir: Path) {
+        val homePaths = HomePaths(tempDir)
+        homePaths.mkdirsAll()
+        val id = "idea-community-2025.3.3"
+        backendFixture(homePaths, id, "idea-community", "IC", "2025.3.3")
+        Files.writeString(
+            homePaths.pidFile(id),
+            Json.encodeToString(
+                ManagedBackendProcessState(pid = 12345L, startInstant = "2026-07-31T08:00:00Z"),
+            ),
+        )
+        val processInspector = FakeProcessInspector(
+            alivePids = setOf(12345L),
+            snapshots = mapOf(
+                12345L to ProcessSnapshot(
+                    pid = 12345L,
+                    command = "/usr/bin/java",
+                    startInstant = Instant.parse("2026-07-31T09:00:00Z"),
+                ),
+            ),
+        )
+
+        assertTrue(collectRunningBackendListRows(homePaths, processInspector).isEmpty())
+    }
+
+    @Test
+    fun `legacy pid-only state omits a launcher in a non-executable shell argument`(@TempDir tempDir: Path) {
+        val homePaths = HomePaths(tempDir)
+        homePaths.mkdirsAll()
+        val id = "idea-community-2025.3.3"
+        backendFixture(homePaths, id, "idea-community", "IC", "2025.3.3")
+        Files.writeString(homePaths.pidFile(id), "12345\n")
+        val launcher = homePaths.backendDir(id).resolve("bundle-$id/bin/idea.sh").toString()
+        val processInspector = FakeProcessInspector(
+            alivePids = setOf(12345L),
+            snapshots = mapOf(
+                12345L to ProcessSnapshot(
+                    pid = 12345L,
+                    command = "/bin/bash",
+                    arguments = listOf("/tmp/unrelated-script", launcher),
+                ),
+            ),
+        )
+
+        assertTrue(collectRunningBackendListRows(homePaths, processInspector).isEmpty())
     }
 
     private fun renderStopText(rows: List<RunningBackendListRow>): String {
@@ -74,4 +127,17 @@ class BackendCommandStopListTest {
             renderBackendStopListJson(rows, PrintStream(buf, true, Charsets.UTF_8))
         }.toString(Charsets.UTF_8),
     ).jsonObject
+
+    private fun ownedLegacyProcessInspector(homePaths: HomePaths): FakeProcessInspector {
+        val id = "idea-community-2025.3.3"
+        return FakeProcessInspector(
+            alivePids = setOf(12345L),
+            snapshots = mapOf(
+                12345L to ProcessSnapshot(
+                    pid = 12345L,
+                    command = homePaths.backendDir(id).resolve("bundle-$id/bin/idea.sh").toString(),
+                ),
+            ),
+        )
+    }
 }

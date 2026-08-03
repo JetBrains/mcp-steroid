@@ -3,6 +3,7 @@ import com.jonnyzzz.mcpSteroid.gradle.VerifyClassFileVersionTask
 import com.jonnyzzz.mcpSteroid.gradle.configurePathingJarClasspath
 import org.gradle.api.attributes.Usage
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.time.Duration
 import java.util.SortedSet
 
 plugins {
@@ -63,10 +64,8 @@ dependencies {
     // Brings :mcp-core and :prompts transitively.
     implementation(project(":mcp-steroid-server"))
 
-    // IDE-free ExecutionStorage core. Lets devrig persist execution
-    // history with the same on-disk layout the IntelliJ plugin uses, so
-    // downstream tooling that reads .idea/mcp-steroid/{eid}/ artefacts
-    // works against both backends without conditional logic.
+    // IDE-free ExecutionStorage core. Keeps the canonical
+    // ~/.mcp-steroid/runs/{eid}/ layout available to devrig-side tooling.
     implementation(project(":execution-storage"))
 
     // Managed backends reuse the existing IntelliJ downloader/unpacker instead
@@ -264,13 +263,55 @@ distributions {
     }
 }
 
+// Tests that intentionally call public vendor feeds (data.services.jetbrains.com, the
+// intellij-community releases API, developer.android.com). `live-network` resolves only;
+// `live-download` additionally pulls whole IDE archives. Both are opt-in tasks below.
+val liveNetworkTag = "live-network"
+val liveDownloadTag = "live-download"
+
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags(liveNetworkTag, liveDownloadTag)
+    }
     // Hand the build's project.version through to DevrigVersionMetadataTest so it can
     // end-to-end-assert the generated runtime value.
     systemProperty("devrig.expected.version", version.toString())
     // Unit tests must never reach PostHog over the network (DevrigBeacon).
     systemProperty("devrig.beacon.disabled", "true")
+}
+
+/** Shares the default `test` wiring with a different tag filter. */
+fun Test.configureLikeUnitTests(tag: String) {
+    useJUnitPlatform {
+        includeTags(tag)
+    }
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    systemProperty("devrig.expected.version", version.toString())
+    systemProperty("devrig.beacon.disabled", "true")
+    shouldRunAfter(tasks.test)
+    // A vendor feed changing under us is the very thing these assert; never serve a cached verdict.
+    outputs.upToDateWhen { false }
+}
+
+tasks.register<Test>("liveNetworkTest") {
+    description = "Resolves every supported IDE against the live vendor feeds (no archive download)."
+    group = "verification"
+    configureLikeUnitTests(liveNetworkTag)
+}
+
+tasks.register<Test>("liveDownloadSmokeTest") {
+    description = "Downloads and validates real IDE archives (idea-community, android-studio). Multi-GB."
+    group = "verification"
+    configureLikeUnitTests(liveDownloadTag)
+    // Windows ships the IDE as an NSIS .exe, whose unpack path needs the bundled 7z.exe from a real
+    // installDist tree — structurally incompatible with this classpath-driven smoke. Gated at the
+    // TASK level (the only skip the root CLAUDE.md allows); the test methods stay unconditional.
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    enabled = !isWindows
+    onlyIf("the .exe unpack path needs an installDist 7z.exe (not available on Windows here)") { !isWindows }
+    // A single IDE archive plus its unpacked bundle needs far longer than a unit test.
+    timeout.set(Duration.ofMinutes(60))
 }
 
 kotlin {

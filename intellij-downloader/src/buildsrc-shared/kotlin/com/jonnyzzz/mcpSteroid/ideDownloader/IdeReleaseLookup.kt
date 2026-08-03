@@ -118,7 +118,12 @@ private fun resolveArchiveWithUrlReader(
     )
 }
 
-internal fun resolveArchiveFromProductsApiPayload(
+/**
+ * Resolves an archive from a raw `data.services.jetbrains.com/products` payload — pure, no I/O, so
+ * callers can exercise the products-API feed from a fixture. The sibling feeds expose the same seam
+ * (`resolveGithubCommunityArchiveFromReleasesJson`, `resolveAndroidStudioCanaryArchiveFromHtml`).
+ */
+fun resolveArchiveFromProductsApiPayload(
     product: IdeProduct,
     channel: IdeChannel,
     os: HostOs,
@@ -140,6 +145,12 @@ internal fun resolveArchiveFromProductsApiPayload(
     val downloadKey = resolveDownloadKey(os, architecture)
     val wantedVersion = version?.takeIf { it.isNotBlank() }
     val skippedWrongFilename = mutableListOf<String>()
+    // Distinguishes "no release carries a `linuxARM64` download" (the product is simply not
+    // published for that platform — MPS ships no Linux/Windows ARM64 at all) from "releases
+    // carry it but every filename belongs to another edition". The two need different advice.
+    var candidateReleases = 0
+    var releasesOfferingDownloadKey = 0
+    val offeredDownloadKeys = linkedSetOf<String>()
 
     for (release in releases.filterIsInstance<JsonObject>()) {
         val type = (release["type"] as? JsonPrimitive)?.content
@@ -151,8 +162,11 @@ internal fun resolveArchiveFromProductsApiPayload(
         if (wantedVersion != null && wantedVersion != releaseVersion && wantedVersion != build) continue
         if (buildPrefix != null && !build.startsWith(buildPrefix)) continue
 
+        candidateReleases++
         val downloads = release["downloads"] as? JsonObject ?: continue
+        offeredDownloadKeys += downloads.keys
         val platformDownload = downloads[downloadKey] as? JsonObject ?: continue
+        releasesOfferingDownloadKey++
         val link = (platformDownload["link"] as? JsonPrimitive)?.content ?: continue
         if (link.isBlank()) continue
         val checksumLink = (platformDownload["checksumLink"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
@@ -173,7 +187,63 @@ internal fun resolveArchiveFromProductsApiPayload(
         )
     }
 
+    if (candidateReleases > 0 && releasesOfferingDownloadKey == 0) {
+        error(
+            unpublishedPlatformFailureMessage(
+                product = product,
+                channel = channel,
+                downloadKey = downloadKey,
+                os = os,
+                architecture = architecture,
+                candidateReleases = candidateReleases,
+                offeredDownloadKeys = offeredDownloadKeys,
+                productsApiUrl = productsApiUrl,
+                wantedVersion = wantedVersion,
+                buildPrefix = buildPrefix,
+            )
+        )
+    }
     error(resolveArchiveFailureMessage(product, channel, wantedVersion, buildPrefix, downloadKey, productsApiUrl, skippedWrongFilename))
+}
+
+/**
+ * The feed answered, releases exist in the requested channel, and not one of them publishes a
+ * [downloadKey] distribution — i.e. JetBrains does not ship this product for this OS/arch at all.
+ * MPS is the in-catalog example: it has no `linuxARM64` and no `windowsARM64` entry in any release.
+ *
+ * Kept separate from [resolveArchiveFailureMessage] so the advice is truthful: retrying with
+ * `--version` cannot help, and the caller should pick another host platform instead.
+ *
+ * When a `--version`/build filter was active only the matching releases were inspected, so the
+ * message must not over-claim "not a supported host" — releases outside the filter may still
+ * publish the platform.
+ */
+private fun unpublishedPlatformFailureMessage(
+    product: IdeProduct,
+    channel: IdeChannel,
+    downloadKey: String,
+    os: HostOs,
+    architecture: HostArchitecture,
+    candidateReleases: Int,
+    offeredDownloadKeys: Set<String>,
+    productsApiUrl: String,
+    wantedVersion: String?,
+    buildPrefix: String?,
+): String {
+    val offered = "Keys the feed does offer: ${offeredDownloadKeys.sorted().joinToString()}. Feed: $productsApiUrl"
+    val filters = listOfNotNull(
+        wantedVersion?.let { "version '$it'" },
+        buildPrefix?.let { "build prefix '$it'" },
+    )
+    if (filters.isNotEmpty()) {
+        return "JetBrains publishes no '$downloadKey' distribution of ${product.displayName} " +
+            "(code=${product.code}) in the $candidateReleases '${channel.apiValue}' release(s) matching " +
+            "${filters.joinToString(" and ")} — releases outside that filter may still cover " +
+            "$os/$architecture; drop the filter to check. $offered"
+    }
+    return "JetBrains publishes no '$downloadKey' distribution for ${product.displayName} " +
+        "(code=${product.code}): none of the $candidateReleases '${channel.apiValue}' releases carries that " +
+        "download key, so $os/$architecture is not a supported host for this product. $offered"
 }
 
 internal fun IdeProduct.acceptsDownloadFilename(filename: String): Boolean {

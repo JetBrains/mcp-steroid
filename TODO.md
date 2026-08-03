@@ -77,9 +77,13 @@
     `devrig project tools <project_name> [--json]` (ProjectCommand → `invokeWithoutSubcommand`),
     explicit 404="plugin too old" branch, WirePristinenessTest + contract pins,
     `:test-integration` canary (list + `find_files_by_glob` call), wire-table entry.
-  - [ ] Scenario A follow-up: `prompts/src/main/prompts/skill/native-mcp-tools.md` article
-    (guard fence → LIST → schema-first → CALL → caveats), one full KtBlock matrix run before
-    merge; same PR fixes stale `required_plugins` in `coding-with-intellij-patterns.md` (3 sites).
+  - [ ] Scenario A follow-up: short static index `skill/native-mcp-tools.md` (guard + LIST
+    fallback) with a live tool-index overlay, plus dynamic per-tool pages
+    `mcp-steroid://skill/native-mcp-tools/<tool-name>` rendered fresh per fetch via a
+    `NativeToolPagesHandler` seam in `FetchResourceToolHandler` (in-IDE: probe-backed; devrig:
+    fed by the `/native-tools` bridge endpoint; shared renderer in `mcp-steroid-server`);
+    one full KtBlock matrix run before merge; same PR fixes stale `required_plugins` in
+    `coding-with-intellij-patterns.md` (3 sites).
 
 - [ ] **runInspectionsDirectly follow-ups (#69 ask 1)** — deliberately deferred, not work-in-progress.
   - *Deferred:* a `PsiFile`-accepting overload (and any richer per-file batch surface). It is a
@@ -90,6 +94,23 @@
     touching the argument list.
 
 - [ ] Backend management follow-ups (deferred, surfaced during the design):
+  - [x] Launch managed IntelliJ Ultimate 2026.2 as a native Remote Development backend and prove the
+    clean-machine Claude/Codex Keycloak hierarchy flow described in
+    `docs/devrig-remote-development-backend-e2e.md`.
+  - Apply the secret-safe environment allowlist to standard managed launches too, while explicitly
+    retaining `http_proxy` / `https_proxy` / `no_proxy` variants needed by IDE networking.
+  - Replace hardcoded `/usr/bin/setsid` / `/bin/setsid` lookup with a portable executable search so
+    detached managed launches work on non-FHS systems such as NixOS.
+  - [x] Snapshot PID + start identity before launch instead of excluding raw PIDs; serialize
+    download/start/stop with one operation lock and refuse to rewrite the plugin of a live target.
+  - Make failed-start cleanup diagnostics distinguish a deliberate identity-change refusal from a
+    termination failure.
+  - Move legacy archive migration under the global backend-operation lock, or prove the current
+    idempotent moves safe when two fresh `BackendManager` instances initialize concurrently.
+  - Revalidate the native Remote Development launcher for baseline 263+, using cold-CI telemetry to
+    tune the 180-second readiness bound and the caller-cancellation behavior before widening support.
+  - Put the pure Remote Development NDJSON parser/workflow contracts on a normal CI-backed task; the
+    experimental task's direct-invocation guard currently keeps them out of aggregate CI runs.
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).
   - Consider enriching `backend --json` / `backend download --json` with release date + download channel so agents can reason about staleness; consider exposing `IdeProduct` metadata (license tier, launcher) for richer IDE choice.
   - Optional explicit `open_project` target (by managed-backend id / pid) for the case where the agent wants a specific backend even when several are running — today the global lock makes "prefer managed" sufficient.
