@@ -124,6 +124,7 @@ fun DevrigServices.runGeneratedToolCommand(
             if (!toolResult.isError && command.extraOptions[WAIT_EXTRA_OPTION_NAME] == true) {
                 awaitWaitOption(command, tools)
             }
+            command.requireNoUnhandledExtraOption()
             toolResult
         }
     } catch (e: CliInputException) {
@@ -233,6 +234,30 @@ private const val WAIT_TIMEOUT_MS: Long = 300_000
 private const val WAIT_INTERVAL_MS: Long = 1_000
 
 /**
+ * Fails when the invocation SET a [com.jonnyzzz.mcpSteroid.mcp.CliExtraOption] no runtime acts on.
+ *
+ * An extra option is by definition orchestration the CLI performs around the call — `open_project --wait`
+ * polling the IDE after the tool returns — so it reaches no tool and there is nothing to forward it to.
+ * [WAIT_EXTRA_OPTION_NAME] is the only name any runtime behavior is keyed off today; every other name that
+ * arrives set to `true` in [GeneratedToolInvocation.extraOptions] is, by construction, a flag Clikt accepted
+ * and this runtime silently ignored — the exact "accept then ignore" outcome the design this file follows
+ * exists to rule out. The check reads [GeneratedToolInvocation.extraOptions] alone, never a per-tool `when`
+ * or a lookup into the tool's own [com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.extraOptions], so a future
+ * tool that declares a second extra option needs no edit here: either the runtime grows a name-keyed
+ * handler for it (like [awaitWaitOption]) before it ships, or this guard rejects it the first time it is
+ * set — there is no silent third option.
+ */
+private fun GeneratedToolInvocation.requireNoUnhandledExtraOption() {
+    val unhandled = extraOptions.filterKeys { it != WAIT_EXTRA_OPTION_NAME }.filterValues { it }
+    // No "devrig <command>:" prefix here — the pipeline's IllegalArgumentException arm adds it, and saying
+    // it twice is what the printed message actually looked like before this comment existed.
+    require(unhandled.isEmpty()) {
+        "${unhandled.keys.joinToString(", ")} is accepted by the command line but no runtime acts on it " +
+            "yet — drop it and the command runs"
+    }
+}
+
+/**
  * Thrown by [awaitWaitOption] when its poll deadline passes before `steroid_list_windows` reports the
  * project ready. Caught in [runGeneratedToolCommand]'s own pipeline, alongside every other failure that
  * pipeline classifies, and mapped to [CliExit.UNAVAILABLE] there — a project that never finishes opening
@@ -267,8 +292,8 @@ private suspend fun DevrigServices.awaitWaitOption(command: GeneratedToolInvocat
     val projectPath = Path.of(rawProjectPath).toRealPath().toString()
     val listWindowsSpec = liveToolSpec("steroid_list_windows", tools)
     // Created ONCE, outside the poll lambda: `stderrProgressReporter` prints "Tool call started: devrig
-    // list_windows" on construction, and a wait that polls for minutes must not repeat that line on
-    // every iteration.
+    // list_windows" on its FIRST `report()` call, and a wait that polls for minutes must not repeat that
+    // line on every iteration.
     val listWindowsProgress = if (command.json) NoOpProgressReporter else stderrProgressReporter(listWindowsSpec.name)
     val ready = awaitProjectReady(
         pollListWindows = { callToolViaSpec(listWindowsSpec, JsonObject(emptyMap()), listWindowsProgress).listWindowsJson() },

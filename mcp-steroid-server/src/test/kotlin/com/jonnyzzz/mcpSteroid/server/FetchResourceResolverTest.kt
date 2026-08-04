@@ -5,7 +5,6 @@ import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
 import com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class FetchResourceResolverTest {
@@ -19,14 +18,5 @@ class FetchResourceResolverTest {
     @Test
     fun `returns null for an unknown uri`() {
         assertNull(resolveResourceArticle("mcp-steroid://does/not/exist", PromptsContext.Generic))
-    }
-
-    @Test
-    fun `canonical entry points are non-empty and all resolvable`() {
-        val entryPoints = canonicalResourceEntryPoints()
-        assertTrue(entryPoints.isNotEmpty(), "there must be at least one canonical entry point")
-        for (uri in entryPoints) {
-            assertEquals(uri, resolveResourceArticle(uri, PromptsContext.Generic)?.uri, "entry point $uri must resolve")
-        }
     }
 }

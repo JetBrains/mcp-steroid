@@ -107,8 +107,8 @@ class CliDevrigToolsIntegrationTest {
         val readyWindow = windows.map { it.jsonObject }.singleOrNull { it["project_path"]?.jsonPrimitive?.content == guestProjectDir }
             ?: error("expected exactly one window for $guestProjectDir; windows=$windows")
         assertEquals("true", readyWindow["projectInitialized"]?.jsonPrimitive?.content, "windows=$windows")
-        assertEquals("false", (readyWindow["indexingInProgress"]?.jsonPrimitive?.content ?: "false"), "windows=$windows")
-        assertEquals("false", (readyWindow["modalDialogShowing"]?.jsonPrimitive?.content ?: "false"), "windows=$windows")
+        assertEquals("false", readyWindow["indexingInProgress"]?.jsonPrimitive?.content, "windows=$windows")
+        assertEquals("false", readyWindow["modalDialogShowing"]?.jsonPrimitive?.content, "windows=$windows")
     }
 
     @Test

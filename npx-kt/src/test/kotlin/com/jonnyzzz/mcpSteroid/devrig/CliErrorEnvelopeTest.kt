@@ -135,6 +135,27 @@ class CliErrorEnvelopeTest {
     }
 
     @Test
+    fun `an unhandled extra option fails loudly instead of being ignored`() {
+        // A synthetic extra option no runtime name-keyed handler (like the `--wait` poll) ever consumes.
+        // `list_windows` declares no extra options at all, so `SchemaCliBinding` could never produce this
+        // on a real parse — this hand-builds the RunTool to prove the RUNTIME'S OWN guard rejects it, not
+        // merely that the parser never emits it.
+        val command = GeneratedToolInvocation(
+            toolName = "steroid_list_windows",
+            commandName = "list_windows",
+            extraOptions = mapOf("phantom" to true),
+            json = true,
+        )
+        val tools = FakeMcpSteroidTools().with(ListWindowsToolHandler::class.java, CountingListWindows())
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        run.assertIsErrorEnvelope("list_windows")
+        assertTrue("phantom" in run.errorMessage(), run.errorMessage())
+    }
+
+    @Test
     fun `an argument the tool itself rejects exits 64 and never blames the backend`() {
         // The rejection the SCHEMA layer raises — `McpSchema`'s `required()` parser for an absent required
         // parameter, and its enum parser for an unknown value. Both throw ToolCallErrorException, which
