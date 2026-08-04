@@ -94,6 +94,9 @@
         <registryKey key="mcp.steroid.dialog.killer.enabled" defaultValue="true"
             description="Automatically close modal dialogs before code execution"/>
 
+        <registryKey key="mcp.steroid.execution.dialogless.modal.wait.ms" defaultValue="120000"
+            description="How long modal=smart_non_modal waits for a dialog-less elevated modality (modal progress without any dialog window, e.g. the platform's freeze-protection event pumping during indexing/VFS refresh) to pass before failing the pre-flight gate. 0 disables the wait."/>
+
         <registryKey key="mcp.steroid.server.port" defaultValue="6315"
             description="MCP server port (0 for auto-assign)"/>
 

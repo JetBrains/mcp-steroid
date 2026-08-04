@@ -31,12 +31,14 @@ import kotlinx.serialization.Transient
 @Serializable
 enum class ModalMode(val wire: String) {
     /**
-     * Default, for PSI / code-management flows: close leftover modal dialogs (deepest-first), require a
-     * non-modal IDE (fail with a screenshot if one survives), commit+save documents + refresh VFS, wait
-     * for indexing (smart mode — point-in-time; index-dependent reads still need smartReadAction { }),
-     * then run with the modal-dialog monitor active — a modal appearing mid-run is closed and the run fails
-     * (with a thread dump + screenshot). Call `allowModalDialog()` from the script first if you open a
-     * dialog on purpose.
+     * Default, for PSI / code-management flows: close leftover modal dialogs (deepest-first), wait out a
+     * dialog-less modal progress if the IDE is mid freeze-protection/indexing (bounded,
+     * `mcp.steroid.execution.dialogless.modal.wait.ms`, default 120s — progress notifications are emitted
+     * while waiting), require a non-modal IDE (fail with a screenshot if a dialog survives or the wait
+     * expires), commit+save documents + refresh VFS, wait for indexing (smart mode — point-in-time;
+     * index-dependent reads still need smartReadAction { }), then run with the modal-dialog monitor
+     * active — a modal appearing mid-run is closed and the run fails (with a thread dump + screenshot).
+     * Call `allowModalDialog()` from the script first if you open a dialog on purpose.
      */
     @SerialName("smart_non_modal")
     SMART_NON_MODAL(wire = "smart_non_modal"),
@@ -128,7 +130,7 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
 
     private val defaultTimeoutSeconds = 600
     val timeout = InputSchemaElement.param("timeout")
-        .description("Timeout in seconds for your script BODY (default: $defaultTimeoutSeconds, configurable via mcp.steroid.execution.timeout registry key). The smart_non_modal pre-flight commit and smart-mode waits have their own internal deadlock-safety bounds and are not governed by this value.")
+        .description("Timeout in seconds for your script BODY (default: $defaultTimeoutSeconds, configurable via mcp.steroid.execution.timeout registry key). The smart_non_modal pre-flight steps have their own internal bounds not governed by this value: the commit and smart-mode waits (60s each) and the dialog-less modal-progress wait (120s, mcp.steroid.execution.dialogless.modal.wait.ms — emits progress notifications while the IDE settles).")
         .cliSynopsis("seconds to allow the script body to run (default 600)")
         .int()
         .withDefaultValue(defaultTimeoutSeconds)
@@ -140,8 +142,10 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
             "IDE preparation + modal-dialog policy for the script. Default 'smart_non_modal' is right for " +
                 "almost everything (including read-only navigation) — use it unless you have a specific " +
                 "reason not to. " +
-                "'smart_non_modal': close leftover modal dialogs, require non-modal (fail with a screenshot + " +
-                "thread dump if one survives), commit+save documents, refresh VFS, wait for indexing " +
+                "'smart_non_modal': close leftover modal dialogs, wait out dialog-less modal progress " +
+                "(IDE freeze-protection/indexing; bounded 120s with progress notifications), require " +
+                "non-modal (fail with a screenshot + thread dump if a dialog survives or the wait expires), " +
+                "commit+save documents, refresh VFS, wait for indexing " +
                 "(point-in-time — index reads still need smartReadAction { }), then run while watching for " +
                 "modals — a modal that appears mid-run is closed and the run FAILS with a screenshot + thread " +
                 "dump (if your script opens a dialog on purpose, call allowModalDialog() from the script " +

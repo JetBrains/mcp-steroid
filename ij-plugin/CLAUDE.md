@@ -322,7 +322,7 @@ sugar over the `McpScriptContext` methods:
 
 | `modal` | Pre-flight | During body | Post-flight |
 |---|---|---|---|
-| `smart_non_modal` *(default)* | `closeModalDialogs()` (sweep, deepest-first) → require non-modal (`requireNonModalOrFail` → fail + screenshot + thread dump) → `syncDocuments()` (commit+save+VFS, bounded 60s) → `waitForSmartMode()` (bounded 60s) → `monitorAndCloseModalDialogs()` | monitor polls ~1s; a modal dialog gets closed + the run FAILS (screenshot + thread dump) | re-`syncDocuments()` iff `!isModalEdt()` |
+| `smart_non_modal` *(default)* | `closeModalDialogs()` (sweep, deepest-first) → await dialog-less modal progress (bounded by `mcp.steroid.execution.dialogless.modal.wait.ms`, default 120s: the 2026.2 platform elevates modality with NO dialog while its freeze-protection pumps a write-action storm — `SuvorovProgress`, seen on PyCharm-EAP cold-start VFS refresh, #412; a wait is correct because dialog-less modality ends on its own, while a dialog window still fails fast) → require non-modal (`requireNonModalOrFail` → fail + screenshot + thread dump) → `syncDocuments()` (commit+save+VFS, bounded 60s) → `waitForSmartMode()` (bounded 60s) → `monitorAndCloseModalDialogs()` | monitor polls ~1s; a modal dialog gets closed + the run FAILS (screenshot + thread dump) | re-`syncDocuments()` iff `!isModalEdt()` |
 | `non_modal` | `requireNonModalOrFail` only (assert-only) | nothing | nothing |
 | `unleashed` | nothing | nothing | nothing |
 
