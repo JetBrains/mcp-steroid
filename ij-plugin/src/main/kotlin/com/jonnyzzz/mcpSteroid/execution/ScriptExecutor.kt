@@ -12,6 +12,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.ThreadingAssertions
@@ -45,8 +46,9 @@ inline val Project.scriptExecutor: ScriptExecutor get() = service()
  *
  *  - **Kill stuck modals.** Run [DialogKiller] to dismiss any modal dialogs
  *    left over from a previous step or background activity.
- *  - **Modality fail-fast.** Re-check via [DialogWindowsLookup]. If a modal
- *    is still up, abort with a clean tool error.
+ *  - **Wait out dialog-less modal progress** (bounded), then **modality
+ *    fail-fast.** Re-check via [DialogWindowsLookup]. If a modal is still up,
+ *    abort with a clean tool error.
  *  - **Pre-flight commit + save + refresh.** Commit pending PSI edits, flush
  *    dirty documents, await VFS refresh. Guarantees the body sees disk-truth
  *    and any external write the body performs lands on a clean VFS.
@@ -57,8 +59,10 @@ inline val Project.scriptExecutor: ScriptExecutor get() = service()
  *
  * Modality handling is driven by the `modal` option (see [ExecCodeParams.modal] / [ModalMode]); each
  * profile is sugar over the [McpScriptContext] methods:
- * - `smart_non_modal` (default): closeModalDialogs + require-non-modal + syncDocuments + waitForSmartMode,
- *   then start the modal monitor — a modal appearing mid-run is closed and the run fails.
+ * - `smart_non_modal` (default): closeModalDialogs + await-dialog-less-modal-progress (bounded,
+ *   `mcp.steroid.execution.dialogless.modal.wait.ms`) + require-non-modal + syncDocuments +
+ *   waitForSmartMode, then start the modal monitor — a modal appearing mid-run is closed and the
+ *   run fails.
  * - `non_modal`: require-non-modal only. `unleashed`: nothing.
  * - If the script intentionally shows a dialog (e.g. a refactoring confirmation), call
  *   `allowModalDialog()` on the script context BEFORE the action so the monitor leaves it alone.
@@ -146,8 +150,10 @@ class ScriptExecutor(
             ModalMode.SMART_NON_MODAL -> {
                 log.info("[$executionId] [PRE] close modal dialogs (modal=${exec.modal.wire})")
                 context.closeModalDialogs()
+                log.info("[$executionId] [PRE] await dialog-less modal progress (modal=${exec.modal.wire})")
+                val waitOutcome = awaitDialoglessModalProgress(executionId, resultBuilder)
                 log.info("[$executionId] [PRE] require non-modal (modal=${exec.modal.wire})")
-                requireNonModalOrFail(executionId, exec.modal)
+                requireNonModalOrFail(executionId, exec.modal, waitOutcome)
                 log.info("[$executionId] [PRE] sync documents (modal=${exec.modal.wire})")
                 context.syncDocuments()
                 log.info("[$executionId] [PRE] wait for smart mode (modal=${exec.modal.wire})")
@@ -191,11 +197,62 @@ class ScriptExecutor(
     }
 
     /**
+     * SMART_NON_MODAL only: wait out an elevated modality that has NO dialog window behind it.
+     *
+     * The 2026.2 platform elevates modality without any dialog while it protects EDT freezes —
+     * `SuvorovProgress.processInvocationEventsWithoutDialog` pumping a write-action storm
+     * (VFS refresh during EAP cold-start indexing was the observed trigger, TC run 1020027380:
+     * the gate failed "modal dialog ... could not be cleared" over an IDE whose screenshot shows
+     * no dialog at all). A dialog-less modal progress ends on its own, so the gate must wait for
+     * it instead of failing. A dialog window present at pre-flight start still fails fast below
+     * (the `closeModalDialogs` sweep already had its chance); a dialog appearing MID-wait also
+     * stops the wait and fails — it was never swept, but silently closing dialogs that pop up
+     * while the IDE settles is the during-run monitor's job, not the gate's.
+     *
+     * Emits MCP progress notifications while waiting (#154 routing: progress channel + idea.log,
+     * never the result) — the agent would otherwise stare at a silent call for up to two minutes,
+     * and the notification bytes also keep the HTTP connection from idling out.
+     */
+    private suspend fun awaitDialoglessModalProgress(
+        executionId: ExecutionId,
+        resultBuilder: ExecutionResultBuilder,
+    ): DialoglessModalityWait {
+        // Default pairs with the registryKey declaration in plugin.xml — keep the two in sync.
+        val budgetMs = Registry.intValue("mcp.steroid.execution.dialogless.modal.wait.ms", 120_000)
+        if (budgetMs <= 0) return DialoglessModalityWait.CLEARED_IMMEDIATELY
+        val lookup = dialogWindowsLookup()
+        val poll = 500.milliseconds
+        val progressEveryTicks = 40 // ~20s at the 500ms poll
+        val outcome = awaitDialoglessModality(
+            isModalEdt = { lookup.isModalEdt() },
+            hasModalDialogWindow = { lookup.withModalityCheck { it } },
+            budget = budgetMs.milliseconds,
+            poll = poll,
+            onPoll = { tick ->
+                if (tick % progressEveryTicks == 0) {
+                    resultBuilder.logProgress(
+                        "waiting for dialog-less modal progress (IDE freeze-protection/indexing) " +
+                            "to pass: ${(tick * poll.inWholeMilliseconds) / 1000}s of ${budgetMs / 1000}s"
+                    )
+                }
+            },
+        )
+        if (outcome != DialoglessModalityWait.CLEARED_IMMEDIATELY) {
+            log.info("[$executionId] [PRE] dialog-less modality wait: $outcome (budget ${budgetMs}ms)")
+        }
+        return outcome
+    }
+
+    /**
      * Fail the execution (with a screenshot) when the IDE is in an elevated-modality state and the
      * profile requires non-modal. Uses the shared [DialogWindowsLookup.isModalEdt] check, so the gate
      * agrees with the context APIs' non-modal asserts.
      */
-    private suspend fun requireNonModalOrFail(executionId: ExecutionId, modal: ModalMode) {
+    private suspend fun requireNonModalOrFail(
+        executionId: ExecutionId,
+        modal: ModalMode,
+        dialoglessWait: DialoglessModalityWait? = null,
+    ) {
         if (!isModalEdt()) return
         // Capture the same diagnostics the during-run monitor does (screenshot + thread dump) — a gate
         // failure often means a modal is stuck on a background process, where the thread dump is key.
@@ -212,9 +269,21 @@ class ScriptExecutor(
         } catch (e: Exception) {
             log.warn("Failed to capture modality-gate thread dump for $executionId: ${e.message}")
         }
+        // Tell the agent WHICH modality variant blocked the gate — retrying later helps for a
+        // persisting dialog-less progress, never for a surviving dialog window.
+        val detail = when (dialoglessWait) {
+            DialoglessModalityWait.BUDGET_EXPIRED ->
+                "a dialog-less modal progress (IDE freeze-protection/indexing) persisted past the bounded " +
+                    "wait (mcp.steroid.execution.dialogless.modal.wait.ms) — the IDE may still be settling; " +
+                    "retrying later can help"
+            DialoglessModalityWait.DIALOG_PRESENT ->
+                "a modal dialog window is showing and could not be cleared"
+            else ->
+                "a modal dialog/progress is present and could not be cleared"
+        }
         throw ToolCallErrorException(
-            "modal=${modal.name.lowercase()} requires a non-modal IDE, but a modal dialog/progress is present " +
-                "and could not be cleared. Use modal=unleashed to run anyway (no PSI guarantees). " +
+            "modal=${modal.name.lowercase()} requires a non-modal IDE, but $detail. " +
+                "Use modal=unleashed to run anyway (no PSI guarantees). " +
                 "See the screenshot + thread dump under execution '${executionId.executionId}'."
         )
     }
@@ -311,5 +380,58 @@ class ScriptExecutor(
         val cleanTrace = lineMapping.cleanStackTrace(throwable.stackTraceToString())
         val text = "ERROR: $message\n$cleanTrace"
         logMessage(text)
+    }
+}
+
+/** Outcome of [awaitDialoglessModality]. */
+enum class DialoglessModalityWait {
+    /** The EDT was not modal on the first probe — nothing to wait for. */
+    CLEARED_IMMEDIATELY,
+
+    /** Modality was elevated but dropped back to non-modal within the budget. */
+    CLEARED,
+
+    /**
+     * A modal dialog WINDOW is showing — waiting cannot help (dialogs never close
+     * themselves); the caller's gate fails with diagnostics.
+     */
+    DIALOG_PRESENT,
+
+    /** Still modal (dialog-less) after the budget — the caller's gate fails. */
+    BUDGET_EXPIRED,
+}
+
+/**
+ * Wait for a dialog-less elevated modality (modal progress with no dialog window — e.g. the
+ * platform's `SuvorovProgress` freeze-protection pumping during a write-action storm) to pass.
+ *
+ * Ordering contract: clearance is checked AFTER each poll delay and wins over an expired
+ * deadline — modality dropping during the final poll reports [DialoglessModalityWait.CLEARED].
+ * The reverse race (clearing between the modality and dialog probes) can at worst mislabel the
+ * outcome as [DialoglessModalityWait.BUDGET_EXPIRED]; that is log-cosmetic only, because the
+ * gate re-probes modality itself and passes.
+ *
+ * Pure polling loop with injected probes: host-side test JVMs run headless where
+ * `DialogWindowsLookup.isModalEdt` short-circuits to `false`, so the loop's contract is pinned
+ * by `DialoglessModalityWaitTest` with fake probes instead of real EDT modality (a real
+ * `LaterInvocator.enterModal` unit test deadlocks the executor — see ScriptExecutorTest's note).
+ */
+suspend fun awaitDialoglessModality(
+    isModalEdt: suspend () -> Boolean,
+    hasModalDialogWindow: suspend () -> Boolean,
+    budget: kotlin.time.Duration,
+    poll: kotlin.time.Duration = 500.milliseconds,
+    onPoll: suspend (tick: Int) -> Unit = {},
+): DialoglessModalityWait {
+    if (!isModalEdt()) return DialoglessModalityWait.CLEARED_IMMEDIATELY
+    val deadline = kotlin.time.TimeSource.Monotonic.markNow() + budget
+    var tick = 0
+    while (true) {
+        if (hasModalDialogWindow()) return DialoglessModalityWait.DIALOG_PRESENT
+        if (deadline.hasPassedNow()) return DialoglessModalityWait.BUDGET_EXPIRED
+        onPoll(tick)
+        tick++
+        delay(poll)
+        if (!isModalEdt()) return DialoglessModalityWait.CLEARED
     }
 }

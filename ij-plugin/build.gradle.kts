@@ -66,6 +66,12 @@ val verifierIdeProduct: IdeProduct = when (targetIdeProduct) {
 }
 
 repositories {
+    // TODO(docs/bta-snippet-compilation-performance.md): return to Maven Central once a regular Kotlin release contains KT-87743.
+    maven("https://packages.jetbrains.team/maven/p/kt/dev") {
+        content {
+            includeGroup("org.jetbrains.kotlin")
+        }
+    }
     mavenCentral()
 
     intellijPlatform {
@@ -75,7 +81,11 @@ repositories {
 
 // Libraries provided by IntelliJ platform - exclude from bundling
 configurations.named("implementation") {
-    exclude(group = "org.jetbrains.kotlin")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-common")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
     exclude(group = "org.jetbrains.kotlinx")
     exclude(group = "org.jetbrains", module = "annotations")
     exclude(group = "org.slf4j")
@@ -145,15 +155,6 @@ fun ideRootProviderFor(
 ): Provider<File> =
     providers.provider { ideRootFor(target, product) }
 
-// Consume kotlinc distribution from kotlin-cli subproject
-val kotlincDist = configurations.create("kotlincDist") {
-    isCanBeConsumed = false
-    isCanBeResolved = true
-    attributes {
-        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "kotlinc-dist"))
-    }
-}
-
 dependencies {
     intellijPlatform {
         when (targetIdeProduct) {
@@ -203,11 +204,8 @@ dependencies {
     // Prompt base classes + generated prompt code
     implementation(project(":prompts"))
 
-    // Kotlinc utility classes (KotlincArgFile, KotlincCommandLineBuilder)
+    // Kotlin Build Tools API session (KotlinBuildsSession) + the BTA api jar
     implementation(project(":kotlin-cli"))
-
-    // Kotlinc binary distribution for plugin sandbox
-    kotlincDist(project(":kotlin-cli"))
 
     // OCR common models shared with ocr-tesseract CLI
     implementation(project(":ocr-common"))
@@ -419,17 +417,13 @@ tasks {
 
 val verifyBundledKotlinCompatibility = tasks.register<VerifyBundledKotlinCompatibilityTask>("verifyBundledKotlinCompatibility") {
     group = "verification"
-    description = "Verify bundled kotlinc is close enough to IntelliJ-bundled kotlin-stdlib"
-    dependsOn(kotlincDist)
+    description = "Verify the bundled BTA compiler version is close enough to IntelliJ-bundled kotlin-stdlib"
     dependsOn(tasks.prepareSandbox)
 
     val sourceSets = project.extensions.getByType<SourceSetContainer>()
     mainRuntimeClasspath.from(sourceSets.getByName("main").runtimeClasspath)
     mainRuntimeClasspath.from(configurations.getByName("intellijPlatformDependency"))
-    kotlincHome.set(kotlincDist.elements.map { files ->
-        val dir = files.first().asFile.resolve("kotlinc")
-        layout.projectDirectory.dir(dir.absolutePath)
-    })
+    bundledKotlinVersion.set("2.4.20-RC-197")
     kotlinPluginVersion.set(providers.provider {
         plugins.getPlugin(org.jetbrains.kotlin.gradle.plugin.KotlinPluginWrapper::class.java).pluginVersion
     })
@@ -475,16 +469,30 @@ val ocrToolDist = configurations.create("ocrToolDist") {
     }
 }
 
+// Consume the kotlinc distribution (BTA implementation jars) from :kotlin-cli.
+// Shipped as the plugin's top-level `kotlinc/` folder — deliberately NOT under
+// lib/, so the IDE plugin classloader never sees the compiler impl classes;
+// KotlinBuildsSession loads them into its own isolated URLClassLoader from
+// these on-disk paths.
+val kotlincDist = configurations.create("kotlincDist") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, "kotlinc-dist"))
+    }
+}
+
 dependencies {
     ocrToolDist(project(":ocr-tesseract"))
+    kotlincDist(project(":kotlin-cli"))
 }
 
 // Apply the same plugin-content wiring (ocr-tesseract, kotlinc, EULA) to every sandbox
 // that runs the plugin: production (prepareSandbox), default test (prepareTestSandbox),
 // and the dedicated integrationTest sandbox created by
 // `intellijPlatformTesting.testIde { register("integrationTest") }` above.
-// Without the integrationTest entry, steroid_execute_code fails at runtime with
-// "Kotlinc executable not found: .../plugins_integrationTest/mcp-steroid/kotlinc/bin/kotlinc".
+// Without the integrationTest entry, steroid_execute_code fails at runtime because
+// the plugin's `kotlinc/` BTA jar folder is missing from the sandboxed plugin dir.
 val prepareSandbox_integrationTest = tasks.named<Sync>("prepareSandbox_integrationTest")
 
 listOf(tasks.prepareSandbox, tasks.prepareTestSandbox, prepareSandbox_integrationTest).forEach { r ->
@@ -498,12 +506,7 @@ listOf(tasks.prepareSandbox, tasks.prepareTestSandbox, prepareSandbox_integratio
             }
         }
         from(kotlincDist) {
-            into(intellijPlatform.projectName)
-            filesMatching("kotlinc/bin/*") {
-                if (!name.endsWith(".bat")) {
-                    permissions { unix("rwxr-xr-x") }
-                }
-            }
+            into(intellijPlatform.projectName.map { "$it/kotlinc" })
         }
         // Include EULA file in plugin root
         from(rootProject.layout.projectDirectory.file("EULA")) {
@@ -527,11 +530,6 @@ val pluginZipElements = configurations.create("pluginZipElements") {
 
 tasks.buildPlugin {
     // Preserve executable permissions in the ZIP for scripts
-    filesMatching("**/kotlinc/bin/*") {
-        if (!name.endsWith(".bat")) {
-            permissions { unix("rwxr-xr-x") }
-        }
-    }
     filesMatching("**/ocr-tesseract/bin/*") {
         if (!name.endsWith(".bat")) {
             permissions { unix("rwxr-xr-x") }
@@ -590,12 +588,6 @@ val verifyBundledLibraries = tasks.register("verifyBundledLibraries") {
 
         check(allFiles.isNotEmpty()) { "no libraries found in ${allFiles.joinToString { "\n  - $it" }}" }
 
-        val kotlincFiles = allFiles.filter { it.startsWith("kotlinc/") }.toSortedSet()
-        check(kotlincFiles.contains("kotlinc/bin/kotlinc:X")) { "Kotlinc must be included in " + kotlincFiles.joinToString { "\n $it" } }
-        check(kotlincFiles.contains("kotlinc/bin/kotlinc.bat")) { "Kotlinc must be included in " + kotlincFiles.joinToString { "\n $it" } }
-        allFiles = (allFiles - kotlincFiles).toCollection(sortedSetOf())
-
-
         val ocrFiles = allFiles.filter { it.startsWith("ocr-tesseract/") }.toSortedSet()
         check(ocrFiles.contains("ocr-tesseract/bin/ocr-tesseract:X")) { "ocr-tesseract must be included in " + ocrFiles.joinToString { "\n $it" } }
         check(ocrFiles.contains("ocr-tesseract/bin/ocr-tesseract.bat")) { "ocr-tesseract must be included in " + ocrFiles.joinToString { "\n $it" } }
@@ -605,6 +597,48 @@ val verifyBundledLibraries = tasks.register("verifyBundledLibraries") {
         check(ocrFiles.any { it.startsWith("ocr-tesseract/lib/ocr-tesseract-$pluginVersion.jar") }) { "ocr-tesseract jar must be included in ocr-tesseract" }
 
         allFiles = (allFiles - ocrFiles).toCollection(sortedSetOf())
+
+        // kotlinc/ = the BTA implementation jars (:kotlin-cli kotlincDistElements).
+        // Exact-set pin: a resolution change, a version bump without this list, or
+        // an empty sync must fail the BUILD, not the user's first steroid_execute_code.
+        // These jars are OUTSIDE lib/ on purpose — the IDE plugin classloader must
+        // never load compiler impl classes; KotlinBuildsSession gives them their own
+        // isolated URLClassLoader (kotlin-build-tools-api appears here AND in lib/:
+        // the API classes are parent-delegated, the duplicate is inert).
+        val kotlincFiles = allFiles.filter { it.startsWith("kotlinc/") }.toSortedSet()
+        val expectedKotlincFiles = sortedSetOf(
+            "kotlinc/annotations-13.0.jar",
+            "kotlinc/kotlin-build-tools-api-2.4.20-RC-197.jar",
+            "kotlinc/kotlin-build-tools-cri-impl-2.4.20-RC-197.jar",
+            "kotlinc/kotlin-build-tools-impl-2.4.20-RC-197.jar",
+            "kotlinc/kotlin-compiler-embeddable-2.4.20-RC-197.jar",
+            // kotlin-daemon-embeddable stays even though the daemon flow is gone: BTA 2.4.20 RC
+            // eagerly links daemon-common (CompileService.TargetPlatform) on every compile,
+            // and it is a declared runtime dep of kotlin-compiler-embeddable. See :kotlin-cli.
+            "kotlinc/kotlin-daemon-embeddable-2.4.20-RC-197.jar",
+            "kotlinc/kotlin-reflect-1.6.10.jar",
+            "kotlinc/kotlin-script-runtime-2.4.20-RC-197.jar",
+            "kotlinc/kotlin-stdlib-2.4.20-RC-197.jar",
+            "kotlinc/kotlin-tooling-core-2.4.20-RC-197.jar",
+            "kotlinc/kotlinx-coroutines-core-jvm-1.8.0.jar",
+        )
+        if (kotlincFiles != expectedKotlincFiles) {
+            throw GradleException(buildString {
+                appendLine("Bundled kotlinc (BTA impl) jars mismatch!")
+                appendLine("Missing:")
+                (expectedKotlincFiles - kotlincFiles).forEach { appendLine("  - $it") }
+                appendLine("Unexpected:")
+                (kotlincFiles - expectedKotlincFiles).forEach { appendLine("  - $it") }
+                appendLine("Update expectedKotlincFiles in build.gradle.kts if this change is intentional.")
+            })
+        }
+        // Exactly one kotlin-stdlib in kotlinc/ is a distribution invariant (snippet
+        // classpaths and the tests' stdlib lookup rely on it) —
+        // guard that runtime invariant at build time.
+        check(kotlincFiles.count { it.substringAfterLast('/').startsWith("kotlin-stdlib") } == 1) {
+            "kotlinc/ must contain exactly one kotlin-stdlib jar: $kotlincFiles"
+        }
+        allFiles = (allFiles - kotlincFiles).toCollection(sortedSetOf())
 
         // Assert expected libraries - update this list when dependencies change
         val expectedFiles = sortedSetOf(
@@ -647,6 +681,8 @@ val verifyBundledLibraries = tasks.register("verifyBundledLibraries") {
             "lib/okio-jvm-3.2.0.jar",
             "lib/posthog-6.4.0.jar",
             "lib/posthog-server-2.3.0.jar",
+
+            "lib/kotlin-build-tools-api-2.4.20-RC-197.jar",
 
         ).toSortedSet()
 

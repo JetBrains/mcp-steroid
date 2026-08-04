@@ -110,7 +110,7 @@ is available as context methods you can call from any mode.
 
 | `modal` | What it does | Use it for |
 |---|---|---|
-| `smart_non_modal` *(default)* | Close leftover modal dialogs (deepest-first), require a non-modal IDE (the call **fails with a screenshot + thread dump** if a modal survives), commit + save documents, refresh the VFS, wait for indexing (point-in-time — index-dependent reads still need `smartReadAction { }`) — then run, with a monitor that **closes any modal dialog that appears mid-run and fails the call** (thread dump + screenshot captured). If your script opens a dialog **on purpose**, call `allowModalDialog()` first so the monitor leaves it alone. Also re-syncs documents post-flight (when still non-modal). | PSI / code-editing / build / test scripts — **and read-only navigation** — the safe default. |
+| `smart_non_modal` *(default)* | Close leftover modal dialogs (deepest-first), wait out **dialog-less modal progress** if the IDE is mid freeze-protection/indexing (bounded ~120s; progress notifications are emitted while it settles), require a non-modal IDE (the call **fails with a screenshot + thread dump** if a dialog survives or the wait expires), commit + save documents, refresh the VFS, wait for indexing (point-in-time — index-dependent reads still need `smartReadAction { }`) — then run, with a monitor that **closes any modal dialog that appears mid-run and fails the call** (thread dump + screenshot captured). If your script opens a dialog **on purpose**, call `allowModalDialog()` first so the monitor leaves it alone. Also re-syncs documents post-flight (when still non-modal). | PSI / code-editing / build / test scripts — **and read-only navigation** — the safe default. |
 | `non_modal` | Require a non-modal IDE **at the start** (fail with a screenshot if modal); do **nothing** else — no sweep, no commit, no indexing wait, and **no during-run monitor** (modals appearing later are ignored unless you call `monitorAndCloseModalDialogs()`). **Not sufficient for PSI/editing** unless you call `syncDocuments()` / `waitForSmartMode()` yourself. | A non-PSI read that only needs a stable non-modal start — e.g. reading run-configuration or VCS-status state — where the default's commit + smart-mode wait would be wasted work. |
 | `unleashed` | No sweep, no checks, no validation — run against whatever IDE state exists, modal dialogs included. | **Intentional modal-dialog workflows** (open / inspect / screenshot / close a dialog yourself) and trivial / hardcoded IDE actions. NOT for PSI or code-editing flows (no consistency guarantees). |
 
@@ -140,7 +140,11 @@ storage folder and their paths appear in the result text — read those before r
 `steroid_take_screenshot` captures *current* state, not the failure state. Also note: under
 `smart_non_modal` the call can FAIL **before your script body runs** (gate fail, or the bounded commit /
 smart-mode pre-flight hitting its deadlock-safety timeout) — that's documented behavior, not a bug in your
-Kotlin, so inspect the captured diagnostics first.
+Kotlin, so inspect the captured diagnostics first. A slower-than-usual start is also expected right after
+an IDE opens: if the IDE is under dialog-less modal progress (freeze-protection/indexing), the pre-flight
+waits up to ~120 s for it to pass — watch the progress notifications — and only fails if it persists
+("dialog-less modal progress persisted past the bounded wait"); retrying later can help in that case,
+unlike a surviving modal dialog.
 
 **Surface is fixed.** `McpScriptContext` won't grow new helpers — call IntelliJ APIs directly. See `mcp-steroid://skill/design-philosophy` Tenet 3.
 

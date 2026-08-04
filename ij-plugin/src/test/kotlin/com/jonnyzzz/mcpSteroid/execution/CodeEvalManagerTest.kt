@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.execution
 
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.jonnyzzz.mcpSteroid.TestResultBuilder
@@ -21,6 +22,49 @@ class CodeEvalManagerTest: BasePlatformTestCase()  {
         val result = TestResultBuilder()
         val data = project.codeEvalManager.evalCode(execId, code, result)
         Assert.assertNotNull(data)
+    }
+
+    fun testKotlincParametersRegistryReachesCompiler(): Unit = timeoutRunBlocking(5.minutes) {
+        // End-to-end pin that mcp.steroid.kotlinc.parameters actually reaches the
+        // compiler: -Werror turns the unused-variable warning into a compilation
+        // failure. Guards both the registry tokenization ("-flag value" pairs must
+        // become argv tokens for applyArgumentStrings) and the wiring itself —
+        // with the extras silently dropped, this compile would wrongly succeed.
+        Registry.get("mcp.steroid.kotlinc.parameters")
+            .setValue("-language-version 2.3 -api-version 2.3 -Werror", testRootDisposable)
+        // Unchecked cast — a warning this pipeline provably surfaces (see
+        // McpServerIntegrationTest's compiler-warning scenario); -Werror must
+        // turn it into a compilation failure.
+        val code = """
+            val items: List<Any> = listOf("hello", "world")
+            val strings: List<String> = items as List<String>
+            println(strings.joinToString(","))
+        """.trimIndent()
+        val execId = project.executionStorage.writeNewExecution(testExecParams(code))
+        val result = TestResultBuilder()
+        val data = project.codeEvalManager.evalCode(execId, code, result)
+        Assert.assertNull("-Werror from the registry must fail a warning-carrying script. Result: $result", data)
+        // Pin the SPECIFIC failure: the warnings-as-errors diagnostic — not an
+        // argument-parse error, daemon failure, or service init crash.
+        val resultText = result.toString()
+        Assert.assertTrue(
+            "Failure must be the warnings-as-errors diagnostic, got: $resultText",
+            resultText.contains("-Werror") || resultText.contains("Unchecked cast", ignoreCase = true),
+        )
+    }
+
+    fun testWarningCarryingScriptCompilesWithoutWerror(): Unit = timeoutRunBlocking(5.minutes) {
+        // Companion to the -Werror canary: the SAME source must compile fine with
+        // the default registry value — proving the canary fails on -Werror alone.
+        val code = """
+            val items: List<Any> = listOf("hello", "world")
+            val strings: List<String> = items as List<String>
+            println(strings.joinToString(","))
+        """.trimIndent()
+        val execId = project.executionStorage.writeNewExecution(testExecParams(code))
+        val result = TestResultBuilder()
+        val data = project.codeEvalManager.evalCode(execId, code, result)
+        Assert.assertNotNull("Warning-carrying script must compile without -Werror. Result: $result", data)
     }
 
     fun testCompileAnnotatedElementsSearch(): Unit = timeoutRunBlocking(5.minutes) {

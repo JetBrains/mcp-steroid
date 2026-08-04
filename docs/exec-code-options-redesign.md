@@ -358,3 +358,16 @@ Independence — all `auto_close_dialogs` × `allow_modal` combos valid, none co
   (drops the `doNotCancelOnModalityStateChange()` calls); close/kill steps → `auto_close_dialogs=true`.
   npx-kt schema-parity; any other `dialog_killer`/`doNotCancel...` callers.
 - Prompt corpus under `prompts/src/main/prompts/` referencing waitForSmartMode/dialog_killer.
+
+## Addendum (2026-08-04): dialog-less modal progress wait in `smart_non_modal`
+
+The locked pre-flight assumed elevated modality implies a closable dialog. The 2026.2 platform
+broke that assumption: `SuvorovProgress.processInvocationEventsWithoutDialog` elevates modality
+with **no dialog window** while freeze-protection pumps a write-action storm (observed on
+PyCharm-EAP cold-start VFS refresh — #412, TC run 1020027380: the gate failed over an IDE whose
+screenshot shows no dialog). `smart_non_modal` therefore gained one step between the dialog sweep
+and the non-modal gate: a bounded wait (`mcp.steroid.execution.dialogless.modal.wait.ms`, default
+120 s, 0 disables) that polls while modality is elevated **and** no modal dialog window exists —
+dialog-less modality ends on its own; a dialog window still fails fast. `non_modal` and
+`unleashed` are unchanged. Loop contract pinned by `DialoglessModalityWaitTest`; real-modality
+validation by the `PluginRuntimeCompatibilityTest` pycharm-eap TC leg.

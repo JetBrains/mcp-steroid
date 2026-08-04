@@ -2,28 +2,29 @@
 package com.jonnyzzz.mcpSteroid.prompts
 
 import com.jonnyzzz.mcpSteroid.koltinc.CodeWrapperForCompilation
-import com.jonnyzzz.mcpSteroid.koltinc.KotlincCommandLineBuilder
-import com.jonnyzzz.mcpSteroid.koltinc.toArgFile
-import com.jonnyzzz.mcpSteroid.testHelper.process.RunProcessRequest
-import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
-import com.jonnyzzz.mcpSteroid.testHelper.process.startProcess
-import org.junit.jupiter.api.Assertions
+import com.jonnyzzz.mcpSteroid.koltinc.KotlinBuildsSession
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
-import java.time.Duration
 import java.time.Instant
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 import kotlin.io.path.walk
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.kotlin.buildtools.api.CompilationResult
+import org.jetbrains.kotlin.buildtools.api.CompilerMessageRenderer
+import org.jetbrains.kotlin.buildtools.api.arguments.CommonToolArguments
+import org.jetbrains.kotlin.buildtools.api.arguments.JvmCompilerArguments
+import org.junit.jupiter.api.Assertions.assertEquals
 
 /**
  * Base class for generated KtBlock compilation tests (JUnit 5).
  *
  * Compiles Kotlin code blocks from prompt articles against the full IDE classpath
- * using an external kotlinc process. The IDE home, kotlinc home, and ij-plugin source
+ * via the Kotlin Build Tools API (in-process, ONE shared [KotlinBuildsSession] — and
+ * thus one pinned compiler environment — per test JVM). The IDE home, BTA implementation jars, and ij-plugin source
  * directory are resolved from system properties set by the Gradle build.
  *
  * The wrapper code references `McpScriptContext` and `McpScriptBuilder` (matching
@@ -32,7 +33,7 @@ import kotlin.io.path.walk
  *
  * System properties:
  * - `mcp.steroid.ide.home` — path to the unpacked IDE distribution
- * - `mcp.steroid.kotlinc.home` — path to the unpacked kotlinc distribution (parent of `kotlinc/`)
+ * - `mcp.steroid.bta.impl.dir` — directory with the BTA implementation jars
  * - `mcp.steroid.ij.sources` — path to ij-plugin/src/main/kotlin (for McpScriptContext/McpScriptBuilder sources)
  * - `mcp.steroid.ktblock.cache.dir` — path to compilation cache directory (optional but recommended)
  */
@@ -100,14 +101,6 @@ abstract class KtBlockCompilationTestBase {
         val classpath = classpathFor(home) + extraClasspath()
         val extraSourcesContent = ijPluginSourceFiles().map { Files.readString(it, StandardCharsets.UTF_8) }
 
-        // Compiler options (must match what KotlincCommandLineBuilder produces)
-        val compilerOptions = buildList {
-            if (werror) add("-Werror")
-            add("-jvm-target")
-            add(KotlincCommandLineBuilder.DEFAULT_JVM_TARGET)
-            add("-no-stdlib")
-        }
-
         // product-info.json content for IDE identity
         val productInfoContent = readProductInfo(home)
 
@@ -123,7 +116,14 @@ abstract class KtBlockCompilationTestBase {
 
         // Check compilation cache
         val cacheDir = cacheDir()
-        val cacheKey = computeCacheKey(wrapped, relativeClasspath, compilerOptions, productInfoContent, extraSourcesContent, kotlincVersion)
+        val cacheCompilerOptions = buildList {
+            if (werror) add("-werror")
+            // The effective -jvm-target is derived from the running JVM
+            // (KotlinBuildsSession.DEFAULT_JVM_TARGET); a test-JVM major switch
+            // (21 <-> 25) must invalidate cached verdicts, not reuse them.
+            add("-jvm-target=" + KotlinBuildsSession.DEFAULT_JVM_TARGET.stringValue)
+        }
+        val cacheKey = computeCacheKey(wrapped, relativeClasspath, cacheCompilerOptions, productInfoContent, extraSourcesContent, kotlincVersion)
 
         val cacheFile = cacheDir.resolve("$cacheKey.txt")
         if (cacheFile.isFile) {
@@ -136,56 +136,73 @@ abstract class KtBlockCompilationTestBase {
             val sourceFile = tempDir.resolve("Script.kt")
             Files.writeString(sourceFile, wrapped, StandardCharsets.UTF_8)
             val outputJar = tempDir.resolve("out.jar")
-            val extraParams = if (werror) listOf("-Werror") else emptyList()
-            val builder = KotlincCommandLineBuilder(outputJar)
-                .withNoStdLib(true)
-                .withExtraParameters(extraParams)
-                .addClasspathEntries(classpath)
-                .addSource(sourceFile)
 
-            for (sourceExtra in ijPluginSourceFiles()) {
-                builder.addSource(sourceExtra)
-            }
-
-            val cmd = builder.build()
-            val argFile = tempDir.resolve("kotlinc.args")
-            val argCmd = cmd.toArgFile(argFile)
-
-            val kotlincBin = resolveKotlincBin()
-            val result = RunProcessRequest(
-                workingDir = tempDir.toFile(),
-                args = listOf(kotlincBin.absolutePath) + argCmd.args,
-                logPrefix = "kotlinc",
-                timeout = Duration.ofMinutes(3),
-                quietly = false,
-            ).startProcess().assertExitCode(0) {
-                buildString {
-                    appendLine("Compilation failed or has warnings (-Werror) [IDE: $homeProperty]:")
-                    if (stdout.isNotBlank()) {
-                        appendLine("STDOUT:")
-                        appendLine(stdout)
+            // Record compiler messages so a failing block reports WHAT failed —
+            // otherwise the only signal is the bare CompilationResult mismatch.
+            val recorded = java.util.concurrent.ConcurrentLinkedQueue<String>()
+            val renderer = object : CompilerMessageRenderer {
+                override fun render(
+                    severity: CompilerMessageRenderer.Severity,
+                    message: String,
+                    location: CompilerMessageRenderer.SourceLocation?,
+                ): String {
+                    if (severity != CompilerMessageRenderer.Severity.DEBUG) {
+                        recorded.add(
+                            "$severity: $message" +
+                                (location?.let { " at ${it.path}:${it.line}:${it.column}\n    ${it.lineContent}" }
+                                    ?: "")
+                        )
                     }
-                    if (stderr.isNotBlank()) {
-                        appendLine("STDERR:")
-                        appendLine(stderr)
-                    }
+                    return message
                 }
             }
 
+            val compilationResult = runBlocking {
+                buildsSession.compileKotlin(
+                    sources = listOf(sourceFile) + ijPluginSourceFiles(),
+                    destinationDir = outputJar,
+                    compilerMessageRenderer = renderer,
+                ) {
+                    if (werror) set(CommonToolArguments.WERROR, true)
+                    set(JvmCompilerArguments.CLASSPATH, classpath)
+                }
+            }
+
+            assertEquals(CompilationResult.COMPILATION_SUCCESS, compilationResult) {
+                "KtBlock compilation failed for ${block.javaClass.name}.\n" +
+                    recorded.joinToString("\n")
+            }
+
             // Cache successful compilation
-            writeCacheEntry(cacheDir, cacheKey, wrapped, compilerOptions)
+            writeCacheEntry(cacheDir, cacheKey, wrapped, cacheCompilerOptions)
         } finally {
             tempDir.toFile().deleteRecursively()
         }
     }
 
     companion object {
+        // ONE session (and thus one pinned compiler application environment) for the
+        // whole test JVM — matching production semantics, where CodeEvalManager holds
+        // one long-lived session per project. Per-class @BeforeAll/@AfterAll would
+        // rebuild the environment for every generated test class and throw away the
+        // pinned jar caches ~98 times per fork. Never closed: the Gradle test fork
+        // exits after the suite and takes the session with it.
+        //
+        // BTA implementation jars come as real files from :kotlin-cli's bta-impl-jars
+        // directory (Gradle sets the system property) — no runtime extraction.
+        private val buildsSession: KotlinBuildsSession by lazy {
+            KotlinBuildsSession(KotlinBuildsSession.implJarsFrom(
+                Path.of(System.getProperty("mcp.steroid.bta.impl.dir")
+                    ?: error("Gradle sets mcp.steroid.bta.impl.dir (see prompts/build.gradle.kts)"))
+            ))
+        }
+
         private val classpathCache = mutableMapOf<String, List<Path>>()
 
         /**
          * Verifies the JRE running this test has the same major version as the
-         * JBR bundled inside [home]. The kotlinc subprocess derives `-jvm-target`
-         * from `java.specification.version` ([KotlincCommandLineBuilder.DEFAULT_JVM_TARGET]),
+         * JBR bundled inside [home]. Snippet compilation derives `-jvm-target`
+         * from `java.specification.version` ([KotlinBuildsSession.DEFAULT_JVM_TARGET]),
          * so that target must equal the IDE's bundled JBR major — otherwise the
          * IDE's inline bytecode (compiled against its bundled JBR) will be
          * rejected by kotlinc (`cannot inline bytecode built with JVM target N
@@ -206,7 +223,7 @@ abstract class KtBlockCompilationTestBase {
             val bundledMajor = readIdeBundledJreMajor(home)
             val testMajor = System.getProperty("java.specification.version")
                 ?: error("System property 'java.specification.version' is not set on the test JVM")
-            Assertions.assertEquals(
+            assertEquals(
                 bundledMajor, testMajor,
                 "Test JRE major version ($testMajor) does not match the IDE-bundled JBR " +
                     "major version ($bundledMajor) at [$homeProperty]=$home. The kotlinc " +
@@ -244,7 +261,7 @@ abstract class KtBlockCompilationTestBase {
         }
 
         /**
-         * Extra binary classpath entries the per-block kotlinc subprocess needs
+         * Extra binary classpath entries each per-block compilation needs
          * because the inlined ij-plugin sources may reference classes that live
          * in sibling project modules — not in any IDE-bundled jar. (Historically
          * `ApplyPatchHunk` via the since-removed `ApplyPatch.kt`, #206; kept as
@@ -279,26 +296,7 @@ abstract class KtBlockCompilationTestBase {
 
         private fun ijPluginSourceFiles(): List<Path> = ijPluginSourceFilesCache
 
-        private fun resolveKotlincBin(): File {
-            val kotlincHome = System.getProperty("mcp.steroid.kotlinc.home")
-                ?: error("Missing system property 'mcp.steroid.kotlinc.home'")
-            val kotlincDir = File(kotlincHome, "kotlinc")
-            val isWindows = System.getProperty("os.name", "").lowercase().startsWith("windows")
-            val binName = if (isWindows) "kotlinc.bat" else "kotlinc"
-            val bin = File(kotlincDir, "bin/$binName")
-            require(bin.isFile) { "kotlinc binary not found at: $bin" }
-            return bin
-        }
-
-        private val kotlincVersionCache: String by lazy {
-            val kotlincHome = System.getProperty("mcp.steroid.kotlinc.home")
-                ?: error("Missing system property 'mcp.steroid.kotlinc.home'")
-            val buildTxt = File(kotlincHome, "kotlinc/build.txt")
-            require(buildTxt.isFile) { "kotlinc build.txt not found at: $buildTxt" }
-            buildTxt.readText(StandardCharsets.UTF_8).trim()
-        }
-
-        private fun readKotlincVersion(): String = kotlincVersionCache
+        private fun readKotlincVersion(): String = buildsSession.compilerVersion
 
         private val productInfoCache = mutableMapOf<String, String>()
 
