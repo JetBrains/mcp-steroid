@@ -12,9 +12,11 @@ import com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import java.io.IOException
 import java.nio.file.Files
+import java.util.Base64
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -256,6 +258,70 @@ class CliErrorEnvelopeTest {
         assertEquals(CliExit.IO_ERROR, run.exit, "stdout was:\n${run.stdout}")
         assertFalse(handler.called, "a deterministic --out path failure must be detected before execute_code runs")
         assertTrue("failed to prepare --out" in run.errorMessage(), run.errorMessage())
+    }
+
+    @Test
+    fun `--out on a successful result writes the image and reports savedOut under --json`() {
+        // The headline `--out shot.png && open shot.png` scenario, driven through the whole dispatcher
+        // (parse → runGeneratedToolCommand → renderWithOut) — not the renderer unit alone, so a
+        // regression in the preparedOut wiring cannot stay green.
+        val imageBytes = byteArrayOf(1, 2, 3, 4, 5)
+        val base64 = Base64.getEncoder().encodeToString(imageBytes)
+        val target = home.resolve("captures/shot.png")
+        val tools = FakeMcpSteroidTools().with(
+            ExecuteCodeToolHandler::class.java,
+            FixedExecuteCode(ToolCallResult(content = listOf(ContentItem.Image(data = base64, mimeType = "image/png")))),
+        )
+        val command = parseRunTool(
+            "execute_code", "--json", "--project_name=demo", "--code=1", "--task_id=t", "--reason=r",
+            "--out=$target",
+        )
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
+        assertContentEquals(imageBytes, Files.readAllBytes(target), "the decoded image bytes must land at --out")
+        val data = run.envelope().getValue("data").jsonObject
+        assertEquals(
+            target.toAbsolutePath().normalize().toString(),
+            data.getValue("savedOut").jsonPrimitive.content,
+            "savedOut must report the one normalized path the bytes were written to",
+        )
+        assertTrue(
+            base64 !in run.stdout,
+            "the redirected image must not ALSO travel in the envelope; stdout was:\n${run.stdout}",
+        )
+    }
+
+    @Test
+    fun `--out on a successful result prints the saved path on the console`() {
+        val imageBytes = byteArrayOf(9, 8, 7)
+        val base64 = Base64.getEncoder().encodeToString(imageBytes)
+        val target = home.resolve("captures/console-shot.png")
+        val tools = FakeMcpSteroidTools().with(
+            ExecuteCodeToolHandler::class.java,
+            FixedExecuteCode(ToolCallResult(content = listOf(ContentItem.Image(data = base64, mimeType = "image/png")))),
+        )
+        val command = parseRunTool(
+            "execute_code", "--project_name=demo", "--code=1", "--task_id=t", "--reason=r", "--out=$target",
+        )
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
+        assertContentEquals(imageBytes, Files.readAllBytes(target), "the decoded image bytes must land at --out")
+        assertTrue(
+            "Saved --out: ${target.toAbsolutePath().normalize()}" in run.stdout,
+            "the console must name the saved path; stdout was:\n${run.stdout}",
+        )
+        // The redirected image must not ALSO be materialized under the home tmp dir the console
+        // presentation uses for images it renders itself.
+        val tmp = home.resolve("tmp")
+        if (Files.isDirectory(tmp)) {
+            Files.list(tmp).use { entries ->
+                assertEquals(0, entries.count(), "no image copy may land under tmpDir when --out redirects it")
+            }
+        }
     }
 
     // ------------------- internal faults propagate, they are not mapped to 69 -------------------
