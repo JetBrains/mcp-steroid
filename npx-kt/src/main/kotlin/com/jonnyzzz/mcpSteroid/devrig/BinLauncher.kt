@@ -76,9 +76,8 @@ private fun parseBinAutoRegisterOptOut(value: String?): Boolean? = when (value?.
  *     if it is missing or stale (e.g. after an upgrade repointed the install tree).
  *  2. that launcher is reachable on PATH — POSIX symlinks it into a writable PATH dir under `$HOME`
  *     (pure Java, no subprocess). Windows registers the bin dir on the user PATH via a marker-gated
- *     PowerShell call, but only when [registerWindowsPath] is true — callers pass false for the
- *     `devrig mcp` start so PowerShell never blocks the latency-sensitive MCP serve path (the agent
- *     launches the wrapper by absolute path anyway); interactive/`install` invocations pass true.
+ *     PowerShell call: once the marker exists every later start returns without spawning anything, so
+ *     registration is not worth branching on per command.
  *
  * The launcher is rewritten ONLY when its content actually changed (normalized comparison), never on
  * every launch — and writes are atomic (temp file + atomic move), so a concurrent agent that is mid-read
@@ -94,7 +93,7 @@ private fun parseBinAutoRegisterOptOut(value: String?): Boolean? = when (value?.
  * stderr and swallowed — it must never prevent `devrig mcp` from serving. All output goes to stderr;
  * stdout is the MCP JSON-RPC channel.
  */
-fun ensureBinLauncher(home: HomePaths, force: Boolean = false, registerWindowsPath: Boolean = true) {
+fun ensureBinLauncher(home: HomePaths, force: Boolean = false) {
     if (!shouldWriteLauncher(System.getenv(ENV_BIN_NO_AUTO_REGISTER), force)) {
         return
     }
@@ -106,7 +105,6 @@ fun ensureBinLauncher(home: HomePaths, force: Boolean = false, registerWindowsPa
             ownJava = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize(),
             userHome = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize(),
             pathDirs = (System.getenv("PATH") ?: "").split(File.pathSeparatorChar),
-            registerWindowsPath = registerWindowsPath,
         )
     } catch (e: Exception) {
         System.err.println("[mcp-steroid] could not (re)write the devrig launcher: $e")
@@ -130,10 +128,9 @@ internal fun ensureBinLauncher(
     ownJava: Path,
     userHome: Path,
     pathDirs: List<String>,
-    registerWindowsPath: Boolean = true,
 ) {
     val ownBin = ownRoot.resolve("bin").resolve(if (isWin) "devrig.bat" else "devrig").toAbsolutePath().normalize()
-    ensureBinLauncherCore(home, isWin, ownBin, ownJava.toAbsolutePath().normalize(), userHome, pathDirs, registerWindowsPath)
+    ensureBinLauncherCore(home, isWin, ownBin, ownJava.toAbsolutePath().normalize(), userHome, pathDirs)
 }
 
 /**
@@ -148,7 +145,6 @@ internal fun ensureBinLauncherCore(
     jdkHome: Path,
     userHome: Path,
     pathDirs: List<String>,
-    registerWindowsPath: Boolean = true,
     buildVersion: DevrigVersion = DevrigVersionMetadata.getBuildVersion(),
 ) {
     if (isWin) {
@@ -156,9 +152,7 @@ internal fun ensureBinLauncherCore(
         // needed by the install SCRIPT, not the launcher.
         val cmd = home.binDir.resolve("devrig.cmd")
         writeIfChanged(home.binDir, cmd, renderWindowsCmd(ownBin, jdkHome, buildVersion.value), executable = false, ownBin = ownBin, buildVersion = buildVersion)
-        // PATH registration spawns PowerShell, so skip it on the `devrig mcp` hot path (registerWindowsPath
-        // = false) — it would block the first serve until the marker exists. Interactive/install pass true.
-        if (registerWindowsPath) ensureWindowsPathEntry(home.binDir)
+        ensureWindowsPathEntry(home.binDir)
     } else {
         val devrig = home.binDir.resolve("devrig")
         writeIfChanged(home.binDir, devrig, renderPosixLauncher(ownBin, jdkHome, buildVersion.value), executable = true, ownBin = ownBin, buildVersion = buildVersion)

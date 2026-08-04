@@ -188,9 +188,17 @@ object DefaultManagedProcessInspector : ManagedProcessInspector {
     }
 }
 
-class ManagedBackendLockException(message: String) : RuntimeException(message)
+/**
+ * Another devrig holds the backend lock. A [CliUserFacingException]: the message tells the user to retry,
+ * and a stack trace of our own locking code would tell them nothing.
+ */
+class ManagedBackendLockException(message: String) : CliUserFacingException(message, exit = 64)
 
-class ManagedBackendValidationException(message: String) : RuntimeException(message)
+/**
+ * A backend request the user can correct — an unknown id, an unusable install, a refused stop. A
+ * [CliUserFacingException] for the same reason as [ManagedBackendLockException].
+ */
+class ManagedBackendValidationException(message: String) : CliUserFacingException(message, exit = 64)
 
 interface ManagedBackendService {
     suspend fun download(id: BackendId): DownloadResult

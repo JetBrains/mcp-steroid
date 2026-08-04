@@ -404,6 +404,13 @@ private class BackendProvisionCommand(
     }
 }
 
+/**
+ * Dispatches [command] to its handler. Only [AgentCliNotLaunchableException] is handled here;
+ * [CliUserFacingException] (including the [ManagedBackendLockException] /
+ * [ManagedBackendValidationException] the backend commands throw) propagates to
+ * [runCliWithLastResortHandling], which owns the message-only rendering and the logging that goes with
+ * it. Callers that invoke this directly must wrap it the same way `mainImpl2` does.
+ */
 fun DevrigServices.runCli(command: DevrigCommand): Int {
     return try {
         when (command) {
@@ -427,14 +434,10 @@ fun DevrigServices.runCli(command: DevrigCommand): Int {
             is DevrigCommand.DevrigCommandInstallPlugin -> runInstallPluginCommand(command)
         }
     } catch (e: AgentCliNotLaunchableException) {
-        // #342: a missing/unspawnable agent CLI must read as guidance, not a raw stacktrace.
+        // #342: a missing/unspawnable agent CLI must read as guidance, not a raw stacktrace. Handled here
+        // rather than as a CliUserFacingException because the report is more than a message — it renders
+        // per-agent install guidance.
         reportAgentCliNotLaunchable(e, System.err)
-    } catch (e: ManagedBackendLockException) {
-        System.err.println(e.message)
-        64
-    } catch (e: ManagedBackendValidationException) {
-        System.err.println(e.message)
-        64
     }
 }
 
