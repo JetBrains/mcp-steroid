@@ -2,11 +2,8 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import org.junit.jupiter.api.Test
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -27,9 +24,9 @@ class McpToolsCliHelpTest {
     private fun section(): String = renderMcpToolsCliSection(devrigCliTools())
 
     private fun globalHelp(): String {
-        val buffer = ByteArrayOutputStream()
-        printHelp(PrintStream(buffer, true, Charsets.UTF_8))
-        return buffer.toString(Charsets.UTF_8).replace("\r\n", "\n")
+        val invocation = parseDevrigCommand(arrayOf("--help"))
+        assertEquals("help", invocation.commandPath)
+        return requireNotNull(invocation.informationalText).trimEnd() + "\n"
     }
 
     private fun visibleTools() = devrigCliTools().filterNot { it.cli.hidden }
@@ -211,8 +208,9 @@ class McpToolsCliHelpTest {
         )
 
         val command = parseDevrigCommand(arrayOf("execute_code", "--code=x", "--task_id=t", "--reason=r"))
-        assertIs<DevrigCommand.DevrigCommandParseError>(
-            command,
+        assertEquals(
+            "parse-error",
+            command.commandPath,
             "nothing fills project_name from the cwd today, so the parser must demand it; if that changed, " +
                 "restore the footer line documenting the inference. Got: $command",
         )

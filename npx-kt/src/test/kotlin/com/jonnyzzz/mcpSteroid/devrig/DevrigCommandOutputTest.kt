@@ -16,7 +16,7 @@ import java.io.PrintStream
 import java.nio.file.Path
 
 /**
- * Pins how [runCli] routes its output. CLI convention:
+ * Pins how [DevrigCliInvocation.execute] routes its output. CLI convention:
  *  - Help / version go to **stdout** (so `--help | less`, `--version | awk` work).
  *  - Error variants go to **stderr** (so machine-readable stdout never sees usage spam).
  *
@@ -57,16 +57,18 @@ class DevrigCommandOutputTest {
 
     private fun stdout(): String = outBuf.toString(Charsets.UTF_8).replace("\r\n", "\n")
     private fun stderr(): String = errBuf.toString(Charsets.UTF_8).replace("\r\n", "\n")
-    private fun runCliForTest(command: DevrigCommand, vararg rawArgs: String): Int {
+    private fun runCliForTest(vararg rawArgs: String): Int {
         val lifetime = CloseableStackHost()
         return try {
             runBlocking {
-                DevrigServices(
+                val services = DevrigServices(
                     lifetime = lifetime,
                     homePaths = homePaths,
                     mcpStdin = ByteArrayInputStream(ByteArray(0)),
                     mcpStdout = PrintStream(outBuf, true, Charsets.UTF_8),
-                ).runCli(command)
+                )
+                val command = parseDevrigCommand(arrayOf(*rawArgs))
+                runCliWithLastResortHandling(command, services.mcpStdout) { command.execute(services) }
             }
         } finally {
             lifetime.closeAllStacks()
@@ -77,24 +79,18 @@ class DevrigCommandOutputTest {
 
     @Test
     fun `Help writes the usage banner to stdout, nothing to stderr`() {
-        val exit = runCliForTest(DevrigCommand.DevrigCommandHelp())
+        val exit = runCliForTest("--help")
         assertEquals(0, exit)
         assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
         val out = stdout()
         assertTrue(out.contains("Usage:"), "help output should mention 'Usage:'; got:\n$out")
-        assertTrue(out.contains("devrig mcp"), "help should advertise the canonical mcp subcommand; got:\n$out")
-        assertFalse(out.contains("devrig mpc"), "help must NOT advertise the hidden mpc alias; got:\n$out")
+        assertTrue(out.contains("mcp"), "help should advertise the canonical mcp subcommand; got:\n$out")
+        assertFalse(out.contains("mpc"), "help must NOT advertise the hidden mpc alias; got:\n$out")
         assertTrue(out.contains("--version"), "help should advertise --version; got:\n$out")
         assertTrue(out.contains("--help"), "help should advertise --help itself; got:\n$out")
-        // ONE merged install entry (PR #397 review): the bare and agent-qualified forms share it.
-        assertTrue(out.contains("devrig install [claude|codex|gemini] [--check]"), "help should advertise agent install; got:\n$out")
-        assertTrue(out.contains("devrig install config"), "help should advertise the manual-config printer; got:\n$out")
-        assertTrue(out.contains("backend download [<id>] [--version <v>] [--json]"), "help should advertise download version override; got:\n$out")
-        assertTrue(out.contains("no id → list IDEs available for download"), "help should explain download without id; got:\n$out")
-        assertTrue(out.contains("backend start    [<id>] [--version <v>] [--json]"), "help should advertise start version override; got:\n$out")
-        assertTrue(out.contains("backend stop     [<id>] [--version <v>] [--json]"), "help should advertise stop version override; got:\n$out")
-        assertTrue(out.contains("backend provision [<id>] [--json]"), "help should advertise provision default-listing form; got:\n$out")
-        assertTrue(out.contains("Product-only id prefers the highest"), "help should explain product-only local backend resolution; got:\n$out")
+        assertTrue(out.contains("Commands:"), "help should be generated from the Clikt tree; got:\n$out")
+        assertTrue(out.contains("backend"), "help should advertise backend management; got:\n$out")
+        assertTrue(out.contains("install"), "help should advertise installation; got:\n$out")
     }
 
     @Test
@@ -102,7 +98,7 @@ class DevrigCommandOutputTest {
         // `command --help | tail -n1` should not see a partial line; the launcher
         // must finish its banner with a newline so shells / piped consumers
         // behave predictably.
-        runCliForTest(DevrigCommand.DevrigCommandHelp())
+        runCliForTest("--help")
         assertTrue(stdout().endsWith("\n"), "help output must end with a newline; got: '${stdout().takeLast(20)}'")
     }
 
@@ -112,7 +108,7 @@ class DevrigCommandOutputTest {
     fun `Install config writes the manual MCP configuration to stdout, nothing to stderr`() {
         // Pasteable output contract: the stdio mcpServers JSON goes to stdout (so
         // `devrig install config | pbcopy` works); stderr stays clean.
-        val exit = runCliForTest(DevrigCommand.DevrigCommandInstallConfig())
+        val exit = runCliForTest("install", "config")
         assertEquals(0, exit)
         assertEquals("", stderr(), "stderr must stay clean for install config; got: ${stderr()}")
         val out = stdout()
@@ -122,27 +118,21 @@ class DevrigCommandOutputTest {
     }
 
     @Test
-    fun `a lifecycle verb's --help routes to printHelp, exactly once, on stdout`() {
-        // What this pins is ROUTING, not text: the expectation is computed by calling printHelp, so it
-        // says "the same thing printHelp produces, once, with nothing appended" and would hold even if
-        // printHelp emitted garbage. The banner's own wording is pinned literally, against no production
-        // call, in McpToolsCliHelpTest. Both matter: doubled output was a real defect on this branch.
+    fun `a lifecycle verb's --help prints its generated command help exactly once`() {
         val args = arrayOf("backend", "--help")
-        val exit = runCliForTest(parseDevrigCommand(args), *args)
+        val exit = runCliForTest(*args)
 
         assertEquals(0, exit)
         assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
-        val curated = ByteArrayOutputStream()
-            .also { printHelp(PrintStream(it, true, Charsets.UTF_8)) }
-            .toString(Charsets.UTF_8)
-            .replace("\r\n", "\n")
-        assertEquals(curated, stdout(), "a lifecycle verb must print the banner once and add nothing")
+        val out = stdout()
+        assertTrue(out.contains("Usage: devrig backend"), out)
+        assertEquals(1, Regex("(?m)^Usage:").findAll(out).count(), "help must be rendered exactly once: $out")
     }
 
     @Test
     fun `a generated tool command's --help prints that command's own help to stdout`() {
         val args = arrayOf("execute_code", "--help")
-        val exit = runCliForTest(parseDevrigCommand(args), *args)
+        val exit = runCliForTest(*args)
 
         assertEquals(0, exit)
         assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
@@ -157,7 +147,7 @@ class DevrigCommandOutputTest {
 
     @Test
     fun `Version writes getDevrigVersion value to stdout`() {
-        val exit = runCliForTest(DevrigCommand.DevrigCommandVersion())
+        val exit = runCliForTest("--version")
         assertEquals(0, exit)
         assertEquals("", stderr(), "stderr must stay clean for --version; got: ${stderr()}")
         val expectedVersion = DevrigVersionMetadata.getDevrigVersion()
@@ -169,7 +159,7 @@ class DevrigCommandOutputTest {
     fun `Version output is a single line`() {
         // Some monitoring scripts grep `--version | head -1`. Pinning single-line
         // output prevents an accidental multi-line banner sneaking in.
-        runCliForTest(DevrigCommand.DevrigCommandVersion())
+        runCliForTest("--version")
         val lines = stdout().trimEnd().lines()
         assertEquals(1, lines.size, "version must be a single line; got: ${stdout()}")
     }
@@ -178,7 +168,7 @@ class DevrigCommandOutputTest {
 
     @Test
     fun `Unknown writes an error and the usage banner, both to stderr`() {
-        val exit = runCliForTest(parseDevrigCommand(arrayOf("--no-such", "thing")), "--no-such", "thing")
+        val exit = runCliForTest("--no-such", "thing")
         assertEquals(64, exit)
         assertEquals("", stdout(), "stdout must stay clean for unknown-arg errors; got: ${stdout()}")
         val err = stderr()
@@ -188,14 +178,14 @@ class DevrigCommandOutputTest {
 
     @Test
     fun `Unknown with multiple tokens joins them with a single space`() {
-        runCliForTest(parseDevrigCommand(arrayOf("a", "b", "c")), "a", "b", "c")
+        runCliForTest("a", "b", "c")
         val err = stderr()
         assertTrue(err.contains("a"), "stderr should identify the offending input; got:\n$err")
     }
 
     @Test
     fun `Unknown with a single token still produces a coherent error`() {
-        runCliForTest(parseDevrigCommand(arrayOf("--what")), "--what")
+        runCliForTest("--what")
         val err = stderr()
         assertTrue(err.contains("--what"), "got: $err")
     }
@@ -205,7 +195,7 @@ class DevrigCommandOutputTest {
     @Test
     fun `an unknown flag on a generated tool command exits 64 with stdout clean`() {
         val args = arrayOf("list_windows", "--bogus")
-        val exit = runCliForTest(parseDevrigCommand(args), *args)
+        val exit = runCliForTest(*args)
 
         assertEquals(CliExit.USAGE, exit)
         assertEquals("", stdout(), "stdout must stay clean for usage errors; got: ${stdout()}")
@@ -218,10 +208,37 @@ class DevrigCommandOutputTest {
         // raises it one step later (from run(), not from finalization). It must still exit 64, not 1.
         val args =
             arrayOf("execute_code", "--project_name=key", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r")
-        val exit = runCliForTest(parseDevrigCommand(args), *args)
+        val exit = runCliForTest(*args)
 
         assertEquals(CliExit.USAGE, exit)
         assertEquals("", stdout(), "stdout must stay clean for usage errors; got: ${stdout()}")
         assertTrue(stderr().contains("--code-file"), "got:\n${stderr()}")
+    }
+
+    @Test
+    fun `Hidden mpc alias is never suggested by parser errors`() {
+        val exit = runCliForTest("mpx")
+
+        assertEquals(64, exit)
+        assertFalse(stderr().contains("mpc"), "hidden alias leaked into error output:\n${stderr()}")
+    }
+
+    @Test
+    fun `Bare json request fails instead of returning human help`() {
+        val exit = runCliForTest("--json")
+
+        assertEquals(64, exit)
+        assertEquals("", stdout(), "unsupported JSON must not emit human text on stdout")
+        assertTrue(stderr().contains("--json"), stderr())
+    }
+
+    @Test
+    fun `Invalid backend id remains a usage error without a stack trace`() {
+        val exit = runCliForTest("backend", "download", "bogus")
+
+        assertEquals(64, exit)
+        assertEquals("", stdout())
+        assertTrue(stderr().contains("devrig backend download"), stderr())
+        assertFalse(stderr().contains("Exception"), stderr())
     }
 }

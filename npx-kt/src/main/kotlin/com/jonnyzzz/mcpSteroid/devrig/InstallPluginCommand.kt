@@ -139,14 +139,14 @@ class KtorPluginRestClient(private val httpClient: HttpClient) : PluginRestClien
  * by the IDE, not devrig. This is the EXPLICIT plugin-install step — `devrig install devrig` only promotes
  * this command in its next-steps message and never runs it (issue #398).
  */
-fun DevrigServices.runInstallPluginCommand(command: DevrigCommand.DevrigCommandInstallPlugin): Int {
+fun DevrigServices.runInstallPluginCommand(check: Boolean): Int {
     val markers = scanMarkersOnce()
     runBlocking(Dispatchers.IO) {
         val targets = detectProvisionTargets(portDiscovery)
         installPluginIntoRunningIdes(
             out = mcpStdout,
             err = System.err,
-            check = command.check,
+            check = check,
             pluginId = MCP_STEROID_PLUGIN_ID,
             targets = targets,
             markers = markers,

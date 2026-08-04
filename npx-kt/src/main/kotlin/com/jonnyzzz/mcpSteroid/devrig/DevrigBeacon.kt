@@ -61,29 +61,8 @@ class DevrigBeacon(
         }
     }
 
-    fun captureStarted(cliMode: DevrigCommand?) {
-        val mode = when (cliMode) {
-            is DevrigCommand.MCP -> "mcp"
-            is DevrigCommand.DevrigCommandBackend,
-            is DevrigCommand.DevrigCommandBackendDownload,
-            is DevrigCommand.DevrigCommandBackendStart,
-            is DevrigCommand.DevrigCommandBackendStop,
-            is DevrigCommand.DevrigCommandBackendProvision -> "backend"
-            is DevrigCommand.DevrigCommandProject -> "project"
-            is DevrigCommand.DevrigCommandInstall -> "install"
-            is DevrigCommand.DevrigCommandInstallDevrig -> "install"
-            is DevrigCommand.DevrigCommandInstallPlugin -> "install"
-            // Overview and config are informational (help-like); captureStarted is only reached for
-            // runsTool() commands anyway, so these stay non-events.
-            is DevrigCommand.DevrigCommandInstallOverview -> null
-            is DevrigCommand.DevrigCommandInstallConfig -> null
-            is DevrigCommand.RunTool -> cliMode.commandName
-            is DevrigCommand.DevrigCommandHelp -> null
-            is DevrigCommand.DevrigCommandVersion -> null
-            is DevrigCommand.DevrigCommandParseError -> null
-            null -> null
-        } ?: return
-
+    fun captureStarted(mode: String?) {
+        mode ?: return
         capture("started", mapOf("mode" to mode))
     }
 

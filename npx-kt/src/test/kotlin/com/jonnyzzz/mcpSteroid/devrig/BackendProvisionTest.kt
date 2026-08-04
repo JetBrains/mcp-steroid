@@ -302,7 +302,8 @@ class BackendProvisionTest {
 
         val exit = runBackendProvisionCommand(
             out = PrintStream(buf, true, Charsets.UTF_8),
-            command = DevrigCommand.DevrigCommandBackendProvision(id = "port-63342"),
+            id = "port-63342",
+            json = false,
             provision = { result },
         )
         val text = buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
@@ -324,7 +325,8 @@ class BackendProvisionTest {
         val buf = ByteArrayOutputStream()
         val exit = runBackendProvisionCommand(
             out = PrintStream(buf, true, Charsets.UTF_8),
-            command = DevrigCommand.DevrigCommandBackendProvision(id = "port-63342", json = true),
+            id = "port-63342",
+            json = true,
             provision = { result },
         )
         val root = parser.parseToJsonElement(buf.toString(Charsets.UTF_8)).jsonObject

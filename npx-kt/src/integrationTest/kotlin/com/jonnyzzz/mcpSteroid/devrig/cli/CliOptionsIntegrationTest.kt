@@ -42,7 +42,7 @@ class CliOptionsIntegrationTest {
         val r = runLauncher("--help")
         assertEquals(0, r.exitCode, "--help must exit 0; stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
         assertTrue(r.stdout.contains("Usage:"), "expected 'Usage:' in stdout; got:\n${r.stdout}")
-        assertTrue(r.stdout.contains("devrig mcp"), "help banner must advertise the canonical mcp subcommand; got:\n${r.stdout}")
+        assertTrue(r.stdout.contains("mcp"), "help banner must advertise the canonical mcp subcommand; got:\n${r.stdout}")
         assertTrue(r.stdout.contains("--version"), "help banner must advertise --version; got:\n${r.stdout}")
         assertTrue(r.stderr.isBlank(),
             "--help must keep stderr clean; got:\n${r.stderr}")
@@ -111,6 +111,18 @@ class CliOptionsIntegrationTest {
         assertTrue(r.stderr.contains("--alpha"), "got:\n${r.stderr}")
     }
 
+    @Test
+    fun `bare json and hidden alias suggestions fail cleanly`() {
+        val json = runLauncher("--json")
+        assertEquals(64, json.exitCode, "bare --json must fail; stdout=\n${json.stdout}\nstderr=\n${json.stderr}")
+        assertTrue(json.stdout.isBlank(), "bare --json must not emit human help on stdout: ${json.stdout}")
+        assertTrue(json.stderr.contains("--json"), json.stderr)
+
+        val typo = runLauncher("mpx")
+        assertEquals(64, typo.exitCode, "typo must fail; stdout=\n${typo.stdout}\nstderr=\n${typo.stderr}")
+        assertTrue(!typo.stderr.contains("mpc"), "hidden alias leaked into parser guidance:\n${typo.stderr}")
+    }
+
     // --------------------- mixed-flag precedence (real binary) --------------
 
     @Test
@@ -152,6 +164,8 @@ class CliOptionsIntegrationTest {
             "backend must exit 0 even when no IDEs are running; stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
         assertTrue(r.stdout.isNotBlank(),
             "backend must produce at least one line of output; got:\n${r.stdout}")
+        assertTrue(!r.stdout.lineSequence().first().contains('?'),
+            "the human headliner must survive an ASCII-locale launcher without replacement characters; got:\n${r.stdout}")
         // One of the two expected shapes:
         val output = r.stdout.trimEnd()
         val backendStatus = output.removeOptionalHeadliner()
@@ -179,6 +193,21 @@ class CliOptionsIntegrationTest {
         assertEquals(0, project.exitCode, "project --json failed; stdout=\n${project.stdout}\nstderr=\n${project.stderr}")
         assertTrue(project.stdout.trimStart().startsWith("{"),
             "project --json stdout must start with JSON object; got:\n${project.stdout}")
+
+        val install = runLauncher("install", "--json")
+        assertEquals(0, install.exitCode, "install --json failed; stdout=\n${install.stdout}\nstderr=\n${install.stderr}")
+        assertTrue(install.stdout.trimStart().startsWith("{"),
+            "install --json stdout must start with JSON object; got:\n${install.stdout}")
+
+        val config = runLauncher("install", "config", "--json")
+        assertEquals(0, config.exitCode, "install config --json failed; stdout=\n${config.stdout}\nstderr=\n${config.stderr}")
+        assertTrue(config.stdout.trimStart().startsWith("{"),
+            "install config --json stdout must start with JSON object; got:\n${config.stdout}")
+
+        val version = runLauncher("version", "--json")
+        assertEquals(0, version.exitCode, "version --json failed; stdout=\n${version.stdout}\nstderr=\n${version.stderr}")
+        assertTrue(version.stdout.trimStart().startsWith("{"),
+            "version --json stdout must start with JSON object; got:\n${version.stdout}")
     }
 
     @Test
@@ -265,6 +294,26 @@ class CliOptionsIntegrationTest {
             !r.stderr.contains("no IDE backend is reachable"),
             "a refused argument says nothing about the backend; got:\n${r.stderr}",
         )
+    }
+
+    @Test
+    fun `install and nested backend help come from their command scopes`() {
+        val install = runLauncher("install", "--help")
+        assertEquals(0, install.exitCode, "install --help failed; stderr=\n${install.stderr}")
+        assertTrue(install.stdout.contains("Usage: devrig install"), install.stdout)
+        for (target in listOf("claude", "codex", "gemini", "config", "devrig", "plugin")) {
+            assertTrue(install.stdout.contains(target), "missing $target in:\n${install.stdout}")
+        }
+
+        val uppercaseAgent = runLauncher("install", "CLAUDE", "--help")
+        assertEquals(0, uppercaseAgent.exitCode, "case-insensitive compatibility failed: ${uppercaseAgent.stderr}")
+        assertTrue(uppercaseAgent.stdout.contains("Usage: devrig install claude"), uppercaseAgent.stdout)
+
+        val download = runLauncher("backend", "download", "--help")
+        assertEquals(0, download.exitCode, "backend download --help failed; stderr=\n${download.stderr}")
+        assertTrue(download.stdout.contains("Usage: devrig backend download"), download.stdout)
+        assertTrue(download.stdout.contains("--version"), download.stdout)
+        assertTrue(download.stdout.contains("--json"), download.stdout)
     }
 
     private fun String.removeOptionalHeadliner(): String =

@@ -5,15 +5,56 @@ import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+
+private val installOverviewJson = Json { prettyPrint = true }
 
 /**
  * Bare `devrig install` — overview mode (jonnyzzz/mcp-steroid#277): list every valid install target,
  * tell the user which agent CLIs are actually reachable on PATH, exit 0.
  */
-fun DevrigServices.runInstallOverviewCommand(): Int {
+fun DevrigServices.runInstallOverviewCommand(json: Boolean): Int {
     val detected = AiAgentCli.entries.associateWith { findCliOnPath(it.binary) }
-    mcpStdout.print(renderInstallOverview(detected))
+    if (json) {
+        mcpStdout.println(renderInstallOverviewJson(detected))
+    } else {
+        mcpStdout.print(renderInstallOverview(detected))
+    }
     return 0
+}
+
+fun renderInstallOverviewJson(detected: Map<AiAgentCli, Path?>): String {
+    val payload = buildJsonObject {
+        put("command", "install")
+        putJsonArray("targets") {
+            for (agent in AiAgentCli.entries) {
+                add(buildJsonObject {
+                    put("name", agent.binary)
+                    put("kind", "agent")
+                    put("displayName", agent.displayName)
+                    put("available", detected[agent] != null)
+                    detected[agent]?.let { put("path", it.toString()) }
+                })
+            }
+            add(buildJsonObject {
+                put("name", "plugin")
+                put("kind", "plugin")
+            })
+            add(buildJsonObject {
+                put("name", "devrig")
+                put("kind", "launcher")
+            })
+            add(buildJsonObject {
+                put("name", "config")
+                put("kind", "configuration")
+            })
+        }
+    }
+    return installOverviewJson.encodeToString(JsonObject.serializer(), payload)
 }
 
 fun renderInstallOverview(detected: Map<AiAgentCli, Path?>): String = buildString {

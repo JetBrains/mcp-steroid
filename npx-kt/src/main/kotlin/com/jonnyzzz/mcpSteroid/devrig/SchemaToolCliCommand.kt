@@ -34,7 +34,7 @@ private class MetadataOnlyMcpSteroidTools : McpSteroidTools() {
  * registration rule: there is no per-tool command class, no `when (toolName)`, and no command-name list.
  */
 fun schemaToolCliCommands(
-    selected: SelectedDevrigCommand,
+    selected: SelectedDevrigInvocation,
     parent: DevrigCliktCommand?,
     tools: List<CliToolSpec> = devrigCliTools(),
 ): List<SchemaToolCliCommand> =
@@ -43,9 +43,9 @@ fun schemaToolCliCommands(
 /**
  * One `devrig <tool>` subcommand, generated from a metadata-only [CliToolSpec]. It PARSES ONLY: Clikt owns
  * tokenizing and routing, [SchemaCliBinding] turns the declaration into typed Clikt parameters, and [run]
- * ends by selecting an inert [DevrigCommand.RunTool]. No handler, service or backend is touched while
+ * ends by selecting an inert [GeneratedToolInvocation]. No handler, service or backend is touched while
  * parsing — the spec bound here is handler-free by construction (see [devrigCliTools]) — and the runtime
- * resolves the live spec later, by [DevrigCommand.RunTool.toolName].
+ * resolves the live spec later, by [GeneratedToolInvocation.toolName].
  *
  * Every rule about the parameters themselves lives in the binding: typing, numeric bounds, enum choices,
  * requiredness, the `--flag`/`--no-flag` pair of an optional boolean, and the two rules a
@@ -54,7 +54,7 @@ fun schemaToolCliCommands(
  */
 class SchemaToolCliCommand(
     private val spec: CliToolSpec,
-    selected: SelectedDevrigCommand,
+    selected: SelectedDevrigInvocation,
     parent: DevrigCliktCommand?,
 ) : DevrigToolCliktCommand(
     name = spec.cli.name,
@@ -97,22 +97,27 @@ class SchemaToolCliCommand(
      */
     fun positiveFlagFor(paramName: String): String? = binding.paramFor(paramName)?.cliFlag
 
-    override fun run() {
+    override fun runCommand() {
         val options = options()
         val values = binding.parsed()
         rejectFlagConsumedAsValue()
-        select(
-            DevrigCommand.RunTool(
-                toolName = spec.name,
-                commandName = spec.cli.name,
-                arguments = values.arguments,
-                fileSources = values.fileSources,
-                extraOptions = values.extraOptions,
-                out = outPath(),
-                debug = options.debug,
-                json = options.json,
-            )
+        val command = GeneratedToolInvocation(
+            toolName = spec.name,
+            commandName = spec.cli.name,
+            arguments = values.arguments,
+            fileSources = values.fileSources,
+            extraOptions = values.extraOptions,
+            out = outPath(),
+            debug = options.debug,
+            json = options.json,
         )
+        select(
+            mode = DevrigCliMode.GENERATED_TOOL,
+            supportsJson = true,
+            telemetryMode = command.commandName,
+            jsonEnvelopeCommand = command.commandName,
+            generatedTool = command,
+        ) { runGeneratedToolCommand(command) }
     }
 
     /**

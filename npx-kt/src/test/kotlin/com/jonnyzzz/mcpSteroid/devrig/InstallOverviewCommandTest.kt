@@ -2,13 +2,17 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -30,6 +34,22 @@ class InstallOverviewCommandTest {
         )
         assertTrue(text.contains(claudePath.toString()), "detected CLI path must be shown:\n$text")
         assertTrue(text.contains("not found on PATH"), "missing CLIs must be called out:\n$text")
+    }
+
+    @Test
+    fun `overview JSON exposes stable target records`() {
+        val root = Json.parseToJsonElement(
+            renderInstallOverviewJson(
+                mapOf(AiAgentCli.CLAUDE to Path.of("/bin/claude"), AiAgentCli.CODEX to null, AiAgentCli.GEMINI to null),
+            ),
+        ).jsonObject
+
+        assertEquals("install", root["command"]!!.jsonPrimitive.content)
+        val targets = root["targets"]!!.jsonArray
+        assertEquals(listOf("claude", "codex", "gemini", "plugin", "devrig", "config"), targets.map {
+            it.jsonObject["name"]!!.jsonPrimitive.content
+        })
+        assertTrue(targets.first().jsonObject["available"]!!.jsonPrimitive.boolean)
     }
 
     @Test

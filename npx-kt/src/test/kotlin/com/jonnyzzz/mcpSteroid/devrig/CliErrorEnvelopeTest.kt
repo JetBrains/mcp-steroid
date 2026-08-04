@@ -37,7 +37,7 @@ import kotlinx.serialization.json.put
  * propagate rather than collapsing it into a generic `isError` result.
  *
  * A parse-time usage failure is NOT in this table: it never reaches the runtime, because
- * [parseDevrigCommand] turns it into [DevrigCommand.DevrigCommandParseError] and [runCli] answers 64 there
+ * [parseDevrigCommand] turns it into an informational parse-error invocation that answers 64 there
  * (pinned by `DevrigCommandOutputTest`). That split is deliberate — the runtime pipeline must stay free of
  * Clikt, so it cannot and must not catch a `UsageError`.
  */
@@ -141,7 +141,7 @@ class CliErrorEnvelopeTest {
         //
         // Driven through the REAL spec rather than a throwing double: what is under test is that the
         // schema layer's own rejection reaches this arm, and a double would prove only the arm exists.
-        val command = DevrigCommand.RunTool(
+        val command = GeneratedToolInvocation(
             toolName = "steroid_execute_code",
             commandName = "execute_code",
             arguments = buildJsonObject {

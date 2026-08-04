@@ -40,34 +40,35 @@ fun runBackendProvisionListCommand(
 
 fun runBackendProvisionCommand(
     out: PrintStream,
-    command: DevrigCommand.DevrigCommandBackendProvision,
+    id: String?,
+    json: Boolean,
     provision: suspend (HttpClient) -> ProvisionResult = { httpClient ->
-        val id = command.id
+        val selectedId = id
             ?: error("backend provision id is required")
-        provisionBackend(id, httpClient)
+        provisionBackend(selectedId, httpClient)
     },
     markers: () -> List<DiscoveredIde> = { scanMarkersOnce() },
     httpClientFactory: () -> HttpClient = ::createProvisionHttpClient,
     closeHttpClient: Boolean = true,
 ): Int {
-    val id = command.id ?: run {
+    val selectedId = id ?: run {
         runBackendProvisionListCommand(
             out = out,
-            json = command.json,
+            json = json,
             markers = markers,
             httpClientFactory = httpClientFactory,
             closeHttpClient = closeHttpClient,
         )
         return 0
     }
-    if (!isSupportedProvisionTargetId(id)) {
-        return unknownArguments(
-            listOf("backend", "provision", id),
-            "Run `devrig backend provision` with no id to list valid backend ids.",
+    if (!isSupportedProvisionTargetId(selectedId)) {
+        throw ManagedBackendValidationException(
+            "Unsupported provision target id '$selectedId'. " +
+                "Run 'devrig backend provision' without an id to list valid choices.",
         )
     }
-    if (command.json) {
-        return runBackendActionJson(out, action = PROVISION_ACTION_ID, id = id) {
+    if (json) {
+        return runBackendActionJson(out, action = PROVISION_ACTION_ID, id = selectedId) {
             val result = withProvisionHttpClient(httpClientFactory, closeHttpClient) { httpClient ->
                 runBlocking(Dispatchers.IO) {
                     provision(httpClient)
@@ -86,14 +87,15 @@ fun runBackendProvisionCommand(
     return 0
 }
 
-fun DevrigServices.runBackendProvisionCommand(command: DevrigCommand.DevrigCommandBackendProvision): Int =
+fun DevrigServices.runBackendProvisionCommand(id: String?, json: Boolean): Int =
     runBackendProvisionCommand(
         out = mcpStdout,
-        command = command,
+        id = id,
+        json = json,
         provision = { httpClient ->
-            val id = command.id
+            val selectedId = id
                 ?: error("backend provision id is required")
-            backendProvisioner.provision(id, httpClient) {
+            backendProvisioner.provision(selectedId, httpClient) {
                 detectProvisionTargets(portDiscovery)
             }
         },

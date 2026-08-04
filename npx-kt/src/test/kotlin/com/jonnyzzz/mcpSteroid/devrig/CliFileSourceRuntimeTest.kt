@@ -25,7 +25,7 @@ import org.junit.jupiter.api.io.TempDir
 /**
  * The runtime half of a declared [com.jonnyzzz.mcpSteroid.mcp.CliFileSource]. The parse phase must never
  * touch the filesystem, so it records only the PATH a file-source flag was given
- * ([DevrigCommand.RunTool.fileSources]); reading it — from a file, or from standard input when the path is
+ * ([GeneratedToolInvocation.fileSources]); reading it — from a file, or from standard input when the path is
  * `-` — happens here, once, for every tool, driven by the declaration and never by the tool name.
  *
  * Driven through `execute_code`, the tool that declares `--code-file`. The two listers declare no file

@@ -19,20 +19,20 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * Entry point invoked by [runCli] when the `backend` command is selected.
+ * Entry point invoked by the Clikt `backend` command.
  *
  * Composes three explicit data sources:
  *  - S1: running IDEs with MCP Steroid plugin (via projectRouting.discoveredBackends())
  *  - S2: running IDEs without MCP Steroid plugin (via port scan)
  *  - S3: installed but not running IDEs (startable)
  */
-fun DevrigServices.runBackendCommand(command: DevrigCommand.DevrigCommandBackend): Int {
+fun DevrigServices.runBackendCommand(json: Boolean): Int {
     val s1 = projectRouting.discoveredBackends()
     val s2 = runBlocking(Dispatchers.IO) {
         withTimeoutOrNull(1.seconds) { collectPortDiscoveredIdes(portDiscovery) } ?: emptySet()
     }
     val s3 = startableBackends(installedBackends(), s1, runningManagedIds())
-    if (command.json) {
+    if (json) {
         renderBackendJson3(s1, s2, s3, mcpStdout)
     } else {
         renderBackendOutput3(s1, s2, s3, mcpStdout)
@@ -59,29 +59,29 @@ fun createIdeDiscoveryService(homePaths: HomePaths): IdePidDiscoveryService {
     )
 }
 
-fun DevrigServices.runBackendDownloadCommand(command: DevrigCommand.DevrigCommandBackendDownload): Int =
-    runBackendDownloadCommand(mcpStdout, homePaths, command, backendService = backendManager)
+fun DevrigServices.runBackendDownloadCommand(id: String?, version: String?, json: Boolean): Int =
+    runBackendDownloadCommand(mcpStdout, homePaths, id, version, json, backendService = backendManager)
 
 fun runBackendDownloadCommand(
     out: PrintStream,
     homePaths: HomePaths,
-    command: DevrigCommand.DevrigCommandBackendDownload,
+    id: String?,
+    version: String?,
+    json: Boolean,
     backendService: ManagedBackendService = BackendManager(homePaths),
 ): Int {
-    val versionOverride = command.version
-    val id = command.id ?: run {
-        runBackendDownloadListCommand(out, json = command.json)
+    val selectedId = id ?: run {
+        runBackendDownloadListCommand(out, json = json)
         return 0
     }
-    if (!isSupportedBackendLifecycleId(id)) {
-        return unknownArguments(
-            listOf("backend", "download", id),
-            "Run `devrig backend download` with no id to list valid backend ids.",
+    if (!isSupportedBackendLifecycleId(selectedId)) {
+        throw ManagedBackendValidationException(
+            "Unsupported backend id '$selectedId'. Run 'devrig backend download' without an id to list valid choices.",
         )
     }
-    if (command.json) {
-        return runBackendActionJson(out, action = "download", id = id) {
-            val backendId = parseBackendId(id).withVersionOverride(versionOverride)
+    if (json) {
+        return runBackendActionJson(out, action = "download", id = selectedId) {
+            val backendId = parseBackendId(selectedId).withVersionOverride(version)
             lateinit var result: DownloadResult
             val durationMs = measureTimeMillis {
                 result = runBlocking(Dispatchers.IO) {
@@ -101,7 +101,7 @@ fun runBackendDownloadCommand(
             }
         }
     }
-    val backendId = parseBackendId(id).withVersionOverride(versionOverride)
+    val backendId = parseBackendId(selectedId).withVersionOverride(version)
     val result = runBlocking(Dispatchers.IO) {
         backendService.download(backendId)
     }
@@ -114,29 +114,29 @@ fun runBackendDownloadCommand(
     return 0
 }
 
-fun DevrigServices.runBackendStartCommand(command: DevrigCommand.DevrigCommandBackendStart): Int =
-    runBackendStartCommand(mcpStdout, homePaths, command, backendService = backendManager)
+fun DevrigServices.runBackendStartCommand(id: String?, version: String?, json: Boolean): Int =
+    runBackendStartCommand(mcpStdout, homePaths, id, version, json, backendService = backendManager)
 
 fun runBackendStartCommand(
     out: PrintStream,
     homePaths: HomePaths,
-    command: DevrigCommand.DevrigCommandBackendStart,
+    id: String?,
+    version: String?,
+    json: Boolean,
     backendService: ManagedBackendService = BackendManager(homePaths),
 ): Int {
-    val versionOverride = command.version
-    val id = command.id ?: run {
-        runBackendStartListCommand(out, homePaths, json = command.json)
+    val selectedId = id ?: run {
+        runBackendStartListCommand(out, homePaths, json = json)
         return 0
     }
-    if (!isSupportedBackendLifecycleId(id)) {
-        return unknownArguments(
-            listOf("backend", "start", id),
-            "Run `devrig backend start` with no id to list valid backend ids.",
+    if (!isSupportedBackendLifecycleId(selectedId)) {
+        throw ManagedBackendValidationException(
+            "Unsupported backend id '$selectedId'. Run 'devrig backend start' without an id to list valid choices.",
         )
     }
-    if (command.json) {
-        return runBackendActionJson(out, action = "start", id = id) {
-            val backendId = parseBackendId(id).withVersionOverride(versionOverride)
+    if (json) {
+        return runBackendActionJson(out, action = "start", id = selectedId) {
+            val backendId = parseBackendId(selectedId).withVersionOverride(version)
             val result = runBlocking(Dispatchers.IO) {
                 backendService.start(backendId)
             }
@@ -151,7 +151,7 @@ fun runBackendStartCommand(
             }
         }
     }
-    val backendId = parseBackendId(id).withVersionOverride(versionOverride)
+    val backendId = parseBackendId(selectedId).withVersionOverride(version)
     val result = runBlocking(Dispatchers.IO) {
         backendService.start(backendId)
     }
@@ -164,29 +164,29 @@ fun runBackendStartCommand(
     return 0
 }
 
-fun DevrigServices.runBackendStopCommand(command: DevrigCommand.DevrigCommandBackendStop): Int =
-    runBackendStopCommand(mcpStdout, homePaths, command, backendService = backendManager)
+fun DevrigServices.runBackendStopCommand(id: String?, version: String?, json: Boolean): Int =
+    runBackendStopCommand(mcpStdout, homePaths, id, version, json, backendService = backendManager)
 
 fun runBackendStopCommand(
     out: PrintStream,
     homePaths: HomePaths,
-    command: DevrigCommand.DevrigCommandBackendStop,
+    id: String?,
+    version: String?,
+    json: Boolean,
     backendService: ManagedBackendService = BackendManager(homePaths),
 ): Int {
-    val versionOverride = command.version
-    val id = command.id ?: run {
-        runBackendStopListCommand(out, homePaths, json = command.json)
+    val selectedId = id ?: run {
+        runBackendStopListCommand(out, homePaths, json = json)
         return 0
     }
-    if (!isSupportedBackendLifecycleId(id)) {
-        return unknownArguments(
-            listOf("backend", "stop", id),
-            "Run `devrig backend stop` with no id to list valid backend ids.",
+    if (!isSupportedBackendLifecycleId(selectedId)) {
+        throw ManagedBackendValidationException(
+            "Unsupported backend id '$selectedId'. Run 'devrig backend stop' without an id to list valid choices.",
         )
     }
-    if (command.json) {
-        return runBackendActionJson(out, action = "stop", id = id) {
-            val backendId = parseBackendId(id).withVersionOverride(versionOverride)
+    if (json) {
+        return runBackendActionJson(out, action = "stop", id = selectedId) {
+            val backendId = parseBackendId(selectedId).withVersionOverride(version)
             lateinit var result: StopResult
             val durationMs = measureTimeMillis {
                 result = runBlocking(Dispatchers.IO) {
@@ -209,7 +209,7 @@ fun runBackendStopCommand(
             }
         }
     }
-    val backendId = parseBackendId(id).withVersionOverride(versionOverride)
+    val backendId = parseBackendId(selectedId).withVersionOverride(version)
     val result = runBlocking(Dispatchers.IO) {
         backendService.stop(backendId)
     }
@@ -468,7 +468,6 @@ fun renderBackendJson3(
                     put("backend_name", ide.backendName)
                     put("displayName", markerBackendDisplayName(ide))
                     put("build", ide.ide.build)
-                    put("pid", ide.pid)
                     put("compatible", true)
                 })
             }
@@ -479,7 +478,6 @@ fun renderBackendJson3(
                     put("backend_name", ide.backendName)
                     put("displayName", markerBackendDisplayName(ide))
                     put("build", ide.ide.build)
-                    put("pid", ide.pid)
                     put("compatible", false)
                     put("installCommand", INSTALL_PLUGIN_COMMAND)
                 })

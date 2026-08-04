@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -60,14 +59,16 @@ class CliFileSourceUsageTokenTest {
                 .map { "${it.cliFlag}=x" }
             val command = parseDevrigCommand((listOf(tool.cli.name) + others).toTypedArray())
 
-            val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-                command,
+            assertEquals(
+                "parse-error",
+                command.commandPath,
                 "${tool.cli.name} must reject an invocation supplying neither ${param.cliFlag} nor " +
                     "${param.cliFileSource?.flag}; the help renders that pair as mandatory",
             )
+            val error = requireNotNull(command.informationalText)
             assertTrue(
-                param.name in error.text || param.cliFlag in error.text,
-                "the failure must name '${param.name}'; got:\n${error.text}",
+                param.name in error || param.cliFlag in error,
+                "the failure must name '${param.name}'; got:\n$error",
             )
         }
     }
@@ -101,7 +102,8 @@ class CliFileSourceUsageTokenTest {
         // reaches an inert RunTool. `CliErrorEnvelopeTest` pins the message the runtime path would print.
         val command = parseDevrigCommand(arrayOf("execute_code", "--code=x", "--task_id=t", "--reason=r"))
 
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(command, "got: $command")
-        assertTrue("project_name" in error.text, "the failure must name project_name; got:\n${error.text}")
+        assertEquals("parse-error", command.commandPath, "got: $command")
+        val error = requireNotNull(command.informationalText)
+        assertTrue("project_name" in error, "the failure must name project_name; got:\n$error")
     }
 }
