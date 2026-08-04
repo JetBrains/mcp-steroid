@@ -161,11 +161,20 @@ private object BuildCompatInfra {
             // leaving dangling braces behind (TC run 1019886135: "Unexpected symbol" at
             // build.gradle.kts:305). Verified against the intellijPlatform.caching.ides
             // block staying untouched.
+            //
+            // The replacement MUST carry the production failureLevel: the IPGP default
+            // includes INTERNAL_API_USAGES, and the 262-EAP leg then fails on the two
+            // documented PluginManagerCore exceptions (IJPL-246183; TC run 1021699064
+            // "Verification failed with [INTERNAL_API_USAGES]"). FailureLevel resolves
+            // via the target file's surviving import.
+            val replacementBlock = "pluginVerification { " +
+                "failureLevel = listOf(FailureLevel.COMPATIBILITY_PROBLEMS, FailureLevel.OVERRIDE_ONLY_API_USAGES); " +
+                "ides { $ideEntry } }"
             container.startProcessInContainer {
                 this
                     .args(
                         "perl", "-i", "-0pe",
-                        """s/pluginVerification\s*(\{(?:[^{}]++|(?1))*+\})/pluginVerification { ides { $ideEntry } }/s""",
+                        """s/pluginVerification\s*(\{(?:[^{}]++|(?1))*+\})/$replacementBlock/s""",
                         "$BUILD_GUEST/ij-plugin/build.gradle.kts",
                     )
                     .description("Set verifier IDE to $ideEntry")
