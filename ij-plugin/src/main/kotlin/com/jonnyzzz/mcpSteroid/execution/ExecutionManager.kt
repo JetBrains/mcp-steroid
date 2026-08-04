@@ -13,7 +13,8 @@ import com.jonnyzzz.mcpSteroid.mcp.builder
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import com.jonnyzzz.mcpSteroid.storage.ExecutionId
-import com.jonnyzzz.mcpSteroid.storage.SerialWriteQueue
+import com.jonnyzzz.mcpSteroid.storage.ExecutionEventRecord
+import com.jonnyzzz.mcpSteroid.storage.ExecutionEventWriteQueue
 import com.jonnyzzz.mcpSteroid.storage.executionStorage
 import com.jonnyzzz.mcpSteroid.demo.executionEventBroadcaster
 import kotlinx.coroutines.*
@@ -145,14 +146,17 @@ class ExecutionManager(
         // Storage writes go through a single-worker queue so output.jsonl lines land in the
         // exact order they were emitted (fan-out onto Dispatchers.IO used to scramble them,
         // #284) and a genuine write failure surfaces from build() instead of being logged and
-        // ACKed as success (#433 follow-up). The queue owns a supervised child of this scope.
-        private val storageQueue = SerialWriteQueue(
+        // ACKed as success (#433 follow-up). The queue buffers plain data records — never
+        // lambdas, so no Project capture rides in the buffer — and its worker is a child of
+        // this call's scope, torn down with the call.
+        private val storageQueue = ExecutionEventWriteQueue(
             CoroutineScope(
                 parentScope.coroutineContext +
                 Dispatchers.IO +
                 CoroutineName("storage-$executionId") +
                 ModalityState.any().asContextElement()
-            )
+            ),
+            project.executionStorage,
         )
         private var failed = false
         private val _errorMessages = mutableListOf<String>()
@@ -184,9 +188,7 @@ class ExecutionManager(
             mcpProgress.report(message)
             // Broadcast output event for Demo Mode
             executionEventBroadcaster.onOutput(executionId, message)
-            storageQueue.submit {
-                project.executionStorage.appendExecutionEvent(executionId, message)
-            }
+            storageQueue.submit(ExecutionEventRecord.Append(executionId, message))
         }
 
         override fun logProgress(message: String) {
@@ -199,19 +201,12 @@ class ExecutionManager(
             mcpProgress.report(message)
             // Broadcast progress event for Demo Mode
             executionEventBroadcaster.onProgress(executionId, message)
-            storageQueue.submit {
-                project.executionStorage.appendExecutionEvent(executionId, message)
-            }
+            storageQueue.submit(ExecutionEventRecord.Append(executionId, message))
         }
 
         override fun logImage(mimeType: String, data: String, fileName: String) {
             responseBuilder.addContent(ContentItem.Image(data = data, mimeType = mimeType))
-            storageQueue.submit {
-                project.executionStorage.appendExecutionEvent(
-                    executionId,
-                    "IMAGE: $fileName ($mimeType)"
-                )
-            }
+            storageQueue.submit(ExecutionEventRecord.Append(executionId, "IMAGE: $fileName ($mimeType)"))
         }
 
         override fun logException(message: String, throwable: Throwable) {
@@ -220,9 +215,7 @@ class ExecutionManager(
             mcpProgress.report(text)
             _errorMessages.add(throwable.message ?: message)
 
-            storageQueue.submit {
-                project.executionStorage.appendExecutionEvent(executionId, text)
-            }
+            storageQueue.submit(ExecutionEventRecord.Append(executionId, text))
         }
 
         override fun reportFailed(message: String) {
@@ -232,10 +225,8 @@ class ExecutionManager(
             responseBuilder.markAsError()
             failed = true
             _errorMessages.add(message)
-            storageQueue.submit {
-                project.executionStorage.appendExecutionEvent(executionId, text)
-                project.executionStorage.writeCodeErrorEvent(executionId, text)
-            }
+            storageQueue.submit(ExecutionEventRecord.Append(executionId, text))
+            storageQueue.submit(ExecutionEventRecord.CodeError(executionId, text))
         }
     }
 }

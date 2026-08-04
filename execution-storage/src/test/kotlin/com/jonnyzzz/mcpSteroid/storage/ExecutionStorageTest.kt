@@ -329,10 +329,10 @@ class ExecutionStorageTest {
     fun `serialized event emission preserves submission order in output jsonl`() = runStorageTest {
         val executionId = storage.writeNewExecution(testExecParams("test"))
 
-        val queue = SerialWriteQueue(CoroutineScope(coroutineContext))
+        val queue = ExecutionEventWriteQueue(CoroutineScope(coroutineContext), storage)
         val count = 500
         repeat(count) { index ->
-            queue.submit { storage.appendExecutionEvent(executionId, "line-$index") }
+            queue.submit(ExecutionEventRecord.Append(executionId, "line-$index"))
         }
         queue.awaitCompletion()
 
