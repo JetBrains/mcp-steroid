@@ -379,11 +379,10 @@ class IdeDownloaderTest {
             }
         }) { baseUrl ->
             val url = "$baseUrl/archive.tar.gz"
-            expectError { downloadFile(url, dest) }
-
-            assertTrue("interrupted download should leave a temp file", tempFile.isFile)
-            assertEquals(interruptAfterBytes.toLong(), tempFile.length())
-
+            // The first response truncates mid-body; the internal stall-aware retry (#412)
+            // detects the short read, reconnects with a Range request at the temp file's
+            // offset, and completes within the SAME downloadFile call — the progress-making
+            // attempt resumes without backoff.
             downloadFile(url, dest)
         }
 

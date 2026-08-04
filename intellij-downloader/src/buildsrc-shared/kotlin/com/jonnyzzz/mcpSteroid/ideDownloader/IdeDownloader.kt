@@ -254,7 +254,18 @@ internal fun downloadFile(url: String, dest: File) {
     val tempFile = File(parentDir, "${dest.name}.tmp")
     var resumeOffset = if (tempFile.isFile) tempFile.length() else 0L
 
+    // Stall-aware bounded retry: CDN connections can accept and then serve zero bytes
+    // (observed three consecutive times on the second in-container download of the same
+    // archive — TC runs 1020503759/1021574914/1021640744, mcp-steroid#412). The read
+    // timeout bounds a zero-byte stall to 90s (see openDownloadConnection); each retry
+    // reconnects fresh and resumes from the .tmp offset. Attempts that move bytes reset
+    // the counter — only consecutive no-progress failures count toward giving up.
+    var noProgressFailures = 0
+    val maxNoProgressFailures = 4
+    val retryBackoffMs = longArrayOf(5_000, 15_000, 30_000)
+
     while (true) {
+        val resumeOffsetAtAttemptStart = resumeOffset
         val connection = openDownloadConnection(url, resumeOffset.takeIf { it > 0L })
         try {
             val statusCode = connection.responseCode
@@ -269,7 +280,11 @@ internal fun downloadFile(url: String, dest: File) {
                 continue
             }
             if (statusCode !in 200..299) {
-                error("Failed to download $url. HTTP $statusCode")
+                val message = "Failed to download $url. HTTP $statusCode"
+                // Server-side and throttling statuses are retryable (IOException routes to the
+                // retry handler below); client errors fail fast.
+                if (statusCode >= 500 || statusCode == 429) throw IOException(message)
+                error(message)
             }
 
             val append = resumeOffset > 0L && statusCode == HttpURLConnection.HTTP_PARTIAL
@@ -308,6 +323,33 @@ internal fun downloadFile(url: String, dest: File) {
             val downloadedBytes = if (append) resumeOffset + bytesReadThisResponse else bytesReadThisResponse
             ideDownloaderLog.debug("[IDE-DOWNLOAD] Downloaded {} MB to {}", downloadedBytes / 1024 / 1024, dest)
             return
+        } catch (e: IOException) {
+            resumeOffset = if (tempFile.isFile) tempFile.length() else 0L
+            val madeProgress = resumeOffset > resumeOffsetAtAttemptStart
+            noProgressFailures = if (madeProgress) 0 else noProgressFailures + 1
+            if (noProgressFailures >= maxNoProgressFailures) {
+                throw IOException(
+                    "Failed to download $url after $maxNoProgressFailures consecutive no-progress attempts " +
+                        "(stalled at $resumeOffset bytes; last error: ${e.message})",
+                    e,
+                )
+            }
+            // A progress-making attempt resumes immediately; only true stalls back off.
+            val sleepMs = if (madeProgress) 0L else retryBackoffMs[(noProgressFailures - 1).coerceIn(0, retryBackoffMs.lastIndex)]
+            val retryLine = "Download of ${dest.name} interrupted (${e.message}); " +
+                "retrying in ${sleepMs / 1000}s (resume at ${resumeOffset / 1024 / 1024} MB, " +
+                "no-progress failures: $noProgressFailures/$maxNoProgressFailures)"
+            // Same channel discipline as the progress lines: stderr for the user, log for monitors.
+            System.err.println(retryLine)
+            ideDownloaderLog.warn("[IDE-DOWNLOAD] {}", retryLine)
+            if (sleepMs > 0) {
+                try {
+                    Thread.sleep(sleepMs)
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw IOException("Interrupted while waiting to retry download from $url", interrupted)
+                }
+            }
         } finally {
             connection.disconnect()
         }
@@ -318,7 +360,11 @@ private fun openDownloadConnection(url: String, resumeOffset: Long?): HttpURLCon
     return (URI(url).toURL().openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 30_000
-        readTimeout = 15 * 60_000
+        // Per-read stall bound, not a whole-download bound: a healthy transfer reads every few
+        // milliseconds, so this only fires after 90s of literally zero bytes. The old 15-minute
+        // value let a zero-byte CDN stall burn half a compat leg's 30-minute budget before the
+        // retry loop in downloadFile could even see the failure (#412).
+        readTimeout = 90_000
         instanceFollowRedirects = true
         if (resumeOffset != null) {
             setRequestProperty("Range", "bytes=$resumeOffset-")
