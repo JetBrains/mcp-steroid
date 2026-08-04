@@ -100,8 +100,17 @@ private fun resolveArchiveWithUrlReader(
         return resolveAndroidStudioArchiveWithUrlReader(channel, os, architecture, version, androidStudioReader)
     }
 
-    val releaseType = URLEncoder.encode(channel.apiValue, StandardCharsets.UTF_8)
-    val url = "https://data.services.jetbrains.com/products?code=${product.code}&release.type=$releaseType"
+    // EAP fetches ALL release types: after a major release the eap channel goes quiet, so its
+    // newest build ages past the ~30-day EAP expiry (observed: "PyCharm EAP Build Expired" modal
+    // on 262.8665.97 after 2026.2 shipped — #412). EAP therefore means "newest available build":
+    // the payload resolver picks the max-by-build across eap and release types.
+    val url = when (channel) {
+        IdeChannel.EAP -> "https://data.services.jetbrains.com/products?code=${product.code}"
+        else -> {
+            val releaseType = URLEncoder.encode(channel.apiValue, StandardCharsets.UTF_8)
+            "https://data.services.jetbrains.com/products?code=${product.code}&release.type=$releaseType"
+        }
+    }
 
     logFetchingProductsInfo(url)
     val payload = productsApiReader(url)
@@ -152,12 +161,22 @@ fun resolveArchiveFromProductsApiPayload(
     var releasesOfferingDownloadKey = 0
     val offeredDownloadKeys = linkedSetOf<String>()
 
+    // EAP accepts both eap-type and release-type entries and returns the newest BUILD across
+    // them ("eap = newest available build"): between a major release and the next EAP cycle the
+    // newest eap-type build is older than the release and past its ~30-day expiry (#412 —
+    // "PyCharm EAP Build Expired"). STABLE keeps the exact-type first-match behavior.
+    val acceptedTypes = when (channel) {
+        IdeChannel.EAP -> setOf("eap", "release")
+        else -> setOf(channel.apiValue)
+    }
+    var best: IdeArchiveResolution? = null
+
     for (release in releases.filterIsInstance<JsonObject>()) {
         val type = (release["type"] as? JsonPrimitive)?.content
         val releaseVersion = (release["version"] as? JsonPrimitive)?.content
         val build = (release["build"] as? JsonPrimitive)?.content
         val releaseDate = (release["date"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
-        if (!type.equals(channel.apiValue, ignoreCase = true)) continue
+        if (type == null || acceptedTypes.none { it.equals(type, ignoreCase = true) }) continue
         if (releaseVersion.isNullOrBlank() || build.isNullOrBlank()) continue
         if (wantedVersion != null && wantedVersion != releaseVersion && wantedVersion != build) continue
         if (buildPrefix != null && !build.startsWith(buildPrefix)) continue
@@ -175,7 +194,7 @@ fun resolveArchiveFromProductsApiPayload(
             skippedWrongFilename += "$releaseVersion -> $filename"
             continue
         }
-        return IdeArchiveResolution(
+        val candidate = IdeArchiveResolution(
             product = product,
             channel = channel,
             version = releaseVersion,
@@ -185,7 +204,12 @@ fun resolveArchiveFromProductsApiPayload(
             releaseDate = releaseDate,
             checksumUrl = checksumLink,
         )
+        if (channel != IdeChannel.EAP) return candidate // exact-type feeds keep first-match (newest-first feed)
+        if (best == null || compareIdeBuilds(candidate.build, best.build) > 0) {
+            best = candidate
+        }
     }
+    best?.let { return it }
 
     if (candidateReleases > 0 && releasesOfferingDownloadKey == 0) {
         error(
@@ -307,4 +331,19 @@ internal fun readUrlText(url: String, accept: String = "application/json"): Stri
     } finally {
         connection.disconnect()
     }
+}
+
+/**
+ * Compares dot-separated IDE build numbers (e.g. "262.8665.97" vs "262.10123.5") numerically
+ * per segment; a missing segment counts as 0, a non-numeric segment as 0 (conservative).
+ */
+fun compareIdeBuilds(a: String, b: String): Int {
+    val left = a.split('.').map { it.toLongOrNull() ?: 0L }
+    val right = b.split('.').map { it.toLongOrNull() ?: 0L }
+    for (i in 0 until maxOf(left.size, right.size)) {
+        val l = left.getOrElse(i) { 0L }
+        val r = right.getOrElse(i) { 0L }
+        if (l != r) return l.compareTo(r)
+    }
+    return 0
 }

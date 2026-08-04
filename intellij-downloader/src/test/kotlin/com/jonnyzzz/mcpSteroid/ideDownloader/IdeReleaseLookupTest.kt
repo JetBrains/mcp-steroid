@@ -82,6 +82,82 @@ class IdeReleaseLookupTest {
     }
 
     @Test
+    fun `EAP resolves the release when it is newer than the last eap build`() {
+        // Post-release EAP gap (#412): the newest eap-type build predates the release and is past
+        // its ~30-day expiry ("PyCharm EAP Build Expired"). EAP = newest available build.
+        val payload = productsPayload(
+            IdeProduct.PyCharm,
+            listOf(
+                FixtureRelease(
+                    version = "2026.2",
+                    build = "262.10123.20",
+                    link = "https://download.jetbrains.com/python/pycharm-2026.2-aarch64.dmg",
+                    type = "release",
+                ),
+                FixtureRelease(
+                    version = "2026.2 EAP",
+                    build = "262.8665.97",
+                    link = "https://download.jetbrains.com/python/pycharm-262.8665.97-aarch64.dmg",
+                    type = "eap",
+                ),
+            ),
+        )
+
+        val resolution = resolveArchiveFromProductsApiPayload(
+            product = IdeProduct.PyCharm,
+            channel = IdeChannel.EAP,
+            os = HostOs.MAC,
+            architecture = HostArchitecture.ARM64,
+            productsApiUrl = "fixture://products?code=PCP",
+            payload = payload,
+        )
+
+        assertEquals("262.10123.20", resolution.build)
+    }
+
+    @Test
+    fun `EAP still prefers the eap build when it is newer than the release`() {
+        val payload = productsPayload(
+            IdeProduct.PyCharm,
+            listOf(
+                FixtureRelease(
+                    version = "2026.3 EAP",
+                    build = "263.1111.4",
+                    link = "https://download.jetbrains.com/python/pycharm-263.1111.4-aarch64.dmg",
+                    type = "eap",
+                ),
+                FixtureRelease(
+                    version = "2026.2",
+                    build = "262.10123.20",
+                    link = "https://download.jetbrains.com/python/pycharm-2026.2-aarch64.dmg",
+                    type = "release",
+                ),
+            ),
+        )
+
+        val resolution = resolveArchiveFromProductsApiPayload(
+            product = IdeProduct.PyCharm,
+            channel = IdeChannel.EAP,
+            os = HostOs.MAC,
+            architecture = HostArchitecture.ARM64,
+            productsApiUrl = "fixture://products?code=PCP",
+            payload = payload,
+        )
+
+        assertEquals("263.1111.4", resolution.build)
+    }
+
+    @Test
+    fun `build comparison is numeric per segment, not lexicographic`() {
+        // "262.10123" > "262.8665" numerically; a string compare would invert it.
+        assertTrue(compareIdeBuilds("262.10123.20", "262.8665.97") > 0)
+        assertTrue(compareIdeBuilds("262.8665.97", "262.10123.20") < 0)
+        assertEquals(0, compareIdeBuilds("262.8665.97", "262.8665.97"))
+        assertTrue(compareIdeBuilds("263.1.0", "262.99999.99") > 0)
+        assertTrue(compareIdeBuilds("262.8665", "262.8665.1") < 0)
+    }
+
+    @Test
     fun `resolver surfaces checksumLink when products API provides it`() {
         val checksumLink = "https://download.jetbrains.com/idea/ideaIC-2025.2.6.2-aarch64.dmg.sha256"
         val payload = productsPayload(
