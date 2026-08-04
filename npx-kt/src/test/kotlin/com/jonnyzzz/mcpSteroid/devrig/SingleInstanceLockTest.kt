@@ -410,7 +410,7 @@ class SingleInstanceLockTest {
         val command = DevrigCommand.DevrigCommandBackendStart(id = id)
         return try {
             runBlocking {
-                runCliWithLastResortHandling(command) {
+                runCliWithLastResortHandling(command, stdout) {
                     DevrigServices(
                         homePaths = homePaths,
                         lifetime = lifetime,

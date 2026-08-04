@@ -31,6 +31,9 @@ class HeadlinerPredicateTest {
         DevrigCommand.DevrigCommandHelp(),
         DevrigCommand.DevrigCommandVersion(),
         DevrigCommand.DevrigCommandParseError(text = "bad args"),
+        // A generated MCP-as-CLI tool facade emits data to stdout that must stay clean for piping, so it
+        // never prints the banner — console or --json alike (isMcpAsCliToolCommand suppresses it).
+        DevrigCommand.RunTool(toolName = "steroid_list_windows", commandName = "list_windows"),
     )
 
     @Test
@@ -69,5 +72,6 @@ class HeadlinerPredicateTest {
         is DevrigCommand.DevrigCommandHelp -> command.copy(json = json)
         is DevrigCommand.DevrigCommandVersion -> command.copy(json = json)
         is DevrigCommand.DevrigCommandParseError -> command.copy(json = json)
+        is DevrigCommand.RunTool -> command.copy(json = json)
     }
 }

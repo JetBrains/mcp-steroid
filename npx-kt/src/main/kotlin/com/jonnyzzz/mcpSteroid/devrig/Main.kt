@@ -54,9 +54,11 @@ fun main(rawArgs: Array<String>) {
             mcpStdout = mcpStdout,
         ).mainImpl1(command, headliner)
     } catch (t: Throwable) {
+        // The parse phase sits inside this try (see above), so `command` may not exist yet — reference
+        // only what is always in scope. Logging may also be unconfigured this early, so stderr is the
+        // reliable channel here; the trace is never swallowed.
         System.err.println("Unexpected error ${t.message}")
         t.printStackTrace(System.err)
-        logger<DevrigLastResortCrashHandler>().error("Unexpected error running $command. ${t.message}", t)
         CliExit.SOFTWARE
     } finally {
         lifetime.closeAllStacks()
