@@ -400,16 +400,24 @@ class SingleInstanceLockTest {
         )
     }
 
+    /**
+     * Wrapped in [runCliWithLastResortHandling] exactly as `mainImpl2` does: a lock conflict surfaces as a
+     * [ManagedBackendLockException], and that handler — not [runCli] — owns turning it into the
+     * message-on-stderr + exit-64 result these tests assert.
+     */
     private fun runStartCli(homePaths: HomePaths, id: String, stdout: PrintStream): Int {
         val lifetime = CloseableStackHost()
+        val command = DevrigCommand.DevrigCommandBackendStart(id = id)
         return try {
             runBlocking {
-                DevrigServices(
-                    homePaths = homePaths,
-                    lifetime = lifetime,
-                    mcpStdin = ByteArrayInputStream(ByteArray(0)),
-                    mcpStdout = stdout,
-                ).runCli(DevrigCommand.DevrigCommandBackendStart(id = id))
+                runCliWithLastResortHandling(command) {
+                    DevrigServices(
+                        homePaths = homePaths,
+                        lifetime = lifetime,
+                        mcpStdin = ByteArrayInputStream(ByteArray(0)),
+                        mcpStdout = stdout,
+                    ).runCli(command)
+                }
             }
         } finally {
             lifetime.closeAllStacks()

@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.logger
 import com.jonnyzzz.mcpSteroid.devrig.server.runStubStdioMcpServer
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
@@ -50,6 +51,7 @@ fun main(rawArgs: Array<String>) {
     } catch (t: Throwable) {
         System.err.println("Unexpected error ${t.message}")
         t.printStackTrace(System.err)
+        logger<DevrigLastResortCrashHandler>().error("Unexpected error running $command. ${t.message}", t)
         64
     } finally {
         lifetime.closeAllStacks()
@@ -88,9 +90,7 @@ suspend fun DevrigServices.mainImpl2(
     // The devrig binary owns ~/.mcp-steroid/bin/devrig: (re)create/update it on EVERY start so it
     // self-heals and always points at this running install + JDK. Best-effort and stderr-only — never
     // blocks serving. It writes atomically, so an agent mid-read of the launcher never sees a torn file.
-    // For `devrig mcp` we skip the Windows user-PATH registration (it spawns PowerShell and would delay
-    // the first serve); that runs on interactive/`install` invocations instead.
-    ensureBinLauncher(homePaths, registerWindowsPath = command !is DevrigCommand.MCP)
+    ensureBinLauncher(homePaths)
 
     // For the MCP command, the running McpServerCore becomes available once the
     // stdio server is built; the update check broadcasts its notice over it (in
@@ -150,6 +150,7 @@ suspend fun DevrigServices.mainImpl2(
         } catch (t: Throwable) {
             System.err.println("Unexpected error ${t.message}")
             t.printStackTrace(System.err)
+            logger<DevrigLastResortCrashHandler>().error("Unexpected error serving 'devrig mcp'. ${t.message}", t)
             return@coroutineScope 64
         }
     }
@@ -157,11 +158,47 @@ suspend fun DevrigServices.mainImpl2(
     if (command.printsHeadliner()) {
         mcpStdout.println(headliner)
     }
-    try {
-        runCli(command)
+    runCliWithLastResortHandling(command) { runCli(command) }
+}
+
+private class DevrigLastResortCrashHandler
+
+/**
+ * Runs [block] (in production, [runCli] for [command]) and maps its failure to an exit code:
+ *
+ *  - [CliUserFacingException] → its own [CliUserFacingException.exit], message-only on stderr (the trace
+ *    goes to the log file, so the console stays readable but the report stays debuggable).
+ *  - anything else → the last-resort `64`, with the trace printed directly to stderr AND logged with the
+ *    exception — never swallowed, per the root `CLAUDE.md` rule that every catch must rethrow, log, or
+ *    both — so an operator/agent can diagnose an NPE deep in the bridge. The direct `printStackTrace`
+ *    stays alongside the log record on purpose: this is the last-resort handler, and it must not depend
+ *    on logging being configured and reachable to get the trace in front of whoever is looking.
+ *
+ * [kotlinx.coroutines.CancellationException] is rethrown as-is rather than treated as a failure:
+ * swallowing it here would stop the surrounding coroutine scope from unwinding through structured
+ * concurrency. (The outer `main()` handler still reports a rethrown cancellation as an "unexpected
+ * error" of its own — that duplicate is unavoidable but harmless, since the process exits either way.)
+ *
+ * Extracted from [mainImpl2] so this exit-code mapping is unit-testable without booting the CLI.
+ */
+fun runCliWithLastResortHandling(command: DevrigCommand, block: () -> Int): Int {
+    val log = logger<DevrigLastResortCrashHandler>()
+    return try {
+        block()
+    } catch (c: CancellationException) {
+        throw c
+    } catch (e: CliUserFacingException) {
+        System.err.println(e.message)
+        // INFO, not WARN: logback.xml filters the stderr appender at WARN, so anything at WARN or above
+        // would print this trace straight back onto the console we just kept clean. At INFO the record
+        // reaches the (unfiltered) log file only — and `--debug`, which lowers the console threshold to
+        // DEBUG, deliberately shows it again.
+        log.info("Command $command failed: ${e.message}", e)
+        e.exit
     } catch (t: Throwable) {
         System.err.println("Unexpected error calling $command. ${t.message}")
         t.printStackTrace(System.err)
+        log.error("Unexpected error calling $command. ${t.message}", t)
         64
     }
 }
@@ -184,7 +221,13 @@ private fun DevrigCommand.runsTool(): Boolean = when (this) {
     is DevrigCommand.DevrigCommandParseError -> false
 }
 
-private fun DevrigCommand.printsHeadliner(): Boolean =
+/**
+ * Whether this command prints the `devrig vX.Y.Z — ...` banner before its output. Tool-backed, non-`mcp`
+ * commands print it — but only in human console mode: `--json` must stay a single clean stdout document
+ * with no banner line ahead of it. Public (not `private`) so it is unit-testable across every
+ * [DevrigCommand] variant.
+ */
+fun DevrigCommand.printsHeadliner(): Boolean =
     runsTool() && this !is DevrigCommand.MCP && !json
 
 suspend fun DevrigServices.mainImplMcp(
