@@ -13,7 +13,9 @@ import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import java.io.IOException
 import java.io.InputStream
+import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -330,13 +332,24 @@ fun GeneratedToolInvocation.argumentsWithFileSources(spec: CliToolSpec, stdin: I
 private const val CLI_STDIN_PATH: String = "-"
 
 /**
+ * The most a file source will read from EITHER a file or standard input, in bytes, before
+ * [decodeCliSourceBytes] rejects it — 10 MB. Named so both readers enforce the identical limit and so a
+ * rejection message can quote the same number this constant defines, rather than a number hand-copied into
+ * a string.
+ */
+const val CLI_FILE_SOURCE_MAX_BYTES: Long = 10L * 1024 * 1024
+
+/**
  * The value behind one file source: standard input when [path] is [CLI_STDIN_PATH], else the content of the
  * file at [path]. [paramName] is the schema parameter being filled, named in every failure so the caller
  * knows which flag to fix when a tool declares more than one source.
  *
  * A malformed path string is the caller's typo ([CliExit.USAGE]); an absent, non-regular or unreadable file
  * is a filesystem failure ([CliExit.IO_ERROR]) — the distinction a caller acts on is "fix the command line"
- * versus "fix the disk", not whether `Files` threw.
+ * versus "fix the disk", not whether `Files` threw. Malformed UTF-8 ([CliExit.IO_ERROR]) and exceeding
+ * [CLI_FILE_SOURCE_MAX_BYTES] ([CliExit.DATA_ERROR]) are the same two content faults [readCliStdin] rejects,
+ * via the same [decodeCliSourceBytes], so the two sources behave identically instead of a file throwing on
+ * malformed bytes while stdin silently substituted them.
  */
 private fun readCliFileSource(
     paramName: String,
@@ -357,18 +370,18 @@ private fun readCliFileSource(
             "'$paramName' was to be read from '$file', which is not an existing regular file", CliExit.IO_ERROR,
         )
     }
-    val content = try {
-        Files.readString(file)
+    val bytes = try {
+        Files.newInputStream(file).use { it.readNBytes((CLI_FILE_SOURCE_MAX_BYTES + 1).toInt()) }
     } catch (e: IOException) {
         throw CliInputException("'$paramName' could not be read from '$file': ${e.message}", CliExit.IO_ERROR)
     }
     // Same contract as the stdin branch below: an empty value must fail here with a message that names
     // the cause, instead of being forwarded for the tool to answer with its own confusing complaint.
-    if (content.isEmpty()) throw CliInputException(
+    if (bytes.isEmpty()) throw CliInputException(
         "'$paramName' was to be read from '$file', which is empty; put the value in the file or pass it directly",
         CliExit.USAGE,
     )
-    return content
+    return decodeCliSourceBytes(paramName, bytes)
 }
 
 /**
@@ -381,34 +394,59 @@ private fun readCliFileSource(
  *  - reaching end of input immediately — nothing was piped — is a [CliExit.USAGE] failure naming both the
  *    parameter and the two ways to supply it, instead of handing the tool an empty value and letting it
  *    answer with its own confusing complaint about empty input.
+ *
+ * The read stops at [CLI_FILE_SOURCE_MAX_BYTES] + 1 bytes rather than draining an unbounded pipe, and the
+ * result is decoded by [decodeCliSourceBytes] — the same strict decoder [readCliFileSource] uses — so
+ * malformed UTF-8 is rejected here too, instead of `String.decodeToString()`'s silent U+FFFD substitution.
  */
 private fun readCliStdin(paramName: String, stdin: InputStream, announce: Boolean): String {
     if (announce) {
-        System.err.println(
-            "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
-                "pipe the value in, or close standard input (Ctrl-D) to finish"
-        )
+    System.err.println(
+        "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
+            "pipe the value in, or close standard input (Ctrl-D) to finish"
+    )
     }
-    val content = try {
-        // Strict decode: the file branch (Files.readString) throws on malformed UTF-8, and the default
-        // lenient decodeToString() would instead corrupt the value to U+FFFD silently — the same bytes
-        // must fail the same way from either source.
-        stdin.readBytes().decodeToString(throwOnInvalidSequence = true)
-    } catch (e: CharacterCodingException) {
-        // Before the IOException arm: CharacterCodingException IS an IOException, and the decode
-        // failure deserves its own wording — the bytes were read fine, they just are not text.
-        throw CliInputException(
-            "'$paramName' from standard input is not valid UTF-8 text: ${e.message}", CliExit.IO_ERROR,
-        )
+    val bytes = try {
+        stdin.readNBytes((CLI_FILE_SOURCE_MAX_BYTES + 1).toInt())
     } catch (e: IOException) {
         throw CliInputException(
             "'$paramName' could not be read from standard input: ${e.message}", CliExit.IO_ERROR,
         )
     }
-    if (content.isEmpty()) throw CliInputException(
+    if (bytes.isEmpty()) throw CliInputException(
         "'$paramName' was to be read from standard input ('$CLI_STDIN_PATH' given) but nothing was piped in; " +
             "pipe the value or pass a file path instead",
         CliExit.USAGE,
     )
-    return content
+    return decodeCliSourceBytes(paramName, bytes)
+}
+
+/**
+ * [bytes] as strict UTF-8 text — the shared content-validation [readCliFileSource] and [readCliStdin] both
+ * apply, so a file source and standard input reject the same two content faults the same way:
+ *  - more than [CLI_FILE_SOURCE_MAX_BYTES] arrived — [CliExit.DATA_ERROR], because nothing failed to be
+ *    read: the caller handed devrig more data than it accepts (both readers stop at the cap plus one byte,
+ *    so exceeding it is detected without ever buffering an unbounded source in full);
+ *  - the bytes are not valid UTF-8 — rejected via [CodingErrorAction.REPORT] rather than substituted with
+ *    U+FFFD, so a caller sees the actual encoding mistake instead of silently corrupted content reaching
+ *    the tool. Reported as [CliExit.IO_ERROR], keeping the contract the file branch has answered since
+ *    `Files.readString` did the decoding: a [CharacterCodingException] IS an [IOException], and the two
+ *    sources must agree — a `devrig` caller that pipes the same bytes it would have passed as a file must
+ *    not get a different code depending on which spelling it chose.
+ */
+private fun decodeCliSourceBytes(paramName: String, bytes: ByteArray): String {
+    if (bytes.size.toLong() > CLI_FILE_SOURCE_MAX_BYTES) {
+        throw CliInputException(
+            "'$paramName' exceeds the ${CLI_FILE_SOURCE_MAX_BYTES / (1024 * 1024)} MB limit", CliExit.DATA_ERROR,
+        )
+    }
+    return try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (e: CharacterCodingException) {
+        throw CliInputException("'$paramName' is not valid UTF-8 text: ${e.message}", CliExit.IO_ERROR)
+    }
 }
