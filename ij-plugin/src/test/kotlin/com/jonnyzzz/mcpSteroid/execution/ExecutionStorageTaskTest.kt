@@ -106,6 +106,32 @@ class ExecutionStorageTaskTest : BasePlatformTestCase() {
         assertTrue("wrapped script should contain imports", wrappedScript.readText().contains("import com.intellij.openapi.project.*"))
     }
 
+    /**
+     * A script that prints many lines in order must produce output.jsonl lines in that
+     * same order. Before the fix each event was appended from an independent
+     * coroutine launched on Dispatchers.IO, so the lines raced and scrambled into hundreds
+     * of distinct orderings across runs.
+     */
+    fun testOutputJsonlPreservesEmissionOrder(): Unit = timeoutRunBlocking(60.seconds) {
+        val count = 200
+        val code = "for (i in 0 until $count) println(\"line-\" + i)"
+        val result = manager.executeWithProgress(testExecParams(code), NoOpProgressReporter)
+
+        assertFalse("Execution should not fail", result.isError)
+
+        val executionId = getExecutionIdFromResult(result)
+        val outputJsonl = getExecutionDir(executionId).resolve("output.jsonl")
+        assertTrue("output.jsonl should exist", outputJsonl.exists())
+
+        val lineRegex = Regex("line-(\\d+)")
+        val emittedIndices = outputJsonl.readText().lineSequence()
+            .mapNotNull { lineRegex.find(it)?.groupValues?.get(1)?.toInt() }
+            .toList()
+
+        assertEquals("all $count printed lines must be present", count, emittedIndices.size)
+        assertEquals("output.jsonl lines must be in emission order", (0 until count).toList(), emittedIndices)
+    }
+
     fun testCompilationErrorInOutputJsonl(): Unit = timeoutRunBlocking(30.seconds) {
         val invalidCode = "invalid kotlin code here"
         val result = manager.executeWithProgress(testExecParams(invalidCode), NoOpProgressReporter)
