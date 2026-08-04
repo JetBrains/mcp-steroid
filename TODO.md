@@ -147,6 +147,15 @@
   (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a
   `list_windows` poll until the project reports initialized, and delete that guard plus its test.
 
+- [ ] **`--json` parse-time usage errors emit nothing on stdout (#284)**: a parse failure becomes
+  `DevrigCommandParseError`, which prints to stderr and answers 64 with no `--json` envelope — the KDoc
+  argues the failure precedes the command's options so the `--json` intent is unknowable, yet the sibling
+  help path already sniffs `--json`/`--debug` off the raw tokens (`Array<String>.jsonRequested()` in
+  `Cli.kt`). The same sniff could drive a parse-error envelope for machine consumers. Decide whether the
+  envelope is wanted; if yes, re-introduce a `commandName` recovery that survives non-boolean pre-command
+  flags (`--out` falsified the old raw-token scan — see `DevrigCommandParseError`'s KDoc), and pin the
+  contract either way (it is untested today).
+
 - [ ] **`--project_name` is not inferred from the current directory (#284)**: `resolveProjectFromCwd`
   in `npx-kt/.../devrig/server/CwdProjectResolver.kt` is fully written and unit-tested (`One` / `None` /
   `Ambiguous`) but has **zero production call sites** — confirmed by PSI `ReferencesSearch`, not grep.

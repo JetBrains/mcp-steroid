@@ -23,6 +23,11 @@ sealed interface CwdProjectMatch {
  * prefixes, so a sibling directory like `/home/u/projbeta` never matches a route at `/home/u/proj`.
  *
  * Pure function: [cwd] is a parameter, never read from the environment here.
+ *
+ * DELIBERATELY UNWIRED: nothing in production calls this yet. The `--project_name` cwd inference was
+ * cut from Phase B — `project_name` stays a parse-time-mandatory parameter, and the generated help no
+ * longer promises the inference. See the TODO.md entry "`--project_name` is not inferred from the
+ * current directory (#284)" for the two open design decisions that block wiring it.
  */
 fun resolveProjectFromCwd(cwd: Path, routes: List<ProjectRoute>): CwdProjectMatch {
     val absoluteCwd = cwd.toAbsolutePath().normalize()

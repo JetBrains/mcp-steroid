@@ -65,7 +65,7 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
                 try {
                     settings.confirmOpenNewProject = GeneralSettings.OPEN_PROJECT_NEW_WINDOW
 
-                val result = ProjectManager.getInstance().loadAndOpenProject(projectPath.toString())
+                    val result = ProjectManager.getInstance().loadAndOpenProject(projectPath.toString())
                     if (result != null) {
                         logger.info("Project opened successfully: ${result.name}")
                     } else {

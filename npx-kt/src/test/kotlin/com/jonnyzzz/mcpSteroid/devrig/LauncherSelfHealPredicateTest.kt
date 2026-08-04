@@ -31,6 +31,9 @@ class LauncherSelfHealPredicateTest {
         DevrigCommand.DevrigCommandProject(),
         DevrigCommand.DevrigCommandInstall(agent = AiAgentCli.CLAUDE),
         DevrigCommand.DevrigCommandInstallDevrig(),
+        DevrigCommand.DevrigCommandInstallOverview(),
+        DevrigCommand.DevrigCommandInstallConfig(),
+        DevrigCommand.DevrigCommandInstallPlugin(),
         DevrigCommand.DevrigCommandHelp(),
         DevrigCommand.DevrigCommandVersion(),
         DevrigCommand.DevrigCommandParseError(text = "bad args"),
@@ -45,10 +48,13 @@ class LauncherSelfHealPredicateTest {
         DevrigCommand.DevrigCommandProject(),
         DevrigCommand.DevrigCommandInstall(agent = AiAgentCli.CLAUDE),
         DevrigCommand.DevrigCommandInstallDevrig(),
+        DevrigCommand.DevrigCommandInstallPlugin(),
     )
 
     private val neverHeadlinedCommands: List<DevrigCommand> = listOf(
         DevrigCommand.MCP(),
+        DevrigCommand.DevrigCommandInstallOverview(),
+        DevrigCommand.DevrigCommandInstallConfig(),
         DevrigCommand.DevrigCommandHelp(),
         DevrigCommand.DevrigCommandVersion(),
         DevrigCommand.DevrigCommandParseError(text = "bad args"),
