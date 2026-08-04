@@ -73,5 +73,5 @@ class DevrigProjectRoutingService(
  * a CLI user, who is told to run `devrig list_projects` instead (see `runGeneratedToolCommand`).
  */
 class ProjectRouteNotFoundException(val projectName: String) : IllegalArgumentException(
-    "project_name '$projectName' is no longer present; refresh the project list"
+    "project_name '$projectName' is no longer present; call steroid_list_projects to refresh"
 )

@@ -117,7 +117,7 @@ class DevrigProjectRoutingServiceTest {
         }
 
         assertEquals(
-            "project_name 'missing-project-abcdefgh' is no longer present; refresh the project list",
+            "project_name 'missing-project-abcdefgh' is no longer present; call steroid_list_projects to refresh",
             error.message,
         )
     }
