@@ -71,6 +71,15 @@ class CliErrorEnvelopeTest {
         }
     }
 
+    private class CountingListWindows : ListWindowsToolHandler {
+        var called: Boolean = false
+
+        override suspend fun collectListWindowsResponse(): ListWindowsResponse {
+            called = true
+            return ListWindowsResponse(windows = emptyList(), backgroundTasks = emptyList())
+        }
+    }
+
     private fun listWindowsFailing(failure: () -> Nothing) =
         FakeMcpSteroidTools().with(ListWindowsToolHandler::class.java, ThrowingListWindows(failure))
 
@@ -357,6 +366,27 @@ class CliErrorEnvelopeTest {
         assertEquals(CliExit.TOOL_ERROR, run.exit, "stdout was:\n${run.stdout}")
         run.assertIsErrorEnvelope("execute_code")
         assertEquals("compilation failed: line 3", run.errorMessage())
+    }
+
+    @Test
+    fun `--wait never polls when open_project itself returns isError`() {
+        // OpenProjectToolSpec.call() rejects a non-existent path with its own ToolCallResult.errorResult(...)
+        // BEFORE ever reaching an OpenProjectToolHandler — so no handler double is registered here at all.
+        // If the runtime's `--wait` handling ever regressed to reach the handler anyway, FakeMcpSteroidTools
+        // would fail loudly ("no test double is registered") rather than silently passing.
+        val listWindows = CountingListWindows()
+        val tools = FakeMcpSteroidTools().with(ListWindowsToolHandler::class.java, listWindows)
+        val missingPath = home.resolve("does-not-exist")
+        val command = parseRunTool(
+            "open_project", "--json", "--project_path=$missingPath", "--task_id=t", "--reason=r", "--wait",
+        )
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.TOOL_ERROR, run.exit, "stdout was:\n${run.stdout}")
+        run.assertIsErrorEnvelope("open_project")
+        assertEquals("ERROR: Project path is not a directory: $missingPath", run.errorMessage())
+        assertFalse(listWindows.called, "a failed open_project must never trigger the --wait poll")
     }
 
     // ------------------------------------- 0 OK -------------------------------------

@@ -264,11 +264,12 @@ private suspend fun DevrigServices.awaitWaitOption(command: GeneratedToolInvocat
         )
     val projectPath = Path.of(rawProjectPath).toRealPath().toString()
     val listWindowsSpec = liveToolSpec("steroid_list_windows", tools)
+    // Created ONCE, outside the poll lambda: `stderrProgressReporter` prints "Tool call started: devrig
+    // list_windows" on construction, and a wait that polls for minutes must not repeat that line on
+    // every iteration.
+    val listWindowsProgress = if (command.json) NoOpProgressReporter else stderrProgressReporter(listWindowsSpec.name)
     val ready = awaitProjectReady(
-        pollListWindows = {
-            callToolViaSpec(listWindowsSpec, JsonObject(emptyMap()), stderrProgressReporter(listWindowsSpec.name))
-                .listWindowsJson()
-        },
+        pollListWindows = { callToolViaSpec(listWindowsSpec, JsonObject(emptyMap()), listWindowsProgress).listWindowsJson() },
         projectPath = projectPath,
         timeoutMs = WAIT_TIMEOUT_MS,
         intervalMs = WAIT_INTERVAL_MS,
