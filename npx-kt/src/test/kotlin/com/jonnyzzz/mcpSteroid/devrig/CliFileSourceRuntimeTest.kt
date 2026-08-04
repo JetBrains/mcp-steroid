@@ -141,6 +141,34 @@ class CliFileSourceRuntimeTest {
     }
 
     @Test
+    fun `an empty file source fails as a usage error instead of forwarding an empty value`() {
+        // Mirrors the empty-stdin contract: the same parameter read from an empty FILE must not be
+        // forwarded for the tool to answer with its own confusing complaint about empty input.
+        val file = work.resolve("empty.kts")
+        Files.writeString(file, "")
+
+        val (run, seenCode) = runExecuteCode(file.toString())
+
+        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        assertNull(seenCode, "the tool must not be called with an empty value read from an empty file")
+        assertEquals(
+            "'code' was to be read from '$file', which is empty; put the value in the file or pass it directly",
+            run.errorMessage(),
+        )
+    }
+
+    @Test
+    fun `binary standard input fails loudly instead of being silently mangled`() {
+        // Files.readString throws MalformedInputException on these bytes; the same bytes piped through
+        // `-` must fail the same way, not decay to U+FFFD and send the tool a corrupted script.
+        val (run, seenCode) = runExecuteCode("-", stdin = byteArrayOf(0xC3.toByte(), 0x28, 0xFF.toByte(), 0xFE.toByte()))
+
+        assertEquals(CliExit.IO_ERROR, run.exit, "stdout was:\n${run.stdout}")
+        assertNull(seenCode, "the tool must not be called with a corrupted value")
+        assertTrue("not valid UTF-8" in run.errorMessage(), "got: ${run.errorMessage()}")
+    }
+
+    @Test
     fun `a missing file exits 74`() {
         val absent = work.resolve("absent.kts")
         val (run, seenCode) = runExecuteCode(absent.toString())

@@ -9,6 +9,7 @@ import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import java.io.IOException
 import java.io.InputStream
+import java.nio.charset.CharacterCodingException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -266,11 +267,18 @@ private fun readCliFileSource(paramName: String, path: String, stdin: InputStrea
             "'$paramName' was to be read from '$file', which is not an existing regular file", CliExit.IO_ERROR,
         )
     }
-    return try {
+    val content = try {
         Files.readString(file)
     } catch (e: IOException) {
         throw CliInputException("'$paramName' could not be read from '$file': ${e.message}", CliExit.IO_ERROR)
     }
+    // Same contract as the stdin branch below: an empty value must fail here with a message that names
+    // the cause, instead of being forwarded for the tool to answer with its own confusing complaint.
+    if (content.isEmpty()) throw CliInputException(
+        "'$paramName' was to be read from '$file', which is empty; put the value in the file or pass it directly",
+        CliExit.USAGE,
+    )
+    return content
 }
 
 /**
@@ -290,7 +298,16 @@ private fun readCliStdin(paramName: String, stdin: InputStream): String {
             "pipe the value in, or close standard input (Ctrl-D) to finish"
     )
     val content = try {
-        stdin.readBytes().decodeToString()
+        // Strict decode: the file branch (Files.readString) throws on malformed UTF-8, and the default
+        // lenient decodeToString() would instead corrupt the value to U+FFFD silently — the same bytes
+        // must fail the same way from either source.
+        stdin.readBytes().decodeToString(throwOnInvalidSequence = true)
+    } catch (e: CharacterCodingException) {
+        // Before the IOException arm: CharacterCodingException IS an IOException, and the decode
+        // failure deserves its own wording — the bytes were read fine, they just are not text.
+        throw CliInputException(
+            "'$paramName' from standard input is not valid UTF-8 text: ${e.message}", CliExit.IO_ERROR,
+        )
     } catch (e: IOException) {
         throw CliInputException(
             "'$paramName' could not be read from standard input: ${e.message}", CliExit.IO_ERROR,
