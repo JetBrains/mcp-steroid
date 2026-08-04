@@ -138,12 +138,16 @@ class ListCommandsTest {
     }
 
     @Test
-    fun `list_windows without --json prints the tool result on stdout`() {
+    fun `list_windows without --json pretty-prints the tool result on stdout`() {
         val response = ListWindowsResponse(windows = emptyList(), backgroundTasks = emptyList())
         val run = runGeneratedToolForTest(home, parseRunTool("list_windows"), toolsWithWindows(response))
 
         assertEquals(CliExit.OK, run.exit)
-        assertEquals(McpJson.encodeToString(ListWindowsResponse.serializer(), response) + "\n", run.stdout)
+        assertTrue(run.stdout.trim().lines().size > 1, "expected a pretty-printed, multi-line payload; got:\n${run.stdout}")
+        assertEquals(
+            McpJson.encodeToJsonElement(ListWindowsResponse.serializer(), response),
+            McpJson.parseToJsonElement(run.stdout),
+        )
     }
 
     @Test

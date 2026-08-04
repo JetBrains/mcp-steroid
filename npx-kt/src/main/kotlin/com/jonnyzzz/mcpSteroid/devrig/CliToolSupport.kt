@@ -140,8 +140,9 @@ sealed interface Presentation {
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
-                    // Tool payload: printed verbatim, never name-translated.
-                    is ContentItem.Text -> sink.println(item.text)
+                    // Tool payload: content never name-translated. A JSON object/array payload is
+                    // pretty-printed for a human reader; a scalar or a parse failure prints verbatim.
+                    is ContentItem.Text -> sink.println(prettyPrintIfJsonContainer(item.text))
                     is ContentItem.Image -> {
                         // A hard image failure (undecodable payload, unwritable disk) outranks the tool's
                         // own success/failure: abort rendering immediately and report it as the exit code,
@@ -424,4 +425,17 @@ private fun unpackJsonPayload(item: JsonObject): JsonObject {
 private fun parseAsJsonContainer(text: String): JsonElement? {
     val parsed = runCatching { McpJson.parseToJsonElement(text) }.getOrNull() ?: return null
     return parsed.takeIf { it is JsonObject || it is JsonArray }
+}
+
+/**
+ * Console-only counterpart to [unpackJsonPayload]: renders [text] pretty-printed across multiple lines
+ * when it parses whole as a JSON object or array (via the same [parseAsJsonContainer] predicate the
+ * `--json` envelope uses, so console and envelope agree on what counts as JSON), otherwise returns [text]
+ * verbatim. A bare scalar or a parse failure is presentation-neutral prose, not a tool's structured
+ * payload, and is never reformatted. [CLI_ENVELOPE_JSON] is reused rather than a second `Json {
+ * prettyPrint = true }` instance: it already is this module's pretty-printing configuration.
+ */
+private fun prettyPrintIfJsonContainer(text: String): String {
+    val parsed = parseAsJsonContainer(text) ?: return text
+    return CLI_ENVELOPE_JSON.encodeToString(JsonElement.serializer(), parsed)
 }
