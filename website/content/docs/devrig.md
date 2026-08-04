@@ -61,7 +61,44 @@ the exact stdio command (`devrig mcp`) the agent will run.
 ## Commands
 
 Run `devrig --help` (or `devrig -h`) for the authoritative usage, and
-`devrig --version` (or `devrig -v`) for the version.
+`devrig --version` (or `devrig -v`) for the version. Help is generated from the
+same command tree that performs the work, so every nested command has focused
+help such as `devrig install --help` and `devrig backend download --help`.
+
+```text
+devrig
+├── mcp
+├── backend [--json]
+│   ├── download [<id>] [--version <v>] [--json]
+│   ├── start [<id>] [--version <v>] [--json]
+│   ├── stop [<id>] [--version <v>] [--json]
+│   └── provision [<id>] [--json]
+├── project [--json]
+├── install [--json]
+│   ├── claude|codex|gemini [--check]
+│   ├── config [--json]
+│   ├── devrig
+│   └── plugin [--check]
+└── version [--json]
+```
+
+Human output is formatted for the terminal and uses color when supported.
+Commands that advertise `--json` emit exactly one ANSI-free JSON document on
+stdout, suitable for an agent or a pipeline:
+
+```console
+$ devrig version --json
+{"version":"<version>"}
+
+$ devrig install --json | jq -c '.targets[] | {name, kind}'
+{"name":"claude","kind":"agent"}
+{"name":"codex","kind":"agent"}
+...
+```
+
+Commands that do not have a coherent single-document response, including
+`mcp`, agent registration, and plugin installation, reject `--json` instead of
+mixing progress text with structured output.
 
 ### `devrig mcp`
 
@@ -72,10 +109,31 @@ running, it discovers IDEs and bridges the agent's MCP Steroid calls to them.
 > The legacy spelling `devrig mpc` is still accepted as a hidden alias, so
 > older agent registrations keep working. Use `devrig mcp` for new setups.
 
-### `devrig install claude|codex|gemini`
+### `devrig install [--json]`
+
+With no target, lists every install target and detects which agent CLIs are on
+`PATH`. `--json` emits the same inventory as a `targets` array.
+
+### `devrig install claude|codex|gemini [--check]`
 
 Registers this devrig binary as the `mcp-steroid` stdio MCP server in the
-selected agent.
+selected agent. `--check` is read-only: it reports registration drift and IDE
+reachability without changing configuration.
+
+### `devrig install config [--json]`
+
+Prints the manual `mcpServers` configuration plus the equivalent Claude,
+Codex, and Gemini add commands. `--json` exposes `serverName`, `mcpServers`,
+and tokenized `agentCommands` fields.
+
+### `devrig install devrig`
+
+Re-registers devrig's stable launcher and user `PATH` entry.
+
+### `devrig install plugin [--check]`
+
+Installs MCP Steroid into locally running JetBrains IDEs. `--check` lists the
+IDEs that would be asked without showing installation dialogs.
 
 ### `devrig backend [--json]`
 
@@ -124,21 +182,21 @@ for that IDE.
 
 ## Options and environment
 
-Options that apply to every mode:
+Options:
 
-| Flag | Effect |
-|---|---|
-| `--debug` | Enable verbose stderr logging (DEBUG). |
-| `--json` | Emit JSON output where supported (`backend`, `project`, and the `backend download/start/stop` subcommands). |
-| `--help`, `-h` | Print help and exit. |
-| `--version`, `-v` | Print the devrig version and exit. |
+- `--debug` enables verbose stderr logging (DEBUG).
+- `--json` emits one ANSI-free JSON document where advertised: `backend`,
+  `project`, `install`, `install config`, `version`, and backend
+  lifecycle/provision commands.
+- `--help`, `-h` prints command-scoped help and exits.
+- `--version`, `-v` prints the devrig version and exits.
 
 Environment variables:
 
-| Variable | Effect |
-|---|---|
-| `DEVRIG_JAVA_HOME` | JDK/JRE home used to launch devrig, instead of the bundled runtime. Overrides `JAVA_HOME` for the devrig process only. |
-| `DEVRIG_JVM_OPTS` | Extra JVM options for the devrig launch — for example `-Xmx512m`. |
+- `DEVRIG_JAVA_HOME` selects the JDK/JRE used to launch devrig instead of the
+  bundled runtime. It overrides `JAVA_HOME` for the devrig process only.
+- `DEVRIG_JVM_OPTS` adds JVM options to the devrig launch, for example
+  `-Xmx512m`.
 
 ## Example: an agent provisions an IDE
 
