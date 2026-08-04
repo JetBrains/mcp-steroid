@@ -25,14 +25,16 @@ import org.junit.jupiter.api.io.TempDir
  * Contract of the serialized, fail-loud write pipeline behind execution-event storage. One guarantee
  * per historical defect:
  *
- *  - **Order (#284)**: a single worker awaits each write TO COMPLETION before the next, so file order
+ *  - **Order**: a single worker awaits each write TO COMPLETION before the next, so file order
  *    equals submission order even though the storage re-dispatches internally
  *    (`withContext(Dispatchers.IO)` inside [ExecutionStorage.appendExecutionEventJsonLines]).
- *  - **Fail-loud (#433 follow-up)**: the first write failure is re-raised by [ExecutionEventWriteQueue.awaitCompletion],
+ *  - **Fail-loud**: the first write failure is re-raised by [ExecutionEventWriteQueue.awaitCompletion],
  *    never swallowed-and-ACKed — while later records are STILL written, so one failure does not strand
  *    the rest of the audit log.
  *  - **Logging never throws or blocks**: submit is called from non-suspend logging callbacks (possibly
  *    on the EDT); overflow and late submits must not surface there.
+ *  - **Cancellation keeps the tail**: the worker dies with the call's scope, so the buffer it was
+ *    holding is written by `flushRemaining()` instead of being dropped.
  */
 class ExecutionEventWriteQueueTest {
 
@@ -183,24 +185,24 @@ class ExecutionEventWriteQueueTest {
     }
 
     @Test
-    fun `parent scope cancellation tears the queue down without hanging or throwing at loggers`() = runQueueTest {
-        // Production never observes awaitCompletion() after cancellation — build() runs in the same
-        // cancelled scope — so what this pins is teardown liveness: no hang, and a logging-path submit
-        // after the teardown drops instead of throwing.
-        val gate = CompletableDeferred<Unit>() // never completed: the write hangs until cancelled
-        val entered = CompletableDeferred<Unit>()
-        val storage = GatedCountingStorage(gate, entered)
+    fun `a cancelled call still keeps the log tail it had already emitted`() = runQueueTest {
+        // build() runs in the same scope the cancellation kills, so it never reaches awaitCompletion()
+        // and the worker dies holding the buffer. flushRemaining() is what rescues the tail — the part
+        // of the log a cancelled or timed-out run is read for. Also pins teardown liveness: no hang,
+        // and a logging-path submit afterwards drops instead of throwing.
+        val storage = newStorage()
         val executionId = storage.writeNewExecution(testExecParams("test"))
         val scope = CoroutineScope(coroutineContext + Job())
         val queue = ExecutionEventWriteQueue(scope, storage)
 
-        queue.submit(ExecutionEventRecord.Append(executionId, "w-0"))
-        entered.await()
+        repeat(20) { index -> queue.submit(ExecutionEventRecord.Append(executionId, "w-$index")) }
         scope.cancel()
 
-        queue.awaitCompletion() // completes: cancellation is scope teardown, not a recorded write failure
+        queue.flushRemaining()
         queue.submit(ExecutionEventRecord.Append(executionId, "late")) // must not throw
-        assertEquals(emptyList<String>(), outputTexts(storage, executionId))
+
+        assertEquals((0 until 20).map { "w-$it" }, outputTexts(storage, executionId),
+            "the events emitted before cancellation must survive it")
     }
 
     @Test
@@ -219,5 +221,49 @@ class ExecutionEventWriteQueueTest {
 
         assertEquals((0 until 100).map { "line-$it" }, outputTexts(storage, executionId))
         assertEquals(2, storage.appendCalls, "the 99 buffered records must drain as ONE coalesced write")
+    }
+
+    @Test
+    fun `a wedged write backend cannot hang the call forever`() = runQueueTest {
+        // The terminal drain runs NonCancellable, so an outside cancellation can no longer break it
+        // out of a stuck write: without its own ceiling the tool call would never return.
+        val gate = CompletableDeferred<Unit>() // never completed
+        val entered = CompletableDeferred<Unit>()
+        val storage = GatedCountingStorage(gate, entered)
+        val executionId = storage.writeNewExecution(testExecParams("test"))
+        val scope = CoroutineScope(coroutineContext + Job())
+        val queue = ExecutionEventWriteQueue(scope, storage, flushTimeout = 1.seconds)
+
+        queue.submit(ExecutionEventRecord.Append(executionId, "stuck"))
+        entered.await()
+
+        queue.awaitCompletion() // must return rather than wait on the wedged write
+
+        assertEquals(emptyList<String>(), outputTexts(storage, executionId),
+            "the wedged write cannot have landed; the point is that we still returned")
+        scope.cancel() // release the worker parked in the never-completed write
+    }
+
+    @Test
+    fun `a coalesced batch is capped so a full buffer is not joined into one string`() = runQueueTest {
+        val gate = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val storage = GatedCountingStorage(gate, entered)
+        val executionId = storage.writeNewExecution(testExecParams("test"))
+        val queue = ExecutionEventWriteQueue(CoroutineScope(coroutineContext), storage)
+
+        val buffered = 600
+        queue.submit(ExecutionEventRecord.Append(executionId, "line-0"))
+        entered.await() // the worker is inside write #1; everything below lands in the buffer
+        repeat(buffered) { index -> queue.submit(ExecutionEventRecord.Append(executionId, "line-${index + 1}")) }
+        gate.complete(Unit)
+        queue.awaitCompletion()
+
+        assertEquals((0..buffered).map { "line-$it" }, outputTexts(storage, executionId))
+        val expectedWrites = 1 + (buffered + ExecutionEventWriteQueue.MAX_BATCH_RECORDS - 1) /
+            ExecutionEventWriteQueue.MAX_BATCH_RECORDS
+        assertEquals(expectedWrites, storage.appendCalls,
+            "$buffered buffered records must drain in batches of at most " +
+                "${ExecutionEventWriteQueue.MAX_BATCH_RECORDS}, not one unbounded join")
     }
 }

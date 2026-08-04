@@ -320,8 +320,8 @@ class ExecutionStorageTest {
     }
 
     /**
-     * #284 regression: emitting many events through the serialized write pipeline must
-     * land in output.jsonl in exact submission order. Before the fix each event was
+     * Emitting many events through the serialized write pipeline must land in output.jsonl
+     * in exact submission order. Before the fix each event was
      * launched as an independent coroutine on Dispatchers.IO, so 500 lines scrambled
      * into hundreds of distinct orderings across runs.
      */

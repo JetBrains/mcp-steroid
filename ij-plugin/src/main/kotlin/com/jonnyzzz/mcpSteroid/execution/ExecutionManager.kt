@@ -84,59 +84,71 @@ class ExecutionManager(
                 )
 
                 val builder = responseBuilder(this, executionId, mcpProgressReporter)
+
+                suspend fun runExecution(): ToolCallResult {
+                    try {
+                        builder.logMessage("execution_id: ${executionId.executionId}")
+
+                        // Run the script. ScriptExecutor wraps the user-script
+                        // body in the editing-guard steps (dialog killer,
+                        // modality fail-fast, BEFORE/AFTER awaitRefresh) so they
+                        // surround only the run-blocks phase — kotlinc itself
+                        // runs outside that wrapping because it doesn't touch the
+                        // project tree and would otherwise pin a write-intent
+                        // across compile wall-time.
+                        project.scriptExecutor.executeWithProgress(
+                            executionId,
+                            exec,
+                            builder
+                        )
+                        log.info("Execution $executionId completed")
+                    } catch (e: CancellationException) {
+                        // Coroutine cancellation must propagate — never log, never wrap.
+                        // The boundary catch-all in McpHttpTransport converts it to a
+                        // structured tool result via `JsonRpcErrorCodes.INTERNAL_ERROR`.
+                        throw e
+                    } catch (e: ToolCallErrorException) {
+                        log.warn("ToolCallResultException during execution $executionId: ${e.message}", e)
+                        builder.reportFailed(e.message)
+                    } catch (t: Throwable) {
+                        log.warn("Unexpected error: ${t.message}", t)
+                        builder.logException("Unexpected error", t)
+                        builder.reportFailed("Unexpected error")
+                    }
+
+                    if (!builder.isFailed) {
+                        project.executionStorage.writeCodeExecutionData(executionId, "success.txt", "Execution successful")
+                    }
+
+                    // Generate suggestions based on execution result
+                    val suggestions = project.executionSuggestionService
+                        .generateSuggestions(
+                            isFailed = builder.isFailed,
+                            errorMessages = builder.errorMessages,
+                            userOutputCount = builder.userOutputCount,
+                        )
+                    for (suggestion in suggestions) {
+                        builder.logMessage("HINT: $suggestion")
+                    }
+
+                    // Broadcast execution completed event for Demo Mode
+                    executionEventBroadcaster.onCompleted(
+                        executionId = executionId,
+                        success = !builder.isFailed,
+                        errorMessage = if (builder.isFailed) "Execution failed" else null
+                    )
+
+                    return builder.build()
+                }
+
                 try {
-                    builder.logMessage("execution_id: ${executionId.executionId}")
-
-                    // Run the script. ScriptExecutor wraps the user-script
-                    // body in the editing-guard steps (dialog killer,
-                    // modality fail-fast, BEFORE/AFTER awaitRefresh) so they
-                    // surround only the run-blocks phase — kotlinc itself
-                    // runs outside that wrapping because it doesn't touch the
-                    // project tree and would otherwise pin a write-intent
-                    // across compile wall-time.
-                    project.scriptExecutor.executeWithProgress(
-                        executionId,
-                        exec,
-                        builder
-                    )
-                    log.info("Execution $executionId completed")
-                } catch (e: CancellationException) {
-                    // Coroutine cancellation must propagate — never log, never wrap.
-                    // The boundary catch-all in McpHttpTransport converts it to a
-                    // structured tool result via `JsonRpcErrorCodes.INTERNAL_ERROR`.
-                    throw e
-                } catch (e: ToolCallErrorException) {
-                    log.warn("ToolCallResultException during execution $executionId: ${e.message}", e)
-                    builder.reportFailed(e.message)
-                } catch (t: Throwable) {
-                    log.warn("Unexpected error: ${t.message}", t)
-                    builder.logException("Unexpected error", t)
-                    builder.reportFailed("Unexpected error")
+                    runExecution()
+                } finally {
+                    // The worker is a child of this scope, so cancelling the call kills it — and the
+                    // tail of the log is exactly what a cancelled or timed-out run is read for.
+                    // Finish the queue whichever way we leave.
+                    builder.flushStorage()
                 }
-
-                if (!builder.isFailed) {
-                    project.executionStorage.writeCodeExecutionData(executionId, "success.txt", "Execution successful")
-                }
-
-                // Generate suggestions based on execution result
-                val suggestions = project.executionSuggestionService
-                    .generateSuggestions(
-                        isFailed = builder.isFailed,
-                        errorMessages = builder.errorMessages,
-                        userOutputCount = builder.userOutputCount,
-                    )
-                for (suggestion in suggestions) {
-                    builder.logMessage("HINT: $suggestion")
-                }
-
-                // Broadcast execution completed event for Demo Mode
-                executionEventBroadcaster.onCompleted(
-                    executionId = executionId,
-                    success = !builder.isFailed,
-                    errorMessage = if (builder.isFailed) "Execution failed" else null
-                )
-
-                builder.build()
             }
         } }
     }
@@ -144,9 +156,9 @@ class ExecutionManager(
     private fun responseBuilder(parentScope: CoroutineScope, executionId: ExecutionId, mcpProgress: McpProgressReporter) = object : ExecutionResultBuilder {
         private val responseBuilder = ToolCallResult.builder()
         // Storage writes go through a single-worker queue so output.jsonl lines land in the
-        // exact order they were emitted (fan-out onto Dispatchers.IO used to scramble them,
-        // #284) and a genuine write failure surfaces from build() instead of being logged and
-        // ACKed as success (#433 follow-up). The queue buffers plain data records — never
+        // exact order they were emitted (fan-out onto Dispatchers.IO used to scramble them)
+        // and a genuine write failure surfaces from build() instead of being logged and
+        // ACKed as success. The queue buffers plain data records — never
         // lambdas, so no Project capture rides in the buffer — and its worker is a child of
         // this call's scope, torn down with the call.
         private val storageQueue = ExecutionEventWriteQueue(
@@ -181,6 +193,11 @@ class ExecutionManager(
             // failure (a genuine IO error must fail the tool call, never be ACKed as success).
             storageQueue.awaitCompletion()
             return responseBuilder.build()
+        }
+
+        /** Finish the event queue without raising — for the paths that never reach [build]. */
+        suspend fun flushStorage() {
+            storageQueue.flushRemaining()
         }
 
         override fun logMessage(message: String) {

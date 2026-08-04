@@ -107,8 +107,8 @@ class ExecutionStorageTaskTest : BasePlatformTestCase() {
     }
 
     /**
-     * #284 regression: a script that prints many lines in order must produce output.jsonl
-     * lines in that same order. Before the fix each event was appended from an independent
+     * A script that prints many lines in order must produce output.jsonl lines in that
+     * same order. Before the fix each event was appended from an independent
      * coroutine launched on Dispatchers.IO, so the lines raced and scrambled into hundreds
      * of distinct orderings across runs.
      */
