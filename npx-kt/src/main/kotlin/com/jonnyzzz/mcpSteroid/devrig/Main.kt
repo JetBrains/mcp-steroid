@@ -28,21 +28,25 @@ fun main(rawArgs: Array<String>) {
     val mcpStdout = System.out
     System.setOut(System.err)
 
-    val command = parseDevrigCommand(rawArgs)
-    val headliner = buildHeadliner()
-    if (command is DevrigCommand.MCP) {
-        System.err.println(headliner)
-    } else {
-        System.setOut(mcpStdout)
-    }
-
-    val homePaths = resolveHomePathsOrDie()
-
-    //setup logging. That is essential to avoid logger usages BEFORE this statement
-    configureLoggingAndLogStarted(homePaths, rawArgs.toList(), command.debug)
-
     val lifetime = CloseableStackHost()
     val exitCode = try {
+        // Parsing sits INSIDE the crash handler: the schema-driven CLI fails fast at construction time
+        // (duplicate aliases, colliding CLI names, an unsupported schema type all throw before any
+        // command exists), and an exception escaping main() would make the JVM exit 1 — the TOOL_ERROR
+        // slot of the frozen exit table — instead of the SOFTWARE=70 that names devrig's own fault.
+        val command = parseDevrigCommand(rawArgs)
+        val headliner = buildHeadliner()
+        if (command is DevrigCommand.MCP) {
+            System.err.println(headliner)
+        } else {
+            System.setOut(mcpStdout)
+        }
+
+        val homePaths = resolveHomePathsOrDie()
+
+        //setup logging. That is essential to avoid logger usages BEFORE this statement
+        configureLoggingAndLogStarted(homePaths, rawArgs.toList(), command.debug)
+
         DevrigServices(
             lifetime = lifetime,
             homePaths = homePaths,
@@ -205,7 +209,11 @@ fun runCliWithLastResortHandling(command: DevrigCommand, mcpStdout: PrintStream,
         log.error("Unexpected error calling $command. ${t.message}", t)
         if (command.json) {
             Presentation.Json().renderError(
-                "devrig", "unexpected error: ${t.message ?: t.javaClass.simpleName}",
+                // The envelope's `command` key carries the invoked CLI command everywhere else
+                // (RunTool.commandName); a consumer correlating envelopes by command must not lose
+                // exactly the crash envelope. Lifecycle verbs have no commandName — they stay "devrig".
+                command = (command as? DevrigCommand.RunTool)?.commandName ?: "devrig",
+                message = "unexpected error: ${t.message ?: t.javaClass.simpleName}",
                 // An unhandled crash is devrig's own fault, not the caller's — SOFTWARE (70), never the
                 // USAGE (64) that flags an argument mistake. The same code main() and the MCP branch return.
                 exit = CliExit.SOFTWARE, out = mcpStdout,

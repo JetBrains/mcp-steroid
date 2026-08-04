@@ -78,6 +78,31 @@ class LastResortCrashHandlerTest {
     }
 
     @Test
+    fun `a --json crash envelope names the invoked command, not a generic devrig`() {
+        // The envelope contract carries the invoked CLI command under `command` on every other emission
+        // (RunTool.commandName); a consumer correlating envelopes by command — e.g. jq
+        // `select(.command == "list_windows")` — must not lose exactly the crash envelope.
+        val out = CapturedStream()
+        val command = DevrigCommand.RunTool(
+            toolName = "steroid_list_windows",
+            commandName = "list_windows",
+            json = true,
+        )
+        val originalErr = System.err
+        val err = CapturedStream()
+        System.setErr(err.stream)
+        try {
+            val exit = runCliWithLastResortHandling(command, out.stream) { error("boom deep in the bridge") }
+
+            assertEquals(CliExit.SOFTWARE, exit)
+            val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
+            assertEquals("list_windows", envelope.getValue("command").jsonPrimitive.content)
+        } finally {
+            System.setErr(originalErr)
+        }
+    }
+
+    @Test
     fun `a NullPointerException propagated from the tool dispatcher reaches the last-resort trace`() {
         // A5: the generated-tool dispatcher no longer maps a non-IOException fault to UNAVAILABLE; it lets
         // the throwable propagate, and THIS handler is where it lands. A handler bug (an NPE, a broken
@@ -109,7 +134,7 @@ class LastResortCrashHandlerTest {
     }
 
     @Test
-    fun `a crash without --json logs the message and trace to stderr and returns USAGE`() {
+    fun `a crash without --json logs the message and trace to stderr and returns SOFTWARE`() {
         val out = CapturedStream()
         val command = DevrigCommand.DevrigCommandInstallDevrig(json = false)
         val originalErr = System.err
