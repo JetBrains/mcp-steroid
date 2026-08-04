@@ -412,6 +412,25 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `an attached value on the negative spelling still names the positive flag for setting it true`() {
+        // Clikt reports the name AS TYPED, so for `--no-trust_project=true` that is the negative
+        // spelling; the curated fix must resolve both spellings from the spec rather than echo the typed
+        // name back as the way to set the value true.
+        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            parse("open_project", "--project_path=/tmp/p", "--task_id=t", "--reason=r", "--no-trust_project=true"),
+        )
+
+        assertTrue(
+            "use --no-trust_project to set it false".unwrapped() in error.text.unwrapped(),
+            "got:\n${error.text}",
+        )
+        assertTrue(
+            "or --trust_project to set it true".unwrapped() in error.text.unwrapped(),
+            "got:\n${error.text}",
+        )
+    }
+
+    @Test
     fun `an unknown flag on a generated command is a parse error`() {
         val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("list_windows", "--bogus"))
 

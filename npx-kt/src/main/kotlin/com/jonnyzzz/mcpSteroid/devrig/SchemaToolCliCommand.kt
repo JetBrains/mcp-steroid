@@ -90,6 +90,13 @@ class SchemaToolCliCommand(
     /** The `--no-<flag>` spelling of [paramName] when it names an optional boolean, else null; feeds A12's wording. */
     fun negativeFlagFor(paramName: String): String? = binding.paramFor(paramName)?.negativeCliFlag
 
+    /**
+     * The positive `--<flag>` spelling of the parameter [paramName] resolves to. [paramName] is the name AS
+     * TYPED, so when the value was attached to the negative spelling (`--no-trust_project=true`) it is the
+     * negative name — the curated error must not echo it back as the way to set the value true.
+     */
+    fun positiveFlagFor(paramName: String): String? = binding.paramFor(paramName)?.cliFlag
+
     override fun run() {
         val options = options()
         val values = binding.parsed()

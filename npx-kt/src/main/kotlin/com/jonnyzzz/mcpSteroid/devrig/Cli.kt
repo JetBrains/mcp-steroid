@@ -256,8 +256,12 @@ private fun UsageError.withCuratedMissingHints(command: SchemaToolCliCommand): U
     if (this is IncorrectOptionValueCount) {
         val name = paramName ?: return this
         val negative = command.negativeFlagFor(name) ?: return this
+        // Resolve BOTH spellings from the spec instead of echoing the typed name: `name` may itself be
+        // the negative spelling (`--no-trust_project=true`), which must not be offered as the way to set
+        // the value true.
+        val positive = command.positiveFlagFor(name) ?: return this
         return UsageError(
-            "$name is a switch and takes no value; use $negative to set it false, or $name to set it true",
+            "$name is a switch and takes no value; use $negative to set it false, or $positive to set it true",
             paramName = name,
         ).also { it.context = context }
     }
