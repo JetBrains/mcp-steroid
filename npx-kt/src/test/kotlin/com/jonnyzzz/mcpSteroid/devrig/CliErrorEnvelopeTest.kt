@@ -388,37 +388,6 @@ class CliErrorEnvelopeTest {
         }
     }
 
-    // --------------------------- an extra option nothing acts on yet ---------------------------
-
-    @Test
-    fun `an extra option no runtime acts on yet fails loudly instead of being ignored`() {
-        // `--wait` is generated from open_project's declaration and parses today, but the polling that
-        // gives it meaning does not exist yet. Ignoring it would be invisible: the caller asked devrig to
-        // wait for the project, devrig would open it, return 0, and never wait. Derived from the
-        // declaration, so it names the flag the user typed and needs no per-tool knowledge.
-        //
-        // DELETE THIS TEST, along with `requireNoUnhandledExtraOption`, in the phase that implements the
-        // first extra option. The deletion is pre-authorised — it is not a weakened test. The rule it pins
-        // fires on "the declared flag was set" and cannot tell whether a runtime consumes the option, so
-        // once `--wait` works this guard would reject the very invocation it exists to protect.
-        val command = parseRunTool(
-            "open_project", "--json", "--project_path=/tmp/p", "--backend_name=b",
-            "--task_id=t", "--reason=r", "--wait",
-        )
-
-        val run = runGeneratedToolForTest(home, command, FakeMcpSteroidTools())
-
-        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
-        run.assertIsErrorEnvelope("open_project")
-        assertEquals(
-            "devrig open_project: --wait is accepted by the command line but no runtime acts on it yet — " +
-                "drop it and the command runs",
-            run.errorMessage(),
-            "the whole message is asserted, not just the flag: the first version of this rule said " +
-                "'devrig open_project:' twice, because the pipeline already prefixes it",
-        )
-    }
-
     // ------------------------------------- console mode -------------------------------------
 
     @Test

@@ -5,7 +5,10 @@ import com.jonnyzzz.mcpSteroid.devrig.server.ProjectRouteNotFoundException
 import com.jonnyzzz.mcpSteroid.devrig.server.StubMcpSteroidTools
 import com.jonnyzzz.mcpSteroid.devrig.server.callToolViaSpec
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
+import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import java.io.IOException
@@ -16,11 +19,15 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * The runtime half of the schema-driven CLI: what happens after Clikt has parsed a `devrig <tool>`
@@ -66,6 +73,7 @@ data class GeneratedToolInvocation(
  * | a malformed path, an empty standard input, an argument the CLI or the TOOL rejects, an unknown `project_name` | [CliExit.USAGE] 64 |
  * | unusable data from the backend (an undecodable payload, a malformed response) | [CliExit.DATA_ERROR] 65 |
  * | an [IOException] reaching the tool — no IDE running, a refused connection, a timeout | [CliExit.UNAVAILABLE] 69 |
+ * | a declared `wait` extra option's poll timed out before the project reported ready | [CliExit.UNAVAILABLE] 69 |
  * | the tool answered with `isError=true` | [CliExit.TOOL_ERROR] 1 |
  *
  * Any OTHER throwable — an internal devrig or handler fault such as an NPE or a broken invariant — is
@@ -107,12 +115,22 @@ fun DevrigServices.runGeneratedToolCommand(
         )
     }
     val result = try {
-        command.requireNoUnhandledExtraOption(spec)
         val arguments = command.argumentsWithFileSources(spec, mcpStdin)
         val progress = if (command.json) NoOpProgressReporter else stderrProgressReporter(spec.name)
-        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, progress) }
+        runBlocking(Dispatchers.IO) {
+            val toolResult = callToolViaSpec(spec, arguments, progress)
+            if (!toolResult.isError && command.extraOptions[WAIT_EXTRA_OPTION_NAME] == true) {
+                awaitWaitOption(command, tools)
+            }
+            toolResult
+        }
     } catch (e: CliInputException) {
         return presentation.renderError(command.commandName, e.message.orEmpty(), e.exit, mcpStdout)
+    } catch (e: ProjectNotReadyException) {
+        // Thrown by awaitWaitOption above when a declared `wait` extra option's poll deadline passed
+        // before `steroid_list_windows` reported the project ready — the same "no usable IDE" story an
+        // IOException tells below, just discovered after open_project's own call already succeeded.
+        return presentation.renderError(command.commandName, e.message.orEmpty(), CliExit.UNAVAILABLE, mcpStdout)
     } catch (e: ProjectRouteNotFoundException) {
         // Reworded rather than appended to: the exception's own message tells an MCP client to call
         // `steroid_list_projects`, which a CLI user cannot do, and printing both instructions for the one
@@ -200,32 +218,77 @@ fun liveToolSpec(toolName: String, tools: McpSteroidTools): CliToolSpec {
     )
 }
 
+/** Identity of the generic `--wait` extra option — [com.jonnyzzz.mcpSteroid.mcp.CliExtraOption.name], not
+ * a CLI spelling. Declared today only by `open_project` (`OpenProjectTool.kt`), but [awaitWaitOption] is
+ * keyed off this NAME alone, never a per-tool `when`, so any future tool that declares another
+ * `CliExtraOption("wait", ...)` over a `project_path` argument gets the same poll for free. */
+private const val WAIT_EXTRA_OPTION_NAME: String = "wait"
+
+/** How long a declared `wait` extra option polls `steroid_list_windows` before giving up. */
+private const val WAIT_TIMEOUT_MS: Long = 300_000
+
+/** How long a declared `wait` extra option sleeps between polls of `steroid_list_windows`. */
+private const val WAIT_INTERVAL_MS: Long = 1_000
+
 /**
- * Fails when the invocation SET a [com.jonnyzzz.mcpSteroid.mcp.CliExtraOption] no runtime acts on.
- *
- * An extra option is by definition orchestration the CLI performs around the call — `open_project --wait`
- * polling the IDE after the tool returns — so it reaches no tool and there is nothing to forward it to. Until
- * that orchestration exists, honouring the flag by ignoring it would be the worst of the three options: the
- * caller asked devrig to wait, devrig said nothing, and the difference is invisible in the exit code. The
- * failure is derived from the declaration ([com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.extraOptions]) and
- * names the FLAG the user typed, so it needs no per-tool knowledge.
- *
- * **This function is temporary, and the phase that implements the first extra option must DELETE it** —
- * together with its test, `CliErrorEnvelopeTest.an extra option no runtime acts on yet fails loudly instead
- * of being ignored`. That deletion is pre-authorised here, so it does not read as removing a passing test.
- * It cannot lapse on its own: the condition below is "the declared flag was set", which says nothing about
- * whether a runtime consumes it, so once `--wait` works this guard would reject the very invocation it is
- * meant to enable. There is no version of it worth keeping — asking "does a runtime consume this option?"
- * would need exactly the per-tool registry this design exists to avoid.
+ * Thrown by [awaitWaitOption] when its poll deadline passes before `steroid_list_windows` reports the
+ * project ready. Caught in [runGeneratedToolCommand]'s own pipeline, alongside every other failure that
+ * pipeline classifies, and mapped to [CliExit.UNAVAILABLE] there — a project that never finishes opening
+ * is the same "no usable IDE" story as an unreachable backend, just discovered after the call.
  */
-private fun GeneratedToolInvocation.requireNoUnhandledExtraOption(spec: CliToolSpec) {
-    val unhandled = spec.cli.extraOptions.filter { extraOptions[it.name] == true }
-    // No "devrig <command>:" prefix here — the pipeline's IllegalArgumentException arm adds it, and saying
-    // it twice is what the printed message actually looked like before this comment existed.
-    require(unhandled.isEmpty()) {
-        "${unhandled.joinToString(", ") { it.flag }} is accepted by the command line but no runtime acts " +
-            "on it yet — drop it and the command runs"
-    }
+private class ProjectNotReadyException(projectPath: String, timeoutMs: Long) : RuntimeException(
+    "project '$projectPath' not initialized within ${timeoutMs / 1000}s"
+)
+
+/**
+ * The orchestration a declared `wait` extra option means: after [command]'s own tool call has already
+ * returned, poll [tools]' `steroid_list_windows` until [command]'s `project_path` argument reports ready
+ * ([isProjectReady]), or throw [ProjectNotReadyException] once [WAIT_TIMEOUT_MS] passes. Keyed off
+ * [WAIT_EXTRA_OPTION_NAME] alone by the one caller in [runGeneratedToolCommand] — this function itself
+ * assumes nothing about WHICH tool called it beyond "it declared a `project_path` argument", which is
+ * `wait`'s whole contract: it orchestrates opening a project, so there is always a project path to poll
+ * for.
+ *
+ * [rawProjectPath] is normalized with [Path.toRealPath] before polling: `open_project` resolves its own
+ * `project_path` input the same way (`OpenProjectTool.kt`) before opening it, and `steroid_list_windows`
+ * reports that resolved path, not the caller's original string — a relative path or an unresolved symlink
+ * would otherwise never match. Resolution can only fail here if the directory vanished between
+ * `open_project` validating it and this call, which is exotic enough to fall out through the ordinary
+ * [IOException] arm below rather than needing its own.
+ */
+private suspend fun DevrigServices.awaitWaitOption(command: GeneratedToolInvocation, tools: McpSteroidTools) {
+    val rawProjectPath = command.arguments["project_path"]?.jsonPrimitive?.contentOrNull
+        ?: error(
+            "'$WAIT_EXTRA_OPTION_NAME' extra option requires a 'project_path' argument, which " +
+                "'${command.toolName}' does not declare"
+        )
+    val projectPath = Path.of(rawProjectPath).toRealPath().toString()
+    val listWindowsSpec = liveToolSpec("steroid_list_windows", tools)
+    val ready = awaitProjectReady(
+        pollListWindows = {
+            callToolViaSpec(listWindowsSpec, JsonObject(emptyMap()), stderrProgressReporter(listWindowsSpec.name))
+                .listWindowsJson()
+        },
+        projectPath = projectPath,
+        timeoutMs = WAIT_TIMEOUT_MS,
+        intervalMs = WAIT_INTERVAL_MS,
+        now = System::currentTimeMillis,
+        sleep = ::delay,
+    )
+    if (!ready) throw ProjectNotReadyException(projectPath, WAIT_TIMEOUT_MS)
+}
+
+/**
+ * A `steroid_list_windows` call result, parsed as the [JsonObject] [isProjectReady] reads. A malformed or
+ * absent text payload is the backend's fault, not the caller's, so it is reported with [error] — an
+ * invariant violation propagating to `runCliWithLastResortHandling`, not a [CliExit] this pipeline knows
+ * how to name; a genuinely undecodable JSON body instead throws [SerializationException] here, which the
+ * pipeline's own arm already maps to [CliExit.DATA_ERROR].
+ */
+private fun ToolCallResult.listWindowsJson(): JsonObject {
+    val text = content.filterIsInstance<ContentItem.Text>().firstOrNull()?.text
+        ?: error("steroid_list_windows returned no text content to parse")
+    return McpJson.parseToJsonElement(text).jsonObject
 }
 
 /**

@@ -329,6 +329,28 @@ abstract class JsonDevrigCliktCommand(
     override fun localJson(): Boolean = jsonFlag
 }
 
+/**
+ * The base of the GENERATED tool commands: a [DevrigCliktCommand] that accepts `--out` when — and only
+ * when — [acceptsOut] says this tool's result can carry an image.
+ *
+ * `--out` sits here and not on [DevrigCliktCommand] because it redirects the image a tool RESULT carries
+ * (the behavior is [renderWithOut]), and no lifecycle verb — `project`, `backend`, `install`, `help`,
+ * `version` — ever produces a result at all. But not every tool command produces an image either: only
+ * `take_screenshot` (always) and `execute_code` (a script's `logImage` or a dialog-failure screenshot) do,
+ * which is what [com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.producesImage] records. So the option is
+ * registered per command, gated on that flag, rather than declared once for everything: declared for all it
+ * parsed everywhere and was read in one place, so `devrig project --out=/tmp/x.png` (and `devrig
+ * list_projects --out=x`) exited having written nothing. Accepting a flag and silently dropping it is the
+ * same failure `open_project --wait` had to avoid ([awaitWaitOption] in `GeneratedToolRuntime.kt`): no flag
+ * may be accepted and then ignored. The lever differs only because the ownership does — `--wait` is
+ * declared by a tool's own metadata that devrig cannot unilaterally withhold, so devrig can only act on it
+ * (or fail loudly) at runtime, whereas devrig owns this declaration and can simply not make it. Scoping it
+ * wins where it is available: on a command that cannot honour `--out` the refusal is Clikt's own
+ * unknown-option error at parse time, and that command's `--help` stops listing it.
+ *
+ * The cost is that `--out` must now follow its command (`devrig take_screenshot --out=x`, not
+ * `devrig --out=x take_screenshot`), which is where it reads correctly anyway.
+ */
 abstract class DevrigToolCliktCommand(
     name: String,
     selected: SelectedDevrigInvocation,

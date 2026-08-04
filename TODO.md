@@ -162,17 +162,13 @@
   JSON payload as one minified line. Add a structured, colorful human renderer while preserving the
   current ANSI-free `--json` envelope for agents.
 
-- [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
-  removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared
-  `CliExtraOption` on `steroid_open_project`, because neither is a tool input, so the tool metadata
-  carries neither behavior. **`--out` is done**: it is a devrig framework flag registered only on
-  `execute_code` and `take_screenshot`, and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
-  `devrig take_screenshot --out=<path>` writes the PNG and prints `Saved --out: <path>`). `--wait` is
-  **not**: it parses, and a generic guard in `GeneratedToolRuntime.kt` then refuses with exit 64
-  (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a project-list
-  poll until the target path appears; a frontendless Remote Development backend has no window. If a
-  frontend window exists, additionally poll its modal/indexing/initialized flags. Then delete the guard
-  plus its test.
+- [ ] **`open_project --wait` never reports ready on a frontendless backend (#284)**: the poll is
+  implemented (`WaitForProjectReady.kt`, `awaitWaitOption` in `GeneratedToolRuntime.kt`) but reads
+  `steroid_list_windows` only, and a frontendless Remote Development backend has NO window — so `--wait`
+  against one burns the full 300 s and then answers `UNAVAILABLE 69` for a project that opened fine.
+  Poll the project list for the target path first, and treat the window flags (`projectInitialized` /
+  `indexingInProgress` / `modalDialogShowing`) as an additional condition only when a frontend window
+  exists. Needs a Docker case on the Remote Development fixture, not a unit test alone.
 
 - [ ] **`--json` parse-time usage errors emit nothing on stdout (#284)**: a parse failure becomes
   `DevrigCommandParseError`, which prints to stderr and answers 64 with no `--json` envelope — the KDoc
