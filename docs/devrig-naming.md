@@ -336,7 +336,8 @@ To download additional backends: devrig backend download …
 ```
 
 Per-backend open projects are listed under `devrig list_projects`, not `devrig backend`.
-`devrig project` is a compatibility alias of that same generated command.
+`devrig projects` is its compatibility alias; the older singular `devrig project` spelling remains
+accepted for backwards compatibility.
 
 The hash suffix is **part of the displayed name**, not a separate
 column. Locator label stays parenthesised.
@@ -347,7 +348,8 @@ column. Locator label stays parenthesised.
 single `{tool, command, isError, data}` envelope. Its structured MCP payload is unpacked under
 `.data.content[].json`, so project routing keys are available at
 `.data.content[].json.projects[].project_name` without parsing an escaped JSON string. The
-`project` alias emits the identical envelope with canonical `command: "list_projects"`.
+Both `projects` and the legacy `project` alias emit the identical envelope with canonical
+`command: "list_projects"`.
 
 ### `devrig backend --json`
 

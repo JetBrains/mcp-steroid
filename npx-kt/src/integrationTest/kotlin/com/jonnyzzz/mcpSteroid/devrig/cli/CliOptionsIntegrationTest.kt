@@ -240,17 +240,21 @@ class CliOptionsIntegrationTest {
     // gap in the lane that already spawns the launcher.
 
     @Test
-    fun `list_projects --json emits exactly one JSON document on stdout`() {
+    fun `list_projects and its aliases emit the same single JSON document on stdout`() {
         // The frozen `--json` contract. Parsing the WHOLE of stdout is the assertion: a second document, a
         // banner line, or a progress line leaking off stderr would break every `devrig ... --json | jq`
         // caller, and JSON parsing rejects trailing content after the first document. The container has no
         // IDE, so the lister answers from an empty routing table and still exits 0.
-        val r = runLauncher("list_projects", "--json")
-
-        assertEquals(0, r.exitCode, "list_projects must exit 0 with no IDE; stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
-        val envelope = Json.parseToJsonElement(r.stdout).jsonObject
-        assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
-        assertEquals("false", envelope.getValue("isError").jsonPrimitive.content)
+        val envelopes = listOf("list_projects", "projects", "project").map { command ->
+            val r = runLauncher(command, "--json")
+            assertEquals(0, r.exitCode, "$command must exit 0 with no IDE; stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+            Json.parseToJsonElement(r.stdout).jsonObject.also { envelope ->
+                assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
+                assertEquals("false", envelope.getValue("isError").jsonPrimitive.content)
+            }
+        }
+        assertEquals(envelopes.first().getValue("data"), envelopes[1].getValue("data"))
+        assertEquals(envelopes.first().getValue("data"), envelopes[2].getValue("data"))
     }
 
     @Test
@@ -285,6 +289,10 @@ class CliOptionsIntegrationTest {
         for (tool in listOf("devrig list_projects", "devrig execute_code", "devrig take_screenshot")) {
             assertTrue(r.stdout.contains(tool), "the generated section must advertise `$tool`; got:\n${r.stdout}")
         }
+        assertTrue(
+            r.stdout.contains("devrig list_projects (aliases: projects, project)"),
+            "the generated section must advertise both project aliases; got:\n${r.stdout}",
+        )
     }
 
     @Test
@@ -330,13 +338,14 @@ class CliOptionsIntegrationTest {
 
     @Test
     fun `project alias json errors report canonical list_projects command`() {
-        val r = runLauncher("project", "--json", "--bogus")
-
-        assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
-        assertTrue(r.stderr.isBlank(), r.stderr)
-        val envelope = Json.parseToJsonElement(r.stdout).jsonObject
-        assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
-        assertEquals("true", envelope.getValue("isError").jsonPrimitive.content)
+        for (alias in listOf("projects", "project")) {
+            val r = runLauncher(alias, "--json", "--bogus")
+            assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+            assertTrue(r.stderr.isBlank(), r.stderr)
+            val envelope = Json.parseToJsonElement(r.stdout).jsonObject
+            assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
+            assertEquals("true", envelope.getValue("isError").jsonPrimitive.content)
+        }
     }
 
     @Test

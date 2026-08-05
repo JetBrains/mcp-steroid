@@ -16,7 +16,7 @@ class ListProjectsToolSpec(val handler: () -> ListProjectsToolHandler) : McpTool
     override val name = "steroid_list_projects"
     override val description = "List all open projects in the IDE. Each entry has `project_name` (a unique routing key — pass it to steroid_execute_code and the other project-scoped tools) and `name` (the raw folder name, informational only); they are not equal. Resolve an entry's `backend_name` to the owning IDE's identity (`intellij` = `{name, version, build}`) via the `backends` lookup in the same response. An empty devrig response means no project is routed yet, not that the IDE capability is unavailable: follow the server instructions (`devrig backend download --json` on a clean machine), then call steroid_open_project and poll this tool for the path."
     override val cliSynopsis = "list open projects and their routing keys"
-    override val cliAliases = listOf("project")
+    override val cliAliases = listOf("projects", "project")
     override val cliOutputStyle = CliOutputStyle.PROJECTS_TABLE
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {

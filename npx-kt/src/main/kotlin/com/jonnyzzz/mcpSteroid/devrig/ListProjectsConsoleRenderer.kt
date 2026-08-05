@@ -16,7 +16,7 @@ fun renderListProjectsTable(result: ToolCallResult, out: PrintStream): Int {
     return CliExit.OK
 }
 
-/** Pure table renderer shared by canonical `list_projects` and its `project` compatibility alias. */
+/** Pure table renderer shared by canonical `list_projects` and its `projects`/`project` aliases. */
 fun renderListProjectsTable(response: ListProjectsResponse, out: PrintStream) {
     val projects = response.projects.sortedBy { it.projectName }
     if (projects.isEmpty()) {

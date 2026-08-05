@@ -167,8 +167,8 @@ class McpToolsCliHelpTest {
     @Test
     fun `a tool's declared aliases trail its usage line`() {
         assertTrue(
-            "  devrig list_projects (alias: project)\n" in section(),
-            "list_projects must advertise its declared `project` alias:\n${section()}",
+            "  devrig list_projects (aliases: projects, project)\n" in section(),
+            "list_projects must advertise its declared plural and legacy singular aliases:\n${section()}",
         )
         assertTrue(
             "  devrig fetch_resource --uri=<uri> --project_name=<project_name> (alias: prompt)\n" in section(),

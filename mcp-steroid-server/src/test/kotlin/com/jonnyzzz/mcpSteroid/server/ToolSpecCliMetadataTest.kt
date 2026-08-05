@@ -45,9 +45,9 @@ class ToolSpecCliMetadataTest {
     }
 
     @Test
-    fun `list_projects is canonical and project is its compatibility alias`() {
+    fun `list_projects is canonical with plural and legacy singular aliases`() {
         assertEquals("list_projects", listProjects.cli.name)
-        assertEquals(listOf("project"), listProjects.cli.aliases)
+        assertEquals(listOf("projects", "project"), listProjects.cli.aliases)
         assertEquals(CliOutputStyle.PROJECTS_TABLE, listProjects.cli.outputStyle)
         assertTrue(allTools.filterNot { it === listProjects }.all { it.cli.outputStyle == CliOutputStyle.CONTENT })
     }

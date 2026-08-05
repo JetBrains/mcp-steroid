@@ -32,8 +32,13 @@ class DevrigCliHelpTest {
         for (command in listOf("backend", "install", "mcp", "help", "version") + visibleTools.map { it.cli.name }) {
             assertTrue(result.stdout.contains(command), "missing $command in:\n${result.stdout}")
         }
-        for (alias in visibleTools.flatMap { it.cli.aliases }) {
-            assertTrue("alias: $alias" in result.stdout, "missing $alias alias in:\n${result.stdout}")
+        for (tool in visibleTools.filter { it.cli.aliases.isNotEmpty() }) {
+            val aliasNote = if (tool.cli.aliases.size == 1) {
+                "(alias: ${tool.cli.aliases.single()})"
+            } else {
+                "(aliases: ${tool.cli.aliases.joinToString(", ")})"
+            }
+            assertTrue(aliasNote in result.stdout, "missing $aliasNote in:\n${result.stdout}")
         }
         assertTrue(!result.stdout.contains("mpc"), result.stdout)
         assertTrue(result.stdout.contains("--json"), result.stdout)
@@ -152,14 +157,15 @@ class DevrigCliHelpTest {
     }
 
     @Test
-    fun `json parse errors through project alias use canonical list_projects identity`() {
-        val result = runHelp("project", "--json", "--bogus")
-
-        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
-        assertTrue(result.stderr.isEmpty(), result.stderr)
-        val envelope = Json.parseToJsonElement(result.stdout).jsonObject
-        assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
-        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
+    fun `json parse errors through project aliases use canonical list_projects identity`() {
+        for (alias in listOf("projects", "project")) {
+            val result = runHelp(alias, "--json", "--bogus")
+            assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+            assertTrue(result.stderr.isEmpty(), result.stderr)
+            val envelope = Json.parseToJsonElement(result.stdout).jsonObject
+            assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
+            assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
+        }
     }
 
     @Test

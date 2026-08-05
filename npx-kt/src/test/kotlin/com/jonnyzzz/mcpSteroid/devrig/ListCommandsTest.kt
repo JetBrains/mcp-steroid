@@ -96,23 +96,28 @@ class ListCommandsTest {
     }
 
     @Test
-    fun `project alias executes the same list_projects handler and renders the same outputs`() {
+    fun `project aliases execute the same list_projects handler and render the same outputs`() {
         val canonicalConsole = runGeneratedToolForTest(
             home,
             parseRunTool("list_projects"),
             toolsWithProjects(oneProject),
         )
-        val aliasConsole = runGeneratedToolForTest(home, parseRunTool("project"), toolsWithProjects(oneProject))
-        assertEquals(canonicalConsole, aliasConsole)
-
         val canonicalJson = runGeneratedToolForTest(
             home,
             parseRunTool("list_projects", "--json"),
             toolsWithProjects(oneProject),
         )
-        val aliasJson = runGeneratedToolForTest(home, parseRunTool("project", "--json"), toolsWithProjects(oneProject))
-        assertEquals(canonicalJson, aliasJson)
-        assertEquals("list_projects", aliasJson.envelope().getValue("command").jsonPrimitive.content)
+        for (aliasName in listOf("projects", "project")) {
+            val aliasConsole = runGeneratedToolForTest(home, parseRunTool(aliasName), toolsWithProjects(oneProject))
+            assertEquals(canonicalConsole, aliasConsole)
+            val aliasJson = runGeneratedToolForTest(
+                home,
+                parseRunTool(aliasName, "--json"),
+                toolsWithProjects(oneProject),
+            )
+            assertEquals(canonicalJson, aliasJson)
+            assertEquals("list_projects", aliasJson.envelope().getValue("command").jsonPrimitive.content)
+        }
     }
 
     @Test

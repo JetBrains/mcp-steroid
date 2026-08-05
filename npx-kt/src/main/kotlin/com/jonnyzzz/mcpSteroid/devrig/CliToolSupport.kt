@@ -352,7 +352,7 @@ private fun writeAtomically(target: Path, bytes: ByteArray) {
  * shape this file produces: `{content:[...]}`, plus `savedOut` when `--out` wrote an image (see
  * [renderWithOut]). Commands that predate the schema-driven CLI and never produce a [ToolCallResult]
  * hand-roll their own JSON and are out of scope for this envelope. Every generated tool-backed command,
- * including `list_projects` and its `project` alias, reports through this same shape.
+ * including `list_projects` and its `projects`/`project` aliases, reports through this same shape.
  */
 val CLI_ENVELOPE_JSON: Json = Json {
     prettyPrint = true

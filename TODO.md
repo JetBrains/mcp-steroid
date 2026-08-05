@@ -91,7 +91,7 @@
     banned `internal` on `IntelliJMcpServerProbeImpl`), `GET …/native-tools` bridge route,
     `mcp-steroid-server` DTOs (`available`/`unfiltered` on the wire, no `backend_name`),
     a redesigned top-level CLI route such as `devrig native_tools <project_name> [--json]`
-    (`list_projects` is a generated leaf and `project` is its alias, so neither can own nested actions),
+    (`list_projects` is a generated leaf and `projects`/`project` are its aliases, so none can own nested actions),
     explicit 404="plugin too old" branch, WirePristinenessTest + contract pins,
     `:test-integration` canary (list + `find_files_by_glob` call), wire-table entry.
   - [ ] Scenario A follow-up: short static index `skill/native-mcp-tools.md` (guard + LIST

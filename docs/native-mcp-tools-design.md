@@ -6,7 +6,8 @@ list-tools API** (Scenario B below); the agent-facing index + dynamic per-tool r
 (Scenario A) are the specced companion follow-up.
 
 > **Superseding CLI note:** The `devrig project tools` spelling below is a historical proposal.
-> `project` now aliases the schema-generated `list_projects` leaf, so it cannot own nested actions.
+> `projects` and the legacy `project` spelling now alias the schema-generated `list_projects` leaf,
+> so neither can own nested actions.
 > Implementation must select a new top-level route (tracked in `TODO.md`) while preserving the
 > bridge/resource design recorded here.
 

@@ -74,13 +74,14 @@ class DevrigCommandTest {
     }
 
     @Test
-    fun `list_projects is canonical while project remains a compatibility alias`() {
+    fun `list_projects is canonical while plural and singular aliases remain compatible`() {
         val canonical = command("list_projects", "--json")
-        val alias = command("project", "--json")
-
-        assertEquals(canonical.commandPath, alias.commandPath)
-        assertEquals("devrig list_projects", alias.commandPath)
-        assertEquals(canonical.generatedTool, alias.generatedTool)
+        for (aliasName in listOf("projects", "project")) {
+            val alias = command(aliasName, "--json")
+            assertEquals(canonical.commandPath, alias.commandPath)
+            assertEquals("devrig list_projects", alias.commandPath)
+            assertEquals(canonical.generatedTool, alias.generatedTool)
+        }
     }
 
     @Test

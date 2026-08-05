@@ -102,13 +102,14 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
-    fun `project parses to the same canonical generated invocation as list_projects`() {
+    fun `project aliases parse to the same canonical generated invocation as list_projects`() {
         val canonical = assertIs<GeneratedToolInvocation>(parse("list_projects", "--json"))
-        val alias = assertIs<GeneratedToolInvocation>(parse("project", "--json"))
-
-        assertEquals(canonical, alias)
-        assertEquals("steroid_list_projects", alias.toolName)
-        assertEquals("list_projects", alias.commandName)
+        for (aliasName in listOf("projects", "project")) {
+            val alias = assertIs<GeneratedToolInvocation>(parse(aliasName, "--json"))
+            assertEquals(canonical, alias)
+            assertEquals("steroid_list_projects", alias.toolName)
+            assertEquals("list_projects", alias.commandName)
+        }
     }
 
     @Test
@@ -518,12 +519,12 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `--out is rejected on aliases and lifecycle commands that can never honour it`() {
-        // `--out` redirects an image carried by a generated tool result. The `project` alias resolves to
+        // `--out` redirects an image carried by a generated tool result. Both project aliases resolve to
         // non-image `list_projects`, while lifecycle commands return no tool result at all. It used to be
         // declared on the shared base class, so the old handwritten `devrig project --out=/tmp/x.png`
         // parsed, exited 0, wrote nothing and said nothing. Scoping it to image-producing tools makes each
         // spelling a parse-time refusal.
-        for (command in listOf("project", "backend", "version", "help")) {
+        for (command in listOf("projects", "project", "backend", "version", "help")) {
             val error = assertIs<ParsedError>(
                 parse(command, "--out=/tmp/x.png"),
                 "'devrig $command --out' must be refused, not silently accepted",

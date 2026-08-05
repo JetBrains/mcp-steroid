@@ -78,7 +78,9 @@ class CommandHelpRoutingTest {
         assertEquals(canonical, help("prompt", "--help"))
 
         val listProjects = help("list_projects", "--help")
-        assertEquals(listProjects, help("project", "--help"))
+        for (alias in listOf("projects", "project")) {
+            assertEquals(listProjects, help(alias, "--help"))
+        }
         assertTrue("Usage: devrig list_projects" in listProjects, listProjects)
     }
 

@@ -68,7 +68,7 @@ help such as `devrig install --help` and `devrig backend download --help`.
 ```text
 devrig
 ├── mcp
-├── list_projects [--json]
+├── list_projects [--json]  (aliases: projects, project)
 ├── list_windows [--json]
 ├── execute_code ... [--json] [--out <path>]
 ├── execute_feedback ... [--json]
@@ -81,7 +81,6 @@ devrig
 │   ├── start [<id>] [--version <v>] [--json]
 │   ├── stop [<id>] [--version <v>] [--json]
 │   └── provision [<id>] [--json]
-├── project [--json]
 ├── install [--json]
 │   ├── claude|codex|gemini [--check]
 │   ├── config [--json]
@@ -185,8 +184,9 @@ human-readable text.
 
 Lists open projects across all discovered backends. The default is a readable
 project/backend table. `--json` emits the standard generated-command envelope;
-project rows are under `.data.content[].json.projects[]`. `devrig project` is a
-compatibility alias with identical help, behavior, and output.
+project rows are under `.data.content[].json.projects[]`. `devrig projects` is the
+compatibility alias with identical help, behavior, and output; the singular `devrig project`
+spelling remains accepted for older scripts.
 
 ### `devrig backend download [<id>] [--version <v>] [--json]`
 
@@ -226,7 +226,7 @@ Options:
 
 - `--debug` enables verbose stderr logging (also enabled by `DEVRIG_DEBUG`).
 - `--json` emits one ANSI-free JSON document where advertised: `backend`,
-  `project`, `install`, `install config`, `version`, backend lifecycle commands,
+  `list_projects` (also `projects` and legacy `project`), `install`, `install config`, `version`, backend lifecycle commands,
   and every schema-generated MCP tool command.
 - `--help`, `-h` prints command-scoped help and exits.
 - `--version`, `-v` prints the devrig version and exits.

@@ -303,7 +303,7 @@ suspend fun collectPortDiscoveredIdes(
 /**
  * Pure renderer for the 3-group backend listing.
  *
- * Per-backend open projects are listed by `devrig list_projects` (`project` is a compatibility alias).
+ * Per-backend open projects are listed by `devrig list_projects` (`projects`/`project` are aliases).
  *
  * Output shape:
  * ```
