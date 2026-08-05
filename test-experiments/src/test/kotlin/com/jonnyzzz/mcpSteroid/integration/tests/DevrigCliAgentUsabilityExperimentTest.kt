@@ -86,13 +86,15 @@ class DevrigCliAgentUsabilityExperimentTest {
             raw command. From that help, discover the canonical command that lists open IDE projects, its
             plural compatibility alias, and the legacy singular alias retained for older users.
 
-            Run the canonical project-list action and the plural alias as two separate shell commands with
-            machine-readable output. Do not pipe, redirect, combine, or transform either command: the raw
-            JSON responses are audit evidence. Confirm that both responses carry the same project/backend
-            data and that the alias reports the canonical command identity.
+            Run the canonical project-list action, the plural alias, and the legacy singular alias as three
+            separate shell commands with machine-readable output. Do not pipe, redirect, combine, or
+            transform any command: the raw JSON responses are audit evidence. Confirm that all three
+            responses carry the same project/backend data and that both aliases report the canonical command
+            identity.
 
-            Then, using a project routing key from the canonical response, discover and run the CLI action
-            that executes this Kotlin script in the IDE:
+            Then discover the CLI action that executes Kotlin in the IDE. Read that action's focused help
+            through the root help's `devrig help <command>` route before running it with a project routing
+            key from the canonical response. Execute this Kotlin script:
 
                 println("$sentinel")
 
@@ -112,6 +114,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val calls = decodeAgentToolCalls(result.rawStdout)
         assertCliOnly(calls)
         val shellCalls = calls.filter { it.isNativeShellCall() }
+        assertRawDevrigOnly(shellCalls)
 
         val rootHelpIndex = shellCalls.indexOfFirst { it.invokesRootHelp() && it.succeeded() }
         val canonicalIndex = shellCalls.indexOfFirst {
@@ -120,13 +123,24 @@ class DevrigCliAgentUsabilityExperimentTest {
         val aliasIndex = shellCalls.indexOfFirst {
             it.invokes("projects") && it.hasFlag("--json") && !it.hasHelpFlag() && it.succeeded()
         }
+        val legacyAliasIndex = shellCalls.indexOfFirst {
+            it.invokes("project") && it.hasFlag("--json") && !it.hasHelpFlag() && it.succeeded()
+        }
+        val executeHelpIndex = shellCalls.indexOfFirst {
+            it.invokesHelpCommandRoute("execute_code") && it.succeeded()
+        }
         val executeIndex = shellCalls.indexOfFirst {
             it.invokes("execute_code") && it.hasFlag("--json") && !it.hasHelpFlag() &&
                 it.succeeded() && sentinel in it.resultText()
         }
+        assertEquals(
+            EXPECTED_TASK_FIRST_SHELL_CALLS,
+            shellCalls.size,
+            "Task-first must use exactly the required raw devrig calls. ${summarizeCalls(shellCalls)}",
+        )
         assertOrdered(
-            listOf(rootHelpIndex, canonicalIndex, aliasIndex, executeIndex),
-            "root help -> canonical list -> plural alias list -> execute_code action",
+            listOf(rootHelpIndex, canonicalIndex, aliasIndex, legacyAliasIndex, executeHelpIndex, executeIndex),
+            "root help -> canonical list -> plural alias -> legacy alias -> execute_code help -> action",
             shellCalls,
         )
 
@@ -136,34 +150,42 @@ class DevrigCliAgentUsabilityExperimentTest {
         assertTrue("aliases: projects, project" in rootHelp) {
             "Root help did not advertise the plural and legacy project aliases:\n$rootHelp"
         }
-        val executeHelpIndex = shellCalls.indexOfFirst {
-            it.invokesCommandHelp("execute_code") && it.succeeded()
-        }
-        if (executeHelpIndex >= 0) {
-            assertTrue(executeHelpIndex < executeIndex) {
-                "execute_code help was read only after the action. ${summarizeCalls(shellCalls)}"
-            }
-        }
+        assertImmediatelyBefore(executeHelpIndex, executeIndex, "execute_code help -> action", shellCalls)
+        assertCommandHelp(
+            shellCalls[executeHelpIndex],
+            "execute_code",
+            "--project_name",
+            "--code",
+            "--task_id",
+            "--reason",
+            "--json",
+        )
 
         val canonicalEnvelope = shellCalls[canonicalIndex].successfulEnvelope("list_projects")
         val aliasEnvelope = shellCalls[aliasIndex].successfulEnvelope("list_projects")
-        assertEquals(
-            canonicalEnvelope.getValue("data"),
-            aliasEnvelope.getValue("data"),
-            "projects alias must return exactly the canonical list_projects data",
-        )
-        val projectName = canonicalEnvelope.firstProjectName()
-        assertTrue(projectName in shellCalls[executeIndex].commandText()) {
-            "execute_code did not use project_name '$projectName'. ${summarizeCalls(shellCalls)}"
+        val legacyAliasEnvelope = shellCalls[legacyAliasIndex].successfulEnvelope("list_projects")
+        for ((aliasName, envelope) in listOf("projects" to aliasEnvelope, "project" to legacyAliasEnvelope)) {
+            assertEquals(
+                canonicalEnvelope.getValue("data"),
+                envelope.getValue("data"),
+                "$aliasName alias must return exactly the canonical list_projects data",
+            )
         }
+        val projectName = canonicalEnvelope.firstProjectName()
+        assertFlagValue(shellCalls[executeIndex], "execute_code", "--project_name", projectName)
         shellCalls[executeIndex].successfulEnvelope("execute_code")
 
         val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
-        assertTrue("CANONICAL_PROJECT_COMMAND: list_projects" in finalResponse) { finalResponse }
-        assertTrue("PROJECT_ALIAS: projects" in finalResponse) { finalResponse }
-        assertTrue("LEGACY_PROJECT_ALIAS: project" in finalResponse) { finalResponse }
-        assertTrue("ALIAS_EQUIVALENT: yes" in finalResponse) { finalResponse }
-        assertTrue("EXECUTION_MARKER: $sentinel" in finalResponse) { finalResponse }
+        assertExactMarkerLines(
+            finalResponse,
+            listOf(
+                "CANONICAL_PROJECT_COMMAND: list_projects",
+                "PROJECT_ALIAS: projects",
+                "LEGACY_PROJECT_ALIAS: project",
+                "ALIAS_EQUIVALENT: yes",
+                "EXECUTION_MARKER: $sentinel",
+            ),
+        )
 
         assertAgentExit(agentName, result.exitCode) {
             result.assertExitCode(0) { "$agentName task-first CLI experiment failed" }
@@ -227,6 +249,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val calls = decodeAgentToolCalls(result.rawStdout)
         assertCliOnly(calls)
         val shellCalls = calls.filter { it.isNativeShellCall() }
+        assertRawDevrigOnly(shellCalls)
 
         val rootHelpIndex = shellCalls.indexOfFirst { it.invokesRootHelp() && it.succeeded() }
         val listHelpIndex = shellCalls.indexOfFirst { it.invokesHelpCommandRoute("list_projects") && it.succeeded() }
@@ -424,8 +447,10 @@ class DevrigCliAgentUsabilityExperimentTest {
             "usage: devrig execute_code",
             "missing --project_name",
             "devrig list_projects",
+            "not the folder name",
             "missing code",
             "--code-file=<path>",
+            "--code=\"...\"",
             "missing --task_id",
             "any string works",
             "missing --reason",
@@ -440,17 +465,23 @@ class DevrigCliAgentUsabilityExperimentTest {
             "execute_feedback",
             "missing --project_name",
             "devrig list_projects",
+            "not the folder name",
             "missing --task_id",
             "any string works",
             "missing --success_rating",
             "0.00..1.00",
+            "--success_rating=0.9",
             "missing --explanation",
+            "what worked",
+            "what didn't",
+            "what you'll try next",
         )
         assertMissingGuidance(
             shellCalls[missingScreenshotIndex],
             "take_screenshot",
             "missing --project_name",
             "devrig list_projects",
+            "not the folder name",
             "missing --task_id",
             "any string works",
             "missing --reason",
@@ -461,19 +492,25 @@ class DevrigCliAgentUsabilityExperimentTest {
             "input",
             "missing --project_name",
             "devrig list_projects",
+            "not the folder name",
             "missing --task_id",
+            "any string works",
             "missing --reason",
+            "intent and expected outcome",
             "missing required --window_id",
             "devrig list_windows",
             "missing --sequence",
+            "press:ctrl+p",
+            "delay:200",
         )
         assertMissingGuidance(
             shellCalls[missingFetchIndex],
             "fetch_resource",
             "missing --uri",
-            "devrig fetch_resource",
+            "mcp-steroid://prompt/skill",
             "missing --project_name",
             "devrig list_projects",
+            "not the folder name",
         )
         assertMissingGuidance(
             shellCalls[missingOpenIndex],
@@ -539,12 +576,15 @@ class DevrigCliAgentUsabilityExperimentTest {
         openCall.successfulEnvelope("open_project")
 
         val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
-        assertTrue("HELP_ROUTE: root -> all generated commands" in finalResponse) {
-            finalResponse
-        }
-        assertTrue("HELP_COMMAND_ROUTE: complete" in finalResponse) { finalResponse }
-        assertTrue("MISSING_PARAMETER_HELP: complete" in finalResponse) { finalResponse }
-        assertTrue("EXECUTION_MARKER: $sentinel" in finalResponse) { finalResponse }
+        assertExactMarkerLines(
+            finalResponse,
+            listOf(
+                "HELP_ROUTE: root -> all generated commands",
+                "HELP_COMMAND_ROUTE: complete",
+                "MISSING_PARAMETER_HELP: complete",
+                "EXECUTION_MARKER: $sentinel",
+            ),
+        )
 
         assertAgentExit(agentName, result.exitCode) {
             result.assertExitCode(0) { "$agentName help-first CLI experiment failed" }
@@ -557,6 +597,19 @@ class DevrigCliAgentUsabilityExperimentTest {
         assertTrue(nonShellCalls.isEmpty()) {
             "The CLI-only agent used a non-shell tool. ${summarizeCalls(nonShellCalls)}"
         }
+    }
+
+    private fun assertRawDevrigOnly(calls: List<AgentToolCall>) {
+        val invalid = calls.filter { it.normalizedRawDevrigCommand() == null }
+        assertTrue(invalid.isEmpty()) {
+            "Every shell call must be one raw devrig invocation with no wrappers or shell control syntax. " +
+                summarizeCalls(invalid)
+        }
+    }
+
+    private fun assertExactMarkerLines(finalResponse: String, expected: List<String>) {
+        val actual = finalResponse.trim().lineSequence().map(String::trimEnd).toList()
+        assertEquals(expected, actual, "The agent final response must contain exactly the requested marker lines")
     }
 
     private fun assertOrdered(
@@ -655,7 +708,7 @@ class DevrigCliAgentUsabilityExperimentTest {
     private fun String.hasUnquotedShellControlSyntax(): Boolean {
         var quote: Char? = null
         var escaped = false
-        for ((index, ch) in withIndex()) {
+        for (ch in this) {
             if (ch == '\n' || ch == '\r') return true
             if (escaped) {
                 escaped = false
@@ -672,7 +725,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             if (quote == '"') {
                 if (ch == '"') {
                     quote = null
-                } else if (ch == '`' || ch == '$' && getOrNull(index + 1) == '(') {
+                } else if (ch == '`' || ch == '$') {
                     return true
                 }
                 continue
@@ -740,7 +793,10 @@ class DevrigCliAgentUsabilityExperimentTest {
         val text = resultText().trim()
         val envelope = Json.parseToJsonElement(text).jsonObject
         assertEquals(setOf("tool", "command", "isError", "data"), envelope.keys, envelope.toString())
-        assertEquals("steroid_$expectedCommand", envelope.getValue("tool").jsonPrimitive.content, envelope.toString())
+        val tool = envelope.getValue("tool").jsonObject
+        assertEquals(setOf("name", "version"), tool.keys, envelope.toString())
+        assertEquals("devrig", tool.getValue("name").jsonPrimitive.content, envelope.toString())
+        assertTrue(tool.getValue("version").jsonPrimitive.content.isNotBlank(), "missing devrig version: $envelope")
         assertEquals(expectedCommand, envelope.getValue("command").jsonPrimitive.content, envelope.toString())
         val isError = envelope.getValue("isError").jsonPrimitive
         assertTrue(!isError.isString, "isError must be a JSON boolean: $envelope")
@@ -805,6 +861,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             "fetch_resource",
             "open_project",
         )
+        private const val EXPECTED_TASK_FIRST_SHELL_CALLS = 6
         private const val EXPECTED_HELP_FIRST_SHELL_CALLS = 23
 
         @JvmStatic
