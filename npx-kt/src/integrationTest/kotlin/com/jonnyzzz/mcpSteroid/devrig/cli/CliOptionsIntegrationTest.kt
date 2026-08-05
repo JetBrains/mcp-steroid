@@ -155,7 +155,10 @@ class CliOptionsIntegrationTest {
         // One of the two expected shapes:
         val output = r.stdout.trimEnd()
         val backendStatus = output.removeOptionalHeadliner()
-        val isNoBackends = backendStatus == "No backends detected."
+        // The no-backends shape is the message PLUS its promoted next step (BackendCommand prints
+        // both; the headless-guidance work added the hint). Pinned whole, like the message itself.
+        val isNoBackends = backendStatus ==
+            "No backends detected.\nTo discover and install an IDE: devrig backend download --json"
         val looksLikeIdeListing = backendStatus.lines().any { line ->
             line.contains("Discovered ") && line.contains("backend")
         }
