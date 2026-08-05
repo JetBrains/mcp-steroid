@@ -12,6 +12,9 @@ import kotlinx.serialization.json.contentOrNull
 
 private const val PROJECT_NOT_FOUND_PREFIX = "Project not found: \""
 
+/** The tool's schema-layer rejection of a call, e.g. `ERROR: Parameter task_id of type string is required`. */
+private const val PARAMETER_VALIDATION_PREFIX = "Parameter "
+
 /**
  * Marker the mandatory first execute-code recipe prints its open-project base path after
  * (`Project: <name>, base: <path>`). The producer is [ArenaTestRunner.buildPrompt]'s first-call recipe
@@ -360,9 +363,21 @@ fun decodeAgentTranscript(rawNdjson: String): AgentTranscript {
  * The prompt's mandatory first execute-code recipe prints `Project: ..., base: ...`. Require that first
  * successful result to name the arena deployment path so a different but valid open project cannot make
  * the MCP arm look healthy.
+ *
+ * Leading PARAMETER-VALIDATION rejections are skipped: the tool's schema layer refused the call
+ * ("ERROR: Parameter task_id of type string is required") before any project was resolved or any code
+ * ran, so the result carries zero targeting information — the agent's corrected retry is the first call
+ * that can prove or disprove targeting. Observed live: codex omitted the required task_id on its very
+ * first call, retried identically with it, and the marker confirmed the right project (TC build
+ * 1022424067) — invalidating that run measured nothing (#251 guard noise). Every result that EXECUTED
+ * (success, runtime error, or project-resolution failure) keeps the original strictness.
  */
 fun AgentTranscript.firstExecutionTargetsProject(expectedProjectDir: String): Boolean {
-    val firstResult = executeCodeCalls.firstOrNull()?.result ?: return false
+    val firstExecution = executeCodeCalls.firstOrNull { call ->
+        val result = call.result ?: return@firstOrNull true
+        !result.isParameterValidationRejection()
+    } ?: return false
+    val firstResult = firstExecution.result ?: return false
     if (firstResult.isError) return false
 
     val expectedPath = expectedProjectDir.trimEnd('/')
@@ -370,6 +385,9 @@ fun AgentTranscript.firstExecutionTargetsProject(expectedProjectDir: String): Bo
         line.substringAfter(PROJECT_BASE_PATH_MARKER, missingDelimiterValue = "").trim().trimEnd('/') == expectedPath
     }
 }
+
+private fun ExecuteCodeResult.isParameterValidationRejection(): Boolean =
+    isError && stripErrorPrefixes(text).startsWith(PARAMETER_VALIDATION_PREFIX)
 
 private fun ExecuteCodeResult.isProjectResolutionFailure(): Boolean =
     isError && stripErrorPrefixes(text).startsWith(PROJECT_NOT_FOUND_PREFIX)

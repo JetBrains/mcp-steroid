@@ -213,6 +213,10 @@ dependencies {
     // AI agent MCP server configuration helpers
     implementation(project(":ai-agents"))
 
+    // Shared devrig home layout, update-marker coordination and user-launcher
+    // invocation — common ground between the devrig CLI and the IDE plugin.
+    implementation(project(":devrig-common"))
+
     // PostHog analytics
     implementation("com.posthog:posthog-server:2.3.0")
 
@@ -649,6 +653,7 @@ val verifyBundledLibraries = tasks.register("verifyBundledLibraries") {
 
             //our binaires
             "lib/ai-agents-$pluginVersion.jar",
+            "lib/devrig-common-$pluginVersion.jar",
             "lib/ij-plugin-$pluginVersion.jar",
             "lib/kotlin-cli-$pluginVersion.jar",
             "lib/ocr-common-$pluginVersion.jar",

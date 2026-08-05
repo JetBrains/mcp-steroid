@@ -53,6 +53,10 @@ dependencies {
     implementation(project(":closeable-stack"))
     implementation(project(":ai-agents"))
 
+    // Shared devrig home layout, update-marker coordination and user-launcher
+    // invocation — common ground between the devrig CLI and the IDE plugin.
+    implementation(project(":devrig-common"))
+
     // DevrigVersion (used by the generated version metadata and the update checker)
     implementation(project(":mcp-core"))
 
@@ -554,6 +558,7 @@ val verifyBundledLibraries = tasks.register("verifyBundledLibraries") {
             "lib/devrig-$devrigVersion-classpath.jar",
             "lib/ai-agents-$devrigVersion.jar",
             "lib/closeable-stack-$devrigVersion.jar",
+            "lib/devrig-common-$devrigVersion.jar",
             "lib/execution-storage-$devrigVersion.jar",
             "lib/intellij-downloader-$devrigVersion.jar",
             "lib/mcp-core-$devrigVersion.jar",
