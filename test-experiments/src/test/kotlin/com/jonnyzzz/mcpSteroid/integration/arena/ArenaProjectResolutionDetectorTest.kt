@@ -154,6 +154,54 @@ class ArenaProjectResolutionDetectorTest {
     }
 
     @Test
+    fun `a leading parameter-validation rejection is skipped before the mandatory first-call check`() {
+        // Observed live (TC build 1022424067): codex omitted the required task_id on its very first
+        // call; the schema layer rejected it before any project was resolved, and the corrected retry
+        // confirmed the right project. The rejection carries no targeting information, so it must not
+        // invalidate the run.
+        val expectedProjectDir = "/home/agent/project-home"
+        val transcript = decode(
+            claudeCall("rejected"),
+            claudeResult(
+                callId = "rejected",
+                isError = true,
+                text = "ERROR: Parameter task_id of type string is required",
+            ),
+            claudeCall("retry"),
+            claudeResult(
+                callId = "retry",
+                isError = null,
+                text = "Project: task-project, base: $expectedProjectDir",
+            ),
+        )
+
+        assertTrue(transcript.firstExecutionTargetsProject(expectedProjectDir))
+    }
+
+    @Test
+    fun `a leading runtime error keeps the original strictness — the run stays invalid`() {
+        // A runtime error means code EXECUTED against some project without confirming which one;
+        // unlike a schema-layer rejection, that must still invalidate the run.
+        val expectedProjectDir = "/home/agent/project-home"
+        val transcript = decode(
+            claudeCall("boom"),
+            claudeResult(
+                callId = "boom",
+                isError = true,
+                text = "ERROR: java.lang.IllegalStateException: script exploded",
+            ),
+            claudeCall("retry"),
+            claudeResult(
+                callId = "retry",
+                isError = null,
+                text = "Project: task-project, base: $expectedProjectDir",
+            ),
+        )
+
+        assertFalse(transcript.firstExecutionTargetsProject(expectedProjectDir))
+    }
+
+    @Test
     fun `prose mention is not structural MCP usage`() {
         val prose = buildJsonObject {
             put("type", "message")
