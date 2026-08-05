@@ -90,19 +90,16 @@ class InstallerBootstrapPs1Test {
         require(File(genDir, "install.ps1").isFile) { "did not produce install.ps1 in $genDir" }
         makeWorldReadable(genDir)
 
-        // ── 4. start the pwsh install container (Ubuntu base, adds curl for verifyMockServes) ──
+        // ── 4. start the pwsh install container (pwsh is baked into the image; no test-time apt) ──
         val install = startDockerContainerAndDispose(
             lifetime,
             StartContainerRequest()
                 .image(pwshImage)
                 .logPrefix("installer-pwsh-ubuntu")
                 .volumes(ContainerVolume(genDir, "/gen", "ro"))
-                .entryPoint(
-                    "sh", "-c",
-                    "apt-get update -qq && apt-get install -y -qq curl >/dev/null 2>&1; mkdir -p \"$homeDir\"; sleep 3000",
-                ),
+                .entryPoint("sh", "-c", "mkdir -p \"$homeDir\"; sleep 3000"),
         )
-        awaitCurlInstalled(install)
+        awaitContainerReady(install, "installer-pwsh")
         verifyMockServes(install, nginxIp, "/devrig.zip")
         verifyMockServes(install, nginxIp, "/jdk.zip")
 
@@ -202,9 +199,9 @@ class InstallerBootstrapPs1Test {
                 lifetime,
                 StartContainerRequest().image(pwshImage).logPrefix("installer-pwsh-arch")
                     .volumes(ContainerVolume(genDir, "/gen", "ro"), ContainerVolume(badGenDir, "/badgen", "ro"))
-                    .entryPoint("sh", "-c", "apt-get update -qq && apt-get install -y -qq curl >/dev/null 2>&1; mkdir -p \"$homeDir\"; sleep 3000"),
+                    .entryPoint("sh", "-c", "mkdir -p \"$homeDir\"; sleep 3000"),
             )
-            awaitCurlInstalled(install)
+            awaitContainerReady(install, "installer-pwsh")
 
             val base = mapOf("HOME" to homeDir, "USERPROFILE" to homeDir, "DEVRIG_OS" to "windows")
             // WoW64: 32-bit PS on 64-bit Windows sets PROCESSOR_ARCHITECTURE=x86 but the real arch in
@@ -263,9 +260,9 @@ class InstallerBootstrapPs1Test {
                 lifetime,
                 StartContainerRequest().image(pwshImage).logPrefix("installer-pwsh-stdin")
                     .volumes(ContainerVolume(genDir, "/gen", "ro"))
-                    .entryPoint("sh", "-c", "apt-get update -qq && apt-get install -y -qq curl >/dev/null 2>&1; mkdir -p \"$homeDir\"; sleep 3000"),
+                    .entryPoint("sh", "-c", "mkdir -p \"$homeDir\"; sleep 3000"),
             )
-            awaitCurlInstalled(install)
+            awaitContainerReady(install, "installer-pwsh")
 
             val env = mapOf("HOME" to homeDir, "USERPROFILE" to homeDir)
             // (1) stdin close: the child devrig must see EOF, not block on / receive real input.
@@ -300,18 +297,14 @@ class InstallerBootstrapPs1Test {
             args("sh", "-c", script).timeoutSeconds(120).description("sh -c").extraEnv(env)
         }.awaitForProcessFinish()
 
-    private fun awaitCurlInstalled(c: ContainerDriver) {
-        val deadline = System.currentTimeMillis() + 4 * 60_000
-        while (System.currentTimeMillis() < deadline) {
-            val r = sh(c, "command -v curl >/dev/null 2>&1 && command -v pwsh >/dev/null 2>&1 && echo TOOLS_OK")
-            if (r.exitCode == 0 && "TOOLS_OK" in r.stdout) { log("curl + pwsh present"); return }
-            Thread.sleep(2_000)
-        }
-        error("curl + pwsh were not available in the pwsh container within the timeout (apt-get failed?)")
-    }
-
     private fun verifyMockServes(install: ContainerDriver, nginxIp: String, path: String) {
-        val r = sh(install, "curl -fsSL -o /dev/null http://$nginxIp$path && echo SERVED_$path")
+        // Built-in pwsh replaces curl (#443: no test-time apt-get; the image ships no curl) — and
+        // Invoke-WebRequest is what install.ps1 itself downloads with, so the probe matches the product.
+        val r = sh(
+            install,
+            "pwsh -NoProfile -Command '\$ProgressPreference=\"SilentlyContinue\"; " +
+                "Invoke-WebRequest -Uri http://$nginxIp$path -OutFile /dev/null' && echo SERVED_$path",
+        )
         require(r.exitCode == 0 && "SERVED_$path" in r.stdout) {
             "nginx side-car does not serve $path:\nstdout=${r.stdout}\nstderr=${r.stderr}"
         }

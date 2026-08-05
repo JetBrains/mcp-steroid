@@ -86,6 +86,11 @@
     `coding-with-intellij-patterns.md` (3 sites).
 
 - [ ] **runInspectionsDirectly follow-ups (#69 ask 1)** — deliberately deferred, not work-in-progress.
+  - On IU-262/K2, `LoggingSimilarMessage` and `UnusedSymbol` can crash on a Kotlin file that references
+    generated prompt articles with `Cannot compute containing PSI for unknown source kind
+    KtFakeSourceElementKind.PluginGenerated`. Crash isolation preserves other findings and correctly
+    populates `failedTools`, but the file check remains `check_failed`; add a focused reproducer and fix or
+    filter the unsupported synthetic PSI path without hiding unrelated inspection failures.
   - *Deferred:* a `PsiFile`-accepting overload (and any richer per-file batch surface). It is a
     `McpScriptContext` surface growth — gated by PHILOSOPHY Tenet 3 / the 3-reviewer consensus, same
     as the explicit-`Project` overload (#94). Revisit only if that gate is cleared.
@@ -111,6 +116,10 @@
     tune the 180-second readiness bound and the caller-cancellation behavior before widening support.
   - Put the pure Remote Development NDJSON parser/workflow contracts on a normal CI-backed task; the
     experimental task's direct-invocation guard currently keeps them out of aggregate CI runs.
+  - Redact Remote Development join-link fragments (`#jt=...`) from preserved managed-backend logs.
+    The Codex artifact review found one after the backend had stopped; the current sanitizer and invariant
+    cover `Authorization`/Bearer, `_ijt`, and `x-ijt` credentials only. Extend the pure sanitizer tests and
+    keep the shell artifact scan aligned before treating those logs as generally safe to publish.
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).
   - Add bounded retry-on-read-timeout to the shared IDE downloader. It already resumes a pre-existing
     `.tmp` with `Range`, but a socket stall currently waits 15 minutes and fails the whole Gradle test or
@@ -124,11 +133,6 @@
   ignores unknown key; new devrig falls back to the singular `plugin` field), devrig-side id→kind
   classification, PidMarker contract-test updates. Spec in the #88 closing comments.
 
-- [ ] **Fix the pre-existing `:prompts:test` failure** (broken on `main` since before 2026-06-09):
-  `MarkdownArticleContractTest.testNoNonKotlinFences` fails on
-  `debugger/debug-attach-remote-jvm.md` (5 ```text fences at lines 10/26/66/101/123). The contract
-  bans non-kotlin fences; rewrite those blocks as prose/inline code or ```kotlin. Until fixed, every
-  prompts contract run reports this one failure (sessions treat it as "green if sole failure" — debt).
 - [ ] **devrig-naming.md id-scheme drift**: the naming-contract doc still specifies the old
   slug/bootHash exposed ids (`IntelliJ_IDEA_2025.3.3-AbC4Df01`) while the implementation has moved to
   `productCode-hash8` backend_names (`iu-9fk2a0xQ`) and pid-salted project names. The plugins[] section
@@ -144,8 +148,10 @@
   `execute_code` and `take_screenshot`, and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
   `devrig take_screenshot --out=<path>` writes the PNG and prints `Saved --out: <path>`). `--wait` is
   **not**: it parses, and a generic guard in `GeneratedToolRuntime.kt` then refuses with exit 64
-  (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a
-  `list_windows` poll until the project reports initialized, and delete that guard plus its test.
+  (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a project-list
+  poll until the target path appears; a frontendless Remote Development backend has no window. If a
+  frontend window exists, additionally poll its modal/indexing/initialized flags. Then delete the guard
+  plus its test.
 
 - [ ] **`--json` parse-time usage errors emit nothing on stdout (#284)**: a parse failure becomes
   `DevrigCommandParseError`, which prints to stderr and answers 64 with no `--json` envelope — the KDoc
@@ -177,6 +183,18 @@
   `ToolCallErrorException` arm in `GeneratedToolRuntime.kt`'s error pipeline, fixed independently and
   pinned by `CliErrorEnvelopeTest`. It affected EVERY tool-side argument rejection, not just an absent
   `project_name`, so it would have outlived the inference work.
+
+- [ ] **Deferred, non-gating: agent harnesses must gate the first task turn on MCP initialization**:
+  initialize instructions
+  solve deferred-schema discovery only after the devrig MCP server reaches ready state. A Claude Code
+  run can still begin while the server is `pending`, see no `steroid_*` names or instructions, and commit
+  to shell text search before initialization completes. This is a client/harness readiness problem; add
+  a regression in the agent launcher instead of another server prompt or MCP tool.
+
+- [ ] **Pin an exact semantic oracle for the Keycloak Authenticator hierarchy E2E**: the headless-agent
+  discovery scenario currently gates the pinned checkout with a 70-FQN lower bound plus known indirect
+  implementors. Capture the canonical full set (or query it independently after the agent run) so future
+  Keycloak fixture changes can distinguish exact completeness from a strong workflow regression signal.
 
 - [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: three review findings deferred from
   PR #356. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call

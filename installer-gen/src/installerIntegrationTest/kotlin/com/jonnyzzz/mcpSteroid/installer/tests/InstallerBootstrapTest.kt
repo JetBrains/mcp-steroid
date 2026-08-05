@@ -38,7 +38,7 @@ import java.util.zip.ZipOutputStream
 class InstallerBootstrapTest {
     private val version = INSTALLER_TEST_VERSION
     private val jdkVersion = INSTALLER_TEST_JDK_VERSION
-    private val installImage = "ubuntu:24.04"
+
     private val muslImage = "alpine:3.21"
     private val homeDir = INSTALLER_HOME_DIR
 
@@ -70,7 +70,7 @@ class InstallerBootstrapTest {
                 // harness's exec shell.)
                 .logPrefix("installer-musl")
                 .volumes(ContainerVolume(genDir, "/gen", "ro"))
-                .entryPoint("sh", "-c", "apk add --no-cache bash >/dev/null 2>&1; mkdir -p \"$homeDir\"; sleep 3000"),
+                .entryPoint("sh", "-c", "apk add --no-cache bash; mkdir -p \"$homeDir\"; sleep 3000"),
         )
         awaitBashReady(install)
 
@@ -125,15 +125,12 @@ class InstallerBootstrapTest {
         val install = startDockerContainerAndDispose(
             lifetime,
             StartContainerRequest()
-                .image(installImage)
+                .image(ubuntuInstallerImageId)
                 .logPrefix("installer-ubuntu")
                 .volumes(ContainerVolume(genDir, "/gen", "ro"))
-                .entryPoint(
-                    "sh", "-c",
-                    "apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null 2>&1; mkdir -p \"$homeDir\"; sleep 3000",
-                ),
+                .entryPoint("sh", "-c", "mkdir -p \"$homeDir\"; sleep 3000"),
         )
-        awaitToolsInstalled(install)
+        awaitContainerReady(install, "installer-ubuntu")
         verifyMockServes(install, nginxIp, "/devrig.zip")
         verifyMockServes(install, nginxIp, "/jdk.tar.gz")
 
@@ -204,16 +201,6 @@ class InstallerBootstrapTest {
         }
         error("bash was not installed in the alpine container within the timeout (apk failed?)" +
             (lastError?.let { "; last probe error: $it" } ?: ""))
-    }
-
-    private fun awaitToolsInstalled(c: ContainerDriver) {
-        val deadline = System.currentTimeMillis() + 4 * 60_000
-        while (System.currentTimeMillis() < deadline) {
-            val r = sh(c, "command -v curl >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 && echo TOOLS_OK")
-            if (r.exitCode == 0 && "TOOLS_OK" in r.stdout) { log("curl + unzip present"); return }
-            Thread.sleep(2_000)
-        }
-        error("curl + unzip were not installed in the ubuntu container within the timeout (apt-get failed?)")
     }
 
     private fun verifyMockServes(install: ContainerDriver, nginxIp: String, path: String) {
