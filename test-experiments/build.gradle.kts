@@ -78,6 +78,11 @@ fun Test.configureExperimentalTest() {
         .filterKeys { it.toString().startsWith("arena.test.") }
         .forEach { (key, value) -> systemProperty(key.toString(), value.toString()) }
 
+    // Forward exact model-selection / pass-labeling system properties (used by DockerClaudeSession,
+    // DockerCodexSession, and arena pass reporting) — these are precise keys, not a prefix family.
+    listOf("claude.model", "codex.model", "arena.pass.label")
+        .forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
+
     dependsOn(pluginZip, agentOutputFilterDist, devrigPackageDist)
     doFirst {
         delete(layout.buildDirectory.dir("test-results/${this@configureExperimentalTest.name}/binary"))
