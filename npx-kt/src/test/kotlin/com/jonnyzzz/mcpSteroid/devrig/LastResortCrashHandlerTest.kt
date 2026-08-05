@@ -24,7 +24,9 @@ class LastResortCrashHandlerTest {
     private class CapturedStream {
         val buffer = ByteArrayOutputStream()
         val stream = PrintStream(buffer, true, Charsets.UTF_8)
-        fun text(): String = buffer.toString(Charsets.UTF_8)
+
+        // Normalized like GeneratedToolRuntimeTestSupport: println emits \r\n on Windows.
+        fun text(): String = buffer.toString(Charsets.UTF_8).replace("\r\n", "\n")
     }
 
     private val parseJson = Json { ignoreUnknownKeys = true }

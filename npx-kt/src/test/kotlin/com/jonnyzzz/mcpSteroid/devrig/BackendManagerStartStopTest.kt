@@ -1821,7 +1821,8 @@ class BackendManagerStartStopTest {
         } finally {
             System.setErr(original)
         }
-        return buffer.toString(Charsets.UTF_8)
+        // Normalized like GeneratedToolRuntimeTestSupport: println emits \r\n on Windows.
+        return buffer.toString(Charsets.UTF_8).replace("\r\n", "\n")
     }
 
     private object StaticDownloader : ManagedBackendDownloader {
