@@ -291,7 +291,8 @@ fun extractToolCallStats(rawOutput: String): ToolCallStats? {
 private const val CSV_HEADER = "timestamp,instance_id,pass_label,agent_claimed_fix,duration_s," +
         "exec_code_calls,bash_calls,read_calls,write_calls,edit_calls,glob_calls,grep_calls," +
         "num_turns,total_input_tokens,total_output_tokens,total_cache_creation_tokens," +
-        "total_cache_read_tokens,duration_api_ms,estimated_cost_usd,tests_pass,tests_run"
+        "total_cache_read_tokens,duration_api_ms,estimated_cost_usd,tests_pass,tests_run," +
+        "verified_ftp_passed,verified_ftp_total,verified_ftp_rate,claim_matches_reality,tests_tampered"
 
 /**
  * Append a row to the arena comparison CSV file.
@@ -306,6 +307,8 @@ private const val CSV_HEADER = "timestamp,instance_id,pass_label,agent_claimed_f
  * @param tokens extracted token usage (nullable)
  * @param testMetrics extracted test metrics (nullable)
  * @param decoded extracted decoded log metrics (nullable)
+ * @param verification objective FAIL_TO_PASS grade from [ArenaVerifier.verify] (nullable — null when
+ *                      verification itself failed, e.g. infra failure inside the container)
  */
 @Synchronized
 fun appendComparisonCsv(
@@ -317,6 +320,7 @@ fun appendComparisonCsv(
     tokens: TokenUsage?,
     testMetrics: TestMetrics?,
     decoded: DecodedLogMetrics?,
+    verification: ArenaVerificationResult? = null,
 ) {
     csvFile.parentFile?.mkdirs()
     if (!csvFile.exists()) {
@@ -344,6 +348,11 @@ fun appendComparisonCsv(
         tokens?.costUsd?.let { String.format("%.4f", it) } ?: "",
         (testMetrics?.testsPass ?: "").toString(),
         (testMetrics?.testsRun ?: "").toString(),
+        (verification?.classesPassed ?: "").toString(),
+        (verification?.classesTotal ?: "").toString(),
+        (verification?.failToPassRate ?: "").toString(),
+        (claimedFix == (verification?.failToPassRate == 1.0)).toString(),
+        (verification?.testsTampered ?: "").toString(),
     ).joinToString(",")
     csvFile.appendText(row + "\n")
 }

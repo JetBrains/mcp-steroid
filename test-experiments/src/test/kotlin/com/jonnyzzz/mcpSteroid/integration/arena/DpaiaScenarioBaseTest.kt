@@ -12,13 +12,13 @@ import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.Timeout
-import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
@@ -126,6 +126,12 @@ abstract class DpaiaScenarioBaseTest {
                     "(open: ${openProjects.joinToString { "${it.name}@${it.path}" }}). Deploy/open regression (#251)."
             }
 
+            // Snapshot every test-patch file's hash BEFORE the agent runs, so verify() below can detect
+            // whether the agent (or the prompt itself) tampered with the FAIL_TO_PASS test definitions
+            // instead of fixing production code.
+            val verifier = ArenaVerifier(session.scope, ideProjectDir)
+            val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
+
             // ── Agent run (TIMED) ────────────────────────────────────────────────
             val agent: AiAgentSession = when (agentName) {
                 "claude" -> session.aiAgents.claude
@@ -146,6 +152,26 @@ abstract class DpaiaScenarioBaseTest {
                 predeployedProjectDir = ideProjectDir,
                 logDir = session.runDirInContainer
             )
+
+            // ── Objective FAIL_TO_PASS verification (outside the agent timer) ────
+            // Independent of whatever the agent claimed: re-runs the FAIL_TO_PASS classes and grades
+            // them from surefire XML. Infra failure here (container died, Maven unreachable, ...) must
+            // not fail the whole arena run — it degrades to an unverified record instead.
+            val verification = try {
+                verifier.verify(
+                    failToPass = testCase.failToPass,
+                    projectJdkVersion = caseConfig.projectJdkVersion,
+                    testPatch = testCase.testPatch,
+                    preAgentSnapshot = preAgentSnapshot,
+                )
+            } catch (e: Exception) {
+                System.err.println(
+                    "[ARENA] Objective FAIL_TO_PASS verification failed for ${testCase.instanceId} " +
+                        "[$agentName+$modeLabel]: ${e.message}"
+                )
+                e.printStackTrace()
+                null
+            }
 
             // ── Extract metrics from agent NDJSON ────────────────────────────────
             val rawOutput = result.agentResult.stdout
@@ -173,11 +199,13 @@ abstract class DpaiaScenarioBaseTest {
                 tokenUsage = tokens,
                 testMetrics = testMetrics,
                 decodedLogMetrics = decodedLogMetrics,
+                verification = verification,
+                runDirPath = session.runDirInContainer.absolutePath,
             )
             results.add(record)
 
             // Write JSON summary
-            writeRunSummary(testCase, agentName, modeLabel, result, record, session.runDirInContainer)
+            writeRunSummary(testCase, agentName, modeLabel, record)
 
             // Print summary
             println("[ARENA] ════════════════════════════════════════")
@@ -256,6 +284,11 @@ abstract class DpaiaScenarioBaseTest {
                 println("║   Tests: ${m.testsRun} run, ${m.testsPass} pass, ${m.testsFail} fail  " +
                         "BUILD ${if (m.buildSuccess == true) "SUCCESS" else "FAILURE"}".padEnd(49) + "║")
             }
+            val v = r.verification
+            val claimMatchesReality = r.claimedFix == (v?.failToPassRate == 1.0)
+            println("║   Verified: ${(v?.let { "${it.classesPassed}/${it.classesTotal}" } ?: "?")}  " +
+                    "Claim matches reality: ${if (v != null) claimMatchesReality.toString() else "?"}  " +
+                    "Tamper: ${v?.testsTampered?.toString() ?: "?"}".padEnd(37) + "║")
             println("║   ${(r.summary ?: "(no summary)").take(72).padEnd(72)}      ║")
         }
 
@@ -267,47 +300,9 @@ abstract class DpaiaScenarioBaseTest {
         testCase: DpaiaTestCase,
         agentName: String,
         modeLabel: String,
-        result: ArenaTestResult,
         record: RunRecord,
-        runDir: File,
     ) {
-        val summary = buildJsonObject {
-            put("instance_id", testCase.instanceId)
-            put("agent", agentName)
-            put("mode", modeLabel)
-            put("run_dir", runDir.absolutePath)
-            put("exit_code", result.agentResult.exitCode ?: -1)
-            put("agent_claimed_fix", record.claimedFix)
-            put("used_mcp_steroid", record.usedMcpSteroid)
-            put("agent_duration_ms", record.agentDurationMs)
-            put("prewarm_ms", record.prewarmMs)
-            record.tokenUsage?.let { t ->
-                put("input_tokens", t.inputTokens)
-                put("output_tokens", t.outputTokens)
-                put("cache_read_tokens", t.cacheReadTokens)
-                put("cache_creation_tokens", t.cacheCreationTokens)
-                t.costUsd?.let { put("cost_usd", it) }
-                t.numTurns?.let { put("num_turns", it) }
-                t.durationApiMs?.let { put("duration_api_ms", it) }
-            }
-            record.testMetrics?.let { m ->
-                put("tests_run", m.testsRun)
-                put("tests_pass", m.testsPass)
-                put("tests_fail", m.testsFail)
-                m.buildSuccess?.let { put("build_success", it) }
-            }
-            record.decodedLogMetrics?.let { d ->
-                put("exec_code_calls", d.execCodeCalls)
-                put("read_calls", d.readCalls)
-                put("write_calls", d.writeCalls)
-                put("edit_calls", d.editCalls)
-                put("bash_calls", d.bashCalls)
-                put("glob_calls", d.globCalls)
-                put("grep_calls", d.grepCalls)
-            }
-            put("agent_summary", record.summary ?: "")
-            put("timestamp", java.time.Instant.now().toString())
-        }
+        val summary = buildRunSummaryJson(record)
         val summaryFile = IdeTestFolders.testOutputDir
             .resolve("dpaia-arena-run-${testCase.instanceId}-$agentName-$modeLabel.json")
         summaryFile.parentFile.mkdirs()
@@ -326,6 +321,7 @@ abstract class DpaiaScenarioBaseTest {
             tokens = record.tokenUsage,
             testMetrics = record.testMetrics,
             decoded = record.decodedLogMetrics,
+            verification = record.verification,
         )
         println("[ARENA] Comparison CSV appended to: ${csvFile.absolutePath}")
     }
@@ -349,6 +345,9 @@ abstract class DpaiaScenarioBaseTest {
         val tokenUsage: TokenUsage?,
         val testMetrics: TestMetrics?,
         val decodedLogMetrics: DecodedLogMetrics? = null,
+        /** Objective FAIL_TO_PASS grade from [ArenaVerifier.verify]; null when verification itself failed. */
+        val verification: ArenaVerificationResult? = null,
+        val runDirPath: String = "",
     )
 
     companion object {
@@ -362,4 +361,54 @@ abstract class DpaiaScenarioBaseTest {
             cases
         }
     }
+}
+
+/**
+ * Pure JSON-summary builder for one arena run — no I/O, no container access — so the shape of the
+ * summary (including the objective verification fields) is unit-testable without Docker.
+ */
+fun buildRunSummaryJson(rec: DpaiaScenarioBaseTest.RunRecord): JsonObject = buildJsonObject {
+    put("instance_id", rec.instanceId)
+    put("agent", rec.agentName)
+    put("mode", if (rec.withMcp) "mcp" else "none")
+    put("run_dir", rec.runDirPath)
+    put("exit_code", rec.exitCode ?: -1)
+    put("agent_claimed_fix", rec.claimedFix)
+    put("used_mcp_steroid", rec.usedMcpSteroid)
+    put("agent_duration_ms", rec.agentDurationMs)
+    put("prewarm_ms", rec.prewarmMs)
+    rec.tokenUsage?.let { t ->
+        put("input_tokens", t.inputTokens)
+        put("output_tokens", t.outputTokens)
+        put("cache_read_tokens", t.cacheReadTokens)
+        put("cache_creation_tokens", t.cacheCreationTokens)
+        t.costUsd?.let { put("cost_usd", it) }
+        t.numTurns?.let { put("num_turns", it) }
+        t.durationApiMs?.let { put("duration_api_ms", it) }
+    }
+    rec.testMetrics?.let { m ->
+        put("tests_run", m.testsRun)
+        put("tests_pass", m.testsPass)
+        put("tests_fail", m.testsFail)
+        m.buildSuccess?.let { put("build_success", it) }
+    }
+    rec.decodedLogMetrics?.let { d ->
+        put("exec_code_calls", d.execCodeCalls)
+        put("read_calls", d.readCalls)
+        put("write_calls", d.writeCalls)
+        put("edit_calls", d.editCalls)
+        put("bash_calls", d.bashCalls)
+        put("glob_calls", d.globCalls)
+        put("grep_calls", d.grepCalls)
+    }
+    // Objective FAIL_TO_PASS grade from ArenaVerifier.verify(), independent of the agent's own claim.
+    // Kept present (as JSON null) even when verification itself failed, so downstream tooling never
+    // has to distinguish "verifier said 0/0" from "verifier didn't run" by a missing key.
+    put("verified_ftp_passed", rec.verification?.classesPassed)
+    put("verified_ftp_total", rec.verification?.classesTotal)
+    put("verified_ftp_rate", rec.verification?.failToPassRate)
+    put("claim_matches_reality", rec.claimedFix == (rec.verification?.failToPassRate == 1.0))
+    put("tests_tampered", rec.verification?.testsTampered)
+    put("agent_summary", rec.summary ?: "")
+    put("timestamp", java.time.Instant.now().toString())
 }
