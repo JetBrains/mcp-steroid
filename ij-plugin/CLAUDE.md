@@ -393,8 +393,10 @@ script.
 
 ## Configuration
 
-Registry keys: `mcp.steroid.server.port`, `.host`, `.execution.timeout`, `.dialog.killer.enabled`,
-`.demo.enabled`, `.storage.path`, `.kotlinc.parameters`.
+Registry keys: `mcp.steroid.server.port`, `.host`, `.execution.timeout`,
+`.execution.dialogless.modal.wait.ms` (smart_non_modal's bounded wait for dialog-less modal progress,
+default 120 s, 0 disables), `.dialog.killer.enabled`, `.demo.enabled`, `.storage.path`,
+`.kotlinc.parameters`.
 
 ### WSL-hosted projects and `mcp.steroid.storage.path` ([#78](https://github.com/jonnyzzz/mcp-steroid/issues/78))
 
