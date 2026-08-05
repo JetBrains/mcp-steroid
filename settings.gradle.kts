@@ -1,3 +1,18 @@
+pluginManagement {
+    repositories {
+        // TeamCity-only: redirector first — the TC Mac farm's shared egress IP is 429-throttled
+        // by Maven Central, which the portal redirects to for mirrored artifacts. The canonical
+        // portal stays as fallback (a redirector 404 falls through to the next repository; only
+        // transport errors disable one). See gradle/jetbrains-cache-redirector.settings.gradle.kts.
+        if (System.getenv("TEAMCITY_VERSION") != null) {
+            maven("https://cache-redirector.jetbrains.com/plugins.gradle.org/m2") {
+                name = "GradlePluginPortalViaJetBrainsCacheRedirector"
+            }
+        }
+        gradlePluginPortal()
+    }
+}
+
 // Foojay disco-api resolver so Gradle can auto-download a matching JDK when
 // the daemon toolchain criteria in gradle/gradle-daemon-jvm.properties can't
 // be satisfied from discovered local JDKs. Required by `updateDaemonJvm` in
@@ -61,6 +76,10 @@ buildCache {
         isEnabled = !isReleaseBuild && credentials.password != null
     }
 }
+
+// TeamCity-only reroute of 429-throttled public Maven hosts through the JetBrains
+// cache redirector (project + project-buildscript repositories in every subproject).
+apply(from = "gradle/jetbrains-cache-redirector.settings.gradle.kts")
 
 // On Windows hosts: pre-materialize the bundled 7-Zip Windows binaries before any
 // project is configured, so LocalIdeProvisioner's config-phase .exe unpack has the
