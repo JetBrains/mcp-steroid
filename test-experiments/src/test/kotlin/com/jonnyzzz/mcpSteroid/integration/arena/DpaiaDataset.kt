@@ -129,8 +129,8 @@ object DpaiaDatasetLoader {
             issueNumbers = obj.stringList("issue_numbers"),
             tags = obj.stringList("tags"),
             repo = obj.string("repo"),
-            patch = obj.string("patch"),
-            testPatch = obj.string("test_patch"),
+            patch = repairTrimmedUnifiedDiff(obj.string("patch")),
+            testPatch = repairTrimmedUnifiedDiff(obj.string("test_patch")),
             failToPass = obj.stringList("FAIL_TO_PASS"),
             passToPass = obj.stringList("PASS_TO_PASS"),
             createdAt = obj.string("created_at"),
@@ -163,4 +163,63 @@ object DpaiaDatasetLoader {
             listOf(raw)
         }
     }
+}
+
+/**
+ * Repairs unified-diff text whose trailing whitespace was stripped by the dataset serialization
+ * (jonnyzzz/mcp-steroid#447 — 11 of 304 patches in the live dataset are affected; `git apply`
+ * rejects them with "corrupt patch at line N"):
+ *
+ *  - a blank CONTEXT line inside a hunk was trimmed from `" "` to `""` — restore the leading space;
+ *  - context lines at the very END of a hunk were dropped entirely — shrink the hunk header's
+ *    line counts to the surviving body (trailing context only anchors a hunk, it carries no change,
+ *    so a shorter-context hunk applies to exactly the same states).
+ *
+ * The declared header counts drive the parse, so a bare `""` BETWEEN two file sections is never
+ * mistaken for hunk content. Any other malformation fails loudly: repair must never guess content.
+ */
+fun repairTrimmedUnifiedDiff(patch: String): String {
+    if (patch.isBlank()) return patch
+    val hadTrailingNewline = patch.endsWith("\n")
+    val lines = (if (hadTrailingNewline) patch.dropLast(1) else patch).split("\n")
+    val hunkHeader = Regex("""^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$""")
+    val out = ArrayList<String>(lines.size)
+    var i = 0
+    while (i < lines.size) {
+        val header = hunkHeader.matchEntire(lines[i])
+        if (header == null) {
+            out.add(lines[i])
+            i++
+            continue
+        }
+        val (oldStart, oldCount, newStart, newCount, tail) = header.destructured
+        val oldN = oldCount.ifEmpty { "1" }.toInt()
+        val newN = newCount.ifEmpty { "1" }.toInt()
+        val headerIndex = out.size
+        out.add(lines[i])
+        i++
+        var oldLeft = oldN
+        var newLeft = newN
+        while ((oldLeft > 0 || newLeft > 0) && i < lines.size) {
+            var body = lines[i]
+            if (body.startsWith("@@") || body.startsWith("diff --git")) break
+            if (body.isEmpty()) body = " "
+            when {
+                body.startsWith(" ") -> { oldLeft--; newLeft-- }
+                body.startsWith("-") -> oldLeft--
+                body.startsWith("+") -> newLeft--
+                body.startsWith("\\") -> Unit // "\ No newline at end of file"
+                else -> error("Cannot repair patch: unparseable hunk line: $body")
+            }
+            out.add(body)
+            i++
+        }
+        if (oldLeft > 0 || newLeft > 0) {
+            check(oldLeft == newLeft) {
+                "Cannot repair patch: hunk truncated asymmetrically (old missing $oldLeft, new missing $newLeft)"
+            }
+            out[headerIndex] = "@@ -$oldStart,${oldN - oldLeft} +$newStart,${newN - newLeft} @@$tail"
+        }
+    }
+    return out.joinToString("\n") + if (hadTrailingNewline) "\n" else ""
 }
