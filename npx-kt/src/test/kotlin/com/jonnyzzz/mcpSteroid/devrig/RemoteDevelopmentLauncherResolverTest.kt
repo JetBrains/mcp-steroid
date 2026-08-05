@@ -152,7 +152,8 @@ class RemoteDevelopmentLauncherResolverTest {
         }
 
         assertTrue(error.message!!.contains("native Remote Development launcher is missing"), error.message)
-        assertTrue(error.message!!.contains("bin/remote-dev-server"), error.message)
+        // Platform-rendered: the message embeds Path.toString(), which uses backslashes on Windows.
+        assertTrue(error.message!!.contains(Path.of("bin", "remote-dev-server").toString()), error.message)
     }
 
     @Test
@@ -174,10 +175,12 @@ class RemoteDevelopmentLauncherResolverTest {
         @TempDir tempDir: Path,
     ) {
         val bundle = writeRemoteDevelopmentBundle(tempDir.resolve("idea"), HostOs.LINUX)
-        bundle.resolve("bin/remote-dev-server").toFile().setExecutable(false)
 
+        // Denied via the probe, not chmod: File.setExecutable(false) is a silent no-op on NTFS
+        // (Files.isExecutable stays true for any readable file), so the Unix precondition cannot
+        // be staged on a Windows agent — the injected probe makes the case deterministic on every OS.
         val error = assertFailsWith<ManagedBackendValidationException> {
-            RemoteDevelopmentLauncherResolver(HostOs.LINUX).resolve(bundle)
+            RemoteDevelopmentLauncherResolver(HostOs.LINUX, isExecutable = { false }).resolve(bundle)
         }
 
         assertTrue(error.message!!.contains("native Remote Development launcher is not executable"), error.message)
@@ -198,7 +201,8 @@ class RemoteDevelopmentLauncherResolverTest {
         }
 
         assertTrue(error.message!!.contains("Remote Development plugin is missing"), error.message)
-        assertTrue(error.message!!.contains("plugins/remote-dev-server"), error.message)
+        // Platform-rendered: the message embeds Path.toString(), which uses backslashes on Windows.
+        assertTrue(error.message!!.contains(Path.of("plugins", "remote-dev-server").toString()), error.message)
     }
 
     @Test

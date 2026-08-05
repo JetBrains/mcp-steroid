@@ -21,10 +21,14 @@ data class ManagedBackendLaunchSpec(
 
 class ManagedBackendLauncherResolver(
     private val hostOs: HostOs = resolveHostOs(),
+    // Injectable for tests only: a "non-executable launcher" cannot be staged on NTFS
+    // (File.setExecutable(false) is a silent no-op there), so cross-OS tests deny
+    // executability through this probe instead. Production always uses the default.
+    private val isExecutable: (Path) -> Boolean = { Files.isExecutable(it) },
 ) {
     fun resolve(descriptor: BackendDescriptor, bundleDir: Path): ManagedBackendLaunchSpec {
         if (usesRemoteDevelopment(descriptor.productKey, descriptor.buildNumber)) {
-            val remote = RemoteDevelopmentLauncherResolver(hostOs).resolve(bundleDir)
+            val remote = RemoteDevelopmentLauncherResolver(hostOs, isExecutable).resolve(bundleDir)
             return ManagedBackendLaunchSpec(
                 executable = remote.executable,
                 arguments = remote.arguments,
@@ -56,7 +60,7 @@ class ManagedBackendLauncherResolver(
 
     fun validateRequiredAssets(productKey: String, buildNumber: String?, bundleDir: Path) {
         if (usesRemoteDevelopment(productKey, buildNumber)) {
-            RemoteDevelopmentLauncherResolver(hostOs).resolve(bundleDir)
+            RemoteDevelopmentLauncherResolver(hostOs, isExecutable).resolve(bundleDir)
         }
     }
 
@@ -75,6 +79,9 @@ class ManagedBackendLauncherResolver(
 
 class RemoteDevelopmentLauncherResolver(
     private val hostOs: HostOs = resolveHostOs(),
+    // See ManagedBackendLauncherResolver: test seam for the NTFS-unrepresentable
+    // "non-executable launcher" precondition. Production always uses the default.
+    private val isExecutable: (Path) -> Boolean = { Files.isExecutable(it) },
 ) {
     fun resolve(bundleDir: Path): RemoteDevelopmentLaunchSpec {
         val ideHome = resolveIdeHome(bundleDir).normalize()
@@ -94,7 +101,7 @@ class RemoteDevelopmentLauncherResolver(
                 "The native Remote Development launcher is empty: $executable",
             )
         }
-        if (hostOs != HostOs.WINDOWS && !Files.isExecutable(executable)) {
+        if (hostOs != HostOs.WINDOWS && !isExecutable(executable)) {
             throw ManagedBackendValidationException(
                 "The native Remote Development launcher is not executable: $executable",
             )
