@@ -179,6 +179,28 @@ class ArenaProjectResolutionDetectorTest {
     }
 
     @Test
+    fun `consecutive codex parameter-validation rejections are all skipped`() {
+        // Observed live (TC build 1022487176, dpaia__empty__maven__springboot3-1): codex was rejected
+        // by the schema layer TWICE in a row — first for a missing task_id, then for a missing reason —
+        // before the third call executed and confirmed the right project. Codex carries no is_error
+        // field, so the rejections are normalized from `status: failed`; every leading rejection must
+        // be skipped, not just the first one.
+        val expectedProjectDir = "/home/agent/project-home"
+        val transcript = decode(
+            codexResult("item_2", status = "failed", text = "ERROR: Parameter task_id of type string is required"),
+            codexResult("item_3", status = "failed", text = "ERROR: Parameter reason of type string is required"),
+            codexResult(
+                "item_4",
+                status = "completed",
+                text = "execution_id: eid_1\nProject: project-home, base: $expectedProjectDir\nDocker: true",
+            ),
+        )
+
+        assertTrue(transcript.firstExecutionTargetsProject(expectedProjectDir))
+        assertEquals(ProjectResolutionStatus.CLEAN, transcript.projectResolutionStatus)
+    }
+
+    @Test
     fun `a leading runtime error keeps the original strictness — the run stays invalid`() {
         // A runtime error means code EXECUTED against some project without confirming which one;
         // unlike a schema-layer rejection, that must still invalidate the run.
