@@ -50,7 +50,10 @@ private fun chooseBackendMessage(candidates: List<BackendCandidate>): String {
 }
 
 private fun candidateList(candidates: List<BackendCandidate>): String {
-    if (candidates.isEmpty()) return "No candidates are currently available; start an IDE or call steroid_list_projects."
+    // Tool payloads are served verbatim to BOTH surfaces (MCP clients over `devrig mcp`, and the CLI,
+    // which never rewrites tool output) — so this text must stay surface-neutral: naming either
+    // `steroid_list_projects` or `devrig list_projects` would be wrong for the other reader.
+    if (candidates.isEmpty()) return "No candidates are currently available; start an IDE, or list the open projects to find a reachable backend."
     val items = candidates.joinToString("\n") { c ->
         val tag = if (c.startable != null) " (startable)" else ""
         "  ${c.backendName} — ${c.displayName}$tag"

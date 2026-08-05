@@ -141,14 +141,30 @@ open class ExecutionStorage(
     }
 
     suspend fun appendExecutionEventJson(executionId: ExecutionId, json: String) {
+        appendExecutionEventJsonLines(executionId, listOf(json))
+    }
+
+    /**
+     * Appends [texts] to the execution's `output.jsonl` as [TextMessage] lines, in list order, with ONE
+     * file open. The batch form exists for [ExecutionEventWriteQueue], which coalesces a burst of
+     * queued events into a single write instead of re-opening the file per line. `open` so a test can
+     * inject write failures without touching the filesystem.
+     */
+    open suspend fun appendExecutionEvents(executionId: ExecutionId, texts: List<String>) {
+        appendExecutionEventJsonLines(executionId, texts.map { oneLineJson.encodeToString(TextMessage.serializer(), TextMessage(it)) })
+    }
+
+    suspend fun appendExecutionEventJsonLines(executionId: ExecutionId, jsonLines: List<String>) {
+        if (jsonLines.isEmpty()) return
         withContext(Dispatchers.IO) {
             val file = executionId.dir.resolve("output.jsonl")
-            require(json.lines().size == 1)
-            require(json.startsWith("{") && json.endsWith("}"))
-
+            for (json in jsonLines) {
+                require(json.lines().size == 1)
+                require(json.startsWith("{") && json.endsWith("}"))
+            }
             Files.writeString(
                 file,
-                json + "\n",
+                jsonLines.joinToString("\n", postfix = "\n"),
                 StandardOpenOption.CREATE,
                 StandardOpenOption.APPEND
             )

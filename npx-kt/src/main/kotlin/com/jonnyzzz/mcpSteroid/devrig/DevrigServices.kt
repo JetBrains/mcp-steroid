@@ -1,5 +1,6 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorState
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdePidDiscoveryService
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeProjectMonitorService
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IntelliJPortDiscovery
@@ -24,6 +25,19 @@ class DevrigServices(
     val homePaths: HomePaths,
     val mcpStdin: InputStream,
     val mcpStdout: PrintStream,
+
+    /**
+     * The IDE snapshot [projectRouting] routes against. Null — production — means "whatever
+     * [ideMonitor] discovers".
+     *
+     * It is a constructor seam because discovery cannot be isolated any other way: [HomePaths.markersDir]
+     * is deliberately anchored at the real `user.home` (it is the plugin↔devrig marker contract and must
+     * never be relocated), so a scratch [homePaths] does NOT hide the developer's running IDEs. A test that
+     * drives the production [runCli] path and asserts an exit code therefore depends on which IDEs happen
+     * to be open — and `list_windows` is all-or-nothing, so one stale pid marker turns it red. Passing an
+     * empty provider makes such a test answer from a known routing table instead.
+     */
+    private val ideStateProvider: (() -> List<IdeMonitorState>)? = null,
 ) {
     fun lifetime(name: String): CloseableStack = lifetime.nestedStack(name)
 
@@ -86,7 +100,7 @@ class DevrigServices(
 
     val projectRouting: DevrigProjectRoutingService by lazy {
         DevrigProjectRoutingService(
-            stateProvider = { ideMonitor.stateSnapshot() },
+            stateProvider = ideStateProvider ?: { ideMonitor.stateSnapshot() },
         )
     }
 

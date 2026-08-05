@@ -55,6 +55,22 @@ class HomePathsTest {
     }
 
     @Test
+    fun `tmpDir is created on demand under home and is idempotent`(
+        @TempDir tempDir: Path,
+    ) {
+        val paths = HomePaths(tempDir.resolve("home"))
+        assertTrue(!Files.exists(paths.home.resolve("tmp")), "tmp must not exist before the first tmpDir() call")
+
+        val first = paths.tmpDir()
+        assertEquals(paths.home.resolve("tmp"), first)
+        assertTrue(first.isDirectory())
+
+        val second = paths.tmpDir()
+        assertEquals(first, second)
+        assertTrue(second.isDirectory())
+    }
+
+    @Test
     fun `migrateLegacyArchives moves old archive files into downloads and is idempotent`(
         @TempDir tempDir: Path,
     ) {

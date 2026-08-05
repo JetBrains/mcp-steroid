@@ -51,7 +51,7 @@ fun DevrigServices.runInstallDevrigCommand(): Int =
         out = mcpStdout,
         err = System.err,
         launcherPath = DevrigUserLauncher.path(homePaths),
-        registerLauncher = { ensureBinLauncher(homePaths, force = true, registerWindowsPath = true) },
+        registerLauncher = { ensureBinLauncher(homePaths, force = true) },
     )
 
 /**
@@ -124,7 +124,7 @@ fun DevrigServices.runInstallCommand(
         )
     }
     // Create the stable launcher first, then guarantee it exists before we register it.
-    ensureBinLauncher(homePaths, force = true, registerWindowsPath = true)
+    ensureBinLauncher(homePaths, force = true)
     val launcher = DevrigUserLauncher.path(homePaths)
     if (!launcher.isRegularFile()) {
         System.err.println(
