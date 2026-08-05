@@ -156,9 +156,16 @@ class GitDriver(
         val normalizedPatch = if (patchContent.endsWith("\n")) patchContent else patchContent + "\n"
         driver.writeFileInContainer(patchPath, normalizedPatch, executable = false)
 
+        // Several DPAIA dataset test patches don't apply under a plain `git apply`:
+        //  --recount: recompute each hunk's line counts from its body instead of trusting the
+        //    `@@ -a,b +c,d @@` header — some patches ship mismatched header counts (jhipster-sample-app-3,
+        //    petclinic-36) that otherwise fail as "corrupt patch at line N".
+        //  --3way: fall back to a 3-way merge using the pre-image blobs named by the patch's `index`
+        //    lines when context doesn't line up exactly (otherwise "patch does not apply", exit 1).
+        // Both are no-ops for a clean, well-formed patch, so they're safe for every task.
         driver.startProcessInContainer {
             this
-                .args("git", "-C", repoDir, "apply", "--allow-empty", patchPath)
+                .args("git", "-C", repoDir, "apply", "--allow-empty", "--recount", "--3way", patchPath)
                 .timeoutSeconds(30)
                 .description("git apply patch in $repoDir")
         }.awaitForProcessFinish().assertExitCode(0, "git apply patch")
