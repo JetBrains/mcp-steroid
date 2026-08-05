@@ -110,6 +110,8 @@ sed -n '<LINE>,$p' /tmp/ide-thread-dump.txt | head -80  # read its stack
 | `DialogWrapperPeerImpl.show` → `MessageDialogBuilder$YesNo.ask` → `ClassicUiToIslandsMigration` or similar | A "Meet the Islands Theme" / onboarding modal. Fix via `early-access-registry.txt` + `options/other.xml` startup stubs (see `writeEarlyAccessRegistry` / `writeStartupProperties` in `intelliJ.kt`). |
 | Deep inside `VfsData` init under `fleet.kernel.Transactor` with `urlopen`/`socket` frames | `AIPromoWindowAdvisor` is blocking startup on a `frameworks.jetbrains.com` HTTP fetch. Fix via `-Dllm.show.ai.promotion.window.on.start=false` + the AI-promo startup stubs. |
 | `java.awt.Dialog.show` → `com.android.tools.idea.stats.ConsentDialog$Companion.showConsentDialogIfNeeded` | Android Studio's own Google usage-statistics consent ("Help improve Android Studio", Don't send / Send). Fires when `~/.android/analytics.settings` is missing/unreadable (its `lastOptinPromptVersion` gates the prompt, and the file MUST be rw-able by the IDE user — `AnalyticsSettings` opens it `"rw"`). Fixed by the `writeAndroidStudioConsentStubs` pre-seed in `intelliJ.kt` (agent-owned `~/.android/analytics.settings` + `~/.local/share/Google/consentOptions/accepted`); if it re-fires, re-verify the JSON field names against `AnalyticsSettingsData.DataTypeAdapter` — unknown names are silently skipped. |
+| `execute_code` gate fails "modal dialog/progress is present" but the screenshot shows **no dialog at all** (background progress only); EDT stack shows `SuvorovProgress.processInvocationEventsWithoutDialog` / `EternalEventStealer` | The 2026.2 platform's freeze-protection elevates modality with NO dialog window while a write-action storm runs (VFS refresh during cold-start indexing). Not DialogKiller material — there is nothing to close. The plugin waits this out since `smart_non_modal` gained the bounded dialog-less-modality wait (`mcp.steroid.execution.dialogless.modal.wait.ms`, default 120s); if the gate still fails, the error says "dialog-less modal progress persisted past the bounded wait" — the IDE is genuinely settling slowly, retry later or raise the key. |
+| A modal titled `<IDE> EAP Build Expired` in `list_windows` / on screenshots, typically weeks after a major release | The eap channel used to serve the last pre-release EAP build, which expires ~30 days after it was built — every post-release quiet period hit this. `IdeReleaseLookup` now resolves EAP as the **newest available build** (max-by-build across eap and release types), so this should not recur; if it does, inspect the products-API feed — the resolver picks max `build`, numerically per segment. |
 
 ### Finding the *caller* that triggered the modal
 
@@ -132,6 +134,22 @@ the modal (e.g. `SdkLookupContextEx.runSdkResolutionUnderProgress` → Gradle pl
 dump out of `/tmp` into the failing test's `run-*/intellij/` folder if you plan to iterate
 on the fix — keeping the dump alongside the run-dir artifacts (video, screenshots, logs)
 makes later comparisons trivial.
+
+### Container names and labels — finding and sweeping strays
+
+Every test container is started as `--name mcpsteroid-<testRunId>-<seq>-<hex>` and labeled
+`com.jonnyzzz.mcp-steroid.test-run=<testRunId>` (`test-helper/.../docker-container-start.kt`;
+the name is registered with `DockerReaper` BEFORE `docker run`, so cleanup is idempotent even
+when the docker-run client itself times out). To find or sweep what a run left behind:
+
+```bash
+docker ps -a --filter label=com.jonnyzzz.mcp-steroid.test-run          # all test containers
+docker ps -aq --filter label=com.jonnyzzz.mcp-steroid.test-run=tc-<buildId> | xargs docker rm -f
+```
+
+Leaked full-IDE containers wedge the Docker daemon (readiness timeouts cascade at ~5-min
+intervals across every subsequent test) — if container starts begin failing with
+"Terminated by timeout", sweep first, diagnose second.
 
 ## Remote-debugging the Dockerized IDE (attach a JVM debugger live)
 
@@ -393,6 +411,12 @@ via the `test.integration.docker` system property (set per test task in each mod
 Playground tests start an IDE in Docker and block indefinitely, allowing you to connect
 to the running IDE via MCP and experiment interactively. This is the primary technique
 for developing and debugging IDE-specific features.
+
+**Playgrounds never run on CI.** They park forever by design (`Thread.currentThread().join()`,
+bounded only by a 240-min `@Timeout`), so the CI lane excludes `*PlaygroundTest`
+(`-Pmcp.testIntegration.lane=main` in `test-integration/build.gradle.kts`). Local invocations
+(lane unset) keep them reachable exactly as documented below. The first time one slipped into a
+CI run it burned four hours of the build budget (#412).
 
 ### How to Start
 
@@ -679,6 +703,23 @@ Nightly builds (`262-SNAPSHOT`) need: (1) `nightly()` repo (may need auth/VPN), 
 
 These rules govern how Docker-based tests behave on TeamCity Linux agents. Most surface only on Linux
 (macOS/Docker Desktop's virtiofs hides UID issues).
+
+### CI lane split — `mcp.testIntegration.lane`
+
+`:test-integration:test` is split across two TeamCity configurations via a Gradle property
+(`test-integration/build.gradle.kts`):
+
+- `-Pmcp.testIntegration.lane=main` — the smoke matrix; excludes the compat/verification classes
+  below AND `*PlaygroundTest`.
+- `-Pmcp.testIntegration.lane=compat` — exactly `PluginVerificationTest`,
+  `PluginBuildCompatibilityTest`, `PluginRuntimeCompatibilityTest`,
+  `AndroidStudioRuntimeCompatTest`. These each pull a multi-GB IDE distribution, so they run on a
+  fresh agent instead of hours into the main matrix.
+- unset — the full suite; local behavior is unchanged, `--tests` selection works as always.
+
+Every class still reports from exactly one configuration — this is a split, not a skip. A bogus
+lane value fails the build at configuration time. The TC-side wiring lives in the
+`~/Work/mcp-steroid-teamcity` repo (its `CLAUDE.md` documents the config landscape).
 
 ### TeamCity DSL build wiring
 

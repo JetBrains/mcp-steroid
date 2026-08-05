@@ -222,12 +222,17 @@ Root `build.gradle.kts` defines `ci`-prefixed aggregator tasks for TeamCity and 
 | Task | Subprojects | Notes |
 |------|-------------|-------|
 | `buildPluginOnCI` | `:ij-plugin` (builds + publishes ZIP) | Entry point for both GH Actions and TC |
-| `ciBuildPluginTests` | All plugin modules **except** prompts + non-plugin | Per-OS matrix on TC |
+| `ciBuildPluginTests` | All plugin modules **except** prompts + non-plugin | Per-OS matrix on TC; includes `verifyPlugin` + bundled-library gates |
 | `ciBuildPromptsTests` | `prompt-generator`, `prompts`, `prompts-api` | Linux only; full matrix takes 60–120+ min |
-| `ciIntegrationTests` | `:test-helper:test` → `:ij-plugin:integrationTest` → `:test-integration:test` | Strict sequential ordering via `mustRunAfter`; needs Docker + API keys |
+| `ciIntegrationTests` | `:test-helper:test` → `:installer-gen:installerIntegrationTest` → `:ij-plugin:integrationTest` → `:test-integration:test` | Strict sequential ordering via `mustRunAfter`; needs Docker + API keys |
+| `ciDevrigTests` | `:npx-kt:test` → `:npx-kt:integrationTest` | devrig unit + stdio Docker suite; Linux TC config, plus a Windows unit-only TC leg (`:npx-kt:test` — the real-NTFS `BinLauncherWindowsTest` runs nowhere else) |
+| `ciAgentLaunchTests` | `:test-integration-agent-launch` (`test` + `windowsPs1Test`) | Cross-OS agent-launch behaviour; task-level OS gates (no-op on macOS) |
 
 `:test-integration:test` and `:test-experiments:test` have an `onlyIf` guard — plain root `./gradlew test`
-silently skips both. Direct `./gradlew :test-integration:test --tests '...'` still works.
+silently skips both. Direct `./gradlew :test-integration:test --tests '...'` still works. On TC,
+`:test-integration:test` is split by the `mcp.testIntegration.lane` property (`main` = smoke matrix,
+excludes playgrounds; `compat` = verifier/262-compat/Android-Studio legs on a fresh agent; unset = full
+suite, the local behavior) — see `test-integration/AGENTS.md` → "CI lane split".
 
 **Vendor-feed tests are opt-in**, so a Google/JetBrains/GitHub outage can never redden a normal build:
 
@@ -241,7 +246,11 @@ The offline equivalent runs by default: `AllIdeProductsDownloadTest` walks every
 recorded payloads of all three feeds.
 
 **TeamCity DSL** lives in a separate repo (`~/Work/mcp-steroid-teamcity`). See its own `CLAUDE.md` for the
-generate→edit→regenerate→commit workflow. The TC VCS root pulls from `jb`, not `origin` — see "Git remotes" below.
+generate→edit→regenerate→commit workflow, the build-configuration landscape (per-push VCS triggers on the
+gate configs, the Sunday-03:00 `WeeklyAllTests` composite, the `CompatTests` lane) and the `jb tc` CLI
+recipes for triggering/inspecting builds. The TC VCS root pulls from `jb`, not `origin` — see "Git remotes"
+below. When a DSL change passes a NEW Gradle property to this repo, land the property on `jb/main` FIRST:
+an unknown `-P` is silently ignored, so the config would quietly run the wrong scope.
 
 **GitHub Actions** (`.github/workflows/`): builds the publishable plugin ZIP and deploys the website to
 GitHub Pages. Plugin tests are intentionally NOT mirrored — full coverage stays on TC (3–5× faster

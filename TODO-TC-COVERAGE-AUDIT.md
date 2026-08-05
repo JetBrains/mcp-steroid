@@ -1,26 +1,28 @@
 # TODO — TeamCity coverage audit follow-ups (0.102 release validation, 2026-07-31)
 
 Source: adversarially-verified TC-coverage audit run during the 0.102 release validation
-(10 confirmed gaps, 0 refuted). Two gaps were fixed immediately in `mcp-steroid-teamcity`
-commit `7b7ec80` (Windows devrig-test leg = GAP-1; VCS triggers on the gate configs = GAP-6).
-Test failures found by the validation runs are tracked as issues
-[#406](https://github.com/jonnyzzz/mcp-steroid/issues/406)
-[#407](https://github.com/jonnyzzz/mcp-steroid/issues/407)
-[#408](https://github.com/jonnyzzz/mcp-steroid/issues/408)
-[#409](https://github.com/jonnyzzz/mcp-steroid/issues/409)
-[#410](https://github.com/jonnyzzz/mcp-steroid/issues/410).
+(10 confirmed gaps, 0 refuted). Fixed since: GAP-1 (Windows devrig-test leg) and GAP-6
+(VCS triggers on the gate configs) in `mcp-steroid-teamcity@7b7ec80`; validation-run test
+failures [#406](https://github.com/jonnyzzz/mcp-steroid/issues/406)–
+[#410](https://github.com/jonnyzzz/mcp-steroid/issues/410) all fixed and closed 2026-08-01;
+the IDE-matrix debt they unblocked was burned down via
+[#412](https://github.com/jonnyzzz/mcp-steroid/issues/412) (2026-08-03/04: CompatTests lane
+9/9 green, main matrix down to flake-classification — see the issue for the full history).
 
 ## Remaining gaps (product repo)
 
-- **GAP-2 (important) — rolling IDE channels slide silently.** Every "stable"/"eap" surface
-  (prompts KtBlock matrix via `ideDownloadSpecs`, the 8 TC PromptTest legs via
-  `-Pmcp.prompts.ide.filter`, test-integration's `IdeDistribution.Latest`) resolves the
-  products-API channel with no expected-major assertion; the downloader CLI does not even
-  accept a version flag. Already fired once: "stable" slid 2026.1 → 2026.2 on 2026-07-16,
-  which is what broke #409. Only `McpSteroidIdeTargets` pins majors (`262-EAP-SNAPSHOT`) and
-  rejects rolling tags. Fix: optional `expectedMajorPrefix` on the channel-resolution path,
-  failing loudly when the resolved build's major changes, so a channel cut becomes a
-  deliberate single-place edit. Then update `docs/262-EAP-PLAN.md` remaining-gaps note.
+- **GAP-2 (important, PARTIALLY addressed) — rolling IDE channels slide silently.** Every
+  "stable"/"eap" surface (prompts KtBlock matrix via `ideDownloadSpecs`, the 8 TC PromptTest
+  legs via `-Pmcp.prompts.ide.filter`, test-integration's `IdeDistribution.Latest`) resolves
+  the products-API channel with no expected-major assertion; the downloader CLI does not even
+  accept a version flag. Already fired twice: "stable" slid 2026.1 → 2026.2 on 2026-07-16
+  (broke #409 and the 262 classpath allowlist), and the post-release eap gap served expired
+  EAP builds ("PyCharm EAP Build Expired", #412). The expiry half is FIXED structurally —
+  `IdeReleaseLookup` now resolves EAP as the newest available build across eap+release types —
+  but the original ask stands: an optional `expectedMajorPrefix` on the channel-resolution
+  path, failing loudly when the resolved major changes, so a channel cut becomes a deliberate
+  single-place edit. This WILL recur at 263 (also budget a `UNLOADED_CONTENT_MODULES_IU_263`
+  set in `ContentModuleClasspathTest` — see the symptom table in `ij-plugin/CLAUDE.md`).
 - **GAP-3 (important) — buildSrc tests never run.** 7 test files (incl.
   `ClassFileVersionScannerTest`, which guards the `verifyClassFileVersions` release gate)
   are never compiled nor run by any CI. Fix: wire
@@ -46,18 +48,22 @@ Test failures found by the validation runs are tracked as issues
   Keycloak (18 configs), SSR (4), YouTrackDb (4), IdePower (8), AndroidStudio (2) have no
   existence/drift validation. Fix: extend `main-test.kt` mirroring
   `testBrightScenarioTestClassesExist`.
-- **GAP-7 (minor) — `:intellij-downloader:liveNetworkTest` invoked by nothing.** Fix: small
-  scheduled TC config (weekly, Linux) hitting the live JetBrains products API.
+- **GAP-7 (minor, product half DONE) — live-network feed tests invoked by nothing on TC.**
+  The opt-in tasks now exist and are documented in the root `CLAUDE.md` CI section
+  (`:npx-kt:liveNetworkTest`, `:npx-kt:liveDownloadSmokeTest`,
+  `:intellij-downloader:liveNetworkTest`), with the offline `AllIdeProductsDownloadTest`
+  running by default. Remaining: a small scheduled TC config (weekly, Linux) that runs the
+  cheap live-network pair so vendor-feed drift is caught between releases.
 
-## Infra notes from the 0.102 validation runs
+## Infra notes from the 0.102 validation runs (updated 2026-08-04)
 
-- **Mac agent: Maven Central 429 (Too Many Requests)** killed the
-  `ij-plugin test (Mac aarc64)` leg before tests started — same "Gradle exception" signature
-  as the May 0.96-era failures; the agent's dependency cache is cold. Consider a repository
-  mirror / `--refresh-dependencies` retry policy for the Mac agent, or the BuildFetch cache
-  warm-up.
-- **TestIntegrationBuild can never show SUCCESS on TC** while the Gemini skip contract
-  surfaces as 6 failures — see #408. 108/108 real tests passed on `bf19795c`.
-- PromptTest heavy matrix (60–120 min) and TestIntegrationBuild stay manually triggered on
-  purpose; consider a nightly `schedule` trigger once #406/#409 are fixed so history builds
-  up without cost surprises.
+- **Mac agent: Maven Central 429 (Too Many Requests)** killed one `ij-plugin test
+  (Mac aarc64)` leg before tests started — same "Gradle exception" signature as the May
+  0.96-era failures; the very next run passed once the dependency cache warmed. If it
+  recurs, consider a repository mirror or a BuildFetch cache warm-up for the Mac agent.
+- ~~TestIntegrationBuild can never show SUCCESS while Gemini skips count as failures~~ —
+  FIXED (#408, `JUnit38AssumeSupportRunner`): the Gemini legs now report as ignored.
+- Scheduling landscape (implemented in `mcp-steroid-teamcity`, see its `CLAUDE.md`): gate
+  configs run per-push via VCS triggers; the heavy matrices run in the Sunday-03:00
+  `WeeklyAllTests` composite (PromptTest, TestIntegrationBuild lane=main at 480 min,
+  CompatTests lane on a fresh agent). Nothing heavy fires per-push by design.
