@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.logger
 import com.jonnyzzz.mcpSteroid.devrig.server.runStubStdioMcpServer
 import com.jonnyzzz.mcpSteroid.mcp.McpServerCore
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
+import java.io.PrintStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
@@ -27,21 +28,25 @@ fun main(rawArgs: Array<String>) {
     val mcpStdout = System.out
     System.setOut(System.err)
 
-    val command = parseDevrigCommand(rawArgs)
-    val headliner = buildHeadliner()
-    if (command is DevrigCommand.MCP) {
-        System.err.println(headliner)
-    } else {
-        System.setOut(mcpStdout)
-    }
-
-    val homePaths = resolveHomePathsOrDie()
-
-    //setup logging. That is essential to avoid logger usages BEFORE this statement
-    configureLoggingAndLogStarted(homePaths, rawArgs.toList(), command.debug)
-
     val lifetime = CloseableStackHost()
     val exitCode = try {
+        // Parsing sits INSIDE the crash handler: the schema-driven CLI fails fast at construction time
+        // (duplicate aliases, colliding CLI names, an unsupported schema type all throw before any
+        // command exists), and an exception escaping main() would make the JVM exit 1 — the TOOL_ERROR
+        // slot of the frozen exit table — instead of the SOFTWARE=70 that names devrig's own fault.
+        val command = parseDevrigCommand(rawArgs)
+        val headliner = buildHeadliner()
+        if (command is DevrigCommand.MCP) {
+            System.err.println(headliner)
+        } else {
+            System.setOut(mcpStdout)
+        }
+
+        val homePaths = resolveHomePathsOrDie()
+
+        //setup logging. That is essential to avoid logger usages BEFORE this statement
+        configureLoggingAndLogStarted(homePaths, rawArgs.toList(), command.debug)
+
         DevrigServices(
             lifetime = lifetime,
             homePaths = homePaths,
@@ -49,10 +54,12 @@ fun main(rawArgs: Array<String>) {
             mcpStdout = mcpStdout,
         ).mainImpl1(command, headliner)
     } catch (t: Throwable) {
+        // The parse phase sits inside this try (see above), so `command` may not exist yet — reference
+        // only what is always in scope. Logging may also be unconfigured this early, so stderr is the
+        // reliable channel here; the trace is never swallowed.
         System.err.println("Unexpected error ${t.message}")
         t.printStackTrace(System.err)
-        logger<DevrigLastResortCrashHandler>().error("Unexpected error running $command. ${t.message}", t)
-        64
+        CliExit.SOFTWARE
     } finally {
         lifetime.closeAllStacks()
     }
@@ -87,10 +94,16 @@ suspend fun DevrigServices.mainImpl2(
     command: DevrigCommand,
     headliner: String,
 ): Int = coroutineScope {
-    // The devrig binary owns ~/.mcp-steroid/bin/devrig: (re)create/update it on EVERY start so it
-    // self-heals and always points at this running install + JDK. Best-effort and stderr-only — never
-    // blocks serving. It writes atomically, so an agent mid-read of the launcher never sees a torn file.
-    ensureBinLauncher(homePaths)
+    // The devrig binary owns ~/.mcp-steroid/bin/devrig: (re)create/update it on start so it self-heals
+    // and always points at this running install + JDK. Best-effort and stderr-only — never blocks
+    // serving. It writes atomically, so an agent mid-read of the launcher never sees a torn file.
+    //
+    // Gated on [selfHealsLauncherOnStart]: the MCP-as-CLI tool facades are thin, stateless bridge
+    // forwarders and must NOT mutate on-disk launcher/PATH state (Tenet 3). The self-heal is a
+    // bootstrap/lifecycle concern reserved for `mcp` + the interactive commands.
+    if (command.selfHealsLauncherOnStart()) {
+        ensureBinLauncher(homePaths)
+    }
 
     // For the MCP command, the running McpServerCore becomes available once the
     // stdio server is built; the update check broadcasts its notice over it (in
@@ -151,37 +164,34 @@ suspend fun DevrigServices.mainImpl2(
             System.err.println("Unexpected error ${t.message}")
             t.printStackTrace(System.err)
             logger<DevrigLastResortCrashHandler>().error("Unexpected error serving 'devrig mcp'. ${t.message}", t)
-            return@coroutineScope 64
+            return@coroutineScope CliExit.SOFTWARE
         }
     }
 
     if (command.printsHeadliner()) {
         mcpStdout.println(headliner)
     }
-    runCliWithLastResortHandling(command) { runCli(command) }
+    runCliWithLastResortHandling(command, mcpStdout) { runCli(command) }
 }
 
 private class DevrigLastResortCrashHandler
 
 /**
- * Runs [block] (in production, [runCli] for [command]) and maps its failure to an exit code:
- *
- *  - [CliUserFacingException] → its own [CliUserFacingException.exit], message-only on stderr (the trace
- *    goes to the log file, so the console stays readable but the report stays debuggable).
- *  - anything else → the last-resort `64`, with the trace printed directly to stderr AND logged with the
- *    exception — never swallowed, per the root `CLAUDE.md` rule that every catch must rethrow, log, or
- *    both — so an operator/agent can diagnose an NPE deep in the bridge. The direct `printStackTrace`
- *    stays alongside the log record on purpose: this is the last-resort handler, and it must not depend
- *    on logging being configured and reachable to get the trace in front of whoever is looking.
- *
+ * Runs [block] (in production, [runCli] for [command]) and converts an unhandled failure into the
+ * last-resort exit code. The trace ALWAYS goes to [System.err] — never swallowed, per the root
+ * `CLAUDE.md` rule that every catch must rethrow, log, or both — so an operator/agent can diagnose an
+ * NPE deep in the bridge even under `--json`, where stdout stays a single clean envelope and therefore
+ * cannot also carry the trace. A [CliUserFacingException] renders as its message alone (and its own
+ * exit code), since a stack trace would bury the one line the user must read.
  * [kotlinx.coroutines.CancellationException] is rethrown as-is rather than treated as a failure:
  * swallowing it here would stop the surrounding coroutine scope from unwinding through structured
- * concurrency. (The outer `main()` handler still reports a rethrown cancellation as an "unexpected
- * error" of its own — that duplicate is unavoidable but harmless, since the process exits either way.)
+ * concurrency. (The outer `main()` handler still logs a rethrown cancellation as an "unexpected
+ * error" of its own — that duplicate log line is unavoidable but harmless, since the process exits
+ * either way.)
  *
  * Extracted from [mainImpl2] so this exit-code mapping is unit-testable without booting the CLI.
  */
-fun runCliWithLastResortHandling(command: DevrigCommand, block: () -> Int): Int {
+fun runCliWithLastResortHandling(command: DevrigCommand, mcpStdout: PrintStream, block: () -> Int): Int {
     val log = logger<DevrigLastResortCrashHandler>()
     return try {
         block()
@@ -199,7 +209,20 @@ fun runCliWithLastResortHandling(command: DevrigCommand, block: () -> Int): Int 
         System.err.println("Unexpected error calling $command. ${t.message}")
         t.printStackTrace(System.err)
         log.error("Unexpected error calling $command. ${t.message}", t)
-        64
+        if (command.json) {
+            Presentation.Json().renderError(
+                // The envelope's `command` key carries the invoked CLI command everywhere else
+                // (RunTool.commandName); a consumer correlating envelopes by command must not lose
+                // exactly the crash envelope. Lifecycle verbs have no commandName — they stay "devrig".
+                command = (command as? DevrigCommand.RunTool)?.commandName ?: "devrig",
+                message = "unexpected error: ${t.message ?: t.javaClass.simpleName}",
+                // An unhandled crash is devrig's own fault, not the caller's — SOFTWARE (70), never the
+                // USAGE (64) that flags an argument mistake. The same code main() and the MCP branch return.
+                exit = CliExit.SOFTWARE, out = mcpStdout,
+            )
+        } else {
+            CliExit.SOFTWARE
+        }
     }
 }
 
@@ -214,6 +237,7 @@ private fun DevrigCommand.runsTool(): Boolean = when (this) {
     is DevrigCommand.DevrigCommandInstall,
     is DevrigCommand.DevrigCommandInstallDevrig,
     is DevrigCommand.DevrigCommandInstallPlugin -> true
+    is DevrigCommand.RunTool -> true
     is DevrigCommand.DevrigCommandInstallOverview,
     is DevrigCommand.DevrigCommandInstallConfig,
     is DevrigCommand.DevrigCommandHelp,
@@ -222,13 +246,53 @@ private fun DevrigCommand.runsTool(): Boolean = when (this) {
 }
 
 /**
- * Whether this command prints the `devrig vX.Y.Z — ...` banner before its output. Tool-backed, non-`mcp`
- * commands print it — but only in human console mode: `--json` must stay a single clean stdout document
- * with no banner line ahead of it. Public (not `private`) so it is unit-testable across every
- * [DevrigCommand] variant.
+ * The MCP-as-CLI tool commands (a generated `devrig <tool>` subcommand calling `steroid_*` directly,
+ * e.g. `devrig execute_code`) emit data (markdown, JSON, tool output) to stdout that must stay clean
+ * for piping, so they never print the human headliner banner and never self-heal the on-disk launcher
+ * just to forward one bridge call (Tenet 3: devrig is stateless) — unlike the interactive
+ * `project` / `backend` / `install` listings.
+ *
+ * Written as an exhaustive `when` over every [DevrigCommand] case (rather than a single `is` check) so a
+ * new variant must be classified deliberately, forced by the compiler, and never becomes a silently-stale
+ * predicate.
+ */
+private fun DevrigCommand.isMcpAsCliToolCommand(): Boolean = when (this) {
+    is DevrigCommand.RunTool -> true
+    is DevrigCommand.MCP,
+    is DevrigCommand.DevrigCommandBackend,
+    is DevrigCommand.DevrigCommandBackendDownload,
+    is DevrigCommand.DevrigCommandBackendStart,
+    is DevrigCommand.DevrigCommandBackendStop,
+    is DevrigCommand.DevrigCommandBackendProvision,
+    is DevrigCommand.DevrigCommandProject,
+    is DevrigCommand.DevrigCommandInstall,
+    is DevrigCommand.DevrigCommandInstallDevrig,
+    is DevrigCommand.DevrigCommandInstallOverview,
+    is DevrigCommand.DevrigCommandInstallConfig,
+    is DevrigCommand.DevrigCommandInstallPlugin,
+    is DevrigCommand.DevrigCommandHelp,
+    is DevrigCommand.DevrigCommandVersion,
+    is DevrigCommand.DevrigCommandParseError -> false
+}
+
+/**
+ * Whether this command performs the on-start `~/.mcp-steroid/bin` launcher + PATH self-heal
+ * ([ensureBinLauncher]). The self-heal is a bootstrap/lifecycle concern: it runs for the long-lived
+ * `mcp` server and the interactive lifecycle commands (backend / project / install / help / version) —
+ * but NOT for the thin, stateless MCP-as-CLI tool facades ([isMcpAsCliToolCommand]), which must never
+ * mutate on-disk launcher/PATH state just to forward a single bridge call (Tenet 3: devrig is
+ * stateless). Pure and side-effect-free so it is unit-testable across every [DevrigCommand] variant.
+ */
+fun DevrigCommand.selfHealsLauncherOnStart(): Boolean = !isMcpAsCliToolCommand()
+
+/**
+ * Whether this command prints the `devrig vX.Y.Z — ...` banner before its output. Tool-backed,
+ * non-`mcp`, non-MCP-as-CLI commands print it — but only in human console mode: `--json` must stay a
+ * single clean stdout document with no banner line ahead of it. Public (not `private`) so it is
+ * unit-testable across every [DevrigCommand] variant, mirroring [selfHealsLauncherOnStart].
  */
 fun DevrigCommand.printsHeadliner(): Boolean =
-    runsTool() && this !is DevrigCommand.MCP && !json
+    runsTool() && this !is DevrigCommand.MCP && !json && !isMcpAsCliToolCommand()
 
 suspend fun DevrigServices.mainImplMcp(
     onServerReady: (McpServerCore) -> Unit = {},

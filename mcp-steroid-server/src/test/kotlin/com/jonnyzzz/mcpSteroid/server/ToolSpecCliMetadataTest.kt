@@ -81,14 +81,26 @@ class ToolSpecCliMetadataTest {
     }
 
     @Test
-    fun `project-scoped tools mark project_name CLI-optional but keep it MCP-required`() {
+    fun `project-scoped tools demand project_name on the CLI, not just MCP-required`() {
+        // No cwd inference runs yet (see TODO), so project_name is a plain mandatory parameter: it is NOT
+        // cliOptional, which is what makes the command-line parser demand it rather than defer the check to
+        // the tool. When cwd inference lands, `.cliOptional()` returns to CommonToolParams.projectName().
         val projectScoped = listOf(executeCode, executeFeedback, takeScreenshot, input, fetchResource)
         for (tool in projectScoped) {
             val projectName = tool.schema.asCliParams().single { it.name == "project_name" }
-            assertTrue(projectName.cliOptional, "${tool.name}: project_name must be cliOptional")
+            assertFalse(projectName.cliOptional, "${tool.name}: project_name must NOT be cliOptional")
             assertTrue(projectName.required, "${tool.name}: project_name must stay MCP-required")
             assertFalse(projectName.cliSynopsis.isBlank(), "${tool.name}: project_name needs a curated cliSynopsis")
         }
+    }
+
+    @Test
+    fun `only take_screenshot and execute_code mark their result as image-producing`() {
+        // producesImage gates the framework --out flag onto a subcommand. Exactly these two tools can return
+        // a ContentItem.Image (take_screenshot always; execute_code via a script's logImage or a
+        // dialog-failure screenshot); every other command must leave --out unregistered.
+        val imageProducing = devrigToolSpecsForTest().filter { it.cli.producesImage }.map { it.name }.toSet()
+        assertEquals(setOf("steroid_take_screenshot", "steroid_execute_code"), imageProducing)
     }
 
     @Test

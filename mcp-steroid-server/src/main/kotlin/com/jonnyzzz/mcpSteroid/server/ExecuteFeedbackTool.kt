@@ -90,11 +90,11 @@ class ExecuteFeedbackToolSpec(val handler: () -> ExecuteFeedbackToolHandler) : M
     override suspend fun call(context: ToolCallContext): ToolCallResult {
         val projectName = context[projectName]
         if (projectName.isBlank()) {
-            return ToolCallResult.errorResult("project_name is required (from steroid_list_projects)")
+            return ToolCallResult.errorResult("project_name is required (from the project-listing tool or command)")
         }
         val taskId = context[taskId]
         if (taskId.isBlank()) {
-            return ToolCallResult.errorResult("task_id is required (same id you passed to steroid_execute_code)")
+            return ToolCallResult.errorResult("task_id is required (same id you passed to the code-execution tool or command)")
         }
         // Pre-check the raw arg so we can emit the helpful "do NOT send `rating`" hint
         // before the DSL required()-error replaces it with the generic message.

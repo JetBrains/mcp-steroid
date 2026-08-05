@@ -112,6 +112,9 @@
   - Put the pure Remote Development NDJSON parser/workflow contracts on a normal CI-backed task; the
     experimental task's direct-invocation guard currently keeps them out of aggregate CI runs.
   - Stream download progress to the agent (downloads can take minutes; CLI is silent until done).
+  - Add bounded retry-on-read-timeout to the shared IDE downloader. It already resumes a pre-existing
+    `.tmp` with `Range`, but a socket stall currently waits 15 minutes and fails the whole Gradle test or
+    backend download instead of reconnecting and resuming within the same invocation (observed 2026-08-03).
   - Consider enriching `backend --json` / `backend download --json` with release date + download channel so agents can reason about staleness; consider exposing `IdeProduct` metadata (license tier, launcher) for richer IDE choice.
   - Optional explicit `open_project` target (by managed-backend id / pid) for the case where the agent wants a specific backend even when several are running — today the global lock makes "prefer managed" sufficient.
 
@@ -134,14 +137,46 @@
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
 
-- [ ] **devrig CLI must own `--out` and the `--wait` polling loop (#284)**: the schema-driven-command
-  reshape removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a
-  declared `CliExtraOption` on `steroid_open_project`, because neither is a tool input. The tool
-  metadata therefore no longer carries either behavior: the CLI frontend must document `--out` as a
-  framework flag beside `--json` (a render-path redirect writing a returned image to a path — note
-  `steroid_execute_code` also returns PNGs via `logImage`, e.g. the modal-dialog failure screenshot,
-  so it is not screenshot-only) and must implement `--wait` as a `list_windows` poll until the project
-  reports initialized. Without those two, both flags silently vanish from the CLI.
+- [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
+  removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared
+  `CliExtraOption` on `steroid_open_project`, because neither is a tool input, so the tool metadata
+  carries neither behavior. **`--out` is done**: it is a devrig framework flag registered only on
+  `execute_code` and `take_screenshot`, and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
+  `devrig take_screenshot --out=<path>` writes the PNG and prints `Saved --out: <path>`). `--wait` is
+  **not**: it parses, and a generic guard in `GeneratedToolRuntime.kt` then refuses with exit 64
+  (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a
+  `list_windows` poll until the project reports initialized, and delete that guard plus its test.
+
+- [ ] **`--json` parse-time usage errors emit nothing on stdout (#284)**: a parse failure becomes
+  `DevrigCommandParseError`, which prints to stderr and answers 64 with no `--json` envelope — the KDoc
+  argues the failure precedes the command's options so the `--json` intent is unknowable, yet the sibling
+  help path already sniffs `--json`/`--debug` off the raw tokens (`Array<String>.jsonRequested()` in
+  `Cli.kt`). The same sniff could drive a parse-error envelope for machine consumers. Decide whether the
+  envelope is wanted; if yes, re-introduce a `commandName` recovery that survives non-boolean pre-command
+  flags (`--out` falsified the old raw-token scan — see `DevrigCommandParseError`'s KDoc), and pin the
+  contract either way (it is untested today).
+
+- [ ] **`--project_name` is not inferred from the current directory (#284)**: `resolveProjectFromCwd`
+  in `npx-kt/.../devrig/server/CwdProjectResolver.kt` is fully written and unit-tested (`One` / `None` /
+  `Ambiguous`) but has **zero production call sites** — confirmed by PSI `ReferencesSearch`, not grep.
+  Because no inference runs, `project_name` is simply a mandatory parameter: `CommonToolParams.projectName()`
+  drops `.cliOptional()`, so the command-line parser itself demands it and `devrig execute_code`
+  (or `take_screenshot` / `input` / `execute_feedback` / `fetch_resource`) run without `--project_name`
+  fail at **parse time** — exit 64 naming `project_name`, before any tool call. The generated usage line
+  renders it un-bracketed to say so. The generated help used to promise the inference; that sentence was
+  removed rather than left lying (Task 9). Wiring the inference needs two decisions the Phase B plan never
+  settled: what `CwdProjectMatch.Ambiguous` should print, and whether inference applies to every tool
+  declaring `project_name` or only some. When it lands, restore `.cliOptional()` on `projectName()` (so
+  the parser stops demanding it), and these deliberate reminders flip back: `McpToolsCliHelpTest`'s
+  `the footer promises no cwd inference…` (restore the footer line in the same commit),
+  `CliFileSourceUsageTokenTest`'s `a plain required parameter renders bare, demanded` /
+  `and the parser really does demand it` (re-bracket the token, and the parser must stop demanding it).
+
+  *Not* to be confused with the separate defect this entry used to describe — that the failure came out as
+  exit 69 `… Usually no IDE backend is reachable`, misdiagnosing a reachable IDE. That was a missing
+  `ToolCallErrorException` arm in `GeneratedToolRuntime.kt`'s error pipeline, fixed independently and
+  pinned by `CliErrorEnvelopeTest`. It affected EVERY tool-side argument rejection, not just an absent
+  `project_name`, so it would have outlived the inference work.
 
 - [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: three review findings deferred from
   PR #356. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call
@@ -155,6 +190,19 @@
   `cliMinimum` — the generated CLI cannot enforce the wire bound without parsing `asMcpJson()`; also
   `cliSynopsis` hardcodes "(default 600)" where the MCP description interpolates the constant, so the
   two can silently diverge.
+
+- [ ] **Harvest test coverage from the abandoned `issue-284-schema-driven-cli-phase-b` branch (#284)**: that
+  parallel branch (superseded by `issue-284-cli-engine`, not merged) carries ~12 test classes this branch
+  lacks — MCP-as-CLI contract/parse tests, per-command tests (execute_code / fetch_resource / feedback /
+  screenshot), a layered `help execute_code` topic test, and a Docker live-IDE MCP-as-CLI smoke
+  (`CliDevrigToolsIntegrationTest`). They assert against phase-b's command-class architecture, so port the
+  INTENT into the generated-runtime structure, don't copy the files.
+
+- [ ] **The `devrig --help` banner does not list `install plugin` / `install devrig` (#284)**: the curated
+  `LIFECYCLE_COMMANDS` in `HelpCommand.kt` documents `install [claude|codex|gemini]` and `install config`
+  (pinned by `DevrigCommandOutputTest` + `McpToolsCliHelpTest`), but the `install plugin` and `install devrig`
+  subcommands have no banner entry (main did not document them either — pre-existing, not a Phase B
+  regression). Add their one-line descriptions to the curated banner and extend the pinned test head.
 
 - [ ] **red-code reporter false-positives on Kotlin files**: `reportProjectRedCode` (PSI reference scan,
   `mcp-steroid-import.kt`) reports Kotlin stdlib/operator references (`mutableMapOf`, `runCatching`,
@@ -228,3 +276,13 @@
   Both #412 AS-lane runs log `JDK: 25.0.2` in idea.log for AI-261.26222.65 (2026.1.3). The
   bytecode-21 gate itself stays valuable (issue #157: older AS + minimum-supported baselines), but
   the KDoc's "AS 2026.1 bundles JBR 21" premise is stale and should be reworded against reality.
+
+- [ ] **Console mode prints a JSON payload as one minified line (#284)**: `devrig list_projects` (and any
+  generated tool whose result is a single JSON text item) emits one long minified blob, because
+  `Presentation.Console.render` prints a text content item verbatim. The fix does NOT need a per-tool
+  renderer: pretty-printing a text payload that happens to parse as JSON is tool-agnostic, so it belongs in
+  `Presentation.Console` in `CliToolSupport.kt`. Deliberately **console-only** — the `--json` envelope now
+  unpacks a JSON text payload under a `json` key (`contentDataJson`, so `jq` reaches it in one parse); that
+  path is settled and must not be reshaped again for a console concern. A richer per-tool table
+  (`devrig project`-style columns for the listers) is a different, larger question: it would need declared
+  rendering metadata, since a `when (toolName)` is exactly what #284 removes.

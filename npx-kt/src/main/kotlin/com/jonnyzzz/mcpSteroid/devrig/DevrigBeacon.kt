@@ -77,6 +77,7 @@ class DevrigBeacon(
             // runsTool() commands anyway, so these stay non-events.
             is DevrigCommand.DevrigCommandInstallOverview -> null
             is DevrigCommand.DevrigCommandInstallConfig -> null
+            is DevrigCommand.RunTool -> cliMode.commandName
             is DevrigCommand.DevrigCommandHelp -> null
             is DevrigCommand.DevrigCommandVersion -> null
             is DevrigCommand.DevrigCommandParseError -> null

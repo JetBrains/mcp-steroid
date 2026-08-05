@@ -121,6 +121,38 @@ class DevrigCommandOutputTest {
         assertTrue(out.contains("mcp add"), "config must list the per-agent add commands; got:\n$out")
     }
 
+    @Test
+    fun `a lifecycle verb's --help routes to printHelp, exactly once, on stdout`() {
+        // What this pins is ROUTING, not text: the expectation is computed by calling printHelp, so it
+        // says "the same thing printHelp produces, once, with nothing appended" and would hold even if
+        // printHelp emitted garbage. The banner's own wording is pinned literally, against no production
+        // call, in McpToolsCliHelpTest. Both matter: doubled output was a real defect on this branch.
+        val args = arrayOf("backend", "--help")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(0, exit)
+        assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
+        val curated = ByteArrayOutputStream()
+            .also { printHelp(PrintStream(it, true, Charsets.UTF_8)) }
+            .toString(Charsets.UTF_8)
+            .replace("\r\n", "\n")
+        assertEquals(curated, stdout(), "a lifecycle verb must print the banner once and add nothing")
+    }
+
+    @Test
+    fun `a generated tool command's --help prints that command's own help to stdout`() {
+        val args = arrayOf("execute_code", "--help")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(0, exit)
+        assertEquals("", stderr(), "stderr must stay clean for --help; got: ${stderr()}")
+        val out = stdout()
+        for (token in listOf("execute_code", "--code", "--code-file", "--task_id", "--reason")) {
+            assertTrue(out.contains(token), "execute_code --help must name '$token'; got:\n$out")
+        }
+        assertTrue(out.endsWith("\n"), "help output must end with a newline; got: '${out.takeLast(20)}'")
+    }
+
     // ------------------------------ Version --------------------------------
 
     @Test
@@ -166,5 +198,30 @@ class DevrigCommandOutputTest {
         runCliForTest(parseDevrigCommand(arrayOf("--what")), "--what")
         val err = stderr()
         assertTrue(err.contains("--what"), "got: $err")
+    }
+
+    // -------------------- generated tool commands: usage exit code ----------------------
+
+    @Test
+    fun `an unknown flag on a generated tool command exits 64 with stdout clean`() {
+        val args = arrayOf("list_windows", "--bogus")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(CliExit.USAGE, exit)
+        assertEquals("", stdout(), "stdout must stay clean for usage errors; got: ${stdout()}")
+        assertTrue(stderr().contains("--bogus"), "got:\n${stderr()}")
+    }
+
+    @Test
+    fun `a usage error the schema binding derives after finalization also exits 64`() {
+        // Both --code and its file source: a rule Clikt's grammar cannot express, so SchemaCliBinding
+        // raises it one step later (from run(), not from finalization). It must still exit 64, not 1.
+        val args =
+            arrayOf("execute_code", "--project_name=key", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r")
+        val exit = runCliForTest(parseDevrigCommand(args), *args)
+
+        assertEquals(CliExit.USAGE, exit)
+        assertEquals("", stdout(), "stdout must stay clean for usage errors; got: ${stdout()}")
+        assertTrue(stderr().contains("--code-file"), "got:\n${stderr()}")
     }
 }

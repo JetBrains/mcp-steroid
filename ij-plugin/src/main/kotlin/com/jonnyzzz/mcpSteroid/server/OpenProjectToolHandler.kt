@@ -6,11 +6,9 @@ import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.project.ProjectManager.getInstance
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.builder
-import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
@@ -43,7 +41,7 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
             return ToolCallResult.builder()
                 .addTextContent("Project is already open: ${existingProject.name}")
                 .addTextContent("Project path: ${existingProject.basePath}")
-                .addTextContent("Use steroid_list_projects to see all open projects.")
+                .addTextContent("Use the project-listing tool or command to see all open projects.")
                 .build()
         }
 
@@ -67,7 +65,7 @@ class OpenProjectToolHandlerIJ : OpenProjectToolHandler {
                 try {
                     settings.confirmOpenNewProject = GeneralSettings.OPEN_PROJECT_NEW_WINDOW
 
-                    val result = getInstance().loadAndOpenProject(projectPath.toString())
+                    val result = ProjectManager.getInstance().loadAndOpenProject(projectPath.toString())
                     if (result != null) {
                         logger.info("Project opened successfully: ${result.name}")
                     } else {
@@ -109,14 +107,14 @@ private val VERIFICATION_WORKFLOW = """
     IMPORTANT: You MUST poll to verify the project is ready before using it.
 
     VERIFICATION WORKFLOW:
-    1. Poll steroid_list_windows every 2-3 seconds until:
+    1. Poll the window list every 2-3 seconds until:
        - The project appears in the windows list
        - modalDialogShowing is false
        - indexingInProgress is false
        - projectInitialized is true
     2. If modalDialogShowing is true:
-       - Call steroid_take_screenshot to see the dialog
-       - Use steroid_input to interact with the dialog
-    3. Use steroid_take_screenshot to visually confirm project is loaded
-    4. Verify with steroid_list_projects that the project appears
+       - Capture a screenshot to see the dialog
+       - Use the input tool or command to interact with the dialog
+    3. Capture a screenshot to visually confirm project is loaded
+    4. Verify with the project list that the project appears
 """.trimIndent()

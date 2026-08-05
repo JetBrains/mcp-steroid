@@ -101,6 +101,10 @@ class SkillReferenceHintTest : BasePlatformTestCase() {
             "Hint must explain that the last expression is not auto-printed:\n$hint",
             hint.contains("NOT auto-printed")
         )
+        assertFalse(
+            "Runtime hint must work on both MCP and CLI surfaces without exposing an MCP tool name:\n$hint",
+            hint.contains("steroid_")
+        )
     }
 
     fun testEmptyOutputHintStaysQuietWhenScriptPrinted() {
@@ -234,6 +238,19 @@ class SkillReferenceHintTest : BasePlatformTestCase() {
         assertTrue(
             "Debugger-specific NPE hint must win over the generic NPE hint:\n$hint",
             hint.contains("XDebuggerUtil.toggleLineBreakpoint")
+        )
+    }
+
+    fun testGenericDebuggerHintIsSurfaceNeutral() {
+        val hint = project.executionSuggestionService.computeHint("The debugger session could not start")
+
+        assertTrue(
+            "Generic debugger hint must retain the debugger resource URI:\n$hint",
+            hint.contains("mcp-steroid://debugger/overview")
+        )
+        assertFalse(
+            "Runtime hint must work on both MCP and CLI surfaces without exposing an MCP tool name:\n$hint",
+            hint.contains("steroid_fetch_resource")
         )
     }
 
