@@ -32,8 +32,8 @@ class FakeMcpSteroidTools : McpSteroidTools() {
         type.cast(handlers[type] ?: error("no test double is registered for handler ${type.name}"))
 }
 
-/** Everything one dispatched command produced: its exit code and everything it wrote to devrig's stdout. */
-data class GeneratedToolRun(val exit: Int, val stdout: String) {
+/** Everything one dispatched command produced, with stdout and stderr kept separate. */
+data class GeneratedToolRun(val exit: Int, val stdout: String, val stderr: String) {
     /** The `--json` envelope parsed back, for asserting its shape rather than its exact formatting. */
     fun envelope(): JsonObject = Json.parseToJsonElement(stdout).jsonObject
 }
@@ -83,8 +83,11 @@ private fun withDevrigServices(
     block: DevrigServices.() -> Int,
 ): GeneratedToolRun {
     val out = ByteArrayOutputStream()
+    val err = ByteArrayOutputStream()
+    val originalErr = System.err
     val lifetime = CloseableStackHost()
     val exit = try {
+        System.setErr(PrintStream(err, true, Charsets.UTF_8))
         DevrigServices(
             lifetime = lifetime,
             homePaths = HomePaths(home).also { it.mkdirsAll() },
@@ -93,7 +96,15 @@ private fun withDevrigServices(
             ideStateProvider = { emptyList() },
         ).block()
     } finally {
-        lifetime.closeAllStacks()
+        try {
+            lifetime.closeAllStacks()
+        } finally {
+            System.setErr(originalErr)
+        }
     }
-    return GeneratedToolRun(exit, out.toString(Charsets.UTF_8).replace("\r\n", "\n"))
+    return GeneratedToolRun(
+        exit,
+        out.toString(Charsets.UTF_8).replace("\r\n", "\n"),
+        err.toString(Charsets.UTF_8).replace("\r\n", "\n"),
+    )
 }

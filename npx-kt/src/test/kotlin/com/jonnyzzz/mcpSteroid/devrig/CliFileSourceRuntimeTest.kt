@@ -7,8 +7,6 @@ import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
@@ -17,8 +15,6 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -39,23 +35,6 @@ class CliFileSourceRuntimeTest {
 
     @TempDir
     lateinit var work: Path
-
-    private lateinit var originalErr: PrintStream
-    private lateinit var errBuf: ByteArrayOutputStream
-
-    @BeforeEach
-    fun captureStderr() {
-        originalErr = System.err
-        errBuf = ByteArrayOutputStream()
-        System.setErr(PrintStream(errBuf, true, Charsets.UTF_8))
-    }
-
-    @AfterEach
-    fun restoreStderr() {
-        System.setErr(originalErr)
-    }
-
-    private fun stderr(): String = errBuf.toString(Charsets.UTF_8).replace("\r\n", "\n")
 
     /** Records the `code` the tool spec finally parsed, so a test can assert what the substitution produced. */
     private class RecordingExecuteCode : ExecuteCodeToolHandler {
@@ -110,13 +89,13 @@ class CliFileSourceRuntimeTest {
         // An agent that runs devrig non-interactively and pipes nothing would otherwise see the process sit
         // silent with no way to tell whether it is waiting on stdin or on the IDE. The note is printed
         // BEFORE the read, so it is visible even when the read never returns.
-        runExecuteCode("-", stdin = "x\n".toByteArray())
+        val (run, _) = runExecuteCode("-", stdin = "x\n".toByteArray())
 
         assertTrue(
-            stderr().contains("standard input"),
-            "stderr must say it is reading standard input; got:\n${stderr()}",
+            run.stderr.contains("standard input"),
+            "stderr must say it is reading standard input; got:\n${run.stderr}",
         )
-        assertTrue(stderr().contains("code"), "the note must name the parameter it is filling; got:\n${stderr()}")
+        assertTrue(run.stderr.contains("code"), "the note must name the parameter it is filling; got:\n${run.stderr}")
     }
 
     // ------------------------------- diagnosable failures -------------------------------

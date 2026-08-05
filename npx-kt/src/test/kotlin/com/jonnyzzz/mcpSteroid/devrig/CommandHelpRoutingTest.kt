@@ -118,6 +118,14 @@ class CommandHelpRoutingTest {
     }
 
     @Test
+    fun `help remains a real subcommand when a root option precedes it`() {
+        assertEquals(
+            help("execute_code", "--help"),
+            help("--debug", "help", "execute_code"),
+        )
+    }
+
+    @Test
     fun `every visible lifecycle command renders focused help from its real command node`() {
         val cases = listOf(
             Triple(arrayOf("--help"), "Usage: devrig ", listOf("--version", "--json", "--debug")),
@@ -125,7 +133,7 @@ class CommandHelpRoutingTest {
             Triple(arrayOf("help"), "Usage: devrig ", listOf("backend", "install", "mcp")),
             Triple(arrayOf("mcp", "--help"), "Usage: devrig mcp", listOf("--help", "--debug")),
             Triple(arrayOf("version", "--help"), "Usage: devrig version", listOf("--json", "--debug")),
-            Triple(arrayOf("help", "--help"), "Usage: devrig ", listOf("backend", "install", "mcp")),
+            Triple(arrayOf("help", "--help"), "Usage: devrig help", listOf("<command>", "--debug")),
             Triple(arrayOf("backend", "--help"), "Usage: devrig backend", listOf("--json", "download", "start", "stop")),
             Triple(arrayOf("backend", "download", "--help"), "Usage: devrig backend download", listOf("<id>", "--version", "--json", "--debug")),
             Triple(arrayOf("backend", "start", "--help"), "Usage: devrig backend start", listOf("<id>", "--version", "--json", "--debug")),

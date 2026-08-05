@@ -47,7 +47,7 @@ fun runDevrigMain(
         val headliner = buildHeadliner()
         if (command.mode.isMcp) {
             System.err.println(headliner)
-        } else {
+        } else if (!command.keepsSystemOutGuarded) {
             System.setOut(mcpStdout)
         }
 
@@ -71,6 +71,8 @@ fun runDevrigMain(
         System.err.println("Unexpected error ${t.message}")
         t.printStackTrace(System.err)
         CliExit.SOFTWARE
+    } finally {
+        System.setOut(mcpStdout)
     }
 }
 

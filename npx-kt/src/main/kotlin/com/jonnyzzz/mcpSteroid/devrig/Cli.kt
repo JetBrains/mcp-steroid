@@ -13,6 +13,7 @@ import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.eagerOption
 import com.github.ajalt.clikt.parameters.options.flag
@@ -70,6 +71,10 @@ class DevrigCliInvocation(
     val printsHeadliner: Boolean
         get() = mode.mayPrintHeadliner && !json
 
+    /** Keep direct library prints away from the stdio protocol and generated JSON document. */
+    val keepsSystemOutGuarded: Boolean
+        get() = mode.isMcp || mode == DevrigCliMode.GENERATED_TOOL && json
+
     fun renderHeadliner(headliner: String): String {
         if (!printsHeadliner || terminal == null) return headliner
         val lines = headliner.lines()
@@ -88,7 +93,7 @@ fun parseDevrigCommand(
     rawArgs: Array<String>,
     terminal: Terminal = Terminal(),
 ): DevrigCliInvocation {
-    val parsedArgs = rawArgs.normalizedHelpRoute()
+    val parsedArgs = rawArgs
     val selected = SelectedDevrigInvocation()
     selected.rawArgs = parsedArgs.toList()
     val jsonRequested = parsedArgs.exactJsonRequested()
@@ -157,10 +162,6 @@ private fun UsageError.withCuratedMissingHints(command: SchemaToolCliCommand): U
 }
 
 private fun Array<String>.debugRequested(): Boolean = devrigDebugEnvEnabled() || any { it == "--debug" }
-
-/** `devrig help [path...]` is the discoverable spelling of `devrig [path...] --help`. */
-private fun Array<String>.normalizedHelpRoute(): Array<String> =
-    if (firstOrNull() == "help") (drop(1) + "--help").toTypedArray() else this
 
 /** Exact framework flag only, before the conventional end-of-options marker. Values such as
  * `--reason=--json` are data, not a presentation request. */
@@ -566,16 +567,32 @@ private class InstallPluginCommand(
 
 private class HelpCommand(
     selected: SelectedDevrigInvocation,
-    parent: DevrigCliktCommand,
+    private val root: DevrigCliktCommand,
 ) : DevrigCliktCommand(
     name = "help",
     help = "Print root help, or use `devrig help <command>` for focused help.",
     selected = selected,
-    parent = parent,
+    parent = root,
 ) {
+    private val requestedPath by argument(
+        "command",
+        help = "Command path to explain, for example `execute_code` or `backend download`.",
+    ).multiple()
+
     override fun runCommand() {
         if (options().json) throw UsageError("--json is not supported by '${commandPath()}'")
-        throw PrintHelpMessage(currentContext.findRoot())
+        var target: CliktCommand = root
+        for (token in requestedPath) {
+            val expanded = target.aliases()[token] ?: listOf(token)
+            for (commandName in expanded) {
+                target = target.registeredSubcommands().singleOrNull { it.commandName == commandName }
+                    ?: throw UsageError(
+                        "unknown command path '${requestedPath.joinToString(" ")}'. " +
+                            "Choose one of: ${target.registeredSubcommandNames().sorted().joinToString(", ")}",
+                    )
+            }
+        }
+        throw PrintHelpMessage(target.currentContext)
     }
 }
 

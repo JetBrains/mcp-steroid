@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -61,6 +62,15 @@ class DevrigCommandTest {
         assertEquals("parse-error", command("--json", "mcp").commandPath)
         assertEquals("parse-error", command("--json", "install", "claude").commandPath)
         assertEquals("parse-error", command("install", "plugin", "--json").commandPath)
+    }
+
+    @Test
+    fun `only stdio MCP and generated JSON keep direct System out guarded`() {
+        assertTrue(command("mcp").keepsSystemOutGuarded)
+        assertTrue(command("list_projects", "--json").keepsSystemOutGuarded)
+        assertFalse(command("list_projects").keepsSystemOutGuarded)
+        assertFalse(command("backend", "--json").keepsSystemOutGuarded)
+        assertFalse(command("version", "--json").keepsSystemOutGuarded)
     }
 
     @Test

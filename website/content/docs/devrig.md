@@ -64,6 +64,8 @@ Run `devrig --help` (or `devrig -h`) for the authoritative usage, and
 `devrig --version` (or `devrig -v`) for the version. Help is generated from the
 same command tree that performs the work, so every nested command has focused
 help such as `devrig install --help` and `devrig backend download --help`.
+The equivalent discoverable route is `devrig help <command>`, including nested
+paths such as `devrig help backend download`.
 
 ```text
 devrig
@@ -86,6 +88,7 @@ devrig
 │   ├── config [--json]
 │   ├── devrig
 │   └── plugin [--check]
+├── help [<command>...]
 └── version [--json]
 ```
 
@@ -102,6 +105,11 @@ $ devrig install --json | jq -c '.targets[] | {name, kind}'
 {"name":"codex","kind":"agent"}
 ...
 ```
+
+Generated MCP-tool commands suppress their live progress stream in `--json`
+mode because agent shell tools commonly merge stderr into their command result.
+Without `--json`, the same commands keep live progress on stderr and readable
+results on stdout.
 
 Commands that do not have a coherent single-document response, including
 `mcp`, agent registration, and plugin installation, reject `--json` instead of

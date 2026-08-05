@@ -159,6 +159,8 @@ class ListCommandsTest {
         assertTrue(trimmed.endsWith("}"), "stdout must end with the envelope; got:\n${run.stdout}")
         assertTrue(run.stdout.endsWith("\n"), "stdout must be line-terminated; got '${run.stdout.takeLast(20)}'")
         run.envelope()
+        assertEquals("", run.stderr, "--json must not stream progress beside its document")
+        assertTrue("Tool call started" !in run.stdout, "progress polluted JSON stdout:\n${run.stdout}")
     }
 
     // ------------------------- through the production runCli router -------------------------

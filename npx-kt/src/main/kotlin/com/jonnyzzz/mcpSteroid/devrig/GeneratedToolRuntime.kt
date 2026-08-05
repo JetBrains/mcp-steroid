@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.devrig.server.callToolViaSpec
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
+import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import java.io.IOException
 import java.io.InputStream
 import java.nio.charset.CharacterCodingException
@@ -86,6 +87,8 @@ data class GeneratedToolInvocation(
  *
  * [tools] is a parameter so a test can inject handler doubles and drive the real spec `call()` path without
  * a live IDE; production always passes the [StubMcpSteroidTools] wiring the `devrig mcp` stdio proxy uses.
+ * Human mode streams progress to stderr. `--json` suppresses that live stream because agent shell tools
+ * commonly merge stderr into their command result; the result envelope remains the single parseable value.
  */
 fun DevrigServices.runGeneratedToolCommand(
     command: GeneratedToolInvocation,
@@ -106,7 +109,8 @@ fun DevrigServices.runGeneratedToolCommand(
     val result = try {
         command.requireNoUnhandledExtraOption(spec)
         val arguments = command.argumentsWithFileSources(spec, mcpStdin)
-        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, stderrProgressReporter(spec.name)) }
+        val progress = if (command.json) NoOpProgressReporter else stderrProgressReporter(spec.name)
+        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, progress) }
     } catch (e: CliInputException) {
         return presentation.renderError(command.commandName, e.message.orEmpty(), e.exit, mcpStdout)
     } catch (e: ProjectRouteNotFoundException) {
