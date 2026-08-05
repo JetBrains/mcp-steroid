@@ -1,6 +1,9 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.installer.tests
 
+import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
+import com.jonnyzzz.mcpSteroid.testHelper.docker.buildDockerImage
+import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -17,6 +20,56 @@ import java.util.zip.GZIPOutputStream
 
 /** Nginx side-car serving the fixture zip/tar.gz over real HTTP to the install container. */
 const val NGINX_IMAGE = "nginx:alpine"
+
+/**
+ * Ubuntu with curl + unzip PRE-BAKED (resources/ubuntu-installer/Dockerfile) — issue #443: the
+ * tools used to be apt-get-installed in the container ENTRYPOINT at test time, so a stalled
+ * runner apt mirror produced a healthy-looking container whose readiness poll could never
+ * succeed. Built lazily once per test JVM; BuildKit layer-caches it on the agent afterwards.
+ */
+val ubuntuInstallerImageId: String by lazy {
+    val context = createInstallerWorkDir("ubuntu-installer-image")
+    val dockerfile = File(context, "Dockerfile")
+    val resource = "ubuntu-installer/Dockerfile"
+    val stream = object {}.javaClass.classLoader.getResourceAsStream(resource)
+        ?: error("missing test resource: $resource")
+    stream.use { input -> dockerfile.outputStream().use { input.copyTo(it) } }
+    buildDockerImage(
+        logPrefix = "installer-ubuntu-image",
+        dockerfilePath = dockerfile,
+        timeoutSeconds = 600,
+    ).imageId
+}
+
+/**
+ * Wait for the container's docker-exec transport to serve a trivial command. Replaces the old
+ * tool-installation polls (#443): with every tool pre-baked into the image, readiness is only
+ * about the exec transport, and a genuine docker fault surfaces with its own error instead of
+ * hiding behind "apt-get failed?".
+ */
+fun awaitContainerReady(c: ContainerDriver, logPrefix: String) {
+    val deadline = System.currentTimeMillis() + 60_000
+    var lastError: Exception? = null
+    while (System.currentTimeMillis() < deadline) {
+        val r = try {
+            c.startProcessInContainer {
+                args("sh", "-c", "echo READY").timeoutSeconds(30).description("container readiness probe")
+            }.awaitForProcessFinish()
+        } catch (e: Exception) {
+            lastError = e
+            null
+        }
+        if (r != null && r.exitCode == 0 && "READY" in r.stdout) {
+            println("[$logPrefix] container exec transport ready")
+            return
+        }
+        Thread.sleep(1_000)
+    }
+    error(
+        "container exec transport did not become ready within 60s" +
+            (lastError?.let { "; last probe error: $it" } ?: ""),
+    )
+}
 
 /** HOME with a space catches quoting bugs in the installer scripts + downstream launcher wrappers. */
 const val INSTALLER_HOME_DIR = "/home/tester one"

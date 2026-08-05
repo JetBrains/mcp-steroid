@@ -40,6 +40,10 @@ jobs:
         with: { distribution: temurin, java-version: '25' }
       - name: Run :installer-gen:installerIntegrationTest (sh + pwsh Docker)
         shell: bash
+        # Step-bounded well below the 45m job cap: the suite normally finishes in ~10m, and the
+        # worst pathological hang observed (#443: serial 15m JUnit timeouts during an apt-mirror
+        # stall) burned 30m producing nothing a longer wait would have fixed.
+        timeout-minutes: 20
         run: ./gradlew :installer-gen:installerIntegrationTest --info --stacktrace
       - name: Upload reports
         if: always()
