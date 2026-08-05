@@ -22,7 +22,7 @@ class InstalledBackendsTest {
 
     private fun discoveredIde(ideHome: String?): DiscoveredIde = DiscoveredIde(
         backendName = "test-backend",
-        pid = 12345L,
+        processId = 12345L,
         rpcBaseUrl = "http://localhost:9999",
         bridgeHeaders = emptyMap(),
         ide = IdeInfo(name = "Test IDE", version = "2026.1", build = "TEST-1"),

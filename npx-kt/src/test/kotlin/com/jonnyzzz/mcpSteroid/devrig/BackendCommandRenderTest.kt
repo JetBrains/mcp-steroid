@@ -46,7 +46,7 @@ class BackendCommandRenderTest {
         val ideInfo = IdeInfo(name = name, version = version, build = build)
         val pluginInfo = PluginInfo(id = "com.jonnyzzz.mcp-steroid", name = "MCP Steroid", version = "0.0.0-test")
         return DiscoveredIde(
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
             bridgeHeaders = emptyMap(),
             ide = ideInfo,
@@ -140,7 +140,7 @@ class BackendCommandRenderTest {
         val ideInfo = IdeInfo(name = "GoLand", version = "2026.1", build = "GO-261.1")
         val pluginInfo = PluginInfo(id = "com.jonnyzzz.mcp-steroid", name = "", version = "0.9.0")
         val ide = DiscoveredIde(
-            pid = 99L,
+            processId = 99L,
             rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:6315/mcp").rpcBaseUrl,
             bridgeHeaders = emptyMap(),
             ide = ideInfo,

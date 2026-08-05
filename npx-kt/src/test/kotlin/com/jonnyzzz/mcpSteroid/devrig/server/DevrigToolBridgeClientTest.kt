@@ -303,7 +303,7 @@ class DevrigToolBridgeClientTest {
                 projects = listOf(IdeProjectState("project-b", projectB.toString())),
             ),
         )
-        val route = routing.routes().single { it.route.pid == 43L }
+        val route = routing.routes().single { it.route.processId == 43L }
         val handler = DevrigVisionInputToolHandler(DevrigToolBridgeClient(httpClient), routing)
 
         val result = handler.handleInputSequence(
@@ -898,7 +898,7 @@ class DevrigToolBridgeClientTest {
     ): DiscoveredIde =
         DiscoveredIde(
             backendName = backendNameForMarker(pid, build),
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:$port/mcp").rpcBaseUrl,
             bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
             ide = IdeInfo("IntelliJ IDEA", "2026.1", build),
@@ -917,7 +917,7 @@ class DevrigToolBridgeClientTest {
         ProjectRoute(
             route = DiscoveredIde(
                 backendName = backendNameForMarker(42L, "IU-261.1"),
-                pid = 42,
+                processId = 42,
                 rpcBaseUrl = "http://127.0.0.1:$port/api/jonnyzzz/mcp-steroid/v1",
                 bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
                 ide = IdeInfo("IntelliJ IDEA", "2026.1", "IU-261.1"),

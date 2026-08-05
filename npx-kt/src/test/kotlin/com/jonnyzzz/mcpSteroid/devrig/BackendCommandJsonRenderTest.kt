@@ -54,7 +54,7 @@ class BackendCommandJsonRenderTest {
         val ideInfo = IdeInfo(name = name, version = version, build = build)
         val pluginInfo = PluginInfo(id = "com.jonnyzzz.mcp-steroid", name = "MCP Steroid", version = "0.0.0-test")
         return DiscoveredIde(
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
             bridgeHeaders = mapOf("Authorization" to "Bearer test-token"),
             ide = ideInfo,

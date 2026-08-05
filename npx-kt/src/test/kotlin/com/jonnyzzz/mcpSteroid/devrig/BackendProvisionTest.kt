@@ -419,7 +419,7 @@ class BackendProvisionTest {
         mcpUrl: String = "http://localhost:6315/mcp",
     ): DiscoveredIde {
         return DiscoveredIde(
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
             bridgeHeaders = emptyMap(),
             ide = IdeInfo(name = name, version = version, build = build),
