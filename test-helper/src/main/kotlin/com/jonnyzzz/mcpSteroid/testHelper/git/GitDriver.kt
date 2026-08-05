@@ -156,19 +156,30 @@ class GitDriver(
         val normalizedPatch = if (patchContent.endsWith("\n")) patchContent else patchContent + "\n"
         driver.writeFileInContainer(patchPath, normalizedPatch, executable = false)
 
-        // Several DPAIA dataset test patches don't apply under a plain `git apply`:
-        //  --recount: recompute each hunk's line counts from its body instead of trusting the
-        //    `@@ -a,b +c,d @@` header — some patches ship mismatched header counts (jhipster-sample-app-3,
-        //    petclinic-36) that otherwise fail as "corrupt patch at line N".
-        //  --3way: fall back to a 3-way merge using the pre-image blobs named by the patch's `index`
-        //    lines when context doesn't line up exactly (otherwise "patch does not apply", exit 1).
-        // Both are no-ops for a clean, well-formed patch, so they're safe for every task.
         driver.startProcessInContainer {
             this
-                .args("git", "-C", repoDir, "apply", "--allow-empty", "--recount", "--3way", patchPath)
+                .args(listOf("git", "-C", repoDir) + APPLY_PATCH_ARGS + patchPath)
                 .timeoutSeconds(30)
                 .description("git apply patch in $repoDir")
         }.awaitForProcessFinish().assertExitCode(0, "git apply patch")
+    }
+
+    companion object {
+        /**
+         * The `git apply` arguments [applyPatch] uses, between `git -C <repo>` and the patch path.
+         *
+         * Deliberately minimal: git's header counts must stay authoritative. `--recount` recomputes
+         * hunk counts from the hunk body and counts a bare empty line as context, so it swallows the
+         * blank lines that separate a patch's file sections into the preceding hunk — fatal on a
+         * `new file` hunk (`new file <path> depends on old contents`) and a context inflation that
+         * fails to apply on a modified-file hunk. A malformed header is repaired where it is read
+         * (`repairTrimmedUnifiedDiff`), not worked around here.
+         *
+         * Exercised against real patch shapes by
+         * [com.jonnyzzz.mcpSteroid.testHelper.git.GitApplyPatchFlagsTest], so a flag added here is
+         * checked against the patches it has to apply instead of being assumed harmless.
+         */
+        val APPLY_PATCH_ARGS: List<String> = listOf("apply", "--allow-empty")
     }
 
     /**
