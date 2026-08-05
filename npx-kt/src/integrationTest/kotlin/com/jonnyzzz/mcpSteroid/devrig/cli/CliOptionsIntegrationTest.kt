@@ -119,8 +119,13 @@ class CliOptionsIntegrationTest {
     fun `bare json and hidden alias suggestions fail cleanly`() {
         val json = runLauncher("--json")
         assertEquals(64, json.exitCode, "bare --json must fail; stdout=\n${json.stdout}\nstderr=\n${json.stderr}")
-        assertTrue(json.stdout.isBlank(), "bare --json must not emit human help on stdout: ${json.stdout}")
-        assertTrue(json.stderr.contains("--json"), json.stderr)
+        assertTrue(json.stderr.isBlank(), "JSON errors must keep stderr clean: ${json.stderr}")
+        val envelope = Json.parseToJsonElement(json.stdout).jsonObject
+        assertEquals("devrig", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
+        val message = envelope.getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("text").jsonPrimitive.content
+        assertTrue("--json requires a command" in message, message)
 
         val typo = runLauncher("mpx")
         assertEquals(64, typo.exitCode, "typo must fail; stdout=\n${typo.stdout}\nstderr=\n${typo.stderr}")

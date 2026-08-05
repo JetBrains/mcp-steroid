@@ -50,7 +50,7 @@ class DevrigCommandTest {
     fun `json is accepted for document producing commands and rejected elsewhere`() {
         for (args in listOf(
             arrayOf("backend", "--json"),
-            arrayOf("project", "--json"),
+            arrayOf("list_projects", "--json"),
             arrayOf("install", "--json"),
             arrayOf("install", "config", "--json"),
             arrayOf("version", "--json"),

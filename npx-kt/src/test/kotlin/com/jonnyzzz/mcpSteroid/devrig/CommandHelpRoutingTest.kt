@@ -42,10 +42,24 @@ class CommandHelpRoutingTest {
             assertTrue(tool.cli.synopsis in text, "${tool.cli.name}'s help must carry its synopsis; got:\n$text")
 
             val declared = tool.schema.asCliParams().filterNot { it.cliHidden }
-                .flatMap { listOfNotNull(if (it.cliPositional) it.name else it.cliFlag, it.cliFileSource?.flag) } +
+                .flatMap {
+                    listOfNotNull(
+                        if (it.cliPositional) it.name else it.cliFlag,
+                        it.negativeCliFlag,
+                        it.cliFileSource?.flag,
+                    )
+                } +
                 tool.cli.extraOptions.map { it.flag }
             for (name in declared) {
                 assertTrue(name in text, "${tool.cli.name}'s help must name '$name'; got:\n$text")
+            }
+            for (param in tool.schema.asCliParams().filterNot { it.cliHidden }) {
+                val renderedSynopsis = param.cliSynopsis.replace("`", "").replace(Regex("\\s+"), " ")
+                val renderedHelp = text.replace(Regex("\\s+"), " ")
+                assertTrue(
+                    renderedSynopsis in renderedHelp,
+                    "${tool.cli.name}'s help must explain ${param.name} with '${param.cliSynopsis}'; got:\n$text",
+                )
             }
             for (frameworkFlag in listOf("--help", "--debug", "--json")) {
                 assertTrue(frameworkFlag in text, "${tool.cli.name}'s help must name '$frameworkFlag'; got:\n$text")
@@ -69,37 +83,66 @@ class CommandHelpRoutingTest {
     }
 
     @Test
-    fun `help command routes to canonical focused help including nested actions`() {
-        assertEquals(help("execute_code", "--help"), help("help", "execute_code"))
-        assertEquals(help("list_projects", "--help"), help("help", "project"))
-        assertEquals(help("backend", "download", "--help"), help("help", "backend", "download"))
+    fun `help command routes to canonical focused help for every command alias and nested action`() {
+        for (tool in devrigCliTools().filterNot { it.cli.hidden }) {
+            val canonical = help(tool.cli.name, "--help")
+            assertEquals(canonical, help("help", tool.cli.name), "help route for ${tool.cli.name}")
+            for (alias in tool.cli.aliases) {
+                assertEquals(canonical, help("help", alias), "help route for alias $alias")
+            }
+        }
+        for (path in listOf(
+            listOf("mcp"),
+            listOf("version"),
+            listOf("backend"),
+            listOf("backend", "download"),
+            listOf("backend", "start"),
+            listOf("backend", "stop"),
+            listOf("backend", "provision"),
+            listOf("install"),
+            listOf("install", "claude"),
+            listOf("install", "codex"),
+            listOf("install", "gemini"),
+            listOf("install", "config"),
+            listOf("install", "devrig"),
+            listOf("install", "plugin"),
+        )) {
+            assertEquals(
+                help(*(path + "--help").toTypedArray()),
+                help(*(listOf("help") + path).toTypedArray()),
+                "help route for ${path.joinToString(" ")}",
+            )
+        }
     }
 
     @Test
     fun `every visible lifecycle command renders focused help from its real command node`() {
         val cases = listOf(
-            arrayOf("--help") to "Usage: devrig ",
-            arrayOf("-h") to "Usage: devrig ",
-            arrayOf("help") to "Usage: devrig ",
-            arrayOf("mcp", "--help") to "Usage: devrig mcp",
-            arrayOf("version", "--help") to "Usage: devrig version",
-            arrayOf("help", "--help") to "Usage: devrig ",
-            arrayOf("backend", "--help") to "Usage: devrig backend",
-            arrayOf("backend", "download", "--help") to "Usage: devrig backend download",
-            arrayOf("backend", "start", "--help") to "Usage: devrig backend start",
-            arrayOf("backend", "stop", "--help") to "Usage: devrig backend stop",
-            arrayOf("backend", "provision", "--help") to "Usage: devrig backend provision",
-            arrayOf("install", "--help") to "Usage: devrig install",
-            arrayOf("install", "claude", "--help") to "Usage: devrig install claude",
-            arrayOf("install", "codex", "--help") to "Usage: devrig install codex",
-            arrayOf("install", "gemini", "--help") to "Usage: devrig install gemini",
-            arrayOf("install", "config", "--help") to "Usage: devrig install config",
-            arrayOf("install", "devrig", "--help") to "Usage: devrig install devrig",
-            arrayOf("install", "plugin", "--help") to "Usage: devrig install plugin",
+            Triple(arrayOf("--help"), "Usage: devrig ", listOf("--version", "--json", "--debug")),
+            Triple(arrayOf("-h"), "Usage: devrig ", listOf("--version", "--json", "--debug")),
+            Triple(arrayOf("help"), "Usage: devrig ", listOf("backend", "install", "mcp")),
+            Triple(arrayOf("mcp", "--help"), "Usage: devrig mcp", listOf("--help", "--debug")),
+            Triple(arrayOf("version", "--help"), "Usage: devrig version", listOf("--json", "--debug")),
+            Triple(arrayOf("help", "--help"), "Usage: devrig ", listOf("backend", "install", "mcp")),
+            Triple(arrayOf("backend", "--help"), "Usage: devrig backend", listOf("--json", "download", "start", "stop")),
+            Triple(arrayOf("backend", "download", "--help"), "Usage: devrig backend download", listOf("<id>", "--version", "--json", "--debug")),
+            Triple(arrayOf("backend", "start", "--help"), "Usage: devrig backend start", listOf("<id>", "--version", "--json", "--debug")),
+            Triple(arrayOf("backend", "stop", "--help"), "Usage: devrig backend stop", listOf("<id>", "--version", "--json", "--debug")),
+            Triple(arrayOf("backend", "provision", "--help"), "Usage: devrig backend provision", listOf("<id>", "--json", "--debug")),
+            Triple(arrayOf("install", "--help"), "Usage: devrig install", listOf("--json", "claude", "codex", "gemini", "plugin")),
+            Triple(arrayOf("install", "claude", "--help"), "Usage: devrig install claude", listOf("--check", "--debug")),
+            Triple(arrayOf("install", "codex", "--help"), "Usage: devrig install codex", listOf("--check", "--debug")),
+            Triple(arrayOf("install", "gemini", "--help"), "Usage: devrig install gemini", listOf("--check", "--debug")),
+            Triple(arrayOf("install", "config", "--help"), "Usage: devrig install config", listOf("--json", "--debug")),
+            Triple(arrayOf("install", "devrig", "--help"), "Usage: devrig install devrig", listOf("--help", "--debug")),
+            Triple(arrayOf("install", "plugin", "--help"), "Usage: devrig install plugin", listOf("--check", "--debug")),
         )
-        for ((args, usage) in cases) {
+        for ((args, usage, tokens) in cases) {
             val text = help(*args)
             assertTrue(usage in text, "${args.toList()} must render focused help; got:\n$text")
+            for (token in tokens) {
+                assertTrue(token in text, "${args.toList()} must explain '$token'; got:\n$text")
+            }
         }
     }
 

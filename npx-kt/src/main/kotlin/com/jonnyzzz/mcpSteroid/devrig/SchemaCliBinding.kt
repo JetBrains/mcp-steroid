@@ -129,10 +129,8 @@ class SchemaCliBinding private constructor(
      * surfacing one at a time only after every Clikt-`.required()` option is already supplied. By the time
      * this runs those rules are satisfied.
      *
-     * One requirement stays here as a [MissingCliValue]: a required string given empty or whitespace
-     * (`--task_id=`) is *present* to Clikt, so only reading the value back reveals it carries nothing.
-     * Keying it on `paramName` keeps `paramName` → [paramFor] → [InputSchemaParamSpec.cliMissingHint]
-     * reaching the user.
+ * A required string given empty or whitespace (`--task_id=`) is also rejected by a parse-time check.
+ * Keeping that rule in the same finalize pass lets it aggregate with every other missing value.
      */
     fun parsed(): SchemaCliValues {
         val arguments = LinkedHashMap<String, JsonElement>()
@@ -141,10 +139,6 @@ class SchemaCliBinding private constructor(
             val spec = bound.spec
             val value = bound.value()
             val path = bound.filePath()
-            if (spec.cliRequired && value.isBlankString()) throw MissingCliValue(
-                "'${spec.name}' must not be blank: pass a non-empty ${spec.cliParamName}",
-                paramName = spec.cliParamName,
-            )
             if (value != null) arguments[spec.name] = value
             if (path != null) fileSources[spec.name] = path
         }
@@ -261,7 +255,7 @@ private fun registerRequirednessChecks(
 ) {
     val fileSource = spec.cliFileSource
     if (fileSource != null) {
-        command.registerOptionGroup(ParseTimeCheckGroup {
+        command.registerCliParseCheck {
             val v = value()
             val path = filePath()
             if (v != null && path != null) throw UsageError(
@@ -272,16 +266,24 @@ private fun registerRequirednessChecks(
                 "'${spec.name}' is required: pass ${spec.cliParamName} or ${fileSource.flag}",
                 paramName = spec.cliParamName,
             )
-        })
+        }
     }
     val negativeFlag = spec.negativeCliFlag
     if (negativeFlag != null && spec.cliRequired) {
-        command.registerOptionGroup(ParseTimeCheckGroup {
+        command.registerCliParseCheck {
             if (value() == null) throw MissingCliValue(
                 "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
                 paramName = spec.cliParamName,
             )
-        })
+        }
+    }
+    if (spec.cliRequired) {
+        command.registerCliParseCheck {
+            if (value().isBlankString()) throw MissingCliValue(
+                "'${spec.name}' must not be blank: pass a non-empty ${spec.cliParamName}",
+                paramName = spec.cliParamName,
+            )
+        }
     }
 }
 
@@ -299,6 +301,11 @@ private class ParseTimeCheckGroup(private val check: () -> Unit) : ParameterGrou
     override val groupHelp: String? = null
     override fun finalize(context: Context, invocationsByOption: Map<Option, List<Invocation>>) = check()
     override fun postValidate(context: Context) {}
+}
+
+/** Register a validation in Clikt's aggregate finalize pass without adding anything to rendered help. */
+fun CliktCommand.registerCliParseCheck(check: () -> Unit) {
+    registerOptionGroup(ParseTimeCheckGroup(check))
 }
 
 private fun bindExtra(command: CliktCommand, option: CliExtraOption): BoundExtra =

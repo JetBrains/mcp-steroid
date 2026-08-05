@@ -3,6 +3,9 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -18,7 +21,7 @@ import java.nio.file.Path
 /**
  * Pins how [DevrigCliInvocation.execute] routes its output. CLI convention:
  *  - Help / version go to **stdout** (so `--help | less`, `--version | awk` work).
- *  - Error variants go to **stderr** (so machine-readable stdout never sees usage spam).
+ *  - Human error variants go to **stderr**; requested JSON errors use one envelope on stdout.
  *
  * Mixing these up has bitten plenty of CLIs in the past — we lock the routing in.
  *
@@ -228,8 +231,10 @@ class DevrigCommandOutputTest {
         val exit = runCliForTest("--json")
 
         assertEquals(64, exit)
-        assertEquals("", stdout(), "unsupported JSON must not emit human text on stdout")
-        assertTrue(stderr().contains("--json"), stderr())
+        assertEquals("", stderr(), "requested JSON errors must keep stderr clean")
+        val envelope = Json.parseToJsonElement(stdout()).jsonObject
+        assertEquals("devrig", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
     }
 
     @Test

@@ -328,6 +328,21 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `a consumed framework flag aggregates with every remaining missing value`() {
+        val error = assertIs<ParsedError>(parse("execute_code", "--task_id", "--json"))
+        val text = error.text.unwrapped()
+
+        for (expected in listOf(
+            "'--json' is a devrig flag, not a value",
+            "missing --project_name",
+            "Pass --code-file=<path> (preferred)",
+            "missing --reason",
+        )) {
+            assertTrue(expected.unwrapped() in text, "the one error must contain '$expected'; got:\n${error.text}")
+        }
+    }
+
+    @Test
     fun `a flag consumed as a file-source path is a parse error`() {
         // `--code-file --help`: the path becomes "--help", which devrig would try to open. Same rule as a
         // direct value — a registered flag is not a path.
@@ -405,6 +420,45 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `a blank required value aggregates with every remaining missing value`() {
+        val error = assertIs<ParsedError>(parse("execute_code", "--task_id="))
+        val text = error.text.unwrapped()
+
+        for (expected in listOf(
+            "Any string works",
+            "missing --project_name",
+            "Pass --code-file=<path> (preferred)",
+            "missing --reason",
+        )) {
+            assertTrue(expected.unwrapped() in text, "the one error must contain '$expected'; got:\n${error.text}")
+        }
+    }
+
+    @Test
+    fun `a value option without a value uses its declared missing hint`() {
+        val error = assertIs<ParsedError>(parse("execute_code", "--task_id"))
+
+        assertTrue(
+            "Any string works".unwrapped() in error.text.unwrapped(),
+            "expected execute_code's curated task_id hint; got:\n${error.text}",
+        )
+    }
+
+    @Test
+    fun `a lifecycle value option cannot consume help or json`() {
+        for (frameworkFlag in listOf("--help", "--json")) {
+            val error = assertIs<ParsedError>(
+                parse("backend", "download", "idea-community", "--version", frameworkFlag),
+                "backend download --version must not consume $frameworkFlag and select an action",
+            )
+            assertTrue(
+                "'$frameworkFlag' is a devrig flag, not a value" in error.text,
+                "the refusal must name the swallowed framework flag; got:\n${error.text}",
+            )
+        }
+    }
+
+    @Test
     fun `a single-value parameter given twice is a parse error`() {
         val error = assertIs<ParsedError>(
             parse("execute_code", "--task_id=a", "--task_id=b", "--reason=r", "--project_name=key", "--code=x"),
@@ -463,16 +517,16 @@ class SchemaToolCliCommandTest {
     // --------------------------- --out is scoped to the tool commands ---------------------------
 
     @Test
-    fun `--out is rejected on a lifecycle command, which can never honour it`() {
-        // `--out` redirects the image a tool RESULT carries, and no lifecycle verb returns a result at
-        // all. It used to be declared on the shared base class, so `devrig list_projects --out=/tmp/x.png`
-        // parsed, exited 0, wrote nothing and said nothing. Declaring it only on the generated tool
-        // commands turns that into Clikt's own parse-time refusal — the same answer `--wait` gets, one
-        // phase earlier.
-        for (lifecycle in listOf("project", "backend", "version", "help")) {
+    fun `--out is rejected on aliases and lifecycle commands that can never honour it`() {
+        // `--out` redirects an image carried by a generated tool result. The `project` alias resolves to
+        // non-image `list_projects`, while lifecycle commands return no tool result at all. It used to be
+        // declared on the shared base class, so the old handwritten `devrig project --out=/tmp/x.png`
+        // parsed, exited 0, wrote nothing and said nothing. Scoping it to image-producing tools makes each
+        // spelling a parse-time refusal.
+        for (command in listOf("project", "backend", "version", "help")) {
             val error = assertIs<ParsedError>(
-                parse(lifecycle, "--out=/tmp/x.png"),
-                "'devrig $lifecycle --out' must be refused, not silently accepted",
+                parse(command, "--out=/tmp/x.png"),
+                "'devrig $command --out' must be refused, not silently accepted",
             )
             assertTrue("--out" in error.text, "the refusal must name the flag; got:\n${error.text}")
         }

@@ -122,7 +122,10 @@ private fun CliktError.failingCommand(): CliktCommand? =
         ?: (this as? MultiUsageError)?.errors?.firstNotNullOfOrNull { it.failingCommand() }
 
 private fun Array<String>.jsonEnvelopeCommand(failingCommand: CliktCommand?): String {
-    if (failingCommand != null) return failingCommand.commandName
+    if (failingCommand != null) {
+        val path = failingCommand.currentContext.commandNameWithParents().drop(1).joinToString(" ")
+        return path.ifEmpty { "devrig" }
+    }
     val commandToken = takeWhile { it != "--" }.firstOrNull { !it.startsWith("-") } ?: return "devrig"
     return devrigCliTools().firstOrNull { spec ->
         commandToken == spec.cli.name || commandToken in spec.cli.aliases
@@ -273,6 +276,28 @@ abstract class DevrigCliktCommand(
     }
 
     protected fun rawArgs(): List<String> = selected.rawArgs
+
+    /**
+     * Prevent a value-taking option from swallowing one of this command's own flags. The explicit `=`
+     * form remains valid data; only a separate next token is treated as a likely omitted value.
+     */
+    protected fun rejectFlagsConsumedAsValues(valueOptions: Map<String, String>) {
+        registerCliParseCheck {
+            val knownFlags = registeredOptions().flatMap { it.names + it.secondaryNames }.toSet()
+            val args = rawArgs()
+            for (index in 0 until args.lastIndex) {
+                val option = args[index]
+                val paramName = valueOptions[option] ?: continue
+                val token = args[index + 1]
+                if (token.substringBefore('=') !in knownFlags) continue
+                throw UsageError(
+                    "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
+                        "Pass a real value for '$paramName' and give '$token' on its own, or bind the literal " +
+                        "explicitly as '$option=$token'."
+                )
+            }
+        }
+    }
 }
 
 abstract class JsonDevrigCliktCommand(
@@ -500,6 +525,10 @@ private class InstallDevrigCommand(
     private val installScript: String? by option("--install-script", hidden = true)
     private val jdkHome: String? by option("--jdk-home", hidden = true)
 
+    init {
+        rejectFlagsConsumedAsValues(mapOf("--install-script" to "install-script", "--jdk-home" to "jdk-home"))
+    }
+
     override fun runCommand() {
         val compatibilityOptionsSupplied = installScript != null || jdkHome != null
         select(DevrigCliMode.INSTALL, supportsJson = false) {
@@ -607,6 +636,10 @@ private abstract class BackendLifecycleCommand(
         "--version",
         help = "Override the IDE version.",
     )
+
+    init {
+        rejectFlagsConsumedAsValues(mapOf("--version" to "version"))
+    }
 
     protected fun validateArguments() {
         val selectedId = id ?: return

@@ -706,8 +706,9 @@ top-level invariant this section implements.
 
 A single per-call routine (`rebuildSnapshot()`) constructs devrig's
 live model on demand. It returns an immutable
-`DiscoverySnapshot` with the same shape as the JSON data model
-this spec defines for `devrig backend --json` and `devrig list_projects --json`.
+`DiscoverySnapshot` that feeds both JSON projections in this spec:
+the lifecycle-specific `devrig backend --json` document and the generated
+`devrig list_projects --json` `{tool, command, isError, data}` envelope.
 
 `rebuildSnapshot()` runs three pieces in parallel:
 

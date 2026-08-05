@@ -77,6 +77,14 @@ class SchemaToolCliCommand(
         require(duplicates.isEmpty()) {
             "${spec.cli.name}: CLI name(s) $duplicates are claimed both by a parameter and by devrig itself"
         }
+        rejectFlagsConsumedAsValues(buildMap {
+            for (param in spec.schema.asCliParams()) {
+                if (param.cliHidden || param.cliPositional) continue
+                put(param.cliFlag, param.name)
+                param.cliFileSource?.let { put(it.flag, param.name) }
+            }
+            if (spec.cli.producesImage) put("--out", "out")
+        })
     }
 
     /**
@@ -100,7 +108,6 @@ class SchemaToolCliCommand(
     override fun runCommand() {
         val options = options()
         val values = binding.parsed()
-        rejectFlagConsumedAsValue()
         val command = GeneratedToolInvocation(
             toolName = spec.name,
             commandName = spec.cli.name,
@@ -120,43 +127,4 @@ class SchemaToolCliCommand(
         ) { runGeneratedToolCommand(command) }
     }
 
-    /**
-     * Rejects a parsed value that is actually one of this command's own flags, given SPACE-SEPARATED. With
-     * `--task_id --help` Clikt reads `--help` as `--task_id`'s value and the tool would run with
-     * `task_id = "--help"`; with `--code-file --help` it would try to open a file named `--help`. A flag
-     * appearing where a value belongs is far more likely a flag the caller meant to pass on its own than a
-     * literal value, so it fails as a usage error before any tool call — the flag they wanted never fired,
-     * and running the tool with it as data would hide the mistake.
-     *
-     * The `=` form is the opposite and is NOT rejected: `--code=--help` and `--reason=--json` bind the token
-     * to the flag explicitly — an odd value, but an unambiguous one the caller clearly typed on purpose.
-     * The parsed values alone cannot tell the two apart (both yield `code = "--help"`), so the raw argv is
-     * scanned positionally: only a value-taking option immediately followed by a registered flag token is
-     * refused (including an assignment-shaped token such as `--json=true`). An `=`-bound value never occupies
-     * that next-token position, even when the same flag also appears later for real
-     * (`--reason=--json --json`).
-     */
-    private fun rejectFlagConsumedAsValue() {
-        val knownFlags = registeredOptions().flatMap { it.names + it.secondaryNames }.toSet()
-        val valueOptions = buildMap {
-            for (param in spec.schema.asCliParams()) {
-                if (param.cliHidden || param.cliPositional) continue
-                put(param.cliFlag, param.name)
-                param.cliFileSource?.let { put(it.flag, param.name) }
-            }
-            if (spec.cli.producesImage) put("--out", "out")
-        }
-        val args = rawArgs()
-        for (index in 0 until args.lastIndex) {
-            val option = args[index]
-            val paramName = valueOptions[option] ?: continue
-            val token = args[index + 1]
-            if (token.substringBefore('=') !in knownFlags) continue
-            throw UsageError(
-                "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
-                    "Pass a real value for '$paramName' and give '$token' on its own, or bind the literal " +
-                    "explicitly as '$option=$token'."
-            )
-        }
-    }
 }

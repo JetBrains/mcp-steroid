@@ -28,10 +28,13 @@ class DevrigCliHelpTest {
         assertTrue(result.stderr.isEmpty(), result.stderr)
         assertTrue(result.stdout.contains("Usage: devrig"), result.stdout)
         assertTrue(result.stdout.contains("Commands:"), result.stdout)
-        for (command in listOf("backend", "install", "mcp") + devrigCliTools().map { it.cli.name }) {
+        val visibleTools = devrigCliTools().filterNot { it.cli.hidden }
+        for (command in listOf("backend", "install", "mcp", "help", "version") + visibleTools.map { it.cli.name }) {
             assertTrue(result.stdout.contains(command), "missing $command in:\n${result.stdout}")
         }
-        assertTrue("alias: project" in result.stdout, "missing project alias in:\n${result.stdout}")
+        for (alias in visibleTools.flatMap { it.cli.aliases }) {
+            assertTrue("alias: $alias" in result.stdout, "missing $alias alias in:\n${result.stdout}")
+        }
         assertTrue(!result.stdout.contains("mpc"), result.stdout)
         assertTrue(result.stdout.contains("--json"), result.stdout)
     }
@@ -96,6 +99,56 @@ class DevrigCliHelpTest {
         )) {
             assertTrue(expected in message, "missing '$expected' in:\n$message")
         }
+    }
+
+    @Test
+    fun `a json flag swallowed as a value still produces one complete structured help error`() {
+        val result = runHelp("execute_code", "--task_id", "--json")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stderr.isEmpty(), result.stderr)
+        assertTrue('\u001B' !in result.stdout, "JSON must not contain ANSI escapes: ${result.stdout}")
+        val envelope = Json.parseToJsonElement(result.stdout).jsonObject
+        assertEquals("execute_code", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
+        val message = envelope.getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("text").jsonPrimitive.content
+        for (expected in listOf(
+            "'--json' is a devrig flag, not a value",
+            "missing --project_name",
+            "Pass --code-file=<path>",
+            "missing --reason",
+        )) {
+            assertTrue(expected in message, "missing '$expected' in:\n$message")
+        }
+    }
+
+    @Test
+    fun `a help flag swallowed as a value produces focused human guidance`() {
+        val result = runHelp("execute_code", "--task_id", "--help")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stdout.isEmpty(), result.stdout)
+        for (expected in listOf(
+            "Usage: devrig execute_code",
+            "'--help' is a devrig flag, not a value",
+            "missing --project_name",
+            "Pass --code-file=<path>",
+            "missing --reason",
+        )) {
+            assertTrue(expected in result.stderr, "missing '$expected' in:\n${result.stderr}")
+        }
+    }
+
+    @Test
+    fun `nested json parse errors identify the full command path`() {
+        val result = runHelp("backend", "download", "idea-community", "--version", "--json")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stderr.isEmpty(), result.stderr)
+        val envelope = Json.parseToJsonElement(result.stdout).jsonObject
+        assertEquals("backend download", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
     }
 
     @Test
