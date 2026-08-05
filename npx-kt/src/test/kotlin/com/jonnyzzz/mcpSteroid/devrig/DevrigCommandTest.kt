@@ -14,7 +14,8 @@ class DevrigCommandTest {
         assertInvocation("devrig mcp", DevrigCliMode.MCP, "mcp")
         assertInvocation("devrig mpc", DevrigCliMode.MCP, "mpc")
         assertInvocation("devrig backend", DevrigCliMode.BACKEND, "backend")
-        assertInvocation("devrig project", DevrigCliMode.PROJECT, "project")
+        assertInvocation("devrig list_projects", DevrigCliMode.GENERATED_TOOL, "list_projects")
+        assertInvocation("devrig list_projects", DevrigCliMode.GENERATED_TOOL, "project")
         assertInvocation("devrig install claude", DevrigCliMode.INSTALL, "install", "claude")
         assertInvocation("devrig install codex", DevrigCliMode.INSTALL, "install", "codex")
         assertInvocation("devrig install gemini", DevrigCliMode.INSTALL, "install", "gemini")
@@ -70,6 +71,16 @@ class DevrigCommandTest {
 
         val parseError = command("totally-unknown-subcommand")
         assertEquals("parse-error", parseError.commandPath)
+    }
+
+    @Test
+    fun `list_projects is canonical while project remains a compatibility alias`() {
+        val canonical = command("list_projects", "--json")
+        val alias = command("project", "--json")
+
+        assertEquals(canonical.commandPath, alias.commandPath)
+        assertEquals("devrig list_projects", alias.commandPath)
+        assertEquals(canonical.generatedTool, alias.generatedTool)
     }
 
     @Test

@@ -7,6 +7,10 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Path
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -24,9 +28,10 @@ class DevrigCliHelpTest {
         assertTrue(result.stderr.isEmpty(), result.stderr)
         assertTrue(result.stdout.contains("Usage: devrig"), result.stdout)
         assertTrue(result.stdout.contains("Commands:"), result.stdout)
-        for (command in listOf("backend", "install", "mcp", "project")) {
+        for (command in listOf("backend", "install", "mcp") + devrigCliTools().map { it.cli.name }) {
             assertTrue(result.stdout.contains(command), "missing $command in:\n${result.stdout}")
         }
+        assertTrue("alias: project" in result.stdout, "missing project alias in:\n${result.stdout}")
         assertTrue(!result.stdout.contains("mpc"), result.stdout)
         assertTrue(result.stdout.contains("--json"), result.stdout)
     }
@@ -68,6 +73,58 @@ class DevrigCliHelpTest {
         assertTrue(result.stdout.contains("<id>"), result.stdout)
         assertTrue(result.stdout.contains("--version"), result.stdout)
         assertTrue(result.stdout.contains("--json"), result.stdout)
+    }
+
+    @Test
+    fun `missing values with json produce one canonical structured help error`() {
+        val result = runHelp("execute_code", "--json")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stderr.isEmpty(), result.stderr)
+        assertTrue('\u001B' !in result.stdout, "JSON must not contain ANSI escapes: ${result.stdout}")
+        val envelope = Json.parseToJsonElement(result.stdout).jsonObject
+        assertEquals("execute_code", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
+        val message = envelope.getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("text").jsonPrimitive.content
+        for (expected in listOf(
+            "Usage: devrig execute_code",
+            "missing --project_name",
+            "Pass --code-file=<path>",
+            "missing --task_id",
+            "missing --reason",
+        )) {
+            assertTrue(expected in message, "missing '$expected' in:\n$message")
+        }
+    }
+
+    @Test
+    fun `json parse errors through project alias use canonical list_projects identity`() {
+        val result = runHelp("project", "--json", "--bogus")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stderr.isEmpty(), result.stderr)
+        val envelope = Json.parseToJsonElement(result.stdout).jsonObject
+        assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals(true, envelope.getValue("isError").jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun `json-like option values do not switch missing help to JSON presentation`() {
+        val result = runHelp("execute_code", "--reason=--json")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stdout.isEmpty(), result.stdout)
+        assertTrue("Usage: devrig execute_code" in result.stderr, result.stderr)
+    }
+
+    @Test
+    fun `json token after end of options does not switch missing help to JSON presentation`() {
+        val result = runHelp("execute_code", "--", "--json")
+
+        assertEquals(DEVRIG_USAGE_EXIT_CODE, result.exitCode)
+        assertTrue(result.stdout.isEmpty(), result.stdout)
+        assertTrue("Usage: devrig execute_code" in result.stderr, result.stderr)
     }
 
     private fun runHelp(vararg args: String): CliResult {

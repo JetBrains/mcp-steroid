@@ -17,7 +17,6 @@ class LauncherSelfHealPredicateTest {
             arrayOf("backend", "start"),
             arrayOf("backend", "stop"),
             arrayOf("backend", "provision"),
-            arrayOf("project"),
             arrayOf("install"),
             arrayOf("install", "claude"),
             arrayOf("install", "devrig"),
@@ -38,7 +37,14 @@ class LauncherSelfHealPredicateTest {
 
     @Test
     fun `generated MCP tool facades never mutate launcher state`() {
-        for (args in listOf(arrayOf("list_windows"), arrayOf("list_windows", "--json"))) {
+        for (args in listOf(
+            arrayOf("list_windows"),
+            arrayOf("list_windows", "--json"),
+            arrayOf("list_projects"),
+            arrayOf("list_projects", "--json"),
+            arrayOf("project"),
+            arrayOf("project", "--json"),
+        )) {
             val invocation = parseDevrigCommand(args)
             assertTrue(invocation.generatedTool != null, "expected a generated tool for ${args.toList()}")
             assertFalse(invocation.selfHealsLauncherOnStart, "generated tool ${args.toList()} must stay stateless")

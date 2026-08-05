@@ -218,7 +218,7 @@ class CliErrorEnvelopeTest {
         run.assertIsErrorEnvelope("list_windows")
         assertEquals(
             "devrig list_windows did not complete: no IDE backend is reachable " +
-                "(IOException: Connection refused: no IDE is running) — check `devrig project`.",
+                "(IOException: Connection refused: no IDE is running) — check `devrig list_projects`.",
             run.errorMessage(),
         )
     }
@@ -233,7 +233,7 @@ class CliErrorEnvelopeTest {
         assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
         assertEquals(
             "devrig list_windows did not complete: no IDE backend is reachable " +
-                "(IOException: Connect timeout has expired) — check `devrig project`.",
+                "(IOException: Connect timeout has expired) — check `devrig list_projects`.",
             run.errorMessage(),
         )
     }

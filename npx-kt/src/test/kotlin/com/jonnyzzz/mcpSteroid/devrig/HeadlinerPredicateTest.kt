@@ -16,7 +16,6 @@ class HeadlinerPredicateTest {
             arrayOf("backend", "start") to arrayOf("backend", "start", "--json"),
             arrayOf("backend", "stop") to arrayOf("backend", "stop", "--json"),
             arrayOf("backend", "provision") to arrayOf("backend", "provision", "--json"),
-            arrayOf("project") to arrayOf("project", "--json"),
             arrayOf("install", "claude") to null,
             arrayOf("install", "devrig") to null,
             arrayOf("install", "plugin") to null,
@@ -45,6 +44,10 @@ class HeadlinerPredicateTest {
             arrayOf("version", "--json"),
             arrayOf("list_windows"),
             arrayOf("list_windows", "--json"),
+            arrayOf("list_projects"),
+            arrayOf("list_projects", "--json"),
+            arrayOf("project"),
+            arrayOf("project", "--json"),
         )
 
         for (args in commands) {

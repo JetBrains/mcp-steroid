@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
+import com.github.ajalt.clikt.core.ContextCliktError
 import com.github.ajalt.clikt.core.IncorrectOptionValueCount
 import com.github.ajalt.clikt.core.MissingArgument
 import com.github.ajalt.clikt.core.MissingOption
@@ -18,6 +19,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.clikt.output.MordantHelpFormatter
+import com.github.ajalt.mordant.rendering.AnsiLevel
 import com.github.ajalt.mordant.rendering.TextColors
 import com.github.ajalt.mordant.rendering.TextStyles
 import com.github.ajalt.mordant.rendering.Whitespace
@@ -46,7 +48,6 @@ enum class DevrigCliMode(
     MCP("mcp", runsTool = true, isMcp = true, selfHealsLauncherOnStart = true, mayPrintHeadliner = false),
     GENERATED_TOOL(null, runsTool = true, selfHealsLauncherOnStart = false, mayPrintHeadliner = false),
     BACKEND("backend", runsTool = true, selfHealsLauncherOnStart = true, mayPrintHeadliner = true),
-    PROJECT("project", runsTool = true, selfHealsLauncherOnStart = true, mayPrintHeadliner = true),
     INSTALL("install", runsTool = true, selfHealsLauncherOnStart = true, mayPrintHeadliner = true),
     INFORMATIONAL(null, runsTool = false, selfHealsLauncherOnStart = true, mayPrintHeadliner = false),
 }
@@ -87,26 +88,45 @@ fun parseDevrigCommand(
     rawArgs: Array<String>,
     terminal: Terminal = Terminal(),
 ): DevrigCliInvocation {
+    val parsedArgs = rawArgs.normalizedHelpRoute()
     val selected = SelectedDevrigInvocation()
-    selected.rawArgs = rawArgs.toList()
-    val root = DevrigRootCommand(selected, terminal)
+    selected.rawArgs = parsedArgs.toList()
+    val jsonRequested = parsedArgs.exactJsonRequested()
+    val renderingTerminal = if (jsonRequested) Terminal(ansiLevel = AnsiLevel.NONE) else terminal
+    val root = DevrigRootCommand(selected, renderingTerminal)
     return try {
-        root.parse(rawArgs)
+        root.parse(parsedArgs)
         selected.invocation ?: informationalInvocation(
             root.getFormattedHelp() ?: "devrig help is unavailable",
-            debug = rawArgs.debugRequested(),
+            debug = parsedArgs.debugRequested(),
         )
     } catch (e: CliktError) {
         val exitCode = if (e.statusCode == 0) 0 else DEVRIG_USAGE_EXIT_CODE
         val reported = (e as? UsageError)?.withCuratedMissingHints() ?: e
         val text = root.getFormattedHelp(reported) ?: reported.message ?: "Invalid arguments"
+        val failingCommand = reported.failingCommand()
+        val jsonError = exitCode != 0 && jsonRequested
         informationalInvocation(
             text,
             exitCode = exitCode,
             error = exitCode != 0 || reported.printError,
-            debug = rawArgs.debugRequested(),
+            debug = parsedArgs.debugRequested(),
+            json = jsonError,
+            jsonEnvelopeCommand = parsedArgs.jsonEnvelopeCommand(failingCommand),
         )
     }
+}
+
+private fun CliktError.failingCommand(): CliktCommand? =
+    (this as? ContextCliktError)?.context?.command
+        ?: (this as? MultiUsageError)?.errors?.firstNotNullOfOrNull { it.failingCommand() }
+
+private fun Array<String>.jsonEnvelopeCommand(failingCommand: CliktCommand?): String {
+    if (failingCommand != null) return failingCommand.commandName
+    val commandToken = takeWhile { it != "--" }.firstOrNull { !it.startsWith("-") } ?: return "devrig"
+    return devrigCliTools().firstOrNull { spec ->
+        commandToken == spec.cli.name || commandToken in spec.cli.aliases
+    }?.cli?.name ?: commandToken
 }
 
 private fun UsageError.withCuratedMissingHints(): UsageError {
@@ -135,6 +155,14 @@ private fun UsageError.withCuratedMissingHints(command: SchemaToolCliCommand): U
 
 private fun Array<String>.debugRequested(): Boolean = devrigDebugEnvEnabled() || any { it == "--debug" }
 
+/** `devrig help [path...]` is the discoverable spelling of `devrig [path...] --help`. */
+private fun Array<String>.normalizedHelpRoute(): Array<String> =
+    if (firstOrNull() == "help") (drop(1) + "--help").toTypedArray() else this
+
+/** Exact framework flag only, before the conventional end-of-options marker. Values such as
+ * `--reason=--json` are data, not a presentation request. */
+private fun Array<String>.exactJsonRequested(): Boolean = takeWhile { it != "--" }.any { it == "--json" }
+
 private fun devrigDebugEnvEnabled(): Boolean = !System.getenv("DEVRIG_DEBUG").isNullOrBlank()
 
 private fun informationalInvocation(
@@ -142,17 +170,24 @@ private fun informationalInvocation(
     exitCode: Int = 0,
     error: Boolean = false,
     debug: Boolean = false,
+    json: Boolean = false,
+    jsonEnvelopeCommand: String = "devrig",
 ): DevrigCliInvocation = DevrigCliInvocation(
     commandPath = if (exitCode == 0) "help" else "parse-error",
     debug = debug,
-    json = false,
+    json = json,
     mode = DevrigCliMode.INFORMATIONAL,
+    jsonEnvelopeCommand = jsonEnvelopeCommand,
     informationalText = text,
     terminal = null,
 ) {
-    val output = if (error) System.err else mcpStdout
-    output.println(text.trimEnd())
-    exitCode
+    if (json) {
+        Presentation.Json().renderError(jsonEnvelopeCommand, text.trimEnd(), exitCode, mcpStdout, System.err)
+    } else {
+        val output = if (error) System.err else mcpStdout
+        output.println(text.trimEnd())
+        exitCode
+    }
 }
 
 class SelectedDevrigInvocation {
@@ -336,7 +371,6 @@ class DevrigRootCommand(
             // Compatibility for registrations created before issue #85. Never advertise this typo.
             McpCommand(selected, this, name = "mpc", hidden = true),
             backend,
-            ProjectCommand(selected, this),
             install,
             *schemaToolCliCommands(selected, this, tools).toTypedArray(),
             HelpCommand(selected, this),
@@ -375,22 +409,6 @@ private class McpCommand(
     override fun runCommand() {
         select(DevrigCliMode.MCP, supportsJson = false) {
             error("devrig mcp is served by mainImplMcp, never by execute()")
-        }
-    }
-}
-
-private class ProjectCommand(
-    selected: SelectedDevrigInvocation,
-    parent: DevrigCliktCommand,
-) : JsonDevrigCliktCommand(
-    name = "project",
-    help = "List open projects across every reachable IDE backend.",
-    selected = selected,
-    parent = parent,
-) {
-    override fun runCommand() {
-        select(DevrigCliMode.PROJECT, supportsJson = true) { json ->
-            runProjectCommand(json)
         }
     }
 }
@@ -522,7 +540,7 @@ private class HelpCommand(
     parent: DevrigCliktCommand,
 ) : DevrigCliktCommand(
     name = "help",
-    help = "Print command help.",
+    help = "Print root help, or use `devrig help <command>` for focused help.",
     selected = selected,
     parent = parent,
 ) {

@@ -507,10 +507,10 @@ class DevrigToolBridgeClientTest {
     }
 
     @Test
-    fun `CLI project --json and MCP list_projects expose the same project_name for one marker project`(
+    fun `list_projects handler exposes the routing service project and backend identities`(
         @TempDir tempDir: Path,
     ) = runBlocking {
-        // A real directory so toRealPath() (used by both code paths to salt the hash) succeeds identically.
+        // A real directory so routing can salt the opaque project key from its canonical path.
         val projectHome = Files.createDirectories(tempDir.resolve("my-app"))
         val pid = 4242L
         val ide = discoveredIde(pid = pid, build = "IU-261.1")
@@ -520,28 +520,15 @@ class DevrigToolBridgeClientTest {
         )
         val routing = DevrigProjectRoutingService { listOf(state) }
 
-        // MCP surface.
-        val mcpResponse = DevrigListProjectsToolHandler(routing)
+        val response = DevrigListProjectsToolHandler(routing)
             .collectListProjectsResponse()
-        val mcpProjectName = mcpResponse.projects.single().projectName
+        val listed = response.projects.single()
 
-        // CLI surface — rendered by `devrig project --json` from the SAME routing routes.
-        val cliJson = java.io.ByteArrayOutputStream().let { buf ->
-            com.jonnyzzz.mcpSteroid.devrig.renderProjectJson3(
-                routing.routes(),
-                java.io.PrintStream(buf, true, Charsets.UTF_8),
-            )
-            buf.toString(Charsets.UTF_8)
-        }
-        val cliProject = McpJson.parseToJsonElement(cliJson).jsonObject["projects"]!!.jsonArray.single().jsonObject
-        val cliProjectName = cliProject["project_name"]!!.jsonPrimitive.content
-        val cliBackendName = cliProject["backend_name"]!!.jsonPrimitive.content
-
-        assertEquals(mcpProjectName, cliProjectName, "CLI and MCP must expose the same project_name")
-        assertTrue(mcpProjectName.startsWith("my-app-"), mcpProjectName)
-        // ...and the same owning backend_name.
-        assertEquals(mcpResponse.projects.single().backendName, cliBackendName)
-        assertEquals(backendNameForMarker(pid, "IU-261.1"), cliBackendName)
+        assertEquals(routing.routes().single().exposedProjectName, listed.projectName)
+        assertTrue(listed.projectName.startsWith("my-app-"), listed.projectName)
+        assertEquals("my-app", listed.name)
+        assertEquals(projectHome.toRealPath().toString(), listed.path)
+        assertEquals(backendNameForMarker(pid, "IU-261.1"), listed.backendName)
     }
 
     @Test

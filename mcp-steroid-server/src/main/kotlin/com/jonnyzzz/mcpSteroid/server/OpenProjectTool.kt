@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.boolean
+import com.jonnyzzz.mcpSteroid.mcp.cliMissingHint
 import com.jonnyzzz.mcpSteroid.mcp.cliSynopsis
 import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
@@ -52,6 +53,10 @@ class OpenProjectToolSpec(
     val projectPath = InputSchemaElement.param("project_path")
         .description("Absolute path to the project directory to open.")
         .cliSynopsis("absolute path to the project directory to open")
+        .cliMissingHint(
+            "missing --project_path. Pass an absolute directory path. Example:\n" +
+                "  devrig open_project --project_path=/work/app --task_id=t1 --reason=\"open the project\""
+        )
         .string()
         .required()
         .registerToSchema()

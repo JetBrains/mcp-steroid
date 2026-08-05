@@ -40,6 +40,7 @@ object CommonToolParams {
                         "to group them in audit logs."
             )
             .cliSynopsis("your task id; reuse it across related calls for audit logs")
+            .cliMissingHint("missing --task_id. Any string works; reuse it across related calls.")
             .string()
             .required()
 
@@ -63,6 +64,7 @@ object CommonToolParams {
                 "Use steroid_execute_feedback to share improvements, suggestions, and feedback."
             )
             .cliSynopsis("your intent and expected outcome, for the audit log")
+            .cliMissingHint("missing --reason. Describe your intent and expected outcome for the audit log.")
             .string()
             .required()
 }

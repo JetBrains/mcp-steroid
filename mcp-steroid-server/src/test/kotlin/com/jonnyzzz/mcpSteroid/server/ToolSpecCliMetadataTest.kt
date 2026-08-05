@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.server
 
 import com.jonnyzzz.mcpSteroid.mcp.CliOptionType
+import com.jonnyzzz.mcpSteroid.mcp.CliOutputStyle
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -41,6 +42,26 @@ class ToolSpecCliMetadataTest {
         assertEquals("take_screenshot", takeScreenshot.cli.name)
         assertEquals("input", input.cli.name)
         assertEquals("fetch_resource", fetchResource.cli.name)
+    }
+
+    @Test
+    fun `list_projects is canonical and project is its compatibility alias`() {
+        assertEquals("list_projects", listProjects.cli.name)
+        assertEquals(listOf("project"), listProjects.cli.aliases)
+        assertEquals(CliOutputStyle.PROJECTS_TABLE, listProjects.cli.outputStyle)
+        assertTrue(allTools.filterNot { it === listProjects }.all { it.cli.outputStyle == CliOutputStyle.CONTENT })
+    }
+
+    @Test
+    fun `every required CLI parameter explains the value to provide when it is missing`() {
+        for (tool in devrigToolSpecsForTest().filterNot { it.cli.hidden }) {
+            for (param in tool.schema.asCliParams().filter { it.required && !it.cliHidden }) {
+                assertTrue(
+                    !param.cliMissingHint.isNullOrBlank(),
+                    "${tool.cli.name}.${param.name} is required on the CLI and needs an actionable cliMissingHint",
+                )
+            }
+        }
     }
 
     @Test

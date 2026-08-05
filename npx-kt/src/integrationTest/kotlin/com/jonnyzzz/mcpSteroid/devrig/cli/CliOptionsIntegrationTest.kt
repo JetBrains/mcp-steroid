@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -192,10 +193,10 @@ class CliOptionsIntegrationTest {
         assertTrue(backend.stdout.trimStart().startsWith("{"),
             "backend --json stdout must start with JSON object; got:\n${backend.stdout}")
 
-        val project = runLauncher("project", "--json")
-        assertEquals(0, project.exitCode, "project --json failed; stdout=\n${project.stdout}\nstderr=\n${project.stderr}")
-        assertTrue(project.stdout.trimStart().startsWith("{"),
-            "project --json stdout must start with JSON object; got:\n${project.stdout}")
+        val projects = runLauncher("list_projects", "--json")
+        assertEquals(0, projects.exitCode, "list_projects --json failed; stdout=\n${projects.stdout}\nstderr=\n${projects.stderr}")
+        assertTrue(projects.stdout.trimStart().startsWith("{"),
+            "list_projects --json stdout must start with JSON object; got:\n${projects.stdout}")
 
         val install = runLauncher("install", "--json")
         assertEquals(0, install.exitCode, "install --json failed; stdout=\n${install.stdout}\nstderr=\n${install.stderr}")
@@ -297,6 +298,40 @@ class CliOptionsIntegrationTest {
             !r.stderr.contains("no IDE backend is reachable"),
             "a refused argument says nothing about the backend; got:\n${r.stderr}",
         )
+    }
+
+    @Test
+    fun `missing generated command values with json return one structured help envelope`() {
+        val r = runLauncher("execute_code", "--json")
+
+        assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+        assertTrue(r.stderr.isBlank(), "JSON errors keep stderr clean; got:\n${r.stderr}")
+        assertTrue('\u001B' !in r.stdout, "JSON must not contain ANSI escapes: ${r.stdout}")
+        val envelope = Json.parseToJsonElement(r.stdout).jsonObject
+        assertEquals("execute_code", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals("true", envelope.getValue("isError").jsonPrimitive.content)
+        val message = envelope.getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("text").jsonPrimitive.content
+        for (expected in listOf(
+            "Usage: devrig execute_code",
+            "missing --project_name",
+            "Pass --code-file=<path>",
+            "missing --task_id",
+            "missing --reason",
+        )) {
+            assertTrue(expected in message, "missing '$expected' in:\n$message")
+        }
+    }
+
+    @Test
+    fun `project alias json errors report canonical list_projects command`() {
+        val r = runLauncher("project", "--json", "--bogus")
+
+        assertEquals(64, r.exitCode, "stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
+        assertTrue(r.stderr.isBlank(), r.stderr)
+        val envelope = Json.parseToJsonElement(r.stdout).jsonObject
+        assertEquals("list_projects", envelope.getValue("command").jsonPrimitive.content)
+        assertEquals("true", envelope.getValue("isError").jsonPrimitive.content)
     }
 
     @Test

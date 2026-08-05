@@ -92,7 +92,7 @@ fun DevrigServices.runGeneratedToolCommand(
     tools: McpSteroidTools = StubMcpSteroidTools(this),
 ): Int {
     val spec = liveToolSpec(command.toolName, tools)
-    val presentation = presentationFor(command.json, homePaths::tmpDir)
+    val presentation = presentationFor(command.json, spec.cli.outputStyle, homePaths::tmpDir)
     val preparedOut = try {
         preflightOutTarget(command.out)
     } catch (e: IOException) {
@@ -161,7 +161,7 @@ fun DevrigServices.runGeneratedToolCommand(
         return presentation.renderError(
             command.commandName,
             "devrig ${command.commandName} did not complete: no IDE backend is reachable " +
-                "(${e.javaClass.simpleName}: ${e.message}) — check `devrig project`.",
+                "(${e.javaClass.simpleName}: ${e.message}) — check `devrig list_projects`.",
             CliExit.UNAVAILABLE, mcpStdout,
         )
     }

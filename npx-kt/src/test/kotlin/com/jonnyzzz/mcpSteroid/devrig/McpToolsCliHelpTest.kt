@@ -116,8 +116,8 @@ class McpToolsCliHelpTest {
     @Test
     fun `a tool with no parameters renders its usage line alone`() {
         assertTrue(
-            "  devrig list_projects\n      list open projects and their routing keys\n" in section(),
-            "list_projects declares no parameter, so its block is the usage line plus the synopsis:\n${section()}",
+            "  devrig list_windows\n      list IDE windows, readiness, and background tasks\n" in section(),
+            "list_windows declares no parameter or alias, so its block is the usage line plus the synopsis:\n${section()}",
         )
     }
 
@@ -167,6 +167,10 @@ class McpToolsCliHelpTest {
     @Test
     fun `a tool's declared aliases trail its usage line`() {
         assertTrue(
+            "  devrig list_projects (alias: project)\n" in section(),
+            "list_projects must advertise its declared `project` alias:\n${section()}",
+        )
+        assertTrue(
             "  devrig fetch_resource --uri=<uri> --project_name=<project_name> (alias: prompt)\n" in section(),
             "fetch_resource must advertise its declared `prompt` alias:\n${section()}",
         )
@@ -178,7 +182,7 @@ class McpToolsCliHelpTest {
         // `--json` reaches only commands that advertise structured output, while `--out` is registered on
         // DevrigToolCliktCommand and reaches only the tool commands whose result can carry an image
         // (execute_code, take_screenshot — the CliCommandSpec.producesImage set). One heading over all three
-        // is what let `devrig project --out=/tmp/x.png` be advertised, parse, and do nothing; a heading over
+        // is what let `devrig list_projects --out=/tmp/x.png` be advertised, parse, and do nothing; a heading over
         // every tool command is what let `devrig list_projects --out=x` fail 65 after a pointless call.
         val expected =
             "  Global CLI flag (accepted by every command, tool and lifecycle alike):\n" +

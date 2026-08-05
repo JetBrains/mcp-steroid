@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.CliOutputStyle
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.defaultCliName
@@ -29,7 +30,7 @@ import kotlinx.serialization.json.putJsonArray
  * Shared rendering, exit-code and progress-reporting plumbing for the GENERATED tool commands — the one
  * `devrig <tool>` subcommand issue #284's schema-driven CLI derives per `steroid_*` tool. Those are its
  * only callers ([GeneratedToolRuntime] and, for [CliExit], `Main.kt`'s last-resort handler): the
- * hand-written lifecycle verbs (`project`, `backend`, `install`) call no tool, produce no
+ * hand-written lifecycle verbs (`backend`, `install`) call no tool, produce no
  * [ToolCallResult], and hand-roll their own JSON, as [cliEnvelopeJson] below already records.
  *
  * It factors out only the parts every generated command repeats: rendering a [ToolCallResult] to
@@ -128,8 +129,14 @@ sealed interface Presentation {
     }
 
     /** Human-readable output; image payloads are materialized under [imageDir]. */
-    class Console(private val imageDir: () -> Path) : Presentation {
+    class Console(
+        private val outputStyle: CliOutputStyle = CliOutputStyle.CONTENT,
+        private val imageDir: () -> Path,
+    ) : Presentation {
         override fun render(result: ToolCallResult, command: String, out: PrintStream, err: PrintStream): Int {
+            if (!result.isError && outputStyle == CliOutputStyle.PROJECTS_TABLE) {
+                return renderListProjectsTable(result, out)
+            }
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
@@ -185,8 +192,11 @@ sealed interface Presentation {
 }
 
 /** Maps the `--json` flag onto a concrete [Presentation]; the only place the boolean is branched on. */
-fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
-    if (json) Presentation.Json() else Presentation.Console(imageDir)
+fun presentationFor(
+    json: Boolean,
+    outputStyle: CliOutputStyle = CliOutputStyle.CONTENT,
+    imageDir: () -> Path,
+): Presentation = if (json) Presentation.Json() else Presentation.Console(outputStyle, imageDir)
 
 /**
  * Resolves and probes an `--out` target before a stateful tool runs. Creating the parent and a sibling temp
@@ -341,9 +351,8 @@ private fun writeAtomically(target: Path, bytes: ByteArray) {
  * [Presentation.Json] — `{tool, command, isError, data}`, where `data` is always the tool-result
  * shape this file produces: `{content:[...]}`, plus `savedOut` when `--out` wrote an image (see
  * [renderWithOut]). Commands that predate the schema-driven CLI and never produce a [ToolCallResult]
- * at all — `devrig project --json`, for instance — hand-roll their own JSON today and are out of
- * scope for this envelope; under the schema-driven design a tool-backed command reports through this
- * same shape instead.
+ * hand-roll their own JSON and are out of scope for this envelope. Every generated tool-backed command,
+ * including `list_projects` and its `project` alias, reports through this same shape.
  */
 val CLI_ENVELOPE_JSON: Json = Json {
     prettyPrint = true

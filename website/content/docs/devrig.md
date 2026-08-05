@@ -177,14 +177,16 @@ IDEs that would be asked without showing installation dialogs.
 
 Lists discovered backends (with versions), grouped as MCP Steroid backends,
 other/incompatible IDEs, and installed-but-not-running (startable) backends.
-Per-backend open projects are listed by `devrig project`. `--json` emits a
+Per-backend open projects are listed by `devrig list_projects`. `--json` emits a
 single machine-readable object on stdout (pipe through `jq`); the default is
 human-readable text.
 
-### `devrig project [--json]`
+### `devrig list_projects [--json]`
 
-Lists open projects across all discovered backends. `--json` emits a single
-machine-readable object on stdout; the default is human-readable text.
+Lists open projects across all discovered backends. The default is a readable
+project/backend table. `--json` emits the standard generated-command envelope;
+project rows are under `.data.content[].json.projects[]`. `devrig project` is a
+compatibility alias with identical help, behavior, and output.
 
 ### `devrig backend download [<id>] [--version <v>] [--json]`
 

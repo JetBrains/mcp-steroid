@@ -123,13 +123,9 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
         .cliCodeFileSource()
         .registerToSchema()
 
-    val taskId = CommonToolParams.taskId()
-        .cliMissingHint("missing --task_id. Any string works; reuse it across related calls.")
-        .registerToSchema()
+    val taskId = CommonToolParams.taskId().registerToSchema()
 
-    val reason = CommonToolParams.reason()
-        .cliMissingHint("missing --reason. Describe your intent and expected outcome for the audit log.")
-        .registerToSchema()
+    val reason = CommonToolParams.reason().registerToSchema()
 
     private val defaultTimeoutSeconds = 600
     val timeout = InputSchemaElement.param("timeout")

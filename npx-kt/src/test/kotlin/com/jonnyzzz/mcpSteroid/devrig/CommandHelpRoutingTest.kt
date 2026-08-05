@@ -47,6 +47,14 @@ class CommandHelpRoutingTest {
             for (name in declared) {
                 assertTrue(name in text, "${tool.cli.name}'s help must name '$name'; got:\n$text")
             }
+            for (frameworkFlag in listOf("--help", "--debug", "--json")) {
+                assertTrue(frameworkFlag in text, "${tool.cli.name}'s help must name '$frameworkFlag'; got:\n$text")
+            }
+            assertEquals(
+                tool.cli.producesImage,
+                "--out" in text,
+                "${tool.cli.name}'s --out help must follow producesImage; got:\n$text",
+            )
         }
     }
 
@@ -54,23 +62,67 @@ class CommandHelpRoutingTest {
     fun `an alias reaches the help of the command it expands to`() {
         val canonical = help("fetch_resource", "--help")
         assertEquals(canonical, help("prompt", "--help"))
+
+        val listProjects = help("list_projects", "--help")
+        assertEquals(listProjects, help("project", "--help"))
+        assertTrue("Usage: devrig list_projects" in listProjects, listProjects)
     }
 
     @Test
-    fun `lifecycle verbs render focused help from their real command nodes`() {
+    fun `help command routes to canonical focused help including nested actions`() {
+        assertEquals(help("execute_code", "--help"), help("help", "execute_code"))
+        assertEquals(help("list_projects", "--help"), help("help", "project"))
+        assertEquals(help("backend", "download", "--help"), help("help", "backend", "download"))
+    }
+
+    @Test
+    fun `every visible lifecycle command renders focused help from its real command node`() {
         val cases = listOf(
             arrayOf("--help") to "Usage: devrig ",
             arrayOf("-h") to "Usage: devrig ",
             arrayOf("help") to "Usage: devrig ",
             arrayOf("mcp", "--help") to "Usage: devrig mcp",
-            arrayOf("project", "--help") to "Usage: devrig project",
+            arrayOf("version", "--help") to "Usage: devrig version",
+            arrayOf("help", "--help") to "Usage: devrig ",
             arrayOf("backend", "--help") to "Usage: devrig backend",
             arrayOf("backend", "download", "--help") to "Usage: devrig backend download",
+            arrayOf("backend", "start", "--help") to "Usage: devrig backend start",
+            arrayOf("backend", "stop", "--help") to "Usage: devrig backend stop",
+            arrayOf("backend", "provision", "--help") to "Usage: devrig backend provision",
             arrayOf("install", "--help") to "Usage: devrig install",
+            arrayOf("install", "claude", "--help") to "Usage: devrig install claude",
+            arrayOf("install", "codex", "--help") to "Usage: devrig install codex",
+            arrayOf("install", "gemini", "--help") to "Usage: devrig install gemini",
+            arrayOf("install", "config", "--help") to "Usage: devrig install config",
+            arrayOf("install", "devrig", "--help") to "Usage: devrig install devrig",
+            arrayOf("install", "plugin", "--help") to "Usage: devrig install plugin",
         )
         for ((args, usage) in cases) {
             val text = help(*args)
             assertTrue(usage in text, "${args.toList()} must render focused help; got:\n$text")
+        }
+    }
+
+    @Test
+    fun `bare generated commands report every missing value with command-scoped usage and hints`() {
+        for (tool in devrigCliTools().filterNot { it.cli.hidden }) {
+            val required = tool.schema.asCliParams().filter { it.required && !it.cliHidden }
+            if (required.isEmpty()) continue
+
+            val invocation = parseDevrigCommand(arrayOf(tool.cli.name))
+            assertEquals("parse-error", invocation.commandPath, "${tool.cli.name} must reject missing values")
+            val text = assertNotNull(invocation.informationalText)
+            assertTrue("Usage: devrig ${tool.cli.name}" in text, "missing scoped usage for ${tool.cli.name}:\n$text")
+            for (param in required) {
+                val hint = assertNotNull(
+                    param.cliMissingHint,
+                    "${tool.cli.name}.${param.name} must explain which value to provide",
+                )
+                assertTrue(
+                    hint.replace(Regex("\\s+"), " ") in text.replace(Regex("\\s+"), " "),
+                    "${tool.cli.name} must report the missing ${param.name} value with its hint; got:\n$text",
+                )
+            }
         }
     }
 }

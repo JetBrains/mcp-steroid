@@ -102,6 +102,16 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `project parses to the same canonical generated invocation as list_projects`() {
+        val canonical = assertIs<GeneratedToolInvocation>(parse("list_projects", "--json"))
+        val alias = assertIs<GeneratedToolInvocation>(parse("project", "--json"))
+
+        assertEquals(canonical, alias)
+        assertEquals("steroid_list_projects", alias.toolName)
+        assertEquals("list_projects", alias.commandName)
+    }
+
+    @Test
     fun `a hidden spec contributes no command`() {
         val hidden = FakeToolSpec("steroid_secret", CliCommandSpec(name = "secret", synopsis = "s", hidden = true))
         val visible = FakeToolSpec("steroid_shown", CliCommandSpec(name = "shown", synopsis = "s"))
@@ -249,14 +259,15 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
-    fun `a missing required parameter without a curated hint keeps Clikt's default wording`() {
-        // take_screenshot reuses the shared task_id factory, which declares no cliMissingHint.
+    fun `a shared required parameter uses the same curated hint in every tool`() {
         val error = assertIs<ParsedError>(
             parse("take_screenshot", "--reason=r", "--project_name=key"),
         )
 
-        assertTrue("--task_id" in error.text, "expected Clikt's own missing-option wording; got:\n${error.text}")
-        assertFalse("Any string works" in error.text, "no hint is declared here; got:\n${error.text}")
+        assertTrue(
+            "missing --task_id. Any string works; reuse it across related calls.".unwrapped() in error.text.unwrapped(),
+            "expected the shared task_id hint; got:\n${error.text}",
+        )
     }
 
     @Test
@@ -454,7 +465,7 @@ class SchemaToolCliCommandTest {
     @Test
     fun `--out is rejected on a lifecycle command, which can never honour it`() {
         // `--out` redirects the image a tool RESULT carries, and no lifecycle verb returns a result at
-        // all. It used to be declared on the shared base class, so `devrig project --out=/tmp/x.png`
+        // all. It used to be declared on the shared base class, so `devrig list_projects --out=/tmp/x.png`
         // parsed, exited 0, wrote nothing and said nothing. Declaring it only on the generated tool
         // commands turns that into Clikt's own parse-time refusal — the same answer `--wait` gets, one
         // phase earlier.
