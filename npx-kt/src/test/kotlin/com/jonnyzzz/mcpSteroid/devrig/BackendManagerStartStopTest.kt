@@ -753,14 +753,22 @@ class BackendManagerStartStopTest {
             Instant.parse(processState.startInstant).toEpochMilli(),
             liveHandle.info().startInstant().orElseThrow().toEpochMilli(),
         )
-        assertEquals(
-            homePaths.backendDir("idea-community-2025.3.3")
-                .resolve("idea-IC-253.1/bin/idea.sh")
-                .toAbsolutePath()
-                .normalize()
-                .toString(),
-            liveHandle.info().arguments().orElseThrow().first(),
-        )
+        // Polled, not snapshotted: on Linux the spawned pid execs IN PLACE through
+        // jspawnhelper -> setsid -> env -> sh before becoming the launcher, and
+        // /proc/<pid>/cmdline read mid-chain reports a transient stage ("sh", or empty ->
+        // NoSuchElementException) — cold TC agents deterministically lost that race
+        // (mcp_steroid_DevrigTest red since 0.101.604). The poll keeps the assertion's
+        // intent — devrig spawned the real launcher — and still fails within 5s if not.
+        val expectedLauncher = homePaths.backendDir("idea-community-2025.3.3")
+            .resolve("idea-IC-253.1/bin/idea.sh")
+            .toAbsolutePath()
+            .normalize()
+            .toString()
+        withTimeout(5.seconds) {
+            while (liveHandle.info().arguments().orElse(null)?.firstOrNull() != expectedLauncher) {
+                delay(50.milliseconds)
+            }
+        }
         val marker = PidMarker.markerDirectory(tempDir.resolve("user-home"))
             .resolve(PidMarker.markerFileNameFor(started.pid))
         Files.createDirectories(marker.parent)
