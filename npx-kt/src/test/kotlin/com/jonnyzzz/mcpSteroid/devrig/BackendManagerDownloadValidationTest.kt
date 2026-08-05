@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.ideDownloader.HostOs
 import com.jonnyzzz.mcpSteroid.ideDownloader.IdeProduct
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -105,10 +106,19 @@ class BackendManagerDownloadValidationTest {
             archivePath = fakeArchive(tempDir, "ideaIU-2026.2.0.1-aarch64.dmg"),
             includeRemoteDevelopmentAssets = true,
         )
+        // The resolver's OS is EXPLICIT: this test corrupts the Unix launcher, and the default
+        // host-OS resolver on a Windows agent would validate the intact remote-dev-server.exe
+        // instead — reusing the install and never re-downloading. The denied set stands in for
+        // chmod -x, which is a silent no-op on NTFS (see RemoteDevelopmentLauncherResolver seam).
+        val deniedLaunchers = mutableSetOf<Path>()
         val manager = BackendManager(
             homePaths = homePaths,
             downloader = downloader,
             bundledPluginResolver = FixedPluginResolver(pluginZipFixture(tempDir.resolve("dist/ij-plugin.zip"))),
+            backendLauncherResolver = ManagedBackendLauncherResolver(
+                HostOs.LINUX,
+                isExecutable = { it.toAbsolutePath().normalize() !in deniedLaunchers && Files.isExecutable(it) },
+            ),
         )
 
         val first = manager.download(parseBackendId(backendId))
@@ -130,9 +140,14 @@ class BackendManagerDownloadValidationTest {
         assertEquals(3, downloader.downloadCount, "a zero-byte native launcher must not be reused")
 
         val nonExecutableLauncher = repaired.backendDir.resolve(repaired.descriptor.bundleDirName).resolve("bin/remote-dev-server")
-        nonExecutableLauncher.toFile().setExecutable(false)
+        // Deny only the PUBLISHED path: the fresh install validates against the .partial path
+        // before the atomic move, so download #4's own validation still passes.
+        deniedLaunchers.add(nonExecutableLauncher.toAbsolutePath().normalize())
         repaired = manager.download(parseBackendId(backendId))
         assertEquals(4, downloader.downloadCount, "a non-executable Unix native launcher must not be reused")
+        // Publish moved the replacement onto the SAME path — undeny it, or every later
+        // validation of the healthy install would keep failing.
+        deniedLaunchers.clear()
 
         val pluginJar = repaired.backendDir.resolve(repaired.descriptor.bundleDirName)
             .resolve("plugins/remote-dev-server/lib/remote-dev-server.jar")
