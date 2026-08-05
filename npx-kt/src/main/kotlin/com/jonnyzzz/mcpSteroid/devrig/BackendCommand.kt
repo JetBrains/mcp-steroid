@@ -466,6 +466,7 @@ fun renderBackendJson3(
             for (ide in s1Compatible) {
                 add(buildJsonObject {
                     put("backend_name", ide.backendName)
+                    put("pid", ide.pid)
                     put("displayName", markerBackendDisplayName(ide))
                     put("build", ide.ide.build)
                     put("compatible", true)
@@ -476,6 +477,7 @@ fun renderBackendJson3(
             for (ide in s1Incompatible) {
                 add(buildJsonObject {
                     put("backend_name", ide.backendName)
+                    put("pid", ide.pid)
                     put("displayName", markerBackendDisplayName(ide))
                     put("build", ide.ide.build)
                     put("compatible", false)

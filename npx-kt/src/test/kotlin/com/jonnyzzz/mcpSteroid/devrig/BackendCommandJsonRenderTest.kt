@@ -14,6 +14,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -127,7 +128,7 @@ class BackendCommandJsonRenderTest {
     // -------------------------- mcpSteroidBackends -------------------------
 
     @Test
-    fun `mcpSteroidBackends entry uses backend_name without deprecated pid identity`() {
+    fun `mcpSteroidBackends entry uses backend_name and retains pid for compatibility`() {
         val ide = markerIde(pid = 1234L, build = "IU-253.21581.142")
         val root = render(s1 = listOf(ide))
         val backends = root["mcpSteroidBackends"]!!.jsonArray
@@ -135,9 +136,9 @@ class BackendCommandJsonRenderTest {
         val entry = backends.single().jsonObject
 
         assertEquals(backendNameForMarker(1234L, "IU-253.21581.142"), entry["backend_name"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(1234L, entry["pid"]?.jsonPrimitive?.long)
         assertEquals(markerBackendDisplayName(ide), entry["displayName"]?.jsonPrimitive?.contentOrNull)
         assertEquals("IU-253.21581.142", entry["build"]?.jsonPrimitive?.contentOrNull)
-        assertTrue("pid" !in entry, "backend_name is the stable identity; got $entry")
     }
 
     @Test

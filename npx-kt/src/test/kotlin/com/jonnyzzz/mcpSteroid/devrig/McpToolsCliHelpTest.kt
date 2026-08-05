@@ -174,21 +174,22 @@ class McpToolsCliHelpTest {
 
     @Test
     fun `the footer is exactly the framework-level facts that belong to no parameter`() {
-        // Two headings, because the two scopes are genuinely different: `--debug` / `--json` are registered
-        // on DevrigCliktCommand and reach every verb, while `--out` is registered on
+        // Three headings, because the scopes are genuinely different: `--debug` reaches every command,
+        // `--json` reaches only commands that advertise structured output, while `--out` is registered on
         // DevrigToolCliktCommand and reaches only the tool commands whose result can carry an image
         // (execute_code, take_screenshot — the CliCommandSpec.producesImage set). One heading over all three
         // is what let `devrig project --out=/tmp/x.png` be advertised, parse, and do nothing; a heading over
         // every tool command is what let `devrig list_projects --out=x` fail 65 after a pointless call.
         val expected =
-            "  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):\n" +
+            "  Global CLI flag (accepted by every command, tool and lifecycle alike):\n" +
                 "    --debug       $DEVRIG_DEBUG_FLAG_HELP\n" +
+                "  Accepted by commands that advertise structured output:\n" +
                 "    --json        $DEVRIG_JSON_FLAG_HELP\n" +
                 "  Accepted only by execute_code, take_screenshot — the commands whose result carries an image:\n" +
                 "    --out=<path>  $DEVRIG_OUT_FLAG_HELP\n" +
                 "    Run `devrig <command> --help` for one command's full option list.\n"
 
-        assertEquals(expected, section().substring(section().indexOf("  Common CLI flags")))
+        assertEquals(expected, section().substring(section().indexOf("  Global CLI flag")))
     }
 
     @Test
@@ -226,7 +227,7 @@ class McpToolsCliHelpTest {
             "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)",
             DEVRIG_DEBUG_FLAG_HELP,
         )
-        assertEquals("emit JSON output where supported", DEVRIG_JSON_FLAG_HELP)
+        assertEquals("emit one machine-readable JSON document where supported", DEVRIG_JSON_FLAG_HELP)
         assertEquals(
             "write the image the command returns to this path instead of the devrig temp dir",
             DEVRIG_OUT_FLAG_HELP,
@@ -236,24 +237,27 @@ class McpToolsCliHelpTest {
     @Test
     fun `the framework flags are documented under exactly one heading`() {
         val help = globalHelp()
-        for (flag in listOf("--debug", "--json", "--out")) {
+        for ((flag, expectedCount) in mapOf("--debug" to 2, "--json" to 2, "--out" to 1)) {
             // A line that *documents* the flag opens with it; the flag may carry a metavar (`--out=<path>`).
             val documented = help.lines().filter { line ->
                 val text = line.trimStart()
                 text.startsWith(flag) && (text.length == flag.length || text[flag.length] in " =")
             }
-            assertEquals(1, documented.size, "$flag must be documented once, not split across headings:\n$help")
+            assertEquals(
+                expectedCount,
+                documented.size,
+                "$flag must appear in the root options and/or generated-tool framework section as scoped:\n$help",
+            )
         }
         assertFalse(
             "Options applicable to every mode:" in help,
-            "that heading listed only --debug while --json and --out apply just as widely; the footer " +
-                "now documents all three:\n$help",
+            "the old heading incorrectly implied that --json and --out share --debug's universal scope:\n$help",
         )
     }
 
     @Test
     fun `the footer documents no flag that a tool declares for itself`() {
-        val footer = section().substringAfter("  Common CLI flags")
+        val footer = section().substringAfter("  Global CLI flag")
         for (hidden in listOf("--code-file", "--wait")) {
             assertFalse(
                 hidden in footer,
@@ -274,98 +278,30 @@ class McpToolsCliHelpTest {
     }
 
     @Test
-    fun `the curated lifecycle banner survives beside the generated section`() {
+    fun `the unified command tree and generated tool section coexist in root help`() {
         val help = globalHelp()
         for (marker in listOf(
-            "Usage:",
-            "devrig mcp",
-            "devrig backend provision [<id>] [--json]",
-            "devrig install [claude|codex|gemini] [--check]",
-            "devrig --version | -v",
-            "Environment variables:",
+            "Usage: devrig",
+            "Commands:",
+            "backend",
+            "install",
+            "MCP tools as CLI",
             "DEVRIG_JVM_OPTS",
         )) {
-            assertTrue(marker in help, "curated banner lost '$marker':\n$help")
+            assertTrue(marker in help, "unified help lost '$marker':\n$help")
         }
         assertFalse("devrig mpc" in help, "the hidden mpc alias must stay unadvertised:\n$help")
     }
 
     @Test
-    fun `the banner is assembled from a literally-pinned head, the generated section, and a literal tail`() {
-        // The curated halves are spelled out here rather than recomputed from printHelp: an assertion that
-        // calls the thing it is checking pins the assembly but no text, and would pass if the banner
-        // emitted garbage. This diff re-indented both halves, which is exactly when that matters.
-        val head =
-            """
-            Usage:
-
-              devrig mcp                     run as an MCP stdio server,
-                                             register that setup in your coding agent
-
-              devrig backend [--json]        list discovered backends (with versions) and the
-                                             projects each one has open. `--json` emits a
-                                             single machine-readable object on stdout
-                                             (pipe through `jq`); default is human text.
-
-              devrig project [--json]        list open projects across discovered backends.
-                                             `--json` emits a single machine-readable
-                                             object on stdout; default is human text.
-
-              devrig install [claude|codex|gemini] [--check]
-                                             register this devrig binary as the
-                                             mcp-steroid stdio MCP server in the
-                                             selected coding agent. With no agent:
-                                             list the install targets and which agent
-                                             CLIs are present on PATH. `--check` is a
-                                             read-only dry-run: it reports the current
-                                             registration, the changes install would
-                                             apply, and how many IDE backends with the
-                                             MCP Steroid plugin are reachable; exits 1
-                                             when install would change anything.
-
-              devrig install config          print the manual MCP configuration for
-                                             agents devrig cannot configure
-                                             automatically: the stdio mcpServers JSON
-                                             (mcp.json) snippet plus the per-agent
-                                             mcp-add commands.
-
-              devrig backend download [<id>] [--version <v>] [--json]
-                                             no id → list IDEs available for download.
-                                             With id, download and install a managed
-                                             backend under the devrig home. Accepts
-                                             <product>, <product>:<version>, or
-                                             <product>-<version>.
-
-              devrig backend start    [<id>] [--version <v>] [--json]
-                                             no id → list installed backends. With id,
-                                             start an installed managed backend in
-                                             detached mode and print its pid/log/config
-                                             paths. Product-only id prefers the
-                                             highest locally installed backend.
-
-              devrig backend stop     [<id>] [--version <v>] [--json]
-                                             no id → list currently running backends.
-                                             With id, stop a managed backend by pid file.
-                                             Product-only id prefers the highest
-                                             locally installed backend.
-
-              devrig backend provision [<id>] [--json]
-                                             no id → list port-discovered IDEs that can be
-                                             provisioned. With id (for example port-63342),
-                                             print manual MCP Steroid plugin install
-                                             instructions for that IDE.
-              devrig --version | -v          print the devrig version and exit
-              devrig --help    | -h          print this help and exit
-
-            """.trimIndent() + "\n"
-        val tail =
-            """
-            Environment variables:
-              DEVRIG_JVM_OPTS                extra JVM options for the devrig launch (for example "-Xmx512m").
-
-
-            """.trimIndent() + "\n"
-
-        assertEquals(head + section() + "\n" + tail, globalHelp())
+    fun `root help comes from the executable Clikt tree rather than the old manual banner`() {
+        val help = globalHelp()
+        assertTrue(help.startsWith("Usage: devrig [<options>] <command> [<args>]..."), help)
+        assertTrue("\nOptions:\n" in help, help)
+        assertTrue("\nCommands:\n" in help, help)
+        assertFalse(
+            "\n  devrig backend [--json]" in help,
+            "the removed hand-written lifecycle banner must not be appended to Clikt help:\n$help",
+        )
     }
 }

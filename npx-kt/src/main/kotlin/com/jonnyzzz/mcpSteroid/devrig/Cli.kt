@@ -17,9 +17,13 @@ import com.github.ajalt.clikt.parameters.options.eagerOption
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
+import com.github.ajalt.clikt.output.MordantHelpFormatter
 import com.github.ajalt.mordant.rendering.TextColors
 import com.github.ajalt.mordant.rendering.TextStyles
+import com.github.ajalt.mordant.rendering.Whitespace
+import com.github.ajalt.mordant.rendering.Widget
 import com.github.ajalt.mordant.terminal.Terminal
+import com.github.ajalt.mordant.widgets.Text
 import com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException
 import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import com.jonnyzzz.mcpSteroid.logger
@@ -56,7 +60,6 @@ class DevrigCliInvocation(
     val jsonEnvelopeCommand: String = "devrig",
     val generatedTool: GeneratedToolInvocation? = null,
     val informationalText: String? = null,
-    val staticExitCode: Int? = null,
     private val terminal: Terminal?,
     private val action: suspend DevrigServices.() -> Int,
 ) {
@@ -89,7 +92,10 @@ fun parseDevrigCommand(
     val root = DevrigRootCommand(selected, terminal)
     return try {
         root.parse(rawArgs)
-        selected.invocation ?: informationalInvocation(root.getFormattedHelp() ?: "devrig help is unavailable")
+        selected.invocation ?: informationalInvocation(
+            root.getFormattedHelp() ?: "devrig help is unavailable",
+            debug = rawArgs.debugRequested(),
+        )
     } catch (e: CliktError) {
         val exitCode = if (e.statusCode == 0) 0 else DEVRIG_USAGE_EXIT_CODE
         val reported = (e as? UsageError)?.withCuratedMissingHints() ?: e
@@ -142,7 +148,6 @@ private fun informationalInvocation(
     json = false,
     mode = DevrigCliMode.INFORMATIONAL,
     informationalText = text,
-    staticExitCode = exitCode,
     terminal = null,
 ) {
     val output = if (error) System.err else mcpStdout
@@ -256,7 +261,7 @@ abstract class JsonDevrigCliktCommand(
 ) {
     private val jsonFlag by option(
         "--json",
-        help = "Emit one machine-readable JSON document when this command supports it.",
+        help = DEVRIG_JSON_FLAG_HELP,
     ).flag()
 
     override fun localJson(): Boolean = jsonFlag
@@ -292,7 +297,7 @@ private fun rootEpilog(tools: List<CliToolSpec>): String = buildString {
     appendLine("DEVRIG_JAVA_HOME selects the devrig runtime; DEVRIG_JVM_OPTS adds JVM options,")
     appendLine("for example -Xmx512m.")
     appendLine()
-    append(renderMcpToolsCliSection(tools))
+    append(renderMcpToolsCliSection(tools).trimEnd())
 }.trimEnd()
 
 class DevrigRootCommand(
@@ -313,6 +318,12 @@ class DevrigRootCommand(
     init {
         context {
             this.terminal = terminal
+            helpFormatter = { context ->
+                object : MordantHelpFormatter(context) {
+                    override fun renderEpilog(epilog: String): Widget =
+                        Text(epilog, whitespace = Whitespace.PRE)
+                }
+            }
             val defaultSuggestor = correctionSuggestor
             correctionSuggestor = { entered, candidates ->
                 defaultSuggestor(entered, candidates.filterNot { it == "mpc" })

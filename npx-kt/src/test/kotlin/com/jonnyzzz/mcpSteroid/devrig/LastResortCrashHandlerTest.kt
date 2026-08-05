@@ -47,6 +47,24 @@ class LastResortCrashHandlerTest {
         runBlocking { runCliWithLastResortHandling(command, out, block) }
 
     @Test
+    fun `a command-tree construction crash returns SOFTWARE instead of escaping main as TOOL_ERROR`() {
+        val originalOut = System.out
+        val originalErr = System.err
+        val err = CapturedStream()
+        System.setErr(err.stream)
+        try {
+            val exit = runDevrigMain(emptyArray()) { _, _ -> error("duplicate generated command token") }
+
+            assertEquals(CliExit.SOFTWARE, exit)
+            assertTrue(err.text().contains("duplicate generated command token"), err.text())
+            assertTrue(err.text().contains("\tat "), "expected an actual stack trace, got: ${err.text()}")
+        } finally {
+            System.setOut(originalOut)
+            System.setErr(originalErr)
+        }
+    }
+
+    @Test
     fun `a successful block returns its own exit code untouched`() {
         val out = CapturedStream()
         val command = invocation()

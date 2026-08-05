@@ -42,7 +42,10 @@ class CliOptionsIntegrationTest {
         val r = runLauncher("--help")
         assertEquals(0, r.exitCode, "--help must exit 0; stdout=\n${r.stdout}\nstderr=\n${r.stderr}")
         assertTrue(r.stdout.contains("Usage:"), "expected 'Usage:' in stdout; got:\n${r.stdout}")
-        assertTrue(r.stdout.contains("mcp"), "help banner must advertise the canonical mcp subcommand; got:\n${r.stdout}")
+        assertTrue(
+            Regex("(?m)^  mcp\\s+Run the stdio MCP server").containsMatchIn(r.stdout),
+            "help banner must advertise the canonical mcp subcommand in the Commands block; got:\n${r.stdout}",
+        )
         assertTrue(r.stdout.contains("--version"), "help banner must advertise --version; got:\n${r.stdout}")
         assertTrue(r.stderr.isBlank(),
             "--help must keep stderr clean; got:\n${r.stderr}")

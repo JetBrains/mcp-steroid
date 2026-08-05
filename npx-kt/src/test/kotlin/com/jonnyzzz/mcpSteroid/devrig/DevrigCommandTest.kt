@@ -21,6 +21,14 @@ class DevrigCommandTest {
     }
 
     @Test
+    fun `bare root help preserves the requested debug logging mode`() {
+        val invocation = command("--debug")
+
+        assertEquals("help", invocation.commandPath)
+        assertTrue(invocation.debug)
+    }
+
+    @Test
     fun `backend actions retain command scoped arguments and generic options`() {
         val download = command("--debug", "backend", "download", "idea-community", "--version", "2025.3", "--json")
         assertEquals("devrig backend download", download.commandPath)

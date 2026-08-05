@@ -23,44 +23,55 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 fun main(rawArgs: Array<String>) {
+    exitProcess(runDevrigMain(rawArgs))
+}
+
+fun runDevrigMain(
+    rawArgs: Array<String>,
+    terminal: Terminal = Terminal(),
+    parseCommand: (Array<String>, Terminal) -> DevrigCliInvocation = ::parseDevrigCommand,
+): Int {
     // Construct the terminal while stdout still points at the user's destination. Parsing happens
     // after stdout is guarded for MCP purity, but color auto-detection must follow stdout, not stderr.
-    val terminal = Terminal()
     // Replace stdout immediately. MCP stdio reserves the original stdout for
     // frames, and command detection / service setup must not leak there.
     val mcpStdin = System.`in`
     val mcpStdout = System.out
     System.setOut(System.err)
 
-    val command = parseDevrigCommand(rawArgs, terminal)
-    val headliner = buildHeadliner()
-    if (command.mode.isMcp) {
-        System.err.println(headliner)
-    } else {
-        System.setOut(mcpStdout)
-    }
+    return try {
+        // Keep command-tree construction inside the SOFTWARE=70 boundary. Schema/type/alias invariants
+        // fail while parsing, before a command exists, and must not escape main as JVM exit 1
+        // (CliExit.TOOL_ERROR is reserved for a backend result with isError=true).
+        val command = parseCommand(rawArgs, terminal)
+        val headliner = buildHeadliner()
+        if (command.mode.isMcp) {
+            System.err.println(headliner)
+        } else {
+            System.setOut(mcpStdout)
+        }
 
-    val homePaths = resolveHomePathsOrDie()
+        val homePaths = resolveHomePathsOrDie()
 
-    //setup logging. That is essential to avoid logger usages BEFORE this statement
-    configureLoggingAndLogStarted(homePaths, rawArgs.toList(), command.debug)
+        // Setup logging. That is essential to avoid logger usages before this statement.
+        configureLoggingAndLogStarted(homePaths, rawArgs.toList(), command.debug)
 
-    val lifetime = CloseableStackHost()
-    val exitCode = try {
-        DevrigServices(
-            lifetime = lifetime,
-            homePaths = homePaths,
-            mcpStdin = mcpStdin,
-            mcpStdout = mcpStdout,
-        ).mainImpl1(command, headliner)
+        val lifetime = CloseableStackHost()
+        try {
+            DevrigServices(
+                lifetime = lifetime,
+                homePaths = homePaths,
+                mcpStdin = mcpStdin,
+                mcpStdout = mcpStdout,
+            ).mainImpl1(command, headliner)
+        } finally {
+            lifetime.closeAllStacks()
+        }
     } catch (t: Throwable) {
         System.err.println("Unexpected error ${t.message}")
         t.printStackTrace(System.err)
         CliExit.SOFTWARE
-    } finally {
-        lifetime.closeAllStacks()
     }
-    exitProcess(exitCode)
 }
 
 private fun buildHeadliner(): String = buildString {
