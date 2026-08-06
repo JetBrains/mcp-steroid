@@ -89,10 +89,19 @@ object DpaiaCuratedCases {
         "dpaia__jhipster__sample__app-3" to CaseConfig(
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
         ),
+        // train-ticket predates JDK 21: its Lombok crashes javac with
+        // `NoSuchFieldError: Class com.sun.tools.javac.tree.JCTree$JCImport … member field 'qualid'`,
+        // which killed `ts-common` and skipped every downstream module — including the one holding the
+        // FAIL_TO_PASS tests, so verification graded 0/2 while the agent's own run was green. Measured
+        // over the gpt-5.6 pass: on JDK 21 not one of 40 Maven test invocations succeeded; JDK 11
+        // produced green FAIL_TO_PASS runs (30 tests, 0 failures) without needing jacoco workarounds,
+        // which JDK 17 did require.
         "dpaia__train__ticket-1" to CaseConfig(
+            projectJdkVersion = "11",
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,
         ),
         "dpaia__train__ticket-31" to CaseConfig(
+            projectJdkVersion = "11",
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,
         ),
         "dpaia__spring__boot__microshop-18" to CaseConfig(
