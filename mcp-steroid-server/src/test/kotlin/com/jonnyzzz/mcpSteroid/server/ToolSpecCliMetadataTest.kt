@@ -267,6 +267,7 @@ class ToolSpecCliMetadataTest {
         assertEquals("wait", wait.name, "the extra option's identity is its name, not its flag")
         assertEquals(CliOptionType.BOOLEAN, wait.type, "--wait is a boolean switch")
         assertFalse(wait.synopsis.isBlank(), "--wait needs help text")
+        assertTrue("reserved" in wait.synopsis.lowercase(), "--wait help must say it is not implemented yet")
         // An extra option is not a tool input: it must not appear among the parameters.
         val params = tools.single { it.name == "steroid_open_project" }.schema.asCliParams().map { it.name }
         assertFalse(params.contains("wait"), "--wait must not be a schema parameter: $params")

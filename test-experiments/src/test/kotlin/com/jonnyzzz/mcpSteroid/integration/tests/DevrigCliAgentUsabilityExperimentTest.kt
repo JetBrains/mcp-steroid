@@ -571,7 +571,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             "not the folder name",
             "missing code",
             "--code-file=<path>",
-            "--code=\"...\"",
+            "--code='println(\"hello\")'",
             "missing --task_id",
             "any string works",
             "missing --reason",
@@ -901,7 +901,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val singleQuoted = Regex(
             "(?:^|\\s)--code(?:=|\\s+)'${Regex.escape(code)}'(?:\\s|$)",
         )
-        val escapedForDoubleQuotes = code.replace("\"", "\\\\\"")
+        val escapedForDoubleQuotes = code.replace("\"", "\\\"")
         val doubleQuoted = Regex(
             "(?:^|\\s)--code(?:=|\\s+)\"${Regex.escape(escapedForDoubleQuotes)}\"(?:\\s|$)",
         )

@@ -158,6 +158,9 @@
 - [ ] **list_windows graceful degradation**: devrig's `steroid_list_windows` is all-or-nothing — one
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
+- [ ] **list_windows human presentation (#284 follow-up)**: console mode still prints the tool's
+  JSON payload as one minified line. Add a structured, colorful human renderer while preserving the
+  current ANSI-free `--json` envelope for agents.
 
 - [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
   removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared

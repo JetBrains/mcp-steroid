@@ -97,7 +97,7 @@ class OpenProjectToolSpec(
         CliExtraOption(
             name = "wait",
             type = CliOptionType.BOOLEAN,
-            synopsis = "poll until the project is initialized (no modal, indexing done)",
+            synopsis = "reserved, not implemented; will poll until the project is initialized",
         ),
     )
 

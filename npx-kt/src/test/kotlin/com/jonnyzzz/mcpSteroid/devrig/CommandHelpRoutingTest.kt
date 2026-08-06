@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -131,6 +132,16 @@ class CommandHelpRoutingTest {
             help("execute_code", "--help"),
             help("--debug", "help", "execute_code"),
         )
+    }
+
+    @Test
+    fun `help reports that a leaf has no subcommands without an empty choices list`() {
+        val invocation = parseDevrigCommand(arrayOf("help", "execute_code", "bogus"))
+        assertEquals("parse-error", invocation.commandPath)
+        val text = assertNotNull(invocation.informationalText)
+
+        assertTrue("'execute_code' has no subcommands" in text, text)
+        assertFalse("Choose one of:" in text, text)
     }
 
     @Test

@@ -594,10 +594,14 @@ private class HelpCommand(
                         .filterNot { (it as? DevrigCliktCommand)?.hiddenFromHelp == true }
                         .map { it.commandName }
                         .sorted()
-                        .joinToString(", ")
+                    if (choices.isEmpty()) {
+                        throw UsageError(
+                            "'${target.commandName}' has no subcommands; unexpected path component '$commandName'",
+                        )
+                    }
                     throw UsageError(
                         "unknown command path '${requestedPath.joinToString(" ")}'. " +
-                            "Choose one of: $choices",
+                            "Choose one of: ${choices.joinToString(", ")}",
                     )
                 }
                 target = next
