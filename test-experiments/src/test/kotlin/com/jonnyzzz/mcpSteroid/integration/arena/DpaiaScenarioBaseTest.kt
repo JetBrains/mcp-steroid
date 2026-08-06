@@ -174,15 +174,19 @@ abstract class DpaiaScenarioBaseTest {
             }
 
             // ── Extract metrics from agent NDJSON ────────────────────────────────
-            val rawOutput = result.agentResult.stdout
-            val tokens = extractTokenUsage(rawOutput)
-            val testMetrics = extractTestMetrics(rawOutput)
             val decodedLogName = when (agentName) {
                 "claude" -> "claude-code"
                 "codex" -> "codex"
                 "gemini" -> "gemini"
                 else -> agentName
             }
+            // Prefer the persisted UNFILTERED transcript: the captured process stdout is the
+            // console-filtered stream, which drops the usage/result events these metrics parse.
+            val rawOutput = findRawNdjsonFile(session.runDirInContainer, agentName = decodedLogName)
+                ?.readText()
+                ?: result.agentResult.stdout
+            val tokens = extractTokenUsage(rawOutput)
+            val testMetrics = extractTestMetrics(rawOutput)
             val decodedLogMetrics = findDecodedLogFile(session.runDirInContainer, agentName = decodedLogName)
                 ?.let { extractDecodedLogMetrics(it.readText()) }
 

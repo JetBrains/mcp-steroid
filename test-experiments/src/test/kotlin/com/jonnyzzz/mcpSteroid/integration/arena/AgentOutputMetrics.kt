@@ -272,6 +272,24 @@ fun findDecodedLogFile(runDir: java.io.File, agentName: String = "claude-code"):
 }
 
 /**
+ * Find the most-recently-modified raw NDJSON transcript in [runDir] matching
+ * `agent-<agentName>-*-raw.ndjson` — the UNFILTERED agent stdout the session driver persists.
+ *
+ * This, not the captured process stdout, is the authoritative source for usage and test metrics: the
+ * console-aware session hands back a filtered, human-readable stream (`>> steroid_execute_code`, …),
+ * so a Codex `turn.completed` usage event never reached [extractTokenUsage] and every Codex run
+ * recorded blank tokens AND blank test metrics even after the parser learned Codex's shape.
+ *
+ * Returns null if no matching file exists.
+ */
+fun findRawNdjsonFile(runDir: java.io.File, agentName: String): java.io.File? {
+    val safeName = agentName.replace(' ', '-').lowercase()
+    return runDir.listFiles { f ->
+        f.name.startsWith("agent-$safeName-") && f.name.endsWith("-raw.ndjson")
+    }?.maxByOrNull { it.lastModified() }
+}
+
+/**
  * Extract tool call statistics from Claude NDJSON output.
  *
  * Counts:

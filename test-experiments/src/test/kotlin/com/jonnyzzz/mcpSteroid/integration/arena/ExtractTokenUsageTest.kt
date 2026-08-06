@@ -4,6 +4,8 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 
 /**
  * Pins [extractTokenUsage] against BOTH agent CLIs' real usage shapes.
@@ -107,4 +109,50 @@ class ExtractTokenUsageTest {
     fun `output without any usage information is not usage`() {
         assertNull(extractTokenUsage("hello\nnot json\n"))
     }
+
+    // ── The plumbing half of the same bug ─────────────────────────────────────────────────────
+    //
+    // Teaching the parser Codex's shape was not enough: the metrics were being fed
+    // `agentResult.stdout`, which is the console-FILTERED stream (`>> steroid_execute_code`, …).
+    // The usage event only exists in the unfiltered transcript the session driver persists, so both
+    // tokens and test metrics stayed blank for Codex until the source changed.
+
+    @Test
+    fun `the raw transcript is found and preferred over the decoded one`() {
+        val runDir = tempDir.resolve("run").also { it.mkdirs() }
+        runDir.resolve("agent-codex-1-decoded.txt").writeText(">> steroid_execute_code\n")
+        runDir.resolve("agent-codex-1-raw.ndjson").writeText(
+            """{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":7}}""",
+        )
+
+        val raw = findRawNdjsonFile(runDir, agentName = "codex")
+        assertEquals("agent-codex-1-raw.ndjson", raw!!.name)
+        // …and the whole chain now yields usage where it previously yielded null.
+        val usage = extractTokenUsage(raw.readText())!!
+        assertEquals(60L, usage.inputTokens)
+        assertEquals(7L, usage.outputTokens)
+    }
+
+    @Test
+    fun `the newest transcript wins when a run issued several prompts`() {
+        val runDir = tempDir.resolve("multi").also { it.mkdirs() }
+        val first = runDir.resolve("agent-claude-code-1-raw.ndjson")
+        first.writeText("{}")
+        first.setLastModified(1_000_000L)
+        val second = runDir.resolve("agent-claude-code-2-raw.ndjson")
+        second.writeText("{}")
+        second.setLastModified(2_000_000L)
+
+        assertEquals("agent-claude-code-2-raw.ndjson", findRawNdjsonFile(runDir, "claude-code")!!.name)
+    }
+
+    @Test
+    fun `a run directory with no transcript yields null so the caller can fall back`() {
+        val runDir = tempDir.resolve("empty").also { it.mkdirs() }
+        runDir.resolve("agent-codex-1-decoded.txt").writeText("decoded only")
+        assertNull(findRawNdjsonFile(runDir, agentName = "codex"))
+    }
+
+    @TempDir
+    lateinit var tempDir: File
 }
