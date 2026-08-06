@@ -1,6 +1,8 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.BackendRef
 import com.jonnyzzz.mcpSteroid.server.IntelliJInfo
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
@@ -79,5 +81,23 @@ class ListProjectsConsoleRendererTest {
 
         assertTrue("[1] orphan" in text, text)
         assertTrue("Backend: unknown" in text, text)
+    }
+
+    @Test
+    fun `invalid MCP payload is a data error without a stacktrace`() {
+        val stdout = ByteArrayOutputStream()
+        val stderr = ByteArrayOutputStream()
+        val exit = renderListProjectsTable(
+            ToolCallResult(content = listOf(ContentItem.Text("not-json"))),
+            PrintStream(stdout, true, Charsets.UTF_8),
+            PrintStream(stderr, true, Charsets.UTF_8),
+        )
+        val outText = stdout.toString(Charsets.UTF_8).replace("\r\n", "\n")
+        val errText = stderr.toString(Charsets.UTF_8).replace("\r\n", "\n")
+
+        assertEquals(CliExit.DATA_ERROR, exit, errText)
+        assertEquals("", outText)
+        assertTrue(errText.startsWith("ERROR: list_projects returned invalid data:"), errText)
+        assertTrue("Exception" !in errText && "\tat " !in errText, errText)
     }
 }

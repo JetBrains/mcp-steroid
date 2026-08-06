@@ -6,12 +6,22 @@ import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import java.io.PrintStream
+import kotlinx.serialization.SerializationException
 
 /** Renders the list-projects MCP payload for a human while JSON callers keep the shared CLI envelope. */
-fun renderListProjectsTable(result: ToolCallResult, out: PrintStream): Int {
+fun renderListProjectsTable(result: ToolCallResult, out: PrintStream, err: PrintStream): Int {
     val content = result.content.singleOrNull() as? ContentItem.Text
-        ?: error("list_projects returned ${result.content.size} content items instead of one text payload")
-    val response = McpJson.decodeFromString(ListProjectsResponse.serializer(), content.text)
+    if (content == null) {
+        err.println("ERROR: list_projects returned ${result.content.size} content items instead of one text payload")
+        return CliExit.DATA_ERROR
+    }
+    val response = try {
+        McpJson.decodeFromString(ListProjectsResponse.serializer(), content.text)
+    } catch (e: SerializationException) {
+        val detail = e.message?.lineSequence()?.firstOrNull().orEmpty().ifBlank { "malformed JSON" }
+        err.println("ERROR: list_projects returned invalid data: $detail")
+        return CliExit.DATA_ERROR
+    }
     renderListProjectsTable(response, out)
     return CliExit.OK
 }

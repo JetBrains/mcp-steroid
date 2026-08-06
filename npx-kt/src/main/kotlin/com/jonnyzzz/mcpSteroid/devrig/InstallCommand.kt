@@ -247,9 +247,8 @@ fun runInstallCommand(
 /**
  * jonnyzzz/mcp-steroid#342: when the agent CLI is not installed (or not spawnable — e.g. a Windows
  * .cmd npm shim), the runner throws [AgentCliNotLaunchableException]. That must read as guidance,
- * never a raw stacktrace. Handled centrally in [runCli]'s typed-exception catches — the same
- * pattern as ManagedBackend*Exception — so every command that spawns an agent CLI gets the same
- * treatment. Only the typed launch failure is translated; other IOExceptions (temp files, output
+ * never a raw stacktrace. [DevrigCliInvocation.execute] translates it for every command that spawns
+ * an agent CLI. Only the typed launch failure is translated; other IOExceptions (temp files, output
  * reads) are infrastructure errors and keep propagating to the generic handler.
  */
 fun reportAgentCliNotLaunchable(e: AgentCliNotLaunchableException, err: PrintStream): Int {

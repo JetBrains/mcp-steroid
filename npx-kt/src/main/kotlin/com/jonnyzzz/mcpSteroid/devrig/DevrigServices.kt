@@ -33,7 +33,7 @@ class DevrigServices(
      * It is a constructor seam because discovery cannot be isolated any other way: [HomePaths.markersDir]
      * is deliberately anchored at the real `user.home` (it is the plugin↔devrig marker contract and must
      * never be relocated), so a scratch [homePaths] does NOT hide the developer's running IDEs. A test that
-     * drives the production [runCli] path and asserts an exit code therefore depends on which IDEs happen
+     * drives the production [runDevrigMain] path and asserts an exit code therefore depends on which IDEs happen
      * to be open — and `list_windows` is all-or-nothing, so one stale pid marker turns it red. Passing an
      * empty provider makes such a test answer from a known routing table instead.
      */

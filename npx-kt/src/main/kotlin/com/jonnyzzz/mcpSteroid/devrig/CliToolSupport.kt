@@ -135,7 +135,7 @@ sealed interface Presentation {
     ) : Presentation {
         override fun render(result: ToolCallResult, command: String, out: PrintStream, err: PrintStream): Int {
             if (!result.isError && outputStyle == CliOutputStyle.PROJECTS_TABLE) {
-                return renderListProjectsTable(result, out)
+                return renderListProjectsTable(result, out, err)
             }
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
