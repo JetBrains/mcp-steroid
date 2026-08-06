@@ -56,7 +56,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -333,7 +332,7 @@ class DevrigToolBridgeClientTest {
         @TempDir tempDir: Path,
     ) = runBlocking {
         val backends = backendService()
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
@@ -362,7 +361,7 @@ class DevrigToolBridgeClientTest {
             IdeMonitorState(ide = discoveredIde(pid = 43, build = "IU-261.1", token = "secret-newer")),
         )
         val backends = backendService(*states.toTypedArray())
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
@@ -383,12 +382,50 @@ class DevrigToolBridgeClientTest {
     }
 
     @Test
+    fun `open project without backend_name reuses the backend that already owns the requested path`(
+        @TempDir tempDir: Path,
+    ) = runBlocking {
+        val targetProject = Files.createDirectories(tempDir.resolve("target"))
+        val otherProject = Files.createDirectories(tempDir.resolve("other"))
+        val states = listOf(
+            IdeMonitorState(
+                ide = discoveredIde(pid = 42, token = "secret-target"),
+                projects = listOf(IdeProjectState("target", targetProject.toString())),
+            ),
+            IdeMonitorState(
+                ide = discoveredIde(pid = 43, token = "secret-other"),
+                projects = listOf(IdeProjectState("other", otherProject.toString())),
+            ),
+        )
+        val handler = DevrigOpenProjectToolHandler(
+            DevrigToolBridgeClient(httpClient),
+            backendService(*states.toTypedArray()),
+            routingService(*states.toTypedArray()),
+        )
+
+        val result = handler.handleOpenProject(
+            OpenProjectParams(
+                projectPath = targetProject.toString(),
+                trustProject = true,
+            ),
+            NoOpProgressReporter,
+        )
+
+        assertEquals(false, result.isError)
+        assertEquals("Bearer secret-target", receivedAuth)
+        val json = McpJson.parseToJsonElement(receivedBody ?: error("missing request body")).jsonObject
+        assertEquals("steroid_open_project", json["name"]?.jsonPrimitive?.content)
+        val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
+        assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `open project bridge handler forwards request when exactly one ide is discovered`(
         @TempDir tempDir: Path,
     ) = runBlocking {
         val targetProject = Files.createDirectories(tempDir.resolve("target"))
         val backends = backendService(IdeMonitorState(ide = discoveredIde(pid = 42)))
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
@@ -419,7 +456,7 @@ class DevrigToolBridgeClientTest {
             IdeMonitorState(ide = discoveredIde(pid = 42, build = "IU-253.1", token = "secret-42")),
             IdeMonitorState(ide = discoveredIde(pid = 43, build = "IU-261.1", token = "secret-43")),
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
@@ -453,7 +490,7 @@ class DevrigToolBridgeClientTest {
             IdeMonitorState(ide = discoveredIde(pid = 42, token = "secret-42")),
             IdeMonitorState(ide = discoveredIde(pid = 43, token = "secret-43")),
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val unknown = backendNameForMarker(999L, "IU-261.1")
         val result = handler.handleOpenProject(
@@ -759,7 +796,7 @@ class DevrigToolBridgeClientTest {
                     token = "startable-token", ideHome = ideHome)
             },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
@@ -797,7 +834,7 @@ class DevrigToolBridgeClientTest {
                     token = "sole-startable-token", ideHome = ideHome)
             },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         // Only one candidate (startable) — the handler must use it automatically.
         val result = handler.handleOpenProject(
@@ -828,7 +865,7 @@ class DevrigToolBridgeClientTest {
             installedProvider = { listOf(installed) },
             starter = { throw RuntimeException("boom") },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
@@ -862,7 +899,7 @@ class DevrigToolBridgeClientTest {
                 )
             },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(

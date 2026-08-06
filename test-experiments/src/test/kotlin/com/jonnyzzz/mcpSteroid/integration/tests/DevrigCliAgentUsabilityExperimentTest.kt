@@ -38,11 +38,14 @@ import org.junit.jupiter.api.parallel.ExecutionMode
 /**
  * Agent-facing usability experiments for devrig's packaged command line.
  *
- * Claude and Codex each take two independent routes through the same clean, preinstalled IDE:
- *  1. a task-first route that must discover the canonical project lister, its requested plural alias,
- *     the legacy singular alias, and code execution without being told their command names;
+ * Claude and Codex each take four independent routes through the same clean, preinstalled IDE:
+ *  1. a strict task-first route that demonstrates the minimum six-call discovery and execution path;
  *  2. a help-first route that must read root help, use the discoverable `devrig help <command>` route,
  *     and execute every generated tool command with values learned from earlier responses.
+ *  3. an outcome-only route that must discover the canonical project lister, every compatibility alias,
+ *     and code execution without being told any command names, help route, flags, or call sequence;
+ *  4. a lifecycle route that walks focused help immediately into every finite, safe devrig lifecycle
+ *     action; `mcp` help is included while its long-lived stdio action stays in the protocol integration test.
  *
  * The agents are deliberately created outside [IntelliJContainer.aiAgents]. The container uses
  * [AiMode.AI_DEVRIG] only to deploy `/home/agent/devrig`; these sessions receive no MCP registration, so
@@ -74,6 +77,26 @@ class DevrigCliAgentUsabilityExperimentTest {
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
     fun `codex follows help through missing values to an action`() = helpFirstExperiment("codex", codex)
 
+    @Test
+    @Order(5)
+    @Timeout(value = 15, unit = TimeUnit.MINUTES)
+    fun `claude discovers the CLI from outcomes only`() = outcomeOnlyExperiment("claude", claude)
+
+    @Test
+    @Order(6)
+    @Timeout(value = 15, unit = TimeUnit.MINUTES)
+    fun `codex discovers the CLI from outcomes only`() = outcomeOnlyExperiment("codex", codex)
+
+    @Test
+    @Order(7)
+    @Timeout(value = 15, unit = TimeUnit.MINUTES)
+    fun `claude follows lifecycle help into every safe action`() = lifecycleHelpExperiment("claude", claude)
+
+    @Test
+    @Order(8)
+    @Timeout(value = 15, unit = TimeUnit.MINUTES)
+    fun `codex follows lifecycle help into every safe action`() = lifecycleHelpExperiment("codex", codex)
+
     private fun taskFirstExperiment(agentName: String, agent: AiAgentSession) {
         val sentinel = "DEVRIG_TASK_FIRST_${agentName.uppercase()}_OK"
         val prompt = """
@@ -102,7 +125,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             every CLI step as a separate shell command; do not use `&&`, `;`, pipelines, redirections, or
             shell wrappers around the launcher.
 
-            Finish with exactly these marker lines:
+            Your entire final response must be exactly these five lines, with no heading or explanation:
             CANONICAL_PROJECT_COMMAND: <the canonical command name>
             PROJECT_ALIAS: <the plural compatibility alias>
             LEGACY_PROJECT_ALIAS: <the singular legacy alias>
@@ -172,8 +195,10 @@ class DevrigCliAgentUsabilityExperimentTest {
             )
         }
         val projectName = canonicalEnvelope.firstProjectName()
-        assertFlagValue(shellCalls[executeIndex], "execute_code", "--project_name", projectName)
-        shellCalls[executeIndex].successfulEnvelope("execute_code")
+        val executeCall = shellCalls[executeIndex]
+        assertFlagValue(executeCall, "execute_code", "--project_name", projectName)
+        assertSingleQuotedInlineCode(executeCall, sentinel)
+        executeCall.successfulEnvelope("execute_code")
 
         val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
         assertExactMarkerLines(
@@ -189,6 +214,102 @@ class DevrigCliAgentUsabilityExperimentTest {
 
         assertAgentExit(agentName, result.exitCode) {
             result.assertExitCode(0) { "$agentName task-first CLI experiment failed" }
+        }
+    }
+
+    private fun outcomeOnlyExperiment(agentName: String, agent: AiAgentSession) {
+        val sentinel = "DEVRIG_OUTCOME_ONLY_${agentName.uppercase()}_OK"
+        val prompt = """
+            # Task: prove that an unfamiliar JetBrains IDE command line is usable
+
+            The packaged launcher is `$DEVRIG`. Use only your native shell tool to interact with it.
+            Do not call MCP tools directly, and do not inspect repository source code or tests.
+
+            Treat every command name, help route, option, required value, and call sequence as unknown.
+            Learn them only from the launcher's own interface. Prove which action is the canonical way to
+            list open IDE projects, identify every compatibility spelling the launcher exposes for that
+            action, and demonstrate that all spellings return identical machine-readable project/backend
+            data with the canonical command identity.
+
+            Also prove that the launcher can run Kotlin in the currently open IDE by printing exactly
+            `$sentinel`. Choose the necessary project routing and audit values from what the launcher tells
+            you. Every shell call must be one separate raw launcher invocation; do not use pipes,
+            redirections, shell variables, command substitution, aliases, functions, `&&`, or `;`.
+
+            End your final response with exactly these marker lines:
+            CANONICAL_PROJECT_COMMAND: <the canonical command name>
+            PROJECT_ALIAS: <the plural compatibility alias>
+            LEGACY_PROJECT_ALIAS: <the singular legacy alias>
+            ALIAS_EQUIVALENT: yes
+            EXECUTION_MARKER: $sentinel
+        """.trimIndent()
+
+        val result = agent.runPrompt(prompt, timeoutSeconds = 10 * 60L).awaitForProcessFinish()
+        val calls = decodeAgentToolCalls(result.rawStdout)
+        assertCliOnly(calls)
+        val shellCalls = calls.filter { it.isNativeShellCall() }
+        assertRawDevrigOnly(shellCalls)
+        assertTrue(shellCalls.size in MIN_OUTCOME_ONLY_SHELL_CALLS..MAX_OUTCOME_ONLY_SHELL_CALLS) {
+            "Outcome-only discovery took ${shellCalls.size} calls; expected a short, bounded route. " +
+                summarizeCalls(shellCalls)
+        }
+
+        val rootHelpIndex = shellCalls.indexOfFirst { it.invokesRootHelp() && it.succeeded() }
+        val canonicalIndex = shellCalls.indexOfFirst {
+            it.invokes("list_projects") && it.hasFlag("--json") && !it.hasHelpFlag() && it.succeeded()
+        }
+        val aliasIndex = shellCalls.indexOfFirst {
+            it.invokes("projects") && it.hasFlag("--json") && !it.hasHelpFlag() && it.succeeded()
+        }
+        val legacyAliasIndex = shellCalls.indexOfFirst {
+            it.invokes("project") && it.hasFlag("--json") && !it.hasHelpFlag() && it.succeeded()
+        }
+        val executeHelpIndex = shellCalls.indexOfFirst { it.invokesCommandHelp("execute_code") && it.succeeded() }
+        val executeIndex = shellCalls.indexOfFirst {
+            it.invokes("execute_code") && it.hasFlag("--json") && !it.hasHelpFlag() &&
+                it.succeeded() && sentinel in it.resultText()
+        }
+        assertEquals(0, rootHelpIndex, "Root help must be the first discovery call. ${summarizeCalls(shellCalls)}")
+        assertTrue(listOf(canonicalIndex, aliasIndex, legacyAliasIndex, executeIndex).all { it > 0 }) {
+            "Outcome-only route did not discover every required command/action. ${summarizeCalls(shellCalls)}"
+        }
+        assertTrue(executeHelpIndex < 0 || executeHelpIndex < executeIndex) {
+            "Outcome-only route must inspect execute_code help before its successful action. ${summarizeCalls(shellCalls)}"
+        }
+
+        val rootHelp = shellCalls[rootHelpIndex].resultText()
+        assertTrue("devrig list_projects" in rootHelp && "aliases: projects, project" in rootHelp) {
+            "Root help did not expose the canonical project command and aliases:\n$rootHelp"
+        }
+        assertTrue("quote --code or prefer --code-file" in rootHelp) {
+            "Root help did not promote the execute_code shell rule:\n$rootHelp"
+        }
+
+        val canonicalEnvelope = shellCalls[canonicalIndex].successfulEnvelope("list_projects")
+        val aliasEnvelope = shellCalls[aliasIndex].successfulEnvelope("list_projects")
+        val legacyAliasEnvelope = shellCalls[legacyAliasIndex].successfulEnvelope("list_projects")
+        assertEquals(canonicalEnvelope.getValue("data"), aliasEnvelope.getValue("data"))
+        assertEquals(canonicalEnvelope.getValue("data"), legacyAliasEnvelope.getValue("data"))
+
+        val executeCall = shellCalls[executeIndex]
+        assertFlagValue(executeCall, "execute_code", "--project_name", canonicalEnvelope.firstProjectName())
+        assertSingleQuotedInlineCode(executeCall, sentinel)
+        executeCall.successfulEnvelope("execute_code")
+
+        val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
+        assertTrailingMarkerLines(
+            finalResponse,
+            listOf(
+                "CANONICAL_PROJECT_COMMAND: list_projects",
+                "PROJECT_ALIAS: projects",
+                "LEGACY_PROJECT_ALIAS: project",
+                "ALIAS_EQUIVALENT: yes",
+                "EXECUTION_MARKER: $sentinel",
+            ),
+        )
+
+        assertAgentExit(agentName, result.exitCode) {
+            result.assertExitCode(0) { "$agentName outcome-only CLI experiment failed" }
         }
     }
 
@@ -238,7 +359,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             Copy values directly into later raw commands; do not use shell variables or command substitution.
             Do not repeat an action or insert unrelated shell commands between a command's help and action.
 
-            Finish with exactly these marker lines:
+            Your entire final response must be exactly these four lines, with no heading or explanation:
             HELP_ROUTE: root -> all generated commands
             HELP_COMMAND_ROUTE: complete
             MISSING_PARAMETER_HELP: complete
@@ -526,6 +647,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val executeCall = shellCalls[executeActionIndex]
         assertFlagValue(executeCall, "execute_code", "--project_name", projectName)
         assertFlagValue(executeCall, "execute_code", "--task_id", taskId)
+        assertSingleQuotedInlineCode(executeCall, sentinel)
         val executionEnvelope = executeCall.successfulEnvelope("execute_code")
         val executionId = executionEnvelope.executionId()
 
@@ -591,6 +713,116 @@ class DevrigCliAgentUsabilityExperimentTest {
         }
     }
 
+    private fun lifecycleHelpExperiment(agentName: String, agent: AiAgentSession) {
+        val prompt = """
+            # Task: audit devrig lifecycle help-to-action routes
+
+            The packaged launcher is `$DEVRIG`. Use only your native shell tool. Do not call MCP tools,
+            inspect repository source code, or inspect tests. Every shell call must be one raw launcher
+            invocation with no pipes, redirects, shell variables, command substitution, aliases, functions,
+            `&&`, or `;`.
+
+            Run the exact command sequence below. Each focused help call must be immediately followed by
+            the action it explains. The no-id backend actions are intentional read-only list operations.
+            The agent and plugin `--check` actions are intentional read-only diagnoses and may exit non-zero
+            when registration is absent; record that result and continue without retrying. `install devrig`
+            is safe in this isolated container and must be the final action.
+
+              $DEVRIG --help
+              $DEVRIG help mcp
+              $DEVRIG help version
+              $DEVRIG version --json
+              $DEVRIG help backend
+              $DEVRIG backend --json
+              $DEVRIG help backend download
+              $DEVRIG backend download --json
+              $DEVRIG help backend start
+              $DEVRIG backend start --json
+              $DEVRIG help backend stop
+              $DEVRIG backend stop --json
+              $DEVRIG help backend provision
+              $DEVRIG backend provision --json
+              $DEVRIG help install
+              $DEVRIG install --json
+              $DEVRIG help install config
+              $DEVRIG install config --json
+              $DEVRIG help install claude
+              $DEVRIG install claude --check
+              $DEVRIG help install codex
+              $DEVRIG install codex --check
+              $DEVRIG help install gemini
+              $DEVRIG install gemini --check
+              $DEVRIG help install plugin
+              $DEVRIG install plugin --check
+              $DEVRIG help install devrig
+              $DEVRIG install devrig
+
+            Do not start `$DEVRIG mcp`: it is a long-lived stdio JSON-RPC server whose action is exercised
+            by the dedicated protocol integration test. Its focused help is the correct finite audit here.
+
+            Your entire final response must be exactly these three lines, with no heading or explanation:
+            LIFECYCLE_HELP_ROUTE: complete
+            LIFECYCLE_ACTIONS: version, backend, download, start, stop, provision, install, config, claude-check, codex-check, gemini-check, plugin-check, devrig
+            MCP_STDIO_ROUTE: help verified; protocol action covered by integration test
+        """.trimIndent()
+
+        val result = agent.runPrompt(prompt, timeoutSeconds = 10 * 60L).awaitForProcessFinish()
+        val calls = decodeAgentToolCalls(result.rawStdout)
+        assertCliOnly(calls)
+        val shellCalls = calls.filter { it.isNativeShellCall() }
+        assertRawDevrigOnly(shellCalls)
+
+        val expected = lifecycleHelpCommands()
+        assertEquals(
+            expected,
+            shellCalls.map { it.normalizedRawDevrigCommand() },
+            "Lifecycle help-to-action route must be exact, consecutive, and retry-free. ${summarizeCalls(shellCalls)}",
+        )
+
+        for ((index, command) in expected.withIndex()) {
+            val call = shellCalls[index]
+            when {
+                command == "$DEVRIG --help" -> {
+                    assertTrue(call.succeeded()) { "Root help failed: ${call.resultText()}" }
+                    assertTrue("Usage: devrig" in call.resultText()) { "Root help was not returned: ${call.resultText()}" }
+                }
+                command.startsWith("$DEVRIG help ") -> {
+                    assertTrue(call.succeeded()) { "Focused help failed for '$command': ${call.resultText()}" }
+                    val path = command.removePrefix("$DEVRIG help ")
+                    assertTrue("Usage: devrig $path" in call.resultText()) {
+                        "Focused help for '$path' returned the wrong scope: ${call.resultText()}"
+                    }
+                }
+                command.endsWith(" --json") -> {
+                    assertTrue(call.succeeded()) { "JSON lifecycle action failed for '$command': ${call.resultText()}" }
+                    Json.parseToJsonElement(call.resultText()).jsonObject
+                    assertTrue('\u001B' !in call.resultText()) { "JSON lifecycle action emitted ANSI: ${call.resultText()}" }
+                }
+                command.endsWith(" --check") -> {
+                    assertTrue(call.result != null && call.resultText().isNotBlank()) {
+                        "Diagnostic action '$command' returned no inspectable result"
+                    }
+                }
+                else -> assertTrue(call.succeeded()) { "Lifecycle action failed for '$command': ${call.resultText()}" }
+            }
+        }
+
+        val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
+        assertExactMarkerLines(
+            finalResponse,
+            listOf(
+                "LIFECYCLE_HELP_ROUTE: complete",
+                "LIFECYCLE_ACTIONS: version, backend, download, start, stop, provision, install, config, " +
+                    "claude-check, codex-check, gemini-check, plugin-check, devrig",
+                "MCP_STDIO_ROUTE: help verified; protocol action covered by integration test",
+            ),
+        )
+
+        assertAgentExit(agentName, result.exitCode) {
+            result.assertExitCode(0) { "$agentName lifecycle CLI experiment failed" }
+        }
+    }
+
     private fun assertCliOnly(calls: List<AgentToolCall>) {
         assertTrue(calls.isNotEmpty()) { "No Claude/Codex tool calls were decoded from raw NDJSON." }
         val nonShellCalls = calls.filterNot { it.isNativeShellCall() }
@@ -610,6 +842,11 @@ class DevrigCliAgentUsabilityExperimentTest {
     private fun assertExactMarkerLines(finalResponse: String, expected: List<String>) {
         val actual = finalResponse.trim().lineSequence().map(String::trimEnd).toList()
         assertEquals(expected, actual, "The agent final response must contain exactly the requested marker lines")
+    }
+
+    private fun assertTrailingMarkerLines(finalResponse: String, expected: List<String>) {
+        val actual = finalResponse.trim().lineSequence().map(String::trimEnd).toList()
+        assertEquals(expected, actual.takeLast(expected.size), "The agent final response must end with the markers")
     }
 
     private fun assertOrdered(
@@ -661,6 +898,17 @@ class DevrigCliAgentUsabilityExperimentTest {
     private fun assertFlagValue(call: AgentToolCall, command: String, flag: String, expectedValue: String) {
         assertTrue(call.hasFlagValue(flag, expectedValue)) {
             "$command did not pass $flag with '$expectedValue'. ${summarizeCalls(listOf(call))}"
+        }
+    }
+
+    private fun assertSingleQuotedInlineCode(call: AgentToolCall, sentinel: String) {
+        val code = "println(\"$sentinel\")"
+        val quoted = Regex(
+            "(?:^|\\s)--code(?:=|\\s+)'${Regex.escape(code)}'(?:\\s|$)",
+        )
+        assertTrue(quoted.containsMatchIn(call.commandText())) {
+            "execute_code must copy the shell-safe single-quoted inline form from focused help. " +
+                summarizeCalls(listOf(call))
         }
     }
 
@@ -863,6 +1111,39 @@ class DevrigCliAgentUsabilityExperimentTest {
         )
         private const val EXPECTED_TASK_FIRST_SHELL_CALLS = 6
         private const val EXPECTED_HELP_FIRST_SHELL_CALLS = 23
+        private const val MIN_OUTCOME_ONLY_SHELL_CALLS = 6
+        private const val MAX_OUTCOME_ONLY_SHELL_CALLS = 10
+
+        private fun lifecycleHelpCommands(): List<String> = listOf(
+            "$DEVRIG --help",
+            "$DEVRIG help mcp",
+            "$DEVRIG help version",
+            "$DEVRIG version --json",
+            "$DEVRIG help backend",
+            "$DEVRIG backend --json",
+            "$DEVRIG help backend download",
+            "$DEVRIG backend download --json",
+            "$DEVRIG help backend start",
+            "$DEVRIG backend start --json",
+            "$DEVRIG help backend stop",
+            "$DEVRIG backend stop --json",
+            "$DEVRIG help backend provision",
+            "$DEVRIG backend provision --json",
+            "$DEVRIG help install",
+            "$DEVRIG install --json",
+            "$DEVRIG help install config",
+            "$DEVRIG install config --json",
+            "$DEVRIG help install claude",
+            "$DEVRIG install claude --check",
+            "$DEVRIG help install codex",
+            "$DEVRIG install codex --check",
+            "$DEVRIG help install gemini",
+            "$DEVRIG install gemini --check",
+            "$DEVRIG help install plugin",
+            "$DEVRIG install plugin --check",
+            "$DEVRIG help install devrig",
+            "$DEVRIG install devrig",
+        )
 
         @JvmStatic
         val lifetime by lazy { CloseableStackHost() }

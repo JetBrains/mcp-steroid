@@ -263,9 +263,17 @@ class CliOptionsIntegrationTest {
 
         assertEquals(0, r.exitCode, "--help must win over the required parameters; stderr=\n${r.stderr}")
         assertTrue(r.stdout.contains("execute_code"), "help must name the command; got:\n${r.stdout}")
+        assertTrue(
+            "quote --code or prefer --code-file" in r.stdout,
+            "execute_code --help must lead with the shell rule; got:\n${r.stdout}",
+        )
         for (flag in listOf("--project_name", "--code", "--code-file", "--task_id", "--reason", "--out")) {
             assertTrue(flag in r.stdout, "execute_code --help must document $flag; got:\n${r.stdout}")
         }
+        assertTrue(
+            "--code='println(\"hello\")'" in r.stdout,
+            "execute_code --help must show shell-safe quoting for inline Kotlin; got:\n${r.stdout}",
+        )
         assertTrue(r.stderr.isBlank(), "--help must keep stderr clean; got:\n${r.stderr}")
     }
 

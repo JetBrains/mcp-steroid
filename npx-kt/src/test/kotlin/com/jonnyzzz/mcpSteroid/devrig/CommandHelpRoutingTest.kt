@@ -26,6 +26,14 @@ class CommandHelpRoutingTest {
         for (token in listOf("execute_code", "--code", "--code-file", "--task_id", "--reason")) {
             assertTrue(token in text, "execute_code's help must name '$token'; got:\n$text")
         }
+        assertTrue(
+            "quote --code or prefer --code-file" in text,
+            "execute_code help must put the shell rule in its leading synopsis; got:\n$text",
+        )
+        assertTrue(
+            "--code='println(\"hello\")'" in text,
+            "execute_code help must show shell-safe quoting for inline Kotlin; got:\n$text",
+        )
     }
 
     @Test
