@@ -159,7 +159,7 @@ class ArenaTestRunner(
         }
         if (testCase.buildSystem == "maven") {
             appendLine("- **NEVER use `$buildWrapper install -am`** (also-make). The `-am` flag builds ALL upstream dependencies (potentially 48+ modules) and causes OOM in the container. Install only what you need: `$buildWrapper install -pl <module> -DskipTests`.")
-            appendLine("- **Maven wrapper not found / `./mvnw` permission error**: If `./mvnw` is missing or not executable from the project root, use the bundled Maven directly: `JAVA_HOME=/usr/lib/jvm/temurin-17-<arch> /opt/idea/plugins/maven/lib/maven3/bin/mvn -f $projectDir/pom.xml ...`. Do NOT spend more than 2 Bash calls searching for the wrapper — fall back to the bundled mvn immediately.")
+            appendLine("- **Maven wrapper not found / `./mvnw` permission error**: some repos ship no wrapper at all (multi-module aggregators driven by a Makefile). Use the **`Maven:` path printed by your first `steroid_execute_code` call** directly: `JAVA_HOME=<Recommended JAVA_HOME> <printed Maven path> -f $projectDir/pom.xml ...`. Do NOT search for the wrapper or for `mvn`, and do NOT guess a plugin directory name — the first call already resolved it. Zero extra Bash calls are needed.")
             appendLine("- **Maven + Lombok/Spring Boot 2.x failures**: If Maven fails with Lombok annotation errors (`bad class file`, `class file has wrong version`, or `com.sun.tools.javac.code.Symbol` errors), the default JAVA_HOME (Java 21) may be incompatible. Run `ls /usr/lib/jvm/` to find available JDKs, then try: `JAVA_HOME=/usr/lib/jvm/temurin-17-<arch> $buildWrapper ...`. Do NOT use `steroid_execute_code` or IntelliJ compiler to fix Maven compilation failures — bash + correct JAVA_HOME is always faster.")
             appendLine("- **Maven missing module dependency** (e.g. `Could not resolve .../ts-common...`): install only that module: `JAVA_HOME=... $buildWrapper install -pl <missing-module> -DskipTests -Dspotless.check.skip=true`. Do NOT use IntelliJ APIs to resolve Maven module dependencies.")
         }
@@ -245,8 +245,13 @@ class ArenaTestRunner(
             appendLine("  val dockerOk = java.io.File(\"/var/run/docker.sock\").exists()")
             appendLine("  println(\"Docker: ${'$'}dockerOk\")")
             appendLine("  // Build environment — expose Maven path and available JDKs so you never need Bash to find them")
-            appendLine("  val mavenBin = \"/opt/idea/plugins/maven/lib/maven3/bin/mvn\"")
-            appendLine("  println(\"Maven: ${'$'}{if (java.io.File(mavenBin).exists()) mavenBin else \"NOT FOUND\"}\")")
+            appendLine("  // The bundled-Maven plugin directory is named `maven-plugin` on current builds and `maven`")
+            appendLine("  // on older ones, so probe both instead of trusting one literal path.")
+            appendLine("  val mavenBin = listOf(")
+            appendLine("      \"/opt/idea/plugins/maven-plugin/lib/maven3/bin/mvn\",")
+            appendLine("      \"/opt/idea/plugins/maven/lib/maven3/bin/mvn\",")
+            appendLine("  ).firstOrNull { java.io.File(it).canExecute() }")
+            appendLine("  println(\"Maven: ${'$'}{mavenBin ?: \"NOT FOUND\"}\")")
             appendLine("  val gradlew = java.io.File(project.basePath + \"/gradlew\")")
             appendLine("  println(\"Gradlew: ${'$'}{if (gradlew.exists()) gradlew.absolutePath else \"NOT FOUND\"}\")")
             appendLine("  val configuredJdkVersion = \"$projectJdkVersion\"")
