@@ -73,6 +73,112 @@ class ArenaVerificationTest {
         )
     }
 
+    // ── Method-level FAIL_TO_PASS entries (petclinic-36 graded 2/4 on every run) ──────────────
+    //
+    // Surefire writes ONE report per CLASS. A dataset entry of the form `fqcn#method` was used
+    // verbatim as the report filename, so `TEST-…ValidatorTests#shouldValidate….xml` never existed
+    // and both method-level entries graded testsRun=0 — a permanent 2/4 that looked like the agent
+    // failing half the task.
+
+    private val validatorXml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <testsuite name="org.springframework.samples.petclinic.model.ValidatorTests"
+                   time="0.5" tests="3" errors="0" skipped="0" failures="1">
+          <testcase name="shouldValidateWhenEmailFormatIsValid"
+                    classname="org.springframework.samples.petclinic.model.ValidatorTests" time="0.1"/>
+          <testcase name="shouldNotValidateWhenEmailFormatIsInvalid"
+                    classname="org.springframework.samples.petclinic.model.ValidatorTests" time="0.1">
+            <failure message="expected the email to be rejected" type="java.lang.AssertionError">stack</failure>
+          </testcase>
+          <testcase name="shouldRejectBlankNames[1]"
+                    classname="org.springframework.samples.petclinic.model.ValidatorTests" time="0.1"/>
+        </testsuite>
+    """.trimIndent()
+
+    @Test
+    fun `a passing method-level entry grades from its own testcase`() {
+        val r = parseSurefireXml(validatorXml, methodName = "shouldValidateWhenEmailFormatIsValid")
+        assertEquals(1, r.testsRun)
+        assertEquals(0, r.failures)
+        assertEquals(0, r.errors)
+        assertTrue(r.passed)
+    }
+
+    @Test
+    fun `a failing method-level entry does not inherit the suite verdict`() {
+        val r = parseSurefireXml(validatorXml, methodName = "shouldNotValidateWhenEmailFormatIsInvalid")
+        assertEquals(1, r.testsRun)
+        assertEquals(1, r.failures)
+        assertFalse(r.passed)
+    }
+
+    @Test
+    fun `a method absent from the report grades as not run`() {
+        val r = parseSurefireXml(validatorXml, methodName = "methodThatWasNeverExecuted")
+        assertEquals(0, r.testsRun)
+        assertFalse(r.passed)
+    }
+
+    @Test
+    fun `a parameterized method matches its bracketed testcase names`() {
+        val r = parseSurefireXml(validatorXml, methodName = "shouldRejectBlankNames")
+        assertEquals(1, r.testsRun)
+        assertTrue(r.passed)
+    }
+
+    @Test
+    fun `class-level grading still reads the suite attributes`() {
+        val r = parseSurefireXml(validatorXml)
+        assertEquals(3, r.testsRun)
+        assertEquals(1, r.failures)
+        assertFalse(r.passed)
+    }
+
+    // ── Surefire -Dtest= filter construction ──────────────────────────────────────────────────
+
+    @Test
+    fun `a class-only entry filters by simple class name`() {
+        assertEquals("OwnerControllerTests", surefireTestFilter(listOf("a.b.OwnerControllerTests")))
+    }
+
+    @Test
+    fun `two methods of one class collapse into surefire's plus syntax`() {
+        // `Class#m1,Class#m2` makes surefire honour only the last selector for that class;
+        // `Class#m1+m2` is the documented shape for several methods of one class.
+        assertEquals(
+            "ValidatorTests#shouldValidateWhenEmailFormatIsValid+shouldNotValidateWhenEmailFormatIsInvalid",
+            surefireTestFilter(
+                listOf(
+                    "org.springframework.samples.petclinic.model.ValidatorTests#shouldValidateWhenEmailFormatIsValid",
+                    "org.springframework.samples.petclinic.model.ValidatorTests#shouldNotValidateWhenEmailFormatIsInvalid",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `distinct classes stay comma-separated in input order`() {
+        assertEquals(
+            "ValidatorTests#onlyThis,OwnerControllerTests",
+            surefireTestFilter(listOf("a.b.ValidatorTests#onlyThis", "a.b.OwnerControllerTests")),
+        )
+    }
+
+    @Test
+    fun `a whole-class entry wins over method entries for the same class`() {
+        // Running the entire class already covers every method selector for it.
+        assertEquals(
+            "ValidatorTests",
+            surefireTestFilter(listOf("a.b.ValidatorTests#one", "a.b.ValidatorTests")),
+        )
+    }
+
+    @Test
+    fun `an entry splits into its class and optional method`() {
+        assertEquals(FailToPassSelector("a.b.C", "m"), parseFailToPassEntry("a.b.C#m"))
+        assertEquals(FailToPassSelector("a.b.C", null), parseFailToPassEntry("a.b.C"))
+    }
+
     @Test
     fun `verification result aggregates rates`() {
         val result = ArenaVerificationResult(
