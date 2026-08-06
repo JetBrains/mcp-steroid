@@ -347,7 +347,7 @@ column. Locator label stays parenthesised.
 `list_projects` is a schema-generated tool command. Like every generated command, it emits the
 single `{tool, command, isError, data}` envelope. Its structured MCP payload is unpacked under
 `.data.content[].json`, so project routing keys are available at
-`.data.content[].json.projects[].project_name` without parsing an escaped JSON string. The
+`.data.content[].json.projects[].project_name` without parsing an escaped JSON string.
 Both `projects` and the legacy `project` alias emit the identical envelope with canonical
 `command: "list_projects"`.
 

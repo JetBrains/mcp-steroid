@@ -73,7 +73,7 @@ class DevrigCliInvocation(
 
     /** Keep direct library prints away from the stdio protocol and generated JSON document. */
     val keepsSystemOutGuarded: Boolean
-        get() = mode.isMcp || mode == DevrigCliMode.GENERATED_TOOL && json
+        get() = mode.isMcp || (mode == DevrigCliMode.GENERATED_TOOL && json)
 
     fun renderHeadliner(headliner: String): String {
         if (!printsHeadliner || terminal == null) return headliner
@@ -93,17 +93,16 @@ fun parseDevrigCommand(
     rawArgs: Array<String>,
     terminal: Terminal = Terminal(),
 ): DevrigCliInvocation {
-    val parsedArgs = rawArgs
     val selected = SelectedDevrigInvocation()
-    selected.rawArgs = parsedArgs.toList()
-    val jsonRequested = parsedArgs.exactJsonRequested()
+    selected.rawArgs = rawArgs.toList()
+    val jsonRequested = rawArgs.exactJsonRequested()
     val renderingTerminal = if (jsonRequested) Terminal(ansiLevel = AnsiLevel.NONE) else terminal
     val root = DevrigRootCommand(selected, renderingTerminal)
     return try {
-        root.parse(parsedArgs)
+        root.parse(rawArgs)
         selected.invocation ?: informationalInvocation(
             root.getFormattedHelp() ?: "devrig help is unavailable",
-            debug = parsedArgs.debugRequested(),
+            debug = rawArgs.debugRequested(),
         )
     } catch (e: CliktError) {
         val exitCode = if (e.statusCode == 0) 0 else DEVRIG_USAGE_EXIT_CODE
@@ -115,9 +114,9 @@ fun parseDevrigCommand(
             text,
             exitCode = exitCode,
             error = exitCode != 0 || reported.printError,
-            debug = parsedArgs.debugRequested(),
+            debug = rawArgs.debugRequested(),
             json = jsonError,
-            jsonEnvelopeCommand = parsedArgs.jsonEnvelopeCommand(failingCommand),
+            jsonEnvelopeCommand = rawArgs.jsonEnvelopeCommand(failingCommand),
         )
     }
 }
@@ -371,7 +370,6 @@ class DevrigRootCommand(
     selected = selected,
     parent = null,
     invokeWithoutSubcommand = true,
-    printHelpOnEmptyArgs = true,
     epilog = rootEpilog(tools),
 ) {
     private val versionFlag by option("--version", "-v", help = "Print the devrig version and exit.").flag()

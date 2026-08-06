@@ -60,6 +60,7 @@ class DevrigCommandTest {
         }
 
         assertEquals("parse-error", command("--json", "mcp").commandPath)
+        assertEquals("parse-error", command("mcp", "--json").commandPath)
         assertEquals("parse-error", command("--json", "install", "claude").commandPath)
         assertEquals("parse-error", command("install", "plugin", "--json").commandPath)
     }

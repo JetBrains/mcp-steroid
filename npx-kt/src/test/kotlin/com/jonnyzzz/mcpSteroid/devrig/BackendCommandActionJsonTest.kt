@@ -221,6 +221,34 @@ class BackendCommandActionJsonTest {
         }
     }
 
+    @Test
+    fun `invalid lifecycle ids are JSON on stdout with empty stderr`(@TempDir tempDir: Path) {
+        val homePaths = HomePaths(tempDir)
+        val invalidId = "not-a-backend"
+
+        val results = listOf(
+            "download" to runJsonAction {
+                runBackendDownloadCommand(it, homePaths, invalidId, version = null, json = true)
+            },
+            "start" to runJsonAction {
+                runBackendStartCommand(it, homePaths, invalidId, version = null, json = true)
+            },
+            "stop" to runJsonAction {
+                runBackendStopCommand(it, homePaths, invalidId, version = null, json = true)
+            },
+        )
+
+        for ((expectedAction, result) in results) {
+            assertEquals(64, result.exitCode)
+            assertEquals("", result.stderr, expectedAction)
+            assertEquals(setOf("tool", "action", "id", "error", "exitCode"), result.json.keys)
+            assertEquals(expectedAction, result.json["action"]!!.jsonPrimitive.content)
+            assertEquals(invalidId, result.json["id"]!!.jsonPrimitive.content)
+            assertTrue(result.json["error"]!!.jsonPrimitive.content.contains("Unsupported backend id"))
+            assertEquals(64, result.json["exitCode"]!!.jsonPrimitive.int)
+        }
+    }
+
     private fun runJsonAction(action: (PrintStream) -> Int): JsonActionResult {
         val outBuf = ByteArrayOutputStream()
         val errBuf = ByteArrayOutputStream()

@@ -26,6 +26,7 @@ import java.nio.file.Path
 import kotlin.io.path.notExists
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -52,6 +53,26 @@ class BackendProvisionTest {
     fun `provision parser target ids are stable`() {
         assertEquals("port-63342", provisionTargetId(63342))
         assertEquals("devrig backend provision port-63342", provisionCommand("port-63342"))
+    }
+
+    @Test
+    fun `invalid provision id is JSON on stdout`() {
+        val buffer = ByteArrayOutputStream()
+
+        val exit = runBackendProvisionCommand(
+            out = PrintStream(buffer, true, Charsets.UTF_8),
+            id = "not-a-port",
+            json = true,
+            provision = { _, _ -> error("provision must not run") },
+        )
+        val root = parser.parseToJsonElement(buffer.toString(Charsets.UTF_8)).jsonObject
+
+        assertEquals(64, exit)
+        assertEquals(setOf("tool", "action", "id", "error", "exitCode"), root.keys)
+        assertEquals("provision", root["action"]!!.jsonPrimitive.content)
+        assertEquals("not-a-port", root["id"]!!.jsonPrimitive.content)
+        assertTrue(root["error"]!!.jsonPrimitive.content.contains("Unsupported provision target id"))
+        assertEquals(64, root["exitCode"]!!.jsonPrimitive.int)
     }
 
     @Test
@@ -304,7 +325,7 @@ class BackendProvisionTest {
             out = PrintStream(buf, true, Charsets.UTF_8),
             id = "port-63342",
             json = false,
-            provision = { result },
+            provision = { _, _ -> result },
         )
         val text = buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
 
@@ -327,7 +348,7 @@ class BackendProvisionTest {
             out = PrintStream(buf, true, Charsets.UTF_8),
             id = "port-63342",
             json = true,
-            provision = { result },
+            provision = { _, _ -> result },
         )
         val root = parser.parseToJsonElement(buf.toString(Charsets.UTF_8)).jsonObject
 

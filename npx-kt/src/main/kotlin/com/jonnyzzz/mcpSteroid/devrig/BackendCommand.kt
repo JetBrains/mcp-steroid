@@ -74,13 +74,9 @@ fun runBackendDownloadCommand(
         runBackendDownloadListCommand(out, json = json)
         return 0
     }
-    if (!isSupportedBackendLifecycleId(selectedId)) {
-        throw ManagedBackendValidationException(
-            "Unsupported backend id '$selectedId'. Run 'devrig backend download' without an id to list valid choices.",
-        )
-    }
     if (json) {
         return runBackendActionJson(out, action = "download", id = selectedId) {
+            validateBackendLifecycleId(selectedId, action = "download")
             val backendId = parseBackendId(selectedId).withVersionOverride(version)
             lateinit var result: DownloadResult
             val durationMs = measureTimeMillis {
@@ -101,6 +97,7 @@ fun runBackendDownloadCommand(
             }
         }
     }
+    validateBackendLifecycleId(selectedId, action = "download")
     val backendId = parseBackendId(selectedId).withVersionOverride(version)
     val result = runBlocking(Dispatchers.IO) {
         backendService.download(backendId)
@@ -129,13 +126,9 @@ fun runBackendStartCommand(
         runBackendStartListCommand(out, homePaths, json = json)
         return 0
     }
-    if (!isSupportedBackendLifecycleId(selectedId)) {
-        throw ManagedBackendValidationException(
-            "Unsupported backend id '$selectedId'. Run 'devrig backend start' without an id to list valid choices.",
-        )
-    }
     if (json) {
         return runBackendActionJson(out, action = "start", id = selectedId) {
+            validateBackendLifecycleId(selectedId, action = "start")
             val backendId = parseBackendId(selectedId).withVersionOverride(version)
             val result = runBlocking(Dispatchers.IO) {
                 backendService.start(backendId)
@@ -151,6 +144,7 @@ fun runBackendStartCommand(
             }
         }
     }
+    validateBackendLifecycleId(selectedId, action = "start")
     val backendId = parseBackendId(selectedId).withVersionOverride(version)
     val result = runBlocking(Dispatchers.IO) {
         backendService.start(backendId)
@@ -179,13 +173,9 @@ fun runBackendStopCommand(
         runBackendStopListCommand(out, homePaths, json = json)
         return 0
     }
-    if (!isSupportedBackendLifecycleId(selectedId)) {
-        throw ManagedBackendValidationException(
-            "Unsupported backend id '$selectedId'. Run 'devrig backend stop' without an id to list valid choices.",
-        )
-    }
     if (json) {
         return runBackendActionJson(out, action = "stop", id = selectedId) {
+            validateBackendLifecycleId(selectedId, action = "stop")
             val backendId = parseBackendId(selectedId).withVersionOverride(version)
             lateinit var result: StopResult
             val durationMs = measureTimeMillis {
@@ -209,6 +199,7 @@ fun runBackendStopCommand(
             }
         }
     }
+    validateBackendLifecycleId(selectedId, action = "stop")
     val backendId = parseBackendId(selectedId).withVersionOverride(version)
     val result = runBlocking(Dispatchers.IO) {
         backendService.stop(backendId)
@@ -217,6 +208,14 @@ fun runBackendStopCommand(
     val messageSuffix = result.message?.let { " - $it" }.orEmpty()
     out.println("${result.outcome}: ${result.id}$pidSuffix$messageSuffix")
     return 0
+}
+
+private fun validateBackendLifecycleId(id: String, action: String) {
+    if (!isSupportedBackendLifecycleId(id)) {
+        throw ManagedBackendValidationException(
+            "Unsupported backend id '$id'. Run 'devrig backend $action' without an id to list valid choices.",
+        )
+    }
 }
 
 fun runBackendActionJson(

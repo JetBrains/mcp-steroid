@@ -81,6 +81,17 @@ class DevrigCommandOutputTest {
     // ------------------------------- Help ----------------------------------
 
     @Test
+    fun `Bare devrig writes root help to stdout and exits successfully`() {
+        val exit = runCliForTest()
+
+        assertEquals(0, exit)
+        assertEquals("", stderr(), "stderr must stay clean for bare devrig; got: ${stderr()}")
+        val out = stdout()
+        assertTrue(out.contains("Usage: devrig"), "bare devrig must explain the command tree; got:\n$out")
+        assertTrue(out.contains("Commands:"), "bare devrig must list its commands; got:\n$out")
+    }
+
+    @Test
     fun `Help writes the usage banner to stdout, nothing to stderr`() {
         val exit = runCliForTest("--help")
         assertEquals(0, exit)

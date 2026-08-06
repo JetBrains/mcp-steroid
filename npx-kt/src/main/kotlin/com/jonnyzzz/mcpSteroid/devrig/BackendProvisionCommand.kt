@@ -42,9 +42,7 @@ fun runBackendProvisionCommand(
     out: PrintStream,
     id: String?,
     json: Boolean,
-    provision: suspend (HttpClient) -> ProvisionResult = { httpClient ->
-        val selectedId = id
-            ?: error("backend provision id is required")
+    provision: suspend (String, HttpClient) -> ProvisionResult = { selectedId, httpClient ->
         provisionBackend(selectedId, httpClient)
     },
     markers: () -> List<DiscoveredIde> = { scanMarkersOnce() },
@@ -61,26 +59,22 @@ fun runBackendProvisionCommand(
         )
         return 0
     }
-    if (!isSupportedProvisionTargetId(selectedId)) {
-        throw ManagedBackendValidationException(
-            "Unsupported provision target id '$selectedId'. " +
-                "Run 'devrig backend provision' without an id to list valid choices.",
-        )
-    }
     if (json) {
         return runBackendActionJson(out, action = PROVISION_ACTION_ID, id = selectedId) {
+            validateProvisionTargetId(selectedId)
             val result = withProvisionHttpClient(httpClientFactory, closeHttpClient) { httpClient ->
                 runBlocking(Dispatchers.IO) {
-                    provision(httpClient)
+                    provision(selectedId, httpClient)
                 }
             }
             provisionResultJson(result)
         }
     }
 
+    validateProvisionTargetId(selectedId)
     val result = withProvisionHttpClient(httpClientFactory, closeHttpClient) { httpClient ->
         runBlocking(Dispatchers.IO) {
-            provision(httpClient)
+            provision(selectedId, httpClient)
         }
     }
     renderProvisionInstructionsText(result, out)
@@ -92,9 +86,7 @@ fun DevrigServices.runBackendProvisionCommand(id: String?, json: Boolean): Int =
         out = mcpStdout,
         id = id,
         json = json,
-        provision = { httpClient ->
-            val selectedId = id
-                ?: error("backend provision id is required")
+        provision = { selectedId, httpClient ->
             backendProvisioner.provision(selectedId, httpClient) {
                 detectProvisionTargets(portDiscovery)
             }
@@ -105,6 +97,15 @@ fun DevrigServices.runBackendProvisionCommand(id: String?, json: Boolean): Int =
     )
 
 fun isSupportedProvisionTargetId(raw: String): Boolean = Regex("""port-\d{1,5}""").matches(raw)
+
+private fun validateProvisionTargetId(id: String) {
+    if (!isSupportedProvisionTargetId(id)) {
+        throw ManagedBackendValidationException(
+            "Unsupported provision target id '$id'. " +
+                "Run 'devrig backend provision' without an id to list valid choices.",
+        )
+    }
+}
 
 fun renderBackendProvisionListText(
     rows: List<ProvisionTarget>,
