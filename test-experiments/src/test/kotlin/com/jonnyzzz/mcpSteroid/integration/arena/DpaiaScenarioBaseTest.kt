@@ -274,9 +274,12 @@ abstract class DpaiaScenarioBaseTest {
                     "Prewarm: ${(r.prewarmMs / 1000).toString().padStart(4)}s                              ║")
             val t = r.tokenUsage
             if (t != null) {
+                // Only Claude self-reports a dollar figure. Rendering a missing cost as $0.00 would
+                // read as "this run was free" now that Codex token counts are populated.
+                val cost = t.costUsd?.let { "$" + String.format("%.2f", it) } ?: "n/a"
                 println("║   Tokens: ${t.inputTokens}in/${t.outputTokens}out  " +
                         "Cache: ${t.cacheCreationTokens}c/${t.cacheReadTokens}r  " +
-                        "Cost: $${String.format("%.2f", t.costUsd ?: 0.0)}  " +
+                        "Cost: $cost  " +
                         "Turns: ${t.numTurns ?: "?"}".padEnd(56) + "║")
             }
             val m = r.testMetrics

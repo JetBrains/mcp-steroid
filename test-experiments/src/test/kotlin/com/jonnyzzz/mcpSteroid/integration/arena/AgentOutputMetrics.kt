@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -79,23 +80,32 @@ fun extractTestMetrics(rawOutput: String): TestMetrics? {
 }
 
 /**
- * Extract Claude token usage from stream-json NDJSON output.
+ * Extract token usage from either agent CLI's NDJSON output.
  *
- * Claude CLI `--output-format stream-json` writes NDJSON where the last "result" event is:
+ * Claude CLI `--output-format stream-json` ends with a terminal result event:
  * ```json
  * {"type":"result","subtype":"success","total_cost_usd":0.01,"num_turns":5,
  *  "usage":{"input_tokens":15000,"output_tokens":3000,"cache_read_input_tokens":12000}}
  * ```
+ * Codex `exec --json` has no such event and reports per-turn instead:
+ * ```json
+ * {"type":"turn.completed","usage":{"input_tokens":696646,"cached_input_tokens":643057,
+ *  "cache_write_input_tokens":53523,"output_tokens":3174,"reasoning_output_tokens":447}}
+ * ```
+ *
+ * [TokenUsage.inputTokens] always means FRESH, non-cached prompt tokens. Claude already reports it that
+ * way (cache traffic sits in its own fields); Codex's `input_tokens` is the WHOLE prompt with the cache
+ * counters as subsets, so the Codex branch subtracts them. Skipping that normalization would count
+ * cache reads twice and make a Codex run look an order of magnitude more expensive than a Claude run
+ * doing the same work. Codex reports no dollar figure, so [TokenUsage.costUsd] stays null for it
+ * rather than being derived from a hardcoded price that would silently go stale.
  */
 fun extractTokenUsage(rawOutput: String): TokenUsage? {
-    for (line in rawOutput.lines().asReversed()) {
-        val trimmed = line.trim()
-        if (trimmed.isEmpty()) continue
-        val json = try {
-            Json.parseToJsonElement(trimmed).jsonObject
-        } catch (_: Exception) {
-            continue
-        }
+    val lines = rawOutput.lines()
+
+    // Claude: single terminal event, so the last one wins.
+    for (line in lines.asReversed()) {
+        val json = parseJsonObjectOrNull(line) ?: continue
         if (json["type"]?.jsonPrimitive?.content != "result") continue
         val usage = json["usage"]?.jsonObject ?: return null
         return TokenUsage(
@@ -108,7 +118,43 @@ fun extractTokenUsage(rawOutput: String): TokenUsage? {
             durationApiMs = json["duration_api_ms"]?.jsonPrimitive?.longOrNull,
         )
     }
-    return null
+
+    // Codex: accumulate every completed turn.
+    var totalPrompt = 0L
+    var cacheRead = 0L
+    var cacheWrite = 0L
+    var output = 0L
+    var turns = 0
+    for (line in lines) {
+        val json = parseJsonObjectOrNull(line) ?: continue
+        if (json["type"]?.jsonPrimitive?.content != "turn.completed") continue
+        val usage = json["usage"]?.jsonObject ?: continue
+        turns++
+        totalPrompt += usage["input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L
+        cacheRead += usage["cached_input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L
+        cacheWrite += usage["cache_write_input_tokens"]?.jsonPrimitive?.longOrNull ?: 0L
+        output += usage["output_tokens"]?.jsonPrimitive?.longOrNull ?: 0L
+    }
+    if (turns == 0) return null
+    return TokenUsage(
+        inputTokens = (totalPrompt - cacheRead - cacheWrite).coerceAtLeast(0L),
+        outputTokens = output,
+        cacheReadTokens = cacheRead,
+        cacheCreationTokens = cacheWrite,
+        costUsd = null,
+        numTurns = turns,
+        durationApiMs = null,
+    )
+}
+
+private fun parseJsonObjectOrNull(line: String): JsonObject? {
+    val trimmed = line.trim()
+    if (!trimmed.startsWith("{")) return null
+    return try {
+        Json.parseToJsonElement(trimmed).jsonObject
+    } catch (_: Exception) {
+        null
+    }
 }
 
 // ── Decoded log metrics ──────────────────────────────────────────────────────
