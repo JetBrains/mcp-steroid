@@ -48,6 +48,14 @@ class DevrigCliCommandNormalizationTest {
     }
 
     @Test
+    fun `recognizes the positional prompt URI used by focused help`() {
+        val command = "$DEVRIG fetch_resource mcp-steroid://prompt/skill --project_name=project-key --json"
+
+        assertEquals(true, devrigCommandHasArgumentValue(command, DEVRIG, "mcp-steroid://prompt/skill"))
+        assertEquals(false, devrigCommandHasFlag(command, DEVRIG, "--uri"))
+    }
+
+    @Test
     fun `recognizes shell-safe inline code inside the Codex bash transport`() {
         val wrapped = "/bin/bash -lc \"$DEVRIG execute_code --code='println(\\\"ok\\\")'\""
         assertEquals(true, devrigCommandHasShellSafeInlineCode(wrapped, DEVRIG, "println(\"ok\")"))

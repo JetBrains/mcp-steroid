@@ -105,6 +105,11 @@ data class CliCommandSpec(
     val producesImage: Boolean = false,
     /** Human-only output style; `--json` always uses the unified envelope. */
     val outputStyle: CliOutputStyle = CliOutputStyle.CONTENT,
+    /**
+     * `mcp-steroid://` article URIs a layered `devrig help <tool>` renders alongside this subcommand's
+     * synopsis; empty for tools that need none. Never part of the MCP wire.
+     */
+    val guideUris: List<String> = emptyList(),
 )
 
 /** Derives the default CLI subcommand name from an MCP tool [toolName] by stripping the `steroid_` prefix. */
@@ -143,6 +148,11 @@ abstract class McpToolBase : CliToolSpec {
 
     /** Human-only renderer selection; most tools print their MCP content directly. */
     protected open val cliOutputStyle: CliOutputStyle get() = CliOutputStyle.CONTENT
+    /**
+     * `mcp-steroid://` article URIs a layered `devrig help` renders for this tool's subcommand; empty by
+     * default.
+     */
+    protected open val cliGuideUris: List<String> get() = emptyList()
 
     override val cli: CliCommandSpec
         get() = CliCommandSpec(
@@ -153,6 +163,7 @@ abstract class McpToolBase : CliToolSpec {
             extraOptions = cliExtraOptions,
             producesImage = cliProducesImage,
             outputStyle = cliOutputStyle,
+            guideUris = cliGuideUris,
         )
 }
 

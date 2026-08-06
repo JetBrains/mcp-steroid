@@ -64,6 +64,7 @@ class SchemaToolCliCommand(
     help = spec.cli.synopsis,
     // Only a tool whose result can carry an image gets `--out`; the rest refuse it as an unknown option.
     acceptsOut = spec.cli.producesImage,
+    epilog = renderGuideEpilog(spec),
 ) {
     private val binding = SchemaCliBinding.bind(this, spec)
 
@@ -78,7 +79,7 @@ class SchemaToolCliCommand(
         }
         rejectFlagsConsumedAsValues(buildMap {
             for (param in spec.schema.asCliParams()) {
-                if (param.cliHidden || param.cliPositional) continue
+                if (param.cliHidden) continue
                 put(param.cliFlag, param.name)
                 param.cliFileSource?.let { put(it.flag, param.name) }
             }
@@ -126,4 +127,19 @@ class SchemaToolCliCommand(
         ) { runGeneratedToolCommand(command) }
     }
 
+}
+
+/**
+ * Focused help's optional second layer. The tool owns the URI list; the generic command tree only explains
+ * how to fetch each declared article through the same CLI. Keeping article bodies out of `--help` makes
+ * the grammar scannable while leaving a direct, copyable route to the full workflow guidance.
+ */
+fun renderGuideEpilog(spec: CliToolSpec): String {
+    if (spec.cli.guideUris.isEmpty()) return ""
+    return buildString {
+        appendLine("Guides for deeper workflows:")
+        for (uri in spec.cli.guideUris) appendLine("  $uri")
+        appendLine()
+        append("Read one with `devrig prompt <uri> --project_name=<routing-key>`.")
+    }
 }

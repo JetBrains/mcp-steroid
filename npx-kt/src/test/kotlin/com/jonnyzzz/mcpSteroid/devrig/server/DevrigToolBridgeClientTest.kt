@@ -234,6 +234,7 @@ class DevrigToolBridgeClientTest {
             projectName = route.exposedProjectName,
             params = FeedbackParams(
                 taskId = "feedback-task",
+                executionId = "eid_original",
                 successRating = 0.75,
                 explanation = "worked",
                 code = "println(1)",
@@ -246,6 +247,7 @@ class DevrigToolBridgeClientTest {
         val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
         assertEquals("original-project", arguments["project_name"]?.jsonPrimitive?.content)
         assertEquals("feedback-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("eid_original", arguments["execution_id"]?.jsonPrimitive?.content)
         assertEquals("0.75", arguments["success_rating"]?.jsonPrimitive?.content)
         assertEquals("worked", arguments["explanation"]?.jsonPrimitive?.content)
         assertEquals("println(1)", arguments["code"]?.jsonPrimitive?.content)
@@ -337,6 +339,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = tempDir.resolve("target").toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
             ),
             NoOpProgressReporter,
@@ -366,6 +370,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = tempDir.resolve("target").toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
             ),
             NoOpProgressReporter,
@@ -406,6 +412,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
             ),
             NoOpProgressReporter,
@@ -430,6 +438,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = false,
             ),
             NoOpProgressReporter,
@@ -442,8 +452,8 @@ class DevrigToolBridgeClientTest {
         val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
         assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
         assertEquals("false", arguments["trust_project"]?.jsonPrimitive?.content)
-        assertEquals("open-project", arguments["task_id"]?.jsonPrimitive?.content)
-        assertEquals("Open project through devrig", arguments["reason"]?.jsonPrimitive?.content)
+        assertEquals("test-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("test reason", arguments["reason"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -461,6 +471,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = backendNameForMarker(42L, "IU-253.1"),
             ),
@@ -476,8 +488,8 @@ class DevrigToolBridgeClientTest {
         // backend_name is resolved locally, never forwarded.
         assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
         assertEquals("true", arguments["trust_project"]?.jsonPrimitive?.content)
-        assertEquals("open-project", arguments["task_id"]?.jsonPrimitive?.content)
-        assertEquals("Open project through devrig", arguments["reason"]?.jsonPrimitive?.content)
+        assertEquals("test-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("test reason", arguments["reason"]?.jsonPrimitive?.content)
         assertEquals(null, arguments["backend_name"])
     }
 
@@ -496,6 +508,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = unknown,
             ),
@@ -801,6 +815,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "caller-task",
+                reason = "caller reason",
                 trustProject = true,
                 backendName = startableBackendName(installed),
             ),
@@ -814,6 +830,8 @@ class DevrigToolBridgeClientTest {
         assertEquals("steroid_open_project", json["name"]?.jsonPrimitive?.content)
         val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
         assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
+        assertEquals("caller-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("caller reason", arguments["reason"]?.jsonPrimitive?.content)
         // backend_name is never forwarded to the plugin.
         assertEquals(null, arguments["backend_name"])
     }
@@ -840,6 +858,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = false,
             ),
             NoOpProgressReporter,
@@ -870,6 +890,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = startableBackendName(installed),
             ),
@@ -904,6 +926,8 @@ class DevrigToolBridgeClientTest {
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = startableBackendName(installed),
             ),

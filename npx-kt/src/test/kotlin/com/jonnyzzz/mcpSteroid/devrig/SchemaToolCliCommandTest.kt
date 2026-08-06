@@ -175,9 +175,10 @@ class SchemaToolCliCommandTest {
         }
 
         // fetch_resource's `prompt` alias shares the canonical grammar: the alias token expands to the
-        // canonical command, so there is exactly one grammar to keep working.
+        // canonical command — including its bare positional `uri` — so there is exactly one grammar to
+        // keep working.
         val run = assertIs<GeneratedToolInvocation>(
-            parse("prompt", "--project_name=key", "--uri=mcp-steroid://prompt/skill"),
+            parse("prompt", "mcp-steroid://prompt/skill", "--project_name=key"),
         )
         assertEquals("steroid_fetch_resource", run.toolName)
         assertEquals("mcp-steroid://prompt/skill", run.arguments["uri"]?.jsonPrimitive?.content)

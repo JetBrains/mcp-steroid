@@ -4,6 +4,8 @@ package com.jonnyzzz.mcpSteroid.server
 import com.jonnyzzz.mcpSteroid.mcp.CliOptionType
 import com.jonnyzzz.mcpSteroid.mcp.CliOutputStyle
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
+import com.jonnyzzz.mcpSteroid.prompts.Generic
+import com.jonnyzzz.mcpSteroid.prompts.PromptsContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -80,11 +82,13 @@ class ToolSpecCliMetadataTest {
     }
 
     @Test
-    fun `fetch_resource exposes the prompt alias and maps uri to the --uri flag`() {
+    fun `fetch_resource exposes the prompt alias and maps uri to a bare positional`() {
+        // bindPositional (SchemaCliBinding.kt) registers a Clikt argument, never an option, for a
+        // cliPositional parameter, so `--uri` is not part of the actual grammar here even though the
+        // spec still carries its default cliFlag value — that field is simply unused once positional.
         assertTrue(fetchResource.cli.aliases.contains("prompt"), "fetch_resource should alias 'prompt'")
         val uri = fetchResource.schema.asCliParams().single { it.name == "uri" }
-        assertFalse(uri.cliPositional, "fetch_resource uri must map to --uri, not a positional")
-        assertEquals("--uri", uri.cliFlag)
+        assertTrue(uri.cliPositional, "fetch_resource uri must be a bare positional, not a --uri flag")
     }
 
     @Test
@@ -267,7 +271,9 @@ class ToolSpecCliMetadataTest {
         assertEquals("wait", wait.name, "the extra option's identity is its name, not its flag")
         assertEquals(CliOptionType.BOOLEAN, wait.type, "--wait is a boolean switch")
         assertFalse(wait.synopsis.isBlank(), "--wait needs help text")
-        assertTrue("reserved" in wait.synopsis.lowercase(), "--wait help must say it is not implemented yet")
+        assertTrue("300s" in wait.synopsis, "--wait help must state its bounded timeout")
+        assertTrue("project route" in wait.synopsis, "--wait help must explain the successful outcome")
+        assertFalse("reserved" in wait.synopsis.lowercase(), "implemented --wait must not be described as reserved")
         // An extra option is not a tool input: it must not appear among the parameters.
         val params = tools.single { it.name == "steroid_open_project" }.schema.asCliParams().map { it.name }
         assertFalse(params.contains("wait"), "--wait must not be a schema parameter: $params")
@@ -294,5 +300,16 @@ class ToolSpecCliMetadataTest {
             openProject.schema.asCliParams().any { it.name == "backend_name" },
             "the in-IDE open_project must still advertise no backend_name",
         )
+    }
+
+    @Test
+    fun `execute_code declares resolvable guide URIs and other tools default to none`() {
+        val specs = devrigToolSpecsForTest()
+        val executeCode = specs.single { it.name == "steroid_execute_code" }
+        assertTrue(executeCode.cli.guideUris.isNotEmpty(), "execute_code must seed guide URIs for `devrig help execute_code`")
+        for (uri in executeCode.cli.guideUris) {
+            assertEquals(uri, resolveResourceArticle(uri, PromptsContext.Generic)?.uri, "guide uri $uri must resolve")
+        }
+        assertTrue(specs.single { it.name == "steroid_list_windows" }.cli.guideUris.isEmpty(), "a tool that declares none has none")
     }
 }

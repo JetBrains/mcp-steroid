@@ -74,6 +74,13 @@ fun devrigCommandHasFlagValue(commandText: String, devrig: String, flag: String,
     ).containsMatchIn(normalized)
 }
 
+fun devrigCommandHasArgumentValue(commandText: String, devrig: String, value: String): Boolean {
+    val normalized = normalizeRawDevrigCommand(commandText, devrig) ?: return false
+    val escapedValue = Regex.escape(value)
+    return Regex("(?:^|\\s)(?:\"$escapedValue\"|'$escapedValue'|$escapedValue)(?:\\s|$)")
+        .containsMatchIn(normalized)
+}
+
 fun devrigCommandHasShellSafeInlineCode(commandText: String, devrig: String, code: String): Boolean {
     val normalized = normalizeRawDevrigCommand(commandText, devrig) ?: return false
     val singleQuoted = Regex(
@@ -493,11 +500,13 @@ class DevrigCliAgentUsabilityExperimentTest {
             6. `input`: read help, then target the same project/window with the safe, delay-only sequence
                `delay:25`; do not type, press, or click anything. First run it once with only `--json` and
                verify that every missing value is explained.
-            7. `fetch_resource`: read help, then fetch `mcp-steroid://prompt/skill` for the retained project.
-               First run it once with only `--json` and verify that every missing value is explained.
+            7. `fetch_resource`: read help, then pass `mcp-steroid://prompt/skill` as its positional URI for
+               the retained project.
+                First run it once with only `--json` and verify that every missing value is explained.
             8. `open_project`: read help, then safely call it for the already-open absolute project path from
-               step 1. First run it once with only `--json` and verify that every missing value is explained.
-               Do not open a different path or set optional lifecycle flags.
+               step 1 with `--wait`. Verify that the success returns the same opaque `project_name`,
+               `backend_name`, and canonical path retained in step 1. First run it once with only `--json`
+               and verify that every missing value is explained. Do not open a different path.
 
             Copy values directly into later raw commands; do not use shell variables or command substitution.
             Do not repeat an action or insert unrelated shell commands between a command's help and action.
@@ -681,7 +690,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         assertCommandHelp(
             shellCalls[fetchHelpIndex],
             "fetch_resource",
-            "--uri",
+            "<uri>",
             "--project_name",
             "--json",
         )
@@ -701,6 +710,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val project = listEnvelope.firstProject()
         val projectName = project.getValue("project_name").jsonPrimitive.content
         val projectPath = project.getValue("path").jsonPrimitive.content
+        val backendName = project.getValue("backend_name").jsonPrimitive.content
         val windowsEnvelope = shellCalls[windowsActionIndex].successfulEnvelope("list_windows")
         val windowId = windowsEnvelope.windowIdFor(projectName)
         val missingEnvelope = shellCalls[missingExecuteIndex].jsonEnvelope("execute_code", expectedError = true)
@@ -770,7 +780,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         assertMissingGuidance(
             shellCalls[missingFetchIndex],
             "fetch_resource",
-            "missing --uri",
+            "missing uri",
             "mcp-steroid://prompt/skill",
             "missing --project_name",
             "devrig list_projects",
@@ -827,18 +837,32 @@ class DevrigCliAgentUsabilityExperimentTest {
 
         val fetchCall = shellCalls[fetchActionIndex]
         assertFlagValue(fetchCall, "fetch_resource", "--project_name", projectName)
-        assertFlagValue(fetchCall, "fetch_resource", "--uri", "mcp-steroid://prompt/skill")
+        assertTrue(devrigCommandHasArgumentValue(fetchCall.commandText(), DEVRIG, "mcp-steroid://prompt/skill")) {
+            "fetch_resource did not pass the guide URI positionally. ${summarizeCalls(listOf(fetchCall))}"
+        }
+        assertTrue(!fetchCall.hasFlag("--uri")) {
+            "fetch_resource did not follow help's advertised positional URI form. ${summarizeCalls(listOf(fetchCall))}"
+        }
         fetchCall.successfulEnvelope("fetch_resource")
 
         val openCall = shellCalls[openActionIndex]
         assertFlagValue(openCall, "open_project", "--project_path", projectPath)
         assertFlagValue(openCall, "open_project", "--task_id", taskId)
-        for (optionalFlag in listOf("--wait", "--trust_project", "--no-trust_project", "--backend_name")) {
+        assertTrue(openCall.hasFlag("--wait")) {
+            "open_project did not exercise the wait route. ${summarizeCalls(shellCalls)}"
+        }
+        for (optionalFlag in listOf("--trust_project", "--no-trust_project")) {
             assertTrue(!openCall.hasFlag(optionalFlag)) {
                 "open_project unexpectedly used optional lifecycle flag $optionalFlag. ${summarizeCalls(shellCalls)}"
             }
         }
-        openCall.successfulEnvelope("open_project")
+        if (openCall.hasFlag("--backend_name")) {
+            assertFlagValue(openCall, "open_project", "--backend_name", backendName)
+        }
+        val opened = openCall.successfulEnvelope("open_project").toolJson()
+        assertEquals(projectName, opened.getValue("project_name").jsonPrimitive.content)
+        assertEquals(backendName, opened.getValue("backend_name").jsonPrimitive.content)
+        assertEquals(projectPath, opened.getValue("path").jsonPrimitive.content)
 
         val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
         assertExactMarkerLines(
@@ -1136,7 +1160,16 @@ class DevrigCliAgentUsabilityExperimentTest {
     }
 
     private fun AgentToolCall.jsonEnvelope(expectedCommand: String, expectedError: Boolean): JsonObject {
-        val text = resultText().trim()
+        val rawText = resultText().trim()
+        val nativeFailurePrefix = Regex("^Exit code \\d+\\r?\\n").find(rawText)
+        if (nativeFailurePrefix != null) {
+            assertTrue(expectedError) {
+                "$expectedCommand succeeded but its native tool result carried an exit-code prefix: $rawText"
+            }
+        }
+        val text = nativeFailurePrefix
+            ?.let { rawText.substring(it.range.last + 1).trim() }
+            ?: rawText
         val envelope = Json.parseToJsonElement(text).jsonObject
         assertEquals(setOf("tool", "command", "isError", "data"), envelope.keys, envelope.toString())
         val tool = envelope.getValue("tool").jsonObject

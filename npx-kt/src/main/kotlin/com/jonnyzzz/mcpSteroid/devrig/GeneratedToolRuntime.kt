@@ -5,22 +5,34 @@ import com.jonnyzzz.mcpSteroid.devrig.server.ProjectRouteNotFoundException
 import com.jonnyzzz.mcpSteroid.devrig.server.StubMcpSteroidTools
 import com.jonnyzzz.mcpSteroid.devrig.server.callToolViaSpec
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
+import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
+import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import java.io.IOException
 import java.io.InputStream
+import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * The runtime half of the schema-driven CLI: what happens after Clikt has parsed a `devrig <tool>`
@@ -66,6 +78,7 @@ data class GeneratedToolInvocation(
  * | a malformed path, an empty standard input, an argument the CLI or the TOOL rejects, an unknown `project_name` | [CliExit.USAGE] 64 |
  * | unusable data from the backend (an undecodable payload, a malformed response) | [CliExit.DATA_ERROR] 65 |
  * | an [IOException] reaching the tool — no IDE running, a refused connection, a timeout | [CliExit.UNAVAILABLE] 69 |
+ * | a declared `wait` extra option's poll timed out before the project reported ready | [CliExit.UNAVAILABLE] 69 |
  * | the tool answered with `isError=true` | [CliExit.TOOL_ERROR] 1 |
  *
  * Any OTHER throwable — an internal devrig or handler fault such as an NPE or a broken invariant — is
@@ -97,7 +110,17 @@ fun DevrigServices.runGeneratedToolCommand(
     val spec = liveToolSpec(command.toolName, tools)
     val presentation = presentationFor(command.json, spec.cli.outputStyle, homePaths::tmpDir)
     val preparedOut = try {
+        // A usage failure must win before --out preflight creates a parent directory or probe file.
+        // This also keeps unsupported orchestration flags ahead of the backend call below.
+        command.requireNoUnhandledExtraOption()
         preflightOutTarget(command.out)
+    } catch (e: IllegalArgumentException) {
+        return presentation.renderError(
+            command.commandName,
+            "devrig ${command.commandName}: ${e.message}",
+            CliExit.USAGE,
+            mcpStdout,
+        )
     } catch (e: IOException) {
         return presentation.renderError(
             command.commandName,
@@ -107,12 +130,22 @@ fun DevrigServices.runGeneratedToolCommand(
         )
     }
     val result = try {
-        command.requireNoUnhandledExtraOption(spec)
         val arguments = command.argumentsWithFileSources(spec, mcpStdin)
         val progress = if (command.json) NoOpProgressReporter else stderrProgressReporter(spec.name)
-        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, progress) }
+        runBlocking(Dispatchers.IO) {
+            val toolResult = callToolViaSpec(spec, arguments, progress)
+            val completedResult = if (!toolResult.isError && command.extraOptions[WAIT_EXTRA_OPTION_NAME] == true) {
+                awaitWaitOption(command, tools)
+            } else toolResult
+            completedResult
+        }
     } catch (e: CliInputException) {
         return presentation.renderError(command.commandName, e.message.orEmpty(), e.exit, mcpStdout)
+    } catch (e: ProjectNotReadyException) {
+        // Thrown by awaitWaitOption above when a declared `wait` extra option's poll deadline passed
+        // before `steroid_list_projects` reported the project route — the same "no usable IDE" story an
+        // IOException tells below, just discovered after open_project's own call already succeeded.
+        return presentation.renderError(command.commandName, e.message.orEmpty(), CliExit.UNAVAILABLE, mcpStdout)
     } catch (e: ProjectRouteNotFoundException) {
         // Reworded rather than appended to: the exception's own message tells an MCP client to call
         // `steroid_list_projects`, which a CLI user cannot do, and printing both instructions for the one
@@ -200,32 +233,120 @@ fun liveToolSpec(toolName: String, tools: McpSteroidTools): CliToolSpec {
     )
 }
 
+/** Identity of the generic `--wait` extra option — [com.jonnyzzz.mcpSteroid.mcp.CliExtraOption.name], not
+ * a CLI spelling. Declared today only by `open_project` (`OpenProjectTool.kt`), but [awaitWaitOption] is
+ * keyed off this NAME alone, never a per-tool `when`, so any future tool that declares another
+ * `CliExtraOption("wait", ...)` over a `project_path` argument gets the same poll for free. */
+private const val WAIT_EXTRA_OPTION_NAME: String = "wait"
+
+/** How long a declared `wait` extra option polls `steroid_list_projects` before giving up. */
+private const val WAIT_TIMEOUT_MS: Long = 300_000
+
+/** How long a declared `wait` extra option sleeps between polls of `steroid_list_projects`. */
+private const val WAIT_INTERVAL_MS: Long = 1_000
+
 /**
  * Fails when the invocation SET a [com.jonnyzzz.mcpSteroid.mcp.CliExtraOption] no runtime acts on.
  *
  * An extra option is by definition orchestration the CLI performs around the call — `open_project --wait`
- * polling the IDE after the tool returns — so it reaches no tool and there is nothing to forward it to. Until
- * that orchestration exists, honouring the flag by ignoring it would be the worst of the three options: the
- * caller asked devrig to wait, devrig said nothing, and the difference is invisible in the exit code. The
- * failure is derived from the declaration ([com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.extraOptions]) and
- * names the FLAG the user typed, so it needs no per-tool knowledge.
- *
- * **This function is temporary, and the phase that implements the first extra option must DELETE it** —
- * together with its test, `CliErrorEnvelopeTest.an extra option no runtime acts on yet fails loudly instead
- * of being ignored`. That deletion is pre-authorised here, so it does not read as removing a passing test.
- * It cannot lapse on its own: the condition below is "the declared flag was set", which says nothing about
- * whether a runtime consumes it, so once `--wait` works this guard would reject the very invocation it is
- * meant to enable. There is no version of it worth keeping — asking "does a runtime consume this option?"
- * would need exactly the per-tool registry this design exists to avoid.
+ * polling the IDE after the tool returns — so it reaches no tool and there is nothing to forward it to.
+ * [WAIT_EXTRA_OPTION_NAME] is the only name any runtime behavior is keyed off today; every other name that
+ * arrives set to `true` in [GeneratedToolInvocation.extraOptions] is, by construction, a flag Clikt accepted
+ * and this runtime silently ignored — the exact "accept then ignore" outcome the design this file follows
+ * exists to rule out. The check reads [GeneratedToolInvocation.extraOptions] alone, never a per-tool `when`
+ * or a lookup into the tool's own [com.jonnyzzz.mcpSteroid.mcp.CliCommandSpec.extraOptions], so a future
+ * tool that declares a second extra option needs no edit here: either the runtime grows a name-keyed
+ * handler for it (like [awaitWaitOption]) before it ships, or this guard rejects it the first time it is
+ * set — there is no silent third option.
  */
-private fun GeneratedToolInvocation.requireNoUnhandledExtraOption(spec: CliToolSpec) {
-    val unhandled = spec.cli.extraOptions.filter { extraOptions[it.name] == true }
+private fun GeneratedToolInvocation.requireNoUnhandledExtraOption() {
+    val unhandled = extraOptions.filterKeys { it != WAIT_EXTRA_OPTION_NAME }.filterValues { it }
     // No "devrig <command>:" prefix here — the pipeline's IllegalArgumentException arm adds it, and saying
     // it twice is what the printed message actually looked like before this comment existed.
     require(unhandled.isEmpty()) {
-        "${unhandled.joinToString(", ") { it.flag }} is accepted by the command line but no runtime acts " +
-            "on it yet — drop it and the command runs"
+        "${unhandled.keys.joinToString(", ")} is accepted by the command line but no runtime acts on it " +
+            "yet — drop it and the command runs"
     }
+}
+
+/**
+ * Thrown by [awaitWaitOption] when its poll deadline passes before `steroid_list_projects` reports the
+ * project route. Caught in [runGeneratedToolCommand]'s own pipeline, alongside every other failure that
+ * pipeline classifies, and mapped to [CliExit.UNAVAILABLE] there — a project that never finishes opening
+ * is the same "no usable IDE" story as an unreachable backend, just discovered after the call.
+ */
+private class ProjectNotReadyException(projectPath: String, timeoutMs: Long) : RuntimeException(
+    "project '$projectPath' was not routed by list_projects within ${timeoutMs / 1000}s"
+)
+
+/** Structured success returned by `open_project --wait`, including the routing values needed next. */
+@Serializable
+private data class AwaitedProjectResult(
+    @SerialName("project_name") val projectName: String,
+    @SerialName("backend_name") val backendName: String?,
+    val path: String,
+)
+
+/**
+ * The orchestration a declared `wait` extra option means: after [command]'s own tool call has already
+ * returned, poll [tools]' `steroid_list_projects` until [command]'s `project_path` appears as an addressable
+ * route, or throw [ProjectNotReadyException] once [WAIT_TIMEOUT_MS] passes. Keyed off
+ * [WAIT_EXTRA_OPTION_NAME] alone by the one caller in [runGeneratedToolCommand] — this function itself
+ * assumes nothing about WHICH tool called it beyond "it declared a `project_path` argument", which is
+ * `wait`'s whole contract: it orchestrates opening a project, so there is always a project path to poll
+ * for.
+ *
+ * [rawProjectPath] is normalized with [Path.toRealPath] before polling: `open_project` resolves its own
+ * `project_path` input the same way (`OpenProjectTool.kt`) before opening it, and `steroid_list_projects`
+ * reports that resolved path, not the caller's original string — a relative path or an unresolved symlink
+ * would otherwise never match. Resolution can only fail here if the directory vanished between
+ * `open_project` validating it and this call, which is exotic enough to fall out through the ordinary
+ * [IOException] arm below rather than needing its own.
+ */
+private suspend fun awaitWaitOption(
+    command: GeneratedToolInvocation,
+    tools: McpSteroidTools,
+): ToolCallResult {
+    val rawProjectPath = command.arguments["project_path"]?.jsonPrimitive?.contentOrNull
+        ?: error(
+            "'$WAIT_EXTRA_OPTION_NAME' extra option requires a 'project_path' argument, which " +
+                "'${command.toolName}' does not declare"
+        )
+    val projectPath = withContext(Dispatchers.IO) { Path.of(rawProjectPath).toRealPath().toString() }
+    val backendName = command.arguments["backend_name"]?.jsonPrimitive?.contentOrNull
+        ?.trim()?.takeIf { it.isNotEmpty() }
+    val listProjectsSpec = liveToolSpec("steroid_list_projects", tools)
+    // Created ONCE, outside the poll lambda: `stderrProgressReporter` prints "Tool call started: devrig
+    // list_projects" on its FIRST `report()` call, and a wait that polls for minutes must not repeat that
+    // line on every iteration.
+    val listProjectsProgress = if (command.json) NoOpProgressReporter else stderrProgressReporter(listProjectsSpec.name)
+    val route = awaitProjectReady(
+        pollListProjects = {
+            callToolViaSpec(listProjectsSpec, JsonObject(emptyMap()), listProjectsProgress).listProjectsResponse()
+        },
+        projectPath = projectPath,
+        backendName = backendName,
+        timeoutMs = WAIT_TIMEOUT_MS,
+        intervalMs = WAIT_INTERVAL_MS,
+        now = System::currentTimeMillis,
+        sleep = ::delay,
+    )
+        ?: throw ProjectNotReadyException(projectPath, WAIT_TIMEOUT_MS)
+    val result = AwaitedProjectResult(route.projectName, route.backendName, route.path)
+    return ToolCallResult(content = listOf(ContentItem.Text(McpJson.encodeToString(result))))
+}
+
+/**
+ * A `steroid_list_projects` call result, decoded to the shared response model. A malformed or absent text
+ * payload is the backend's fault, not the caller's, so it is reported with [error] — an
+ * invariant violation propagating to `runCliWithLastResortHandling`, not a [CliExit] this pipeline knows
+ * how to name; a genuinely undecodable JSON body instead throws [SerializationException] here, which the
+ * pipeline's own arm already maps to [CliExit.DATA_ERROR].
+ */
+private fun ToolCallResult.listProjectsResponse(): ListProjectsResponse {
+    val text = content.filterIsInstance<ContentItem.Text>().firstOrNull()?.text
+        ?: error("steroid_list_projects returned no text content to parse")
+    return McpJson.decodeFromString(ListProjectsResponse.serializer(), text)
 }
 
 /**
@@ -266,13 +387,24 @@ fun GeneratedToolInvocation.argumentsWithFileSources(spec: CliToolSpec, stdin: I
 private const val CLI_STDIN_PATH: String = "-"
 
 /**
+ * The most a file source will read from EITHER a file or standard input, in bytes, before
+ * [decodeCliSourceBytes] rejects it — 10 MB. Named so both readers enforce the identical limit and so a
+ * rejection message can quote the same number this constant defines, rather than a number hand-copied into
+ * a string.
+ */
+const val CLI_FILE_SOURCE_MAX_BYTES: Long = 10L * 1024 * 1024
+
+/**
  * The value behind one file source: standard input when [path] is [CLI_STDIN_PATH], else the content of the
  * file at [path]. [paramName] is the schema parameter being filled, named in every failure so the caller
  * knows which flag to fix when a tool declares more than one source.
  *
  * A malformed path string is the caller's typo ([CliExit.USAGE]); an absent, non-regular or unreadable file
  * is a filesystem failure ([CliExit.IO_ERROR]) — the distinction a caller acts on is "fix the command line"
- * versus "fix the disk", not whether `Files` threw.
+ * versus "fix the disk", not whether `Files` threw. Malformed UTF-8 ([CliExit.IO_ERROR]) and exceeding
+ * [CLI_FILE_SOURCE_MAX_BYTES] ([CliExit.DATA_ERROR]) are the same two content faults [readCliStdin] rejects,
+ * via the same [decodeCliSourceBytes], so the two sources behave identically instead of a file throwing on
+ * malformed bytes while stdin silently substituted them.
  */
 private fun readCliFileSource(
     paramName: String,
@@ -293,18 +425,18 @@ private fun readCliFileSource(
             "'$paramName' was to be read from '$file', which is not an existing regular file", CliExit.IO_ERROR,
         )
     }
-    val content = try {
-        Files.readString(file)
+    val bytes = try {
+        Files.newInputStream(file).use { it.readNBytes((CLI_FILE_SOURCE_MAX_BYTES + 1).toInt()) }
     } catch (e: IOException) {
         throw CliInputException("'$paramName' could not be read from '$file': ${e.message}", CliExit.IO_ERROR)
     }
     // Same contract as the stdin branch below: an empty value must fail here with a message that names
     // the cause, instead of being forwarded for the tool to answer with its own confusing complaint.
-    if (content.isEmpty()) throw CliInputException(
+    if (bytes.isEmpty()) throw CliInputException(
         "'$paramName' was to be read from '$file', which is empty; put the value in the file or pass it directly",
         CliExit.USAGE,
     )
-    return content
+    return decodeCliSourceBytes(paramName, bytes)
 }
 
 /**
@@ -317,34 +449,59 @@ private fun readCliFileSource(
  *  - reaching end of input immediately — nothing was piped — is a [CliExit.USAGE] failure naming both the
  *    parameter and the two ways to supply it, instead of handing the tool an empty value and letting it
  *    answer with its own confusing complaint about empty input.
+ *
+ * The read stops at [CLI_FILE_SOURCE_MAX_BYTES] + 1 bytes rather than draining an unbounded pipe, and the
+ * result is decoded by [decodeCliSourceBytes] — the same strict decoder [readCliFileSource] uses — so
+ * malformed UTF-8 is rejected here too, instead of `String.decodeToString()`'s silent U+FFFD substitution.
  */
 private fun readCliStdin(paramName: String, stdin: InputStream, announce: Boolean): String {
     if (announce) {
-        System.err.println(
-            "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
-                "pipe the value in, or close standard input (Ctrl-D) to finish"
-        )
+    System.err.println(
+        "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
+            "pipe the value in, or close standard input (Ctrl-D) to finish"
+    )
     }
-    val content = try {
-        // Strict decode: the file branch (Files.readString) throws on malformed UTF-8, and the default
-        // lenient decodeToString() would instead corrupt the value to U+FFFD silently — the same bytes
-        // must fail the same way from either source.
-        stdin.readBytes().decodeToString(throwOnInvalidSequence = true)
-    } catch (e: CharacterCodingException) {
-        // Before the IOException arm: CharacterCodingException IS an IOException, and the decode
-        // failure deserves its own wording — the bytes were read fine, they just are not text.
-        throw CliInputException(
-            "'$paramName' from standard input is not valid UTF-8 text: ${e.message}", CliExit.IO_ERROR,
-        )
+    val bytes = try {
+        stdin.readNBytes((CLI_FILE_SOURCE_MAX_BYTES + 1).toInt())
     } catch (e: IOException) {
         throw CliInputException(
             "'$paramName' could not be read from standard input: ${e.message}", CliExit.IO_ERROR,
         )
     }
-    if (content.isEmpty()) throw CliInputException(
+    if (bytes.isEmpty()) throw CliInputException(
         "'$paramName' was to be read from standard input ('$CLI_STDIN_PATH' given) but nothing was piped in; " +
             "pipe the value or pass a file path instead",
         CliExit.USAGE,
     )
-    return content
+    return decodeCliSourceBytes(paramName, bytes)
+}
+
+/**
+ * [bytes] as strict UTF-8 text — the shared content-validation [readCliFileSource] and [readCliStdin] both
+ * apply, so a file source and standard input reject the same two content faults the same way:
+ *  - more than [CLI_FILE_SOURCE_MAX_BYTES] arrived — [CliExit.DATA_ERROR], because nothing failed to be
+ *    read: the caller handed devrig more data than it accepts (both readers stop at the cap plus one byte,
+ *    so exceeding it is detected without ever buffering an unbounded source in full);
+ *  - the bytes are not valid UTF-8 — rejected via [CodingErrorAction.REPORT] rather than substituted with
+ *    U+FFFD, so a caller sees the actual encoding mistake instead of silently corrupted content reaching
+ *    the tool. Reported as [CliExit.IO_ERROR], keeping the contract the file branch has answered since
+ *    `Files.readString` did the decoding: a [CharacterCodingException] IS an [IOException], and the two
+ *    sources must agree — a `devrig` caller that pipes the same bytes it would have passed as a file must
+ *    not get a different code depending on which spelling it chose.
+ */
+private fun decodeCliSourceBytes(paramName: String, bytes: ByteArray): String {
+    if (bytes.size.toLong() > CLI_FILE_SOURCE_MAX_BYTES) {
+        throw CliInputException(
+            "'$paramName' exceeds the ${CLI_FILE_SOURCE_MAX_BYTES / (1024 * 1024)} MB limit", CliExit.DATA_ERROR,
+        )
+    }
+    return try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (e: CharacterCodingException) {
+        throw CliInputException("'$paramName' is not valid UTF-8 text: ${e.message}", CliExit.IO_ERROR)
+    }
 }

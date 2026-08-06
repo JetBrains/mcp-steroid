@@ -171,7 +171,7 @@ class McpToolsCliHelpTest {
             "list_projects must advertise its declared plural and legacy singular aliases:\n${section()}",
         )
         assertTrue(
-            "  devrig fetch_resource --uri=<uri> --project_name=<project_name> (alias: prompt)\n" in section(),
+            "  devrig fetch_resource <uri> --project_name=<project_name> (alias: prompt)\n" in section(),
             "fetch_resource must advertise its declared `prompt` alias:\n${section()}",
         )
     }
@@ -295,6 +295,21 @@ class McpToolsCliHelpTest {
             assertTrue(marker in help, "unified help lost '$marker':\n$help")
         }
         assertFalse("devrig mpc" in help, "the hidden mpc alias must stay unadvertised:\n$help")
+    }
+
+    @Test
+    fun `focused execute_code help renders every declared guide and a copyable fetch route`() {
+        val spec = visibleTools().single { it.cli.name == "execute_code" }
+        val invocation = parseDevrigCommand(arrayOf("help", "execute_code"))
+        assertEquals("help", invocation.commandPath)
+        val help = requireNotNull(invocation.informationalText)
+
+        assertTrue("Guides for deeper workflows:" in help, help)
+        for (uri in spec.cli.guideUris) assertTrue(uri in help, "focused help omitted $uri:\n$help")
+        assertTrue(
+            "devrig prompt <uri> --project_name=<routing-key>" in help,
+            "focused help must lead directly from a guide URI to an executable CLI action:\n$help",
+        )
     }
 
     @Test
