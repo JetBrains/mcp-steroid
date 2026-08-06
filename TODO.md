@@ -1,5 +1,21 @@
 # TODO
 
+- [ ] **dpaia/ee-dataset exporter strips trailing whitespace from patches (upstream fix)**: 11 of 304
+  patches in the live `java-spring-ee-dataset.json` are damaged (blank context lines trimmed to empty,
+  trailing context lines dropped) — the arena works because `repairTrimmedUnifiedDiff` repairs them at
+  parse time (#447, `test-experiments/.../DpaiaDataset.kt`), but the exporter in `dpaia/ee-dataset`
+  (READ permission only from here — needs a PR or owner access) should stop trimming so the dataset is
+  valid for every consumer, not just ours.
+
+- [ ] **TC Mac agents (icri-big-agent-eqx-\*) — residual infra asks** (from the 2026-08-05 Maven-429
+  investigation; the in-repo cache-redirector fix already unblocks the lane): (a) persistent/warmed
+  `~/.gradle/caches` for the ephemeral eqx pool (agent image bake or TC ephemeral-agent dependency
+  cache) so cold resolution stops depending on any external host; (b) optionally point the TC-side
+  Gradle wrapper distribution at `cache-redirector.jetbrains.com/services.gradle.org/...` (every cold
+  agent re-downloads the dist; low priority — not throttled today; must NOT be changed in-repo, the
+  wrapper properties cannot be conditional); (c) FYI to JB infra: Maven Central began throttling the
+  Equinix Mac egress between 2026-08-02 and 2026-08-04.
+
 - [ ] **KtBlock matrix has no GoLand/WebStorm/RubyMine/DataGrip lane** (noted in the #406 quorum
   review). Unannotated (all-IDE) prompt fences are compile-verified only against
   Idea/PyCharm/Rider/CLion (stable+EAP) yet render in GO/WS/RM/DB at runtime. Risk is low while
@@ -116,7 +132,8 @@
     tune the 180-second readiness bound and the caller-cancellation behavior before widening support.
   - Put the pure Remote Development NDJSON parser/workflow contracts on a normal CI-backed task; the
     experimental task's direct-invocation guard currently keeps them out of aggregate CI runs.
-  - Redact Remote Development join-link fragments (`#jt=...`) from preserved managed-backend logs.
+  - Redact Remote Development join-link fragments (`#jt=...`) from preserved managed-backend logs
+    ([#448](https://github.com/jonnyzzz/mcp-steroid/issues/448)).
     The Codex artifact review found one after the backend had stopped; the current sanitizer and invariant
     cover `Authorization`/Bearer, `_ijt`, and `x-ijt` credentials only. Extend the pure sanitizer tests and
     keep the shell artifact scan aligned before treating those logs as generally safe to publish.

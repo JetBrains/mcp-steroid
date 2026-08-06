@@ -63,6 +63,28 @@ reuses it.
 - Deps beyond the repo norm: `org.bouncycastle:bcpg-jdk18on` (PGP), `org.apache.commons:commons-compress`
   (archive scanning). `generateJdkModel` sets `maxHeapSize = "2g"` (one ~230 MB `ByteArray` at a time).
 
+## Docker integration lane — NO package installs at test time (#443)
+
+The `installerIntegrationTest` containers must never run `apt-get`/`apk` in their ENTRYPOINT: the
+2026-08-04 Ubuntu-mirror stall turned silenced test-time installs into 11 consecutive CI failures —
+healthy-looking containers whose tool polls burned 4-minute deadlines with zero diagnostics.
+The standing shape (suite runtime dropped ~10 min → ~44 s):
+
+- **pwsh lane needs no curl at all**: `verifyMockServes` probes with built-in
+  `pwsh Invoke-WebRequest` (the same download path `install.ps1` itself uses); containers boot with
+  a bare `mkdir + sleep` entrypoint.
+- **ubuntu sh lane** (curl+unzip ARE the `curl | sh` product contract) uses the pre-baked,
+  digest-pinned image from `src/installerIntegrationTest/resources/ubuntu-installer/Dockerfile`
+  (bounded 3-attempt apt retry, VISIBLE output, hard `command -v` gate), built once per test JVM via
+  test-helper `buildDockerImage()` and BuildKit-layer-cached on the agent. A real mirror outage
+  fails fast in `docker build` with full apt output. Update the digest with
+  `docker buildx imagetools inspect ubuntu:24.04` (pin the multi-arch index digest, not a per-arch one).
+- **Readiness = exec transport only** (`awaitContainerReady`, 60 s, surfaces the actual docker
+  error). The alpine musl test keeps its tiny `apk add bash` (harness exec shell only) —
+  **un-silenced** so the streamed `[prefix ERR]` log documents any future incident.
+- The GH workflow step is bounded at `timeout-minutes: 20` (worst pathological hang was 4 × 15 m
+  serial JUnit timeouts under the 45 m job cap).
+
 ## Gotchas
 
 - `version` means different things per vendor (`25.0.3.9.1` vs `25.0.3`) — never compare across vendors;

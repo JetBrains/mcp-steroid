@@ -44,6 +44,58 @@ the 1-minute rule and stuck-test debugging.
 invocation still works. Depends on `:test-integration` for the shared infrastructure (`IdeContainer`,
 `ConsoleDriver`, `XcvbDriver`, `AiAgentDriver`, `ConsolePumpingContainerDriver`).
 
+## Frontendless Remote Development Keycloak agent E2E
+
+`DevrigRemoteDevelopmentKeycloakTypeHierarchyTest` is the task-only clean-machine proof for Claude and
+Codex. Each method gets a fresh container, agent home, and `~/.mcp-steroid`; do not combine or parallelize
+them:
+
+```bash
+./gradlew :test-experiments:test \
+  --tests '*DevrigRemoteDevelopmentKeycloakTypeHierarchyTest.claude*' --rerun-tasks
+
+./gradlew :test-experiments:test \
+  --tests '*DevrigRemoteDevelopmentKeycloakTypeHierarchyTest.codex*' --rerun-tasks
+```
+
+The task prompt deliberately names only the Keycloak outcome. It must not reveal devrig, `steroid_*`, an
+`mcp-steroid://` URI, `ClassInheritorsSearch`, or the Maven readiness recipe; contract coverage pins that
+purity. The agent must discover the empty state, downloadable catalog, IU 2026.2 backend, on-demand project
+open, external-system readiness, and deep hierarchy itself.
+
+Readiness is frontendless: poll the requested path through `steroid_list_projects`, retain its opaque
+`project_name`, then trigger/await Maven configuration. Do not require `steroid_list_windows`, screenshots,
+or input; the native Remote Development backend normally has no window. The semantic result currently gates
+at least 70 named implementing-class FQNs plus known indirect implementations; sub-interfaces and unnamed
+implementations are classified separately. Exact full-oracle pinning remains in `TODO.md`.
+
+### Local credentials and gateways
+
+The agent drivers accept the normal vendor variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and the
+corresponding `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`. Loopback gateway URLs are rewritten for container
+reachability by the shared test helper. Private helpers that obtain or rotate gateway credentials must stay
+outside this public repository: invoke the helper around the Gradle command, never copy it into a Dockerfile,
+test, or checked-in script, and never print the token value.
+
+Credentials belong only to the external agent CLI process. The E2E must keep asserting that API keys/base
+URLs do not enter the managed IntelliJ backend environment. Missing Claude/OpenAI credentials fail hard;
+do not add a runtime skip or weaken the scenario.
+
+### Evidence and iteration
+
+- Raw tool evidence: `test-experiments/build/test-logs/test/run-*/agent-*-raw.ndjson`.
+- Decoded transcript: sibling `agent-*-decoded.txt` (useful to read, never authoritative for tool calls).
+- Agent reflection: `test-experiments/build/improvements/IMPROVEMENTS-headless-backend-<agent>.md`.
+- Backend/launcher/IDE logs remain private artifacts until the `#jt` join-fragment sanitizer gap tracked by
+  [#448](https://github.com/jonnyzzz/mcp-steroid/issues/448) is fixed; existing Bearer, `_ijt`, and `x-ijt`
+  sanitization is not sufficient for publication.
+
+Parse raw NDJSON to assert ordered download/open/list/execute calls and score the first successful semantic
+query. A decoded transcript can echo fetched prompt text and create false positives. If a run crosses the
+one-minute rule, collect the available process/thread/log evidence before stopping it; the absence of a
+frontend screenshot is expected here. Read `docs/headless-agent-guidance.md` for the measured Claude/Codex
+iterations and `docs/devrig-remote-development-backend-e2e.md` for the launcher contract.
+
 ## Remote-debugging (shared with :test-integration)
 
 Because the infra is shared, every `:test-experiments` Docker IDE also starts with a JDWP agent on
@@ -69,6 +121,40 @@ SKIP_IMPROVE=1 MAX_RUNS=1 bash ../docs/dpaia-arena-runner.sh 0
 
 Working notes, comparison tables, and autoresearch loop prompts live in `../docs/CLAUDE.md` and
 `../docs/autoresearch/`.
+
+### Dataset patches are repaired at parse time — triage "corrupt patch" there, not in GitDriver
+
+The dpaia.dev dataset serialization **strips trailing whitespace from its unified diffs**, which
+damages them two ways: a blank context line inside a hunk loses its mandatory leading space, and
+pure-trailing context lines vanish, leaving the `@@` header promising more lines than the body
+carries (11 of 304 patches in the live dataset; Petclinic36 + JhipsterApp3 failed EVERY run for
+weeks as `git apply: error: corrupt patch at line N` — issue #447, fixed 2026-08-05).
+`repairTrimmedUnifiedDiff` (`DpaiaDataset.kt`, pinned by `DpaiaPatchRepairTest`) fixes both shapes
+at parse time, **header-driven**: the declared hunk counts decide what is hunk content, so a bare
+empty line BETWEEN file sections is never absorbed as phantom context. Do NOT reach for
+`git apply --recount` instead — it does exactly that absorption and matches phantom context past
+EOF. Asymmetric damage (a lost `+`/`-` line) fails loudly: the repair never guesses content. The
+upstream exporter fix is tracked in TODO.md (`dpaia/ee-dataset` is read-only from here).
+
+### The #251 mandatory-first-call guard: schema rejections don't count
+
+`firstExecutionTargetsProject` (ArenaOutputParsing.kt) requires the first EXECUTED
+`steroid_execute_code` result to print the `base:` marker for the arena project. Leading
+**parameter-validation rejections** ("ERROR: Parameter task_id … is required" — codex omits required
+args on its first call now and then, TC build 1022424067) are skipped: the schema layer refused the
+call before any project was resolved, so the result carries zero targeting information. A runtime
+error or a wrong/missing marker still invalidates the run — do not widen the skip beyond the
+`Parameter ` prefix.
+
+### Validating an arena scenario on demand
+
+Scheduled runs are sparse; after touching arena infra, trigger the affected configs directly and
+watch (each run is a real Codex/Claude session, ~20–40 min):
+
+```bash
+jb tc native run start mcp_steroid_IntegrationTests_DpaiaArena_Petclinic36_Codex   # queues on main
+jb tc native run log -f <run-id>
+```
 
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 
