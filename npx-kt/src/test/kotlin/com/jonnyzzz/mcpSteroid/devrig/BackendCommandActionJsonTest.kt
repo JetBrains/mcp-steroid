@@ -37,7 +37,9 @@ class BackendCommandActionJsonTest {
             runBackendDownloadCommand(
                 out = it,
                 homePaths = homePaths,
-                command = downloadCommand("idea-community"),
+                id = "idea-community",
+                version = null,
+                json = true,
                 backendService = backendService,
             )
         }
@@ -72,7 +74,9 @@ class BackendCommandActionJsonTest {
             runBackendStartCommand(
                 out = it,
                 homePaths = homePaths,
-                command = startCommand("idea-community-2025.3.3"),
+                id = "idea-community-2025.3.3",
+                version = null,
+                json = true,
                 backendService = backendService,
             )
         }
@@ -99,7 +103,9 @@ class BackendCommandActionJsonTest {
             runBackendStopCommand(
                 out = it,
                 homePaths = homePaths,
-                command = stopCommand("idea-community-2025.3.3"),
+                id = "idea-community-2025.3.3",
+                version = null,
+                json = true,
                 backendService = backendService,
             )
         }
@@ -125,7 +131,9 @@ class BackendCommandActionJsonTest {
             runBackendStopCommand(
                 out = it,
                 homePaths = HomePaths(tempDir),
-                command = stopCommand("idea-community-2025.3.3"),
+                id = "idea-community-2025.3.3",
+                version = null,
+                json = true,
                 backendService = backendService,
             )
         }
@@ -151,7 +159,9 @@ class BackendCommandActionJsonTest {
             runBackendStopCommand(
                 out = it,
                 homePaths = HomePaths(tempDir),
-                command = stopCommand("idea-community-2025.3.3"),
+                id = "idea-community-2025.3.3",
+                version = null,
+                json = true,
                 backendService = backendService,
             )
         }
@@ -173,7 +183,9 @@ class BackendCommandActionJsonTest {
             runBackendDownloadCommand(
                 out = it,
                 homePaths = homePaths,
-                command = downloadCommand("idea-community"),
+                id = "idea-community",
+                version = null,
+                json = true,
                 backendService = failing,
             )
         }
@@ -181,7 +193,9 @@ class BackendCommandActionJsonTest {
             runBackendStartCommand(
                 out = it,
                 homePaths = homePaths,
-                command = startCommand("idea-community-2025.3.3"),
+                id = "idea-community-2025.3.3",
+                version = null,
+                json = true,
                 backendService = failing,
             )
         }
@@ -189,7 +203,9 @@ class BackendCommandActionJsonTest {
             runBackendStopCommand(
                 out = it,
                 homePaths = homePaths,
-                command = stopCommand("idea-community-2025.3.3"),
+                id = "idea-community-2025.3.3",
+                version = null,
+                json = true,
                 backendService = failing,
             )
         }
@@ -205,6 +221,34 @@ class BackendCommandActionJsonTest {
         }
     }
 
+    @Test
+    fun `invalid lifecycle ids are JSON on stdout with empty stderr`(@TempDir tempDir: Path) {
+        val homePaths = HomePaths(tempDir)
+        val invalidId = "not-a-backend"
+
+        val results = listOf(
+            "download" to runJsonAction {
+                runBackendDownloadCommand(it, homePaths, invalidId, version = null, json = true)
+            },
+            "start" to runJsonAction {
+                runBackendStartCommand(it, homePaths, invalidId, version = null, json = true)
+            },
+            "stop" to runJsonAction {
+                runBackendStopCommand(it, homePaths, invalidId, version = null, json = true)
+            },
+        )
+
+        for ((expectedAction, result) in results) {
+            assertEquals(64, result.exitCode)
+            assertEquals("", result.stderr, expectedAction)
+            assertEquals(setOf("tool", "action", "id", "error", "exitCode"), result.json.keys)
+            assertEquals(expectedAction, result.json["action"]!!.jsonPrimitive.content)
+            assertEquals(invalidId, result.json["id"]!!.jsonPrimitive.content)
+            assertTrue(result.json["error"]!!.jsonPrimitive.content.contains("Unsupported backend id"))
+            assertEquals(64, result.json["exitCode"]!!.jsonPrimitive.int)
+        }
+    }
+
     private fun runJsonAction(action: (PrintStream) -> Int): JsonActionResult {
         val outBuf = ByteArrayOutputStream()
         val errBuf = ByteArrayOutputStream()
@@ -217,15 +261,6 @@ class BackendCommandActionJsonTest {
             stderr = errBuf.toString(Charsets.UTF_8),
         )
     }
-
-    private fun downloadCommand(id: String): DevrigCommand.DevrigCommandBackendDownload =
-        DevrigCommand.DevrigCommandBackendDownload(id = id, json = true)
-
-    private fun startCommand(id: String): DevrigCommand.DevrigCommandBackendStart =
-        DevrigCommand.DevrigCommandBackendStart(id = id, json = true)
-
-    private fun stopCommand(id: String): DevrigCommand.DevrigCommandBackendStop =
-        DevrigCommand.DevrigCommandBackendStop(id = id, json = true)
 
     private fun downloadResult(homePaths: HomePaths, id: String) = DownloadResult(
         id = id,

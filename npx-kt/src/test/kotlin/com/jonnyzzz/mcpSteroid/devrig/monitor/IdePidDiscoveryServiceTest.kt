@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.PidMarker
 import com.jonnyzzz.mcpSteroid.PidMarkerJson
 import com.jonnyzzz.mcpSteroid.PluginInfo
 import com.jonnyzzz.mcpSteroid.devrig.testDevrigEndpoint
+import com.jonnyzzz.mcpSteroid.server.backendNameForMarker
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -74,9 +75,9 @@ class IdePidDiscoveryServiceTest {
         val ides = service.stateSnapshot()
         assertEquals(1, ides.size)
         val ide = ides.single()
-        assertEquals(ourPid, ide.pid)
+        assertEquals(ourPid, ide.processId)
         assertEquals(testDevrigEndpoint("http://localhost:64531/mcp").rpcBaseUrl, ide.rpcBaseUrl)
-        assertEquals("IntelliJ IDEA pid=$ourPid", ide.label)
+        assertEquals(backendNameForMarker(ourPid, "y"), ide.backendName)
     }
 
     @Test
@@ -99,7 +100,7 @@ class IdePidDiscoveryServiceTest {
         writeMarker(homeDir, process.pid(), "http://localhost:1/mcp")
 
         val service = service(homeDir)
-        assertFalse(service.stateSnapshot().any { it.pid == process.pid() })
+        assertFalse(service.stateSnapshot().any { it.processId == process.pid() })
     }
 
     @Test
@@ -113,7 +114,7 @@ class IdePidDiscoveryServiceTest {
         val service = service(homeDir)
         val ides = service.stateSnapshot()
         assertEquals(1, ides.size, "expected only the valid marker, got: $ides")
-        assertEquals(ourPid, ides.single().pid)
+        assertEquals(ourPid, ides.single().processId)
     }
 
     @Test
@@ -127,7 +128,7 @@ class IdePidDiscoveryServiceTest {
         val service = service(homeDir)
         val ides = service.stateSnapshot()
         assertEquals(1, ides.size, "expected only the valid marker, got: $ides")
-        assertEquals(ourPid, ides.single().pid)
+        assertEquals(ourPid, ides.single().processId)
     }
 
     @Test

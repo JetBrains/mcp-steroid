@@ -80,7 +80,7 @@ class CwdProjectResolverTest {
     private fun route(projectPath: Path, exposedName: String): ProjectRoute = ProjectRoute(
         route = DiscoveredIde(
             backendName = "backend-$exposedName",
-            pid = 1,
+            processId = 1,
             rpcBaseUrl = "http://127.0.0.1:4343/mcp",
             bridgeHeaders = emptyMap(),
             ide = IdeInfo("IntelliJ IDEA", "2026.1", "IU-261.1"),

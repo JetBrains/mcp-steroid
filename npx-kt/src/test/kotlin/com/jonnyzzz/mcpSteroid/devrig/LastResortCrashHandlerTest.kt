@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.devrig
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
@@ -31,12 +32,44 @@ class LastResortCrashHandlerTest {
 
     private val parseJson = Json { ignoreUnknownKeys = true }
 
+    private fun invocation(json: Boolean = false, commandName: String = "devrig"): DevrigCliInvocation =
+        DevrigCliInvocation(
+            commandPath = if (commandName == "devrig") "devrig install devrig" else "devrig $commandName",
+            debug = false,
+            json = json,
+            mode = if (commandName == "devrig") DevrigCliMode.INFORMATIONAL else DevrigCliMode.GENERATED_TOOL,
+            telemetryMode = if (commandName == "devrig") null else commandName,
+            jsonEnvelopeCommand = commandName,
+            terminal = null,
+        ) { CliExit.OK }
+
+    private fun handled(command: DevrigCliInvocation, out: PrintStream, block: suspend () -> Int): Int =
+        runBlocking { runCliWithLastResortHandling(command, out, block) }
+
+    @Test
+    fun `a command-tree construction crash returns SOFTWARE instead of escaping main as TOOL_ERROR`() {
+        val originalOut = System.out
+        val originalErr = System.err
+        val err = CapturedStream()
+        System.setErr(err.stream)
+        try {
+            val exit = runDevrigMain(emptyArray()) { _, _ -> error("duplicate generated command token") }
+
+            assertEquals(CliExit.SOFTWARE, exit)
+            assertTrue(err.text().contains("duplicate generated command token"), err.text())
+            assertTrue(err.text().contains("\tat "), "expected an actual stack trace, got: ${err.text()}")
+        } finally {
+            System.setOut(originalOut)
+            System.setErr(originalErr)
+        }
+    }
+
     @Test
     fun `a successful block returns its own exit code untouched`() {
         val out = CapturedStream()
-        val command = DevrigCommand.DevrigCommandInstallDevrig()
+        val command = invocation()
 
-        val exit = runCliWithLastResortHandling(command, out.stream) { CliExit.OK }
+        val exit = handled(command, out.stream) { CliExit.OK }
 
         assertEquals(CliExit.OK, exit)
         assertEquals("", out.text())
@@ -45,10 +78,10 @@ class LastResortCrashHandlerTest {
     @Test
     fun `CancellationException is rethrown, never swallowed into a fake unexpected error`() {
         val out = CapturedStream()
-        val command = DevrigCommand.DevrigCommandInstallDevrig()
+        val command = invocation()
 
         assertFailsWith<CancellationException> {
-            runCliWithLastResortHandling(command, out.stream) { throw CancellationException("scope shutting down") }
+            handled(command, out.stream) { throw CancellationException("scope shutting down") }
         }
         // Nothing should have been reported as a crash: the exception is still in flight.
         assertEquals("", out.text())
@@ -57,12 +90,12 @@ class LastResortCrashHandlerTest {
     @Test
     fun `a crash under --json emits one envelope on stdout and the trace on stderr`() {
         val out = CapturedStream()
-        val command = DevrigCommand.DevrigCommandInstallDevrig(json = true)
+        val command = invocation(json = true)
         val originalErr = System.err
         val err = CapturedStream()
         System.setErr(err.stream)
         try {
-            val exit = runCliWithLastResortHandling(command, out.stream) { error("boom deep in the bridge") }
+            val exit = handled(command, out.stream) { error("boom deep in the bridge") }
 
             assertEquals(CliExit.SOFTWARE, exit)
             val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
@@ -85,16 +118,12 @@ class LastResortCrashHandlerTest {
         // (RunTool.commandName); a consumer correlating envelopes by command — e.g. jq
         // `select(.command == "list_windows")` — must not lose exactly the crash envelope.
         val out = CapturedStream()
-        val command = DevrigCommand.RunTool(
-            toolName = "steroid_list_windows",
-            commandName = "list_windows",
-            json = true,
-        )
+        val command = invocation(json = true, commandName = "list_windows")
         val originalErr = System.err
         val err = CapturedStream()
         System.setErr(err.stream)
         try {
-            val exit = runCliWithLastResortHandling(command, out.stream) { error("boom deep in the bridge") }
+            val exit = handled(command, out.stream) { error("boom deep in the bridge") }
 
             assertEquals(CliExit.SOFTWARE, exit)
             val envelope = parseJson.parseToJsonElement(out.text()).jsonObject
@@ -112,17 +141,12 @@ class LastResortCrashHandlerTest {
         // unreachable IDE with the stack trace discarded. The dispatcher's half is pinned by
         // CliErrorEnvelopeTest's propagation test; this pins that the crash handler catches what it hands up.
         val out = CapturedStream()
-        val command = DevrigCommand.RunTool(
-            toolName = "steroid_list_windows",
-            commandName = "list_windows",
-            arguments = kotlinx.serialization.json.JsonObject(emptyMap()),
-            json = false,
-        )
+        val command = invocation(commandName = "list_windows")
         val originalErr = System.err
         val err = CapturedStream()
         System.setErr(err.stream)
         try {
-            val exit = runCliWithLastResortHandling(command, out.stream) {
+            val exit = handled(command, out.stream) {
                 throw NullPointerException("windows was null in a handler")
             }
 
@@ -138,12 +162,12 @@ class LastResortCrashHandlerTest {
     @Test
     fun `a crash without --json logs the message and trace to stderr and returns SOFTWARE`() {
         val out = CapturedStream()
-        val command = DevrigCommand.DevrigCommandInstallDevrig(json = false)
+        val command = invocation(json = false)
         val originalErr = System.err
         val err = CapturedStream()
         System.setErr(err.stream)
         try {
-            val exit = runCliWithLastResortHandling(command, out.stream) { error("boom deep in the bridge") }
+            val exit = handled(command, out.stream) { error("boom deep in the bridge") }
 
             assertEquals(CliExit.SOFTWARE, exit)
             assertEquals("", out.text(), "stdout must stay clean outside --json")

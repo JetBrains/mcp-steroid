@@ -29,7 +29,7 @@ const val MCP_STEROID_PLUGIN_ID = "com.jonnyzzz.mcp-steroid"
 /**
  * The one-shot command that installs (or updates) MCP Steroid into every running JetBrains IDE over
  * REST — each IDE then shows its own native "Choose Plugins to Install or Enable" dialog. Promoted from
- * every CLI listing that surfaces an IDE without a compatible plugin (`devrig backend`, `devrig project`).
+ * every CLI listing that surfaces an IDE without a compatible plugin (`devrig backend`).
  */
 const val INSTALL_PLUGIN_COMMAND = "devrig install plugin"
 
@@ -139,14 +139,14 @@ class KtorPluginRestClient(private val httpClient: HttpClient) : PluginRestClien
  * by the IDE, not devrig. This is the EXPLICIT plugin-install step — `devrig install devrig` only promotes
  * this command in its next-steps message and never runs it (issue #398).
  */
-fun DevrigServices.runInstallPluginCommand(command: DevrigCommand.DevrigCommandInstallPlugin): Int {
+fun DevrigServices.runInstallPluginCommand(check: Boolean): Int {
     val markers = scanMarkersOnce()
     runBlocking(Dispatchers.IO) {
         val targets = detectProvisionTargets(portDiscovery)
         installPluginIntoRunningIdes(
             out = mcpStdout,
             err = System.err,
-            check = command.check,
+            check = check,
             pluginId = MCP_STEROID_PLUGIN_ID,
             targets = targets,
             markers = markers,

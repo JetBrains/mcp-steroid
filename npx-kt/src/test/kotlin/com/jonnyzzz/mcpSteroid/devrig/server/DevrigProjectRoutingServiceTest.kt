@@ -102,7 +102,7 @@ class DevrigProjectRoutingServiceTest {
         assertEquals(2, routes.size)
         assertEquals(2, routes.map { it.exposedProjectName }.distinct().size)
         assertEquals(setOf("mcp-steroid"), routes.map { it.originalProjectName }.toSet())
-        assertEquals(setOf(42L, 43L), routes.map { it.route.pid }.toSet())
+        assertEquals(setOf(42L, 43L), routes.map { it.route.processId }.toSet())
         for (route in routes) {
             assertEquals(route, service.requireProject(route.exposedProjectName))
         }
@@ -203,7 +203,7 @@ class DevrigProjectRoutingServiceTest {
     private fun discoveredIde(pid: Long, build: String): DiscoveredIde =
         DiscoveredIde(
             backendName = backendNameForMarker(pid, build),
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:4343/mcp").rpcBaseUrl,
             bridgeHeaders = mapOf("Authorization" to "Bearer secret-$pid"),
             ide = IdeInfo("IntelliJ IDEA", "2026.1", build),

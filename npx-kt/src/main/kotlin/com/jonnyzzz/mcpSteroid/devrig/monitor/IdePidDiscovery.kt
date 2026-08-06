@@ -22,8 +22,8 @@ import kotlin.io.path.readText
 data class DiscoveredIde(
     val backendName: String,
 
-    @Deprecated("Use backend_name")
-    val pid: Long,
+    /** OS process id retained for diagnostics and process management, never as a routing identity. */
+    val processId: Long,
 
     /**
      * Full base URL of the IDE's devrig bridge that support MCP Steroid communication
@@ -49,10 +49,14 @@ data class DiscoveredIde(
     /** Absolute install folder of the mcp-steroid plugin, or `null` if the marker predates this field. */
     val pluginPath: String? = null,
 ) {
+    @Deprecated("Use processId for diagnostics or backendName for routing")
+    val pid: Long
+        get() = processId
+
     /** Stable, human-friendly identifier used in logs (`IntelliJ IDEA pid=12345`). */
     @Deprecated("Use backend_name")
     val label: String
-        get() = "${ide.name} pid=$pid"
+        get() = "${ide.name} pid=$processId"
 }
 
 /**
@@ -114,7 +118,7 @@ class IdePidDiscoveryService(
             out += DiscoveredIde(
                 backendName = backendNameForMarker(pid, marker.ide.build),
 
-                pid = pid,
+                processId = pid,
 
                 rpcBaseUrl = devrigEndpoint.rpcBaseUrl,
                 bridgeHeaders = devrigEndpoint.headers,

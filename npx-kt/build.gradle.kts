@@ -284,6 +284,12 @@ tasks.test {
     systemProperty("devrig.beacon.disabled", "true")
 }
 
+// JNA initializes while Clikt/Mordant detects terminal capabilities. Java 25 warns unless native
+// access is explicit; keep test sessions as clean as the production application launcher.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
 /** Shares the default `test` wiring with a different tag filter. */
 fun Test.configureLikeUnitTests(tag: String) {
     useJUnitPlatform {

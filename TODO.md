@@ -90,7 +90,8 @@
   - [ ] Scenario B (chosen first step): `IntelliJMcpServerProbe.listNativeTools()` (+ drop the
     banned `internal` on `IntelliJMcpServerProbeImpl`), `GET …/native-tools` bridge route,
     `mcp-steroid-server` DTOs (`available`/`unfiltered` on the wire, no `backend_name`),
-    `devrig project tools <project_name> [--json]` (ProjectCommand → `invokeWithoutSubcommand`),
+    a redesigned top-level CLI route such as `devrig native_tools <project_name> [--json]`
+    (`list_projects` is a generated leaf and `projects`/`project` are its aliases, so none can own nested actions),
     explicit 404="plugin too old" branch, WirePristinenessTest + contract pins,
     `:test-integration` canary (list + `find_files_by_glob` call), wire-table entry.
   - [ ] Scenario A follow-up: short static index `skill/native-mcp-tools.md` (guard + LIST
@@ -157,6 +158,9 @@
 - [ ] **list_windows graceful degradation**: devrig's `steroid_list_windows` is all-or-nothing — one
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
+- [ ] **list_windows human presentation (#284 follow-up)**: console mode still prints the tool's
+  JSON payload as one minified line. Add a structured, colorful human renderer while preserving the
+  current ANSI-free `--json` envelope for agents.
 
 - [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
   removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared
@@ -311,13 +315,3 @@
   Both #412 AS-lane runs log `JDK: 25.0.2` in idea.log for AI-261.26222.65 (2026.1.3). The
   bytecode-21 gate itself stays valuable (issue #157: older AS + minimum-supported baselines), but
   the KDoc's "AS 2026.1 bundles JBR 21" premise is stale and should be reworded against reality.
-
-- [ ] **Console mode prints a JSON payload as one minified line (#284)**: `devrig list_projects` (and any
-  generated tool whose result is a single JSON text item) emits one long minified blob, because
-  `Presentation.Console.render` prints a text content item verbatim. The fix does NOT need a per-tool
-  renderer: pretty-printing a text payload that happens to parse as JSON is tool-agnostic, so it belongs in
-  `Presentation.Console` in `CliToolSupport.kt`. Deliberately **console-only** — the `--json` envelope now
-  unpacks a JSON text payload under a `json` key (`contentDataJson`, so `jq` reaches it in one parse); that
-  path is settled and must not be reshaped again for a console concern. A richer per-tool table
-  (`devrig project`-style columns for the listers) is a different, larger question: it would need declared
-  rendering metadata, since a `when (toolName)` is exactly what #284 removes.

@@ -18,10 +18,9 @@ import kotlinx.serialization.json.JsonObject
  *  - [McpServerCore] declares server identity, advertised capabilities, and the
  *    [DEVRIG_MCP_SERVER_INSTRUCTIONS] capability statement the `initialize` result carries.
  *  - [StubMcpSteroidTools.devrigToolSpecs] is the canonical devrig tool list; every
- *    spec from it is registered onto the core. The handlers themselves are not yet
- *    implemented in devrig — see [StubMcpSteroidTools] — so calling a tool returns
- *    an error, but `tools/list` / `prompts/list` / `resources/list` describe the
- *    full surface.
+ *    handler-bound spec from it is registered onto the core. The same live specs back
+ *    the generated Clikt commands, so stdio MCP calls and direct CLI calls share the
+ *    bridge handlers rather than maintaining parallel implementations.
  *  - [McpStdioServer] runs the transport on [DevrigServices.mcpStdin] /
  *    [DevrigServices.mcpStdout] (NDJSON or framed, auto-detected from the first
  *    inbound frame).

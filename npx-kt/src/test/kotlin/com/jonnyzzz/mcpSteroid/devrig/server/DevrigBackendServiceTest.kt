@@ -151,7 +151,7 @@ class DevrigBackendServiceTest {
 
     private fun discoveredIde(ideHome: String?): DiscoveredIde = DiscoveredIde(
         backendName = "test-backend-${++discoveredIdeCounter}",
-        pid = 12345L + discoveredIdeCounter,
+        processId = 12345L + discoveredIdeCounter,
         rpcBaseUrl = "http://localhost:9999",
         bridgeHeaders = emptyMap(),
         ide = IdeInfo(name = "Test IDE", version = "2026.1", build = "IU-261.100"),

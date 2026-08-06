@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.devrig.server.callToolViaSpec
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
+import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import java.io.IOException
 import java.io.InputStream
 import java.nio.charset.CharacterCodingException
@@ -23,7 +24,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The runtime half of the schema-driven CLI: what happens after Clikt has parsed a `devrig <tool>`
- * invocation into an inert [DevrigCommand.RunTool]. Parsing and running are separate lifecycle phases —
+ * invocation into an inert [GeneratedToolInvocation]. Parsing and running are separate lifecycle phases —
  * the parse phase touches no handler, service or backend — and this file is the second phase for EVERY
  * generated command. There is one dispatch path and one error-mapping pipeline; nothing here branches on
  * the tool's name, because a per-tool arm is the duplication issue #284 exists to remove.
@@ -35,6 +36,22 @@ import kotlinx.serialization.json.JsonPrimitive
  * one pipeline below renders it without a second decision point.
  */
 class CliInputException(message: String, val exit: Int) : RuntimeException(message)
+
+/**
+ * Typed data produced by one schema-generated Clikt command and consumed by the shared tool runtime.
+ * This is deliberately not a second command hierarchy: Clikt owns routing and this value only carries
+ * the already-parsed tool call across the parse/runtime boundary.
+ */
+data class GeneratedToolInvocation(
+    val toolName: String,
+    val commandName: String,
+    val arguments: JsonObject = JsonObject(emptyMap()),
+    val fileSources: Map<String, String> = emptyMap(),
+    val extraOptions: Map<String, Boolean> = emptyMap(),
+    val out: Path? = null,
+    val debug: Boolean = false,
+    val json: Boolean = false,
+)
 
 /**
  * Runs one generated tool command: resolve the live spec, fill in the inputs the parse phase deliberately
@@ -61,23 +78,24 @@ class CliInputException(message: String, val exit: Int) : RuntimeException(messa
  * tool already returned, so it is classified by [renderWithOut] instead — see the comment above the final
  * `return`.
  *
- * A parse-time usage failure never arrives here: [parseDevrigCommand] turns it into
- * [DevrigCommand.DevrigCommandParseError], which [runCli] answers with the same 64. That split is
- * deliberate — Clikt must not reach the dispatch layer, so this pipeline neither can nor should catch a
- * `UsageError`.
+ * A parse-time usage failure never arrives here: [parseDevrigCommand] turns it into an informational
+ * invocation that reports exit 64 before this runtime is selected. Clikt must not reach the dispatch
+ * layer, so this pipeline neither can nor should catch a `UsageError`.
  *
  * [CancellationException] is rethrown rather than rendered: a cancelled devrig is shutting down, not
  * failing, and swallowing it would stop structured concurrency from unwinding the surrounding scope.
  *
  * [tools] is a parameter so a test can inject handler doubles and drive the real spec `call()` path without
  * a live IDE; production always passes the [StubMcpSteroidTools] wiring the `devrig mcp` stdio proxy uses.
+ * Human mode streams progress to stderr. `--json` suppresses that live stream because agent shell tools
+ * commonly merge stderr into their command result; the result envelope remains the single parseable value.
  */
 fun DevrigServices.runGeneratedToolCommand(
-    command: DevrigCommand.RunTool,
+    command: GeneratedToolInvocation,
     tools: McpSteroidTools = StubMcpSteroidTools(this),
 ): Int {
     val spec = liveToolSpec(command.toolName, tools)
-    val presentation = presentationFor(command.json, homePaths::tmpDir)
+    val presentation = presentationFor(command.json, spec.cli.outputStyle, homePaths::tmpDir)
     val preparedOut = try {
         preflightOutTarget(command.out)
     } catch (e: IOException) {
@@ -91,7 +109,8 @@ fun DevrigServices.runGeneratedToolCommand(
     val result = try {
         command.requireNoUnhandledExtraOption(spec)
         val arguments = command.argumentsWithFileSources(spec, mcpStdin)
-        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, stderrProgressReporter(spec.name)) }
+        val progress = if (command.json) NoOpProgressReporter else stderrProgressReporter(spec.name)
+        runBlocking(Dispatchers.IO) { callToolViaSpec(spec, arguments, progress) }
     } catch (e: CliInputException) {
         return presentation.renderError(command.commandName, e.message.orEmpty(), e.exit, mcpStdout)
     } catch (e: ProjectRouteNotFoundException) {
@@ -146,7 +165,7 @@ fun DevrigServices.runGeneratedToolCommand(
         return presentation.renderError(
             command.commandName,
             "devrig ${command.commandName} did not complete: no IDE backend is reachable " +
-                "(${e.javaClass.simpleName}: ${e.message}) — check `devrig project`.",
+                "(${e.javaClass.simpleName}: ${e.message}) — check `devrig list_projects`.",
             CliExit.UNAVAILABLE, mcpStdout,
         )
     }
@@ -199,7 +218,7 @@ fun liveToolSpec(toolName: String, tools: McpSteroidTools): CliToolSpec {
  * meant to enable. There is no version of it worth keeping — asking "does a runtime consume this option?"
  * would need exactly the per-tool registry this design exists to avoid.
  */
-private fun DevrigCommand.RunTool.requireNoUnhandledExtraOption(spec: CliToolSpec) {
+private fun GeneratedToolInvocation.requireNoUnhandledExtraOption(spec: CliToolSpec) {
     val unhandled = spec.cli.extraOptions.filter { extraOptions[it.name] == true }
     // No "devrig <command>:" prefix here — the pipeline's IllegalArgumentException arm adds it, and saying
     // it twice is what the printed message actually looked like before this comment existed.
@@ -210,8 +229,8 @@ private fun DevrigCommand.RunTool.requireNoUnhandledExtraOption(spec: CliToolSpe
 }
 
 /**
- * This command's [DevrigCommand.RunTool.arguments] with every deferred file source resolved: each parameter
- * named in [DevrigCommand.RunTool.fileSources] gains the content of the recorded path — or of standard input
+ * This command's [GeneratedToolInvocation.arguments] with every deferred file source resolved: each parameter
+ * named in [GeneratedToolInvocation.fileSources] gains the content of the recorded path — or of standard input
  * when the path is `-`. The parse phase records the path and nothing more, because opening a file and
  * reading standard input are runtime effects a command line parser must not have; this is where that debt is
  * paid, once, for whatever tool declared a [com.jonnyzzz.mcpSteroid.mcp.CliFileSource].
@@ -226,9 +245,11 @@ private fun DevrigCommand.RunTool.requireNoUnhandledExtraOption(spec: CliToolSpe
  * every declared parameter — `cliHidden` ones included. The `check` below is what keeps that reasoning
  * honest, since the failure it guards against would otherwise be a silently dropped argument.
  */
-fun DevrigCommand.RunTool.argumentsWithFileSources(spec: CliToolSpec, stdin: InputStream): JsonObject {
+fun GeneratedToolInvocation.argumentsWithFileSources(spec: CliToolSpec, stdin: InputStream): JsonObject {
     if (fileSources.isEmpty()) return arguments
-    val resolved = fileSources.mapValues { (name, path) -> JsonPrimitive(readCliFileSource(name, path, stdin)) }
+    val resolved = fileSources.mapValues { (name, path) ->
+        JsonPrimitive(readCliFileSource(name, path, stdin, announceStdin = !json))
+    }
     val ordered = LinkedHashMap<String, JsonElement>()
     for (param in spec.schema.asCliParams()) {
         (resolved[param.name] ?: arguments[param.name])?.let { ordered[param.name] = it }
@@ -253,8 +274,13 @@ private const val CLI_STDIN_PATH: String = "-"
  * is a filesystem failure ([CliExit.IO_ERROR]) — the distinction a caller acts on is "fix the command line"
  * versus "fix the disk", not whether `Files` threw.
  */
-private fun readCliFileSource(paramName: String, path: String, stdin: InputStream): String {
-    if (path == CLI_STDIN_PATH) return readCliStdin(paramName, stdin)
+private fun readCliFileSource(
+    paramName: String,
+    path: String,
+    stdin: InputStream,
+    announceStdin: Boolean,
+): String {
+    if (path == CLI_STDIN_PATH) return readCliStdin(paramName, stdin, announceStdin)
     val file = try {
         Path.of(path)
     } catch (e: InvalidPathException) {
@@ -292,11 +318,13 @@ private fun readCliFileSource(paramName: String, path: String, stdin: InputStrea
  *    parameter and the two ways to supply it, instead of handing the tool an empty value and letting it
  *    answer with its own confusing complaint about empty input.
  */
-private fun readCliStdin(paramName: String, stdin: InputStream): String {
-    System.err.println(
-        "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
-            "pipe the value in, or close standard input (Ctrl-D) to finish"
-    )
+private fun readCliStdin(paramName: String, stdin: InputStream, announce: Boolean): String {
+    if (announce) {
+        System.err.println(
+            "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
+                "pipe the value in, or close standard input (Ctrl-D) to finish"
+        )
+    }
     val content = try {
         // Strict decode: the file branch (Files.readString) throws on malformed UTF-8, and the default
         // lenient decodeToString() would instead corrupt the value to U+FFFD silently — the same bytes

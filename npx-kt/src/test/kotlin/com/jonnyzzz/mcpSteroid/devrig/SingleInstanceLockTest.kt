@@ -407,17 +407,16 @@ class SingleInstanceLockTest {
      */
     private fun runStartCli(homePaths: HomePaths, id: String, stdout: PrintStream): Int {
         val lifetime = CloseableStackHost()
-        val command = DevrigCommand.DevrigCommandBackendStart(id = id)
         return try {
             runBlocking {
-                runCliWithLastResortHandling(command, stdout) {
-                    DevrigServices(
-                        homePaths = homePaths,
-                        lifetime = lifetime,
-                        mcpStdin = ByteArrayInputStream(ByteArray(0)),
-                        mcpStdout = stdout,
-                    ).runCli(command)
-                }
+                val services = DevrigServices(
+                    homePaths = homePaths,
+                    lifetime = lifetime,
+                    mcpStdin = ByteArrayInputStream(ByteArray(0)),
+                    mcpStdout = stdout,
+                )
+                val command = parseDevrigCommand(arrayOf("backend", "start", id))
+                runCliWithLastResortHandling(command, stdout) { command.execute(services) }
             }
         } finally {
             lifetime.closeAllStacks()

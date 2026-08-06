@@ -632,11 +632,11 @@ class DevrigRemoteDevelopmentKeycloakTypeHierarchyTest {
                   false
                 fi
 
-                failed_invariant="devrig project route eventually reports Keycloak"
+                failed_invariant="devrig list_projects route eventually reports Keycloak"
                 project_deadline=$((SECONDS + 60))
                 while true; do
-                  if "$$INSTALLED_DEVRIG" project --json > /tmp/devrig-projects.json && \
-                    jq -e --arg path "$$PROJECT_DIR" '.projects[] | select(.path == $path)' /tmp/devrig-projects.json >/dev/null; then
+                  if "$$INSTALLED_DEVRIG" list_projects --json > /tmp/devrig-projects.json && \
+                    jq -e --arg path "$$PROJECT_DIR" '.data.content[].json.projects[] | select(.path == $path)' /tmp/devrig-projects.json >/dev/null; then
                     break
                   fi
                   if [ "$SECONDS" -ge "$project_deadline" ]; then

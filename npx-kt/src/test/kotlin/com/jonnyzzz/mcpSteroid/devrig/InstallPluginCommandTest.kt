@@ -211,7 +211,7 @@ class InstallPluginCommandTest {
         pid: Long = 1234L,
         build: String = "IU-261.23567.138",
     ): DiscoveredIde = DiscoveredIde(
-        pid = pid,
+        processId = pid,
         rpcBaseUrl = testDevrigEndpoint("http://localhost:6315/mcp").rpcBaseUrl,
         bridgeHeaders = emptyMap(),
         ide = IdeInfo(name = name, version = version, build = build),
