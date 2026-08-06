@@ -52,6 +52,7 @@ class DevrigCommandTest {
         for (args in listOf(
             arrayOf("backend", "--json"),
             arrayOf("list_projects", "--json"),
+            arrayOf("--json", "list_projects"),
             arrayOf("install", "--json"),
             arrayOf("install", "config", "--json"),
             arrayOf("version", "--json"),

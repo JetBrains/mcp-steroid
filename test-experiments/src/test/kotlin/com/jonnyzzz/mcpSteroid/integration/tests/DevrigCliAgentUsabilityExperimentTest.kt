@@ -35,6 +35,149 @@ import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.parallel.Execution
 import org.junit.jupiter.api.parallel.ExecutionMode
 
+fun normalizeRawDevrigCommand(commandText: String, devrig: String): String? {
+    val raw = commandText.trim()
+    val transportCommand = when {
+        raw == "/bin/bash -lc $devrig" -> devrig
+        else -> raw.unwrapCodexShellTransport() ?: raw
+    }
+    val normalized = transportCommand
+        .replace("\"$devrig\"", devrig)
+        .replace("'$devrig'", devrig)
+    if (!Regex("^\\Q$devrig\\E(?:\\s|$)").containsMatchIn(normalized)) return null
+    if (normalized.hasUnquotedShellControlSyntax()) return null
+    return normalized
+}
+
+fun invokesJsonOnlyDevrigAction(commandText: String, devrig: String, command: String): Boolean =
+    normalizeRawDevrigCommand(commandText, devrig) in setOf(
+        "$devrig $command --json",
+        "$devrig --json $command",
+    )
+
+fun invokesDevrigCommand(commandText: String, devrig: String, command: String): Boolean {
+    val normalized = normalizeRawDevrigCommand(commandText, devrig) ?: return false
+    return Regex("^\\Q$devrig\\E(?:\\s+--json)?\\s+\\Q$command\\E(?:\\s|$)").containsMatchIn(normalized)
+}
+
+fun devrigCommandHasFlag(commandText: String, devrig: String, flag: String): Boolean {
+    val normalized = normalizeRawDevrigCommand(commandText, devrig) ?: return false
+    return Regex("(?:^|\\s)\\Q$flag\\E(?:=|\\s|$)").containsMatchIn(normalized)
+}
+
+fun devrigCommandHasFlagValue(commandText: String, devrig: String, flag: String, value: String): Boolean {
+    val normalized = normalizeRawDevrigCommand(commandText, devrig) ?: return false
+    val escapedFlag = Regex.escape(flag)
+    val escapedValue = Regex.escape(value)
+    return Regex(
+        "(?:^|\\s)$escapedFlag(?:=|\\s+)(?:\"$escapedValue\"|'$escapedValue'|$escapedValue)(?:\\s|$)",
+    ).containsMatchIn(normalized)
+}
+
+fun devrigCommandHasShellSafeInlineCode(commandText: String, devrig: String, code: String): Boolean {
+    val normalized = normalizeRawDevrigCommand(commandText, devrig) ?: return false
+    val singleQuoted = Regex(
+        "(?:^|\\s)--code(?:=|\\s+)'${Regex.escape(code)}'(?:\\s|$)",
+    )
+    val escapedForDoubleQuotes = code.replace("\"", "\\\"")
+    val doubleQuoted = Regex(
+        "(?:^|\\s)--code(?:=|\\s+)\"${Regex.escape(escapedForDoubleQuotes)}\"(?:\\s|$)",
+    )
+    return singleQuoted.containsMatchIn(normalized) || doubleQuoted.containsMatchIn(normalized)
+}
+
+private fun String.unwrapCodexShellTransport(): String? {
+    val prefix = "/bin/bash -lc "
+    if (!startsWith(prefix)) return null
+    val encoded = removePrefix(prefix)
+    return when (encoded.firstOrNull()) {
+        '\'' -> encoded.decodeSingleQuotedShellWord()
+        '"' -> encoded.decodeDoubleQuotedShellWord()
+        else -> null
+    }
+}
+
+private fun String.decodeSingleQuotedShellWord(): String? {
+    val decoded = StringBuilder()
+    var index = 0
+    while (index < length) {
+        when (this[index]) {
+            '\'' -> {
+                val end = indexOf('\'', startIndex = index + 1)
+                if (end < 0) return null
+                decoded.append(this, index + 1, end)
+                index = end + 1
+            }
+            '\\' -> {
+                if (index + 1 >= length) return null
+                decoded.append(this[index + 1])
+                index += 2
+            }
+            else -> return null
+        }
+    }
+    return decoded.toString()
+}
+
+private fun String.decodeDoubleQuotedShellWord(): String? {
+    if (length < 2 || first() != '"' || last() != '"') return null
+    val decoded = StringBuilder()
+    var index = 1
+    while (index < lastIndex) {
+        when (val ch = this[index]) {
+            '$', '`', '"' -> return null
+            '\\' -> {
+                if (index + 1 >= lastIndex) return null
+                val next = this[index + 1]
+                if (next in listOf('$', '`', '"', '\\')) {
+                    decoded.append(next)
+                } else {
+                    decoded.append('\\').append(next)
+                }
+                index += 2
+            }
+            else -> {
+                decoded.append(ch)
+                index++
+            }
+        }
+    }
+    return decoded.toString()
+}
+
+private fun String.hasUnquotedShellControlSyntax(): Boolean {
+    var quote: Char? = null
+    var escaped = false
+    for (ch in this) {
+        if (ch == '\n' || ch == '\r') return true
+        if (escaped) {
+            escaped = false
+            continue
+        }
+        if (ch == '\\' && quote != '\'') {
+            escaped = true
+            continue
+        }
+        if (quote == '\'') {
+            if (ch == '\'') quote = null
+            continue
+        }
+        if (quote == '"') {
+            if (ch == '"') {
+                quote = null
+            } else if (ch == '`' || ch == '$') {
+                return true
+            }
+            continue
+        }
+        when (ch) {
+            '\'', '"' -> quote = ch
+            ';', '|', '&', '<', '>', '`', '$' -> return true
+        }
+    }
+    return false
+}
+
 /**
  * Agent-facing usability experiments for devrig's packaged command line.
  *
@@ -898,14 +1041,7 @@ class DevrigCliAgentUsabilityExperimentTest {
 
     private fun assertShellSafeInlineCode(call: AgentToolCall, sentinel: String) {
         val code = "println(\"$sentinel\")"
-        val singleQuoted = Regex(
-            "(?:^|\\s)--code(?:=|\\s+)'${Regex.escape(code)}'(?:\\s|$)",
-        )
-        val escapedForDoubleQuotes = code.replace("\"", "\\\"")
-        val doubleQuoted = Regex(
-            "(?:^|\\s)--code(?:=|\\s+)\"${Regex.escape(escapedForDoubleQuotes)}\"(?:\\s|$)",
-        )
-        assertTrue(singleQuoted.containsMatchIn(call.commandText()) || doubleQuoted.containsMatchIn(call.commandText())) {
+        assertTrue(devrigCommandHasShellSafeInlineCode(call.commandText(), DEVRIG, code)) {
             "execute_code must use a shell-safe quoted inline value. " +
                 summarizeCalls(listOf(call))
         }
@@ -952,45 +1088,7 @@ class DevrigCliAgentUsabilityExperimentTest {
     }
 
     private fun AgentToolCall.normalizedRawDevrigCommand(): String? {
-        val normalized = commandText().trim()
-            .replace("\"$DEVRIG\"", DEVRIG)
-            .replace("'$DEVRIG'", DEVRIG)
-        if (!Regex("^\\Q$DEVRIG\\E(?:\\s|$)").containsMatchIn(normalized)) return null
-        if (normalized.hasUnquotedShellControlSyntax()) return null
-        return normalized
-    }
-
-    private fun String.hasUnquotedShellControlSyntax(): Boolean {
-        var quote: Char? = null
-        var escaped = false
-        for (ch in this) {
-            if (ch == '\n' || ch == '\r') return true
-            if (escaped) {
-                escaped = false
-                continue
-            }
-            if (ch == '\\' && quote != '\'') {
-                escaped = true
-                continue
-            }
-            if (quote == '\'') {
-                if (ch == '\'') quote = null
-                continue
-            }
-            if (quote == '"') {
-                if (ch == '"') {
-                    quote = null
-                } else if (ch == '`' || ch == '$') {
-                    return true
-                }
-                continue
-            }
-            when (ch) {
-                '\'', '"' -> quote = ch
-                ';', '|', '&', '<', '>', '`', '$' -> return true
-            }
-        }
-        return false
+        return normalizeRawDevrigCommand(commandText(), DEVRIG)
     }
 
     private fun AgentToolCall.invokesRootHelp(): Boolean = normalizedRawDevrigCommand() in setOf(
@@ -1013,23 +1111,16 @@ class DevrigCliAgentUsabilityExperimentTest {
     private fun AgentToolCall.invokesAction(command: String): Boolean = invokes(command) && !hasHelpFlag()
 
     private fun AgentToolCall.invokesJsonOnlyAction(command: String): Boolean =
-        normalizedRawDevrigCommand() == "$DEVRIG $command --json"
+        invokesJsonOnlyDevrigAction(commandText(), DEVRIG, command)
 
-    private fun AgentToolCall.invokes(subcommand: String): Boolean {
-        val normalized = normalizedRawDevrigCommand() ?: return false
-        return Regex("^\\Q$DEVRIG\\E\\s+\\Q$subcommand\\E(?:\\s|$)").containsMatchIn(normalized)
-    }
+    private fun AgentToolCall.invokes(subcommand: String): Boolean =
+        invokesDevrigCommand(commandText(), DEVRIG, subcommand)
 
     private fun AgentToolCall.hasFlag(flag: String): Boolean =
-        Regex("(?:^|\\s)\\Q$flag\\E(?:=|\\s|$)").containsMatchIn(commandText())
+        devrigCommandHasFlag(commandText(), DEVRIG, flag)
 
-    private fun AgentToolCall.hasFlagValue(flag: String, value: String): Boolean {
-        val escapedFlag = Regex.escape(flag)
-        val escapedValue = Regex.escape(value)
-        return Regex(
-            "(?:^|\\s)$escapedFlag(?:=|\\s+)(?:\"$escapedValue\"|'$escapedValue'|$escapedValue)(?:\\s|$)",
-        ).containsMatchIn(commandText())
-    }
+    private fun AgentToolCall.hasFlagValue(flag: String, value: String): Boolean =
+        devrigCommandHasFlagValue(commandText(), DEVRIG, flag, value)
 
     private fun AgentToolCall.hasHelpFlag(): Boolean = hasFlag("--help") || hasFlag("-h")
 
