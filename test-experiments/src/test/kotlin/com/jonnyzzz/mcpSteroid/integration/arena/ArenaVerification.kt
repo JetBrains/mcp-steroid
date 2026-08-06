@@ -114,6 +114,62 @@ fun parseSurefireXml(xmlText: String, methodName: String? = null): SurefireClass
     return SurefireClassResult(className, testsRun, failures, errors, skipped)
 }
 
+private val MAVEN_RESUME_HINT = Regex("""-rf\s+:(\S+)""")
+private val MAVEN_FAILED_GOAL = Regex("""Failed to execute goal .*? on project (\S+?):""")
+
+/**
+ * The Maven project (artifactId) whose failure stopped the reactor, or null when nothing failed.
+ *
+ * Maven names it twice: in the `mvn <args> -rf :<artifactId>` resume hint and in the
+ * `Failed to execute goal … on project <artifactId>:` line. The resume hint is preferred because it
+ * survives multi-line wrapping of the goal line.
+ */
+fun mavenFailedProject(output: String): String? =
+    MAVEN_RESUME_HINT.find(output)?.groupValues?.get(1)
+        ?: MAVEN_FAILED_GOAL.find(output)?.groupValues?.get(1)
+
+/**
+ * The module directory owning [fqcn], derived from the test patch that introduced its file, or null
+ * when the patch never touches that class. Returns "" for a single-module project (path starts at
+ * `src/`), which is the reactor root.
+ */
+fun moduleDirectoryForClass(testPatch: String, fqcn: String): String? {
+    val fileName = fqcn.substringAfterLast('.').substringBefore('#')
+    val path = extractPatchFilePaths(testPatch).firstOrNull { candidate ->
+        val leaf = candidate.substringAfterLast('/')
+        leaf == "$fileName.java" || leaf == "$fileName.kt"
+    } ?: return null
+    val srcIndex = path.indexOf("src/")
+    if (srcIndex <= 0) return ""
+    return path.substring(0, srcIndex).trimEnd('/')
+}
+
+/**
+ * True when the graded zero means "the harness never executed the tests" rather than "the fix does
+ * not work" — i.e. no surefire report was produced for any FAIL_TO_PASS class AND the module that
+ * stopped the reactor is a DIFFERENT module from the one owning those tests.
+ *
+ * The distinction is the whole point: a module the agent never touched can break (a shared library
+ * failing on a too-new JDK, say) and skip the test module entirely. That zero is a harness fault and
+ * must fail the run loudly. If the owning module itself failed to build, the agent broke what it was
+ * editing and the zero is a real measurement. With the owning module unknown, blaming the harness
+ * would be a guess, so it is treated as a real measurement too.
+ */
+fun verificationNeverRanTests(
+    anyReportFound: Boolean,
+    ftpModuleDirectory: String?,
+    failedMavenProject: String?,
+): Boolean {
+    if (anyReportFound) return false
+    if (ftpModuleDirectory == null || failedMavenProject == null) return false
+    // Single-module project: the tests live in the root project, so whatever failed IS their module.
+    // Its directory is "" and can never be matched against an artifactId, so comparing would report
+    // every genuine compile failure as an infrastructure fault.
+    if (ftpModuleDirectory.isEmpty()) return false
+    val owningModule = ftpModuleDirectory.substringAfterLast('/')
+    return owningModule != failedMavenProject
+}
+
 private val DIFF_FILE_HEADER = Regex("""^diff --git a/(\S+) b/\S+$""", RegexOption.MULTILINE)
 
 /** All file paths a unified diff touches ("a/" side is enough — arena patches never rename). */
@@ -235,7 +291,9 @@ class ArenaVerifier(
         val mvn = bash(
             "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand test " +
                 "-Dtest='$testFilter' -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true " +
-                "2>&1 | tail -100",
+                // 200, not 100: a 43-module reactor summary plus the [ERROR] block must fit, because
+                // the `-rf :<artifactId>` line inside it is what identifies the module that failed.
+                "2>&1 | tail -200",
             timeoutSeconds = 1_200,
             description = "Arena verification: run FAIL_TO_PASS classes",
         )
@@ -249,6 +307,25 @@ class ArenaVerifier(
             } else {
                 parseSurefireXml(xml, selector.method).copy(className = entry)
             }
+        }
+
+        // A zero because the tests never ran is a harness fault, not a measurement — see
+        // [verificationNeverRanTests]. Reported as data it is indistinguishable from a failed fix.
+        val failedProject = mavenFailedProject(mvn.stdout)
+        val ftpModule = failToPass.firstNotNullOfOrNull { entry ->
+            moduleDirectoryForClass(testPatch, parseFailToPassEntry(entry).fqcn)
+        }
+        check(
+            !verificationNeverRanTests(
+                anyReportFound = perClass.any { it.testsRun > 0 },
+                ftpModuleDirectory = ftpModule,
+                failedMavenProject = failedProject,
+            ),
+        ) {
+            "Arena verification never executed the FAIL_TO_PASS tests: Maven stopped on project " +
+                "'$failedProject', which is not the module owning them ('${ftpModule.orEmpty()}'), so " +
+                "every class graded 0 without running. That is a harness/dataset fault, not an agent " +
+                "result — grading it would put a false zero in the comparison. Maven exit=${mvn.exitCode}."
         }
 
         return ArenaVerificationResult(

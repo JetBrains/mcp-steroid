@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -177,6 +178,133 @@ class ArenaVerificationTest {
     fun `an entry splits into its class and optional method`() {
         assertEquals(FailToPassSelector("a.b.C", "m"), parseFailToPassEntry("a.b.C#m"))
         assertEquals(FailToPassSelector("a.b.C", null), parseFailToPassEntry("a.b.C"))
+    }
+
+    // ── "tests never ran" must not masquerade as "agent scored 0" ──────────────────────────────
+    //
+    // train-ticket-31 is a 43-module reactor. `ts-common` — a shared module the FAIL_TO_PASS tests
+    // do not live in — failed to compile, so Maven SKIPPED everything downstream including
+    // ts-payment-service. No surefire reports, every class graded 0, reported as `verified 0/2` and
+    // `claim matches reality: false` while the agent's own run was green. A zero that means "the
+    // harness never executed the tests" has to be loud, because it is indistinguishable in a report
+    // from a zero that means "the agent's fix does not work".
+
+    private val trainTicketReactorFailure = """
+        [INFO] Reactor Summary:
+        [INFO] ts-service-cluster 0.1.0 ........................... SUCCESS [  1.000 s]
+        [INFO] ts-common 0.1.0 .................................... FAILURE [  1.948 s]
+        [INFO] ts-payment-service 1.0 ............................. SKIPPED
+        [INFO] BUILD FAILURE
+        [ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.8.1:compile
+         (default-compile) on project ts-common: Fatal error compiling: java.lang.NoSuchFieldError -> [Help 1]
+        [ERROR] After correcting the problems, you can resume the build with the command
+        [ERROR]   mvn <args> -rf :ts-common
+    """.trimIndent()
+
+    @Test
+    fun `the maven project that broke the build is identified`() {
+        assertEquals("ts-common", mavenFailedProject(trainTicketReactorFailure))
+    }
+
+    @Test
+    fun `a clean build reports no failing project`() {
+        assertNull(mavenFailedProject("[INFO] BUILD SUCCESS\n[INFO] Total time: 12 s\n"))
+    }
+
+    @Test
+    fun `the failing project is read from the goal line when no resume hint is present`() {
+        val output = "[ERROR] Failed to execute goal surefire:test (default-test) on project ts-payment-service: boom"
+        assertEquals("ts-payment-service", mavenFailedProject(output))
+    }
+
+    @Test
+    fun `the module owning a FAIL_TO_PASS class comes from the test patch path`() {
+        val patch = """
+            diff --git a/ts-payment-service/src/test/java/com/trainticket/controller/PaymentControllerTest.java b/ts-payment-service/src/test/java/com/trainticket/controller/PaymentControllerTest.java
+            --- a/ts-payment-service/src/test/java/com/trainticket/controller/PaymentControllerTest.java
+            +++ b/ts-payment-service/src/test/java/com/trainticket/controller/PaymentControllerTest.java
+        """.trimIndent()
+        assertEquals(
+            "ts-payment-service",
+            moduleDirectoryForClass(patch, "com.trainticket.controller.PaymentControllerTest"),
+        )
+    }
+
+    @Test
+    fun `a single-module project reports the root as the owning module`() {
+        val patch = """
+            diff --git a/src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java b/src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java
+            --- a/src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java
+            +++ b/src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java
+        """.trimIndent()
+        assertEquals(
+            "",
+            moduleDirectoryForClass(patch, "org.springframework.samples.petclinic.owner.OwnerControllerTests"),
+        )
+    }
+
+    @Test
+    fun `a class the test patch never touches has no known module`() {
+        assertNull(moduleDirectoryForClass("diff --git a/src/test/java/A.java b/src/test/java/A.java", "com.other.BTest"))
+    }
+
+    @Test
+    fun `an unrelated module breaking the build is an infrastructure failure`() {
+        assertTrue(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = "ts-payment-service",
+                failedMavenProject = "ts-common",
+            ),
+        )
+    }
+
+    @Test
+    fun `the FAIL_TO_PASS module breaking its own build is a legitimate zero`() {
+        // The agent broke the module it was editing — that IS the measurement, not a harness fault.
+        assertFalse(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = "ts-payment-service",
+                failedMavenProject = "ts-payment-service",
+            ),
+        )
+    }
+
+    @Test
+    fun `reports present means the tests ran, whatever else failed`() {
+        assertFalse(
+            verificationNeverRanTests(
+                anyReportFound = true,
+                ftpModuleDirectory = "ts-payment-service",
+                failedMavenProject = "ts-common",
+            ),
+        )
+    }
+
+    @Test
+    fun `a single-module project never blames the harness for its own compile failure`() {
+        // The root project's directory is "" and can never equal an artifactId, so a naive comparison
+        // would call every genuine petclinic compile failure an infrastructure fault.
+        assertFalse(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = "",
+                failedMavenProject = "spring-petclinic",
+            ),
+        )
+    }
+
+    @Test
+    fun `an unknown owning module cannot prove infrastructure fault`() {
+        // Without knowing which module owns the tests, blaming the harness would be a guess.
+        assertFalse(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = null,
+                failedMavenProject = "ts-common",
+            ),
+        )
     }
 
     @Test
