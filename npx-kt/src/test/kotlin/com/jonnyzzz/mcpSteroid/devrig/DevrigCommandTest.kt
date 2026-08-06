@@ -98,10 +98,21 @@ class DevrigCommandTest {
     @Test
     fun `root and backend version options stay scoped`() {
         assertEquals("devrig", command("--version").commandPath)
+        assertEquals("parse-error", command("--version", "backend").commandPath)
         assertEquals(
             "devrig backend download",
             command("backend", "download", "idea-community", "--version", "2025.3").commandPath,
         )
+    }
+
+    @Test
+    fun `unknown help paths do not advertise hidden compatibility commands`() {
+        val invocation = command("help", "not-a-command")
+
+        assertEquals("parse-error", invocation.commandPath)
+        val text = requireNotNull(invocation.informationalText)
+        assertFalse(Regex("(?<![a-z])mpc(?![a-z])").containsMatchIn(text), text)
+        assertTrue(Regex("(?<![a-z])mcp(?![a-z])").containsMatchIn(text), text)
     }
 
     @Test

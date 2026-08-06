@@ -195,7 +195,8 @@ Lists open projects across all discovered backends. The default is a readable
 project/backend table. `--json` emits the standard generated-command envelope;
 project rows are under `.data.content[].json.projects[]`. `devrig projects` is the
 compatibility alias with identical help, behavior, and output; the singular `devrig project`
-spelling remains accepted for older scripts.
+spelling remains accepted, but its former top-level `--json` shape is replaced by the generated
+envelope described above.
 
 ### `devrig backend download [<id>] [--version <v>] [--json]`
 

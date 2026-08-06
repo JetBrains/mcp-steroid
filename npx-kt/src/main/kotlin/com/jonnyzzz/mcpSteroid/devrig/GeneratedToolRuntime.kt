@@ -247,7 +247,9 @@ private fun GeneratedToolInvocation.requireNoUnhandledExtraOption(spec: CliToolS
  */
 fun GeneratedToolInvocation.argumentsWithFileSources(spec: CliToolSpec, stdin: InputStream): JsonObject {
     if (fileSources.isEmpty()) return arguments
-    val resolved = fileSources.mapValues { (name, path) -> JsonPrimitive(readCliFileSource(name, path, stdin)) }
+    val resolved = fileSources.mapValues { (name, path) ->
+        JsonPrimitive(readCliFileSource(name, path, stdin, announceStdin = !json))
+    }
     val ordered = LinkedHashMap<String, JsonElement>()
     for (param in spec.schema.asCliParams()) {
         (resolved[param.name] ?: arguments[param.name])?.let { ordered[param.name] = it }
@@ -272,8 +274,13 @@ private const val CLI_STDIN_PATH: String = "-"
  * is a filesystem failure ([CliExit.IO_ERROR]) — the distinction a caller acts on is "fix the command line"
  * versus "fix the disk", not whether `Files` threw.
  */
-private fun readCliFileSource(paramName: String, path: String, stdin: InputStream): String {
-    if (path == CLI_STDIN_PATH) return readCliStdin(paramName, stdin)
+private fun readCliFileSource(
+    paramName: String,
+    path: String,
+    stdin: InputStream,
+    announceStdin: Boolean,
+): String {
+    if (path == CLI_STDIN_PATH) return readCliStdin(paramName, stdin, announceStdin)
     val file = try {
         Path.of(path)
     } catch (e: InvalidPathException) {
@@ -311,11 +318,13 @@ private fun readCliFileSource(paramName: String, path: String, stdin: InputStrea
  *    parameter and the two ways to supply it, instead of handing the tool an empty value and letting it
  *    answer with its own confusing complaint about empty input.
  */
-private fun readCliStdin(paramName: String, stdin: InputStream): String {
-    System.err.println(
-        "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
-            "pipe the value in, or close standard input (Ctrl-D) to finish"
-    )
+private fun readCliStdin(paramName: String, stdin: InputStream, announce: Boolean): String {
+    if (announce) {
+        System.err.println(
+            "devrig: reading '$paramName' from standard input ('$CLI_STDIN_PATH' given); " +
+                "pipe the value in, or close standard input (Ctrl-D) to finish"
+        )
+    }
     val content = try {
         // Strict decode: the file branch (Files.readString) throws on malformed UTF-8, and the default
         // lenient decodeToString() would instead corrupt the value to U+FFFD silently — the same bytes

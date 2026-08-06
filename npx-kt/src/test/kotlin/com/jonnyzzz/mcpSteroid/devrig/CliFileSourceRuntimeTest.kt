@@ -50,12 +50,19 @@ class CliFileSourceRuntimeTest {
         }
     }
 
-    private fun runExecuteCode(codeFile: String, stdin: ByteArray = ByteArray(0)): Pair<GeneratedToolRun, String?> {
+    private fun runExecuteCode(
+        codeFile: String,
+        stdin: ByteArray = ByteArray(0),
+        json: Boolean = true,
+    ): Pair<GeneratedToolRun, String?> {
         val handler = RecordingExecuteCode()
         val tools = FakeMcpSteroidTools().with(ExecuteCodeToolHandler::class.java, handler)
-        val command = parseRunTool(
-            "execute_code", "--json", "--project_name=demo", "--code-file=$codeFile", "--task_id=t", "--reason=r",
-        )
+        val args = buildList {
+            add("execute_code")
+            if (json) add("--json")
+            addAll(listOf("--project_name=demo", "--code-file=$codeFile", "--task_id=t", "--reason=r"))
+        }
+        val command = parseRunTool(*args.toTypedArray())
         return runGeneratedToolForTest(home, command, tools, stdin) to handler.seenCode
     }
 
@@ -89,13 +96,22 @@ class CliFileSourceRuntimeTest {
         // An agent that runs devrig non-interactively and pipes nothing would otherwise see the process sit
         // silent with no way to tell whether it is waiting on stdin or on the IDE. The note is printed
         // BEFORE the read, so it is visible even when the read never returns.
-        val (run, _) = runExecuteCode("-", stdin = "x\n".toByteArray())
+        val (run, _) = runExecuteCode("-", stdin = "x\n".toByteArray(), json = false)
 
         assertTrue(
             run.stderr.contains("standard input"),
             "stderr must say it is reading standard input; got:\n${run.stderr}",
         )
         assertTrue(run.stderr.contains("code"), "the note must name the parameter it is filling; got:\n${run.stderr}")
+    }
+
+    @Test
+    fun `json standard input keeps stderr clean`() {
+        val (run, seenCode) = runExecuteCode("-", stdin = "println(1)\n".toByteArray())
+
+        assertEquals(CliExit.OK, run.exit)
+        assertEquals("println(1)\n", seenCode)
+        assertEquals("", run.stderr)
     }
 
     // ------------------------------- diagnosable failures -------------------------------

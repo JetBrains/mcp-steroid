@@ -337,7 +337,7 @@ To download additional backends: devrig backend download …
 
 Per-backend open projects are listed under `devrig list_projects`, not `devrig backend`.
 `devrig projects` is its compatibility alias; the older singular `devrig project` spelling remains
-accepted for backwards compatibility.
+accepted, but its former top-level `--json` shape is replaced by the generated envelope below.
 
 The hash suffix is **part of the displayed name**, not a separate
 column. Locator label stays parenthesised.

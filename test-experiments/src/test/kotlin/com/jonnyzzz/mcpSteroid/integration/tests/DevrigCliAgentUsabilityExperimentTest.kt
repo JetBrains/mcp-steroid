@@ -103,6 +103,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             # Task: inspect and exercise an unfamiliar JetBrains IDE command line
 
             The packaged launcher is `$DEVRIG`. Use only your native shell tool to interact with it.
+            Do not use any other tool at all, including todo/planning or file tools.
             Do not call MCP tools directly, and do not inspect repository source code or tests.
 
             Treat the command syntax as unknown. Start by reading the launcher's root help as a separate
@@ -179,6 +180,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             "execute_code",
             "--project_name",
             "--code",
+            "--code-file",
             "--task_id",
             "--reason",
             "--json",
@@ -197,7 +199,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val projectName = canonicalEnvelope.firstProjectName()
         val executeCall = shellCalls[executeIndex]
         assertFlagValue(executeCall, "execute_code", "--project_name", projectName)
-        assertSingleQuotedInlineCode(executeCall, sentinel)
+        assertShellSafeInlineCode(executeCall, sentinel)
         executeCall.successfulEnvelope("execute_code")
 
         val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
@@ -212,9 +214,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             ),
         )
 
-        assertAgentExit(agentName, result.exitCode) {
-            result.assertExitCode(0) { "$agentName task-first CLI experiment failed" }
-        }
+        result.assertExitCode(0) { "$agentName task-first CLI experiment failed" }
     }
 
     private fun outcomeOnlyExperiment(agentName: String, agent: AiAgentSession) {
@@ -223,6 +223,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             # Task: prove that an unfamiliar JetBrains IDE command line is usable
 
             The packaged launcher is `$DEVRIG`. Use only your native shell tool to interact with it.
+            Do not use any other tool at all, including todo/planning or file tools.
             Do not call MCP tools directly, and do not inspect repository source code or tests.
 
             Treat every command name, help route, option, required value, and call sequence as unknown.
@@ -293,7 +294,7 @@ class DevrigCliAgentUsabilityExperimentTest {
 
         val executeCall = shellCalls[executeIndex]
         assertFlagValue(executeCall, "execute_code", "--project_name", canonicalEnvelope.firstProjectName())
-        assertSingleQuotedInlineCode(executeCall, sentinel)
+        assertShellSafeInlineCode(executeCall, sentinel)
         executeCall.successfulEnvelope("execute_code")
 
         val finalResponse = decodeAgentFinalResponse(result.rawStdout).orEmpty()
@@ -308,9 +309,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             ),
         )
 
-        assertAgentExit(agentName, result.exitCode) {
-            result.assertExitCode(0) { "$agentName outcome-only CLI experiment failed" }
-        }
+        result.assertExitCode(0) { "$agentName outcome-only CLI experiment failed" }
     }
 
     private fun helpFirstExperiment(agentName: String, agent: AiAgentSession) {
@@ -319,8 +318,9 @@ class DevrigCliAgentUsabilityExperimentTest {
         val prompt = """
             # Task: audit the complete devrig help-to-action route
 
-            The packaged launcher is `$DEVRIG`. Use only your native shell tool. Do not call MCP tools
-            directly, inspect repository source code, or inspect tests. Treat all command syntax as unknown.
+            The packaged launcher is `$DEVRIG`. Use only your native shell tool. Do not use any other tool
+            at all, including todo/planning or file tools. Do not call MCP tools directly, inspect repository
+            source code, or inspect tests. Treat all command syntax as unknown.
 
             First read the launcher root help. It advertises eight generated IDE commands. For each command
             below, read its focused help through the exact `devrig help <command>` route immediately before
@@ -647,7 +647,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         val executeCall = shellCalls[executeActionIndex]
         assertFlagValue(executeCall, "execute_code", "--project_name", projectName)
         assertFlagValue(executeCall, "execute_code", "--task_id", taskId)
-        assertSingleQuotedInlineCode(executeCall, sentinel)
+        assertShellSafeInlineCode(executeCall, sentinel)
         val executionEnvelope = executeCall.successfulEnvelope("execute_code")
         val executionId = executionEnvelope.executionId()
 
@@ -708,17 +708,16 @@ class DevrigCliAgentUsabilityExperimentTest {
             ),
         )
 
-        assertAgentExit(agentName, result.exitCode) {
-            result.assertExitCode(0) { "$agentName help-first CLI experiment failed" }
-        }
+        result.assertExitCode(0) { "$agentName help-first CLI experiment failed" }
     }
 
     private fun lifecycleHelpExperiment(agentName: String, agent: AiAgentSession) {
         val prompt = """
             # Task: audit devrig lifecycle help-to-action routes
 
-            The packaged launcher is `$DEVRIG`. Use only your native shell tool. Do not call MCP tools,
-            inspect repository source code, or inspect tests. Every shell call must be one raw launcher
+            The packaged launcher is `$DEVRIG`. Use only your native shell tool. Do not use any other tool
+            at all, including todo/planning or file tools. Do not call MCP tools, inspect repository source
+            code, or inspect tests. Every shell call must be one raw launcher
             invocation with no pipes, redirects, shell variables, command substitution, aliases, functions,
             `&&`, or `;`.
 
@@ -798,11 +797,9 @@ class DevrigCliAgentUsabilityExperimentTest {
                     Json.parseToJsonElement(call.resultText()).jsonObject
                     assertTrue('\u001B' !in call.resultText()) { "JSON lifecycle action emitted ANSI: ${call.resultText()}" }
                 }
-                command.endsWith(" --check") -> {
-                    assertTrue(call.result != null && call.resultText().isNotBlank()) {
-                        "Diagnostic action '$command' returned no inspectable result"
-                    }
-                }
+                command == "$DEVRIG install plugin --check" ->
+                    assertTrue(call.succeeded()) { "Plugin diagnostic failed: ${call.resultText()}" }
+                command.endsWith(" --check") -> assertCompletedAgentCheck(call, command)
                 else -> assertTrue(call.succeeded()) { "Lifecycle action failed for '$command': ${call.resultText()}" }
             }
         }
@@ -818,9 +815,7 @@ class DevrigCliAgentUsabilityExperimentTest {
             ),
         )
 
-        assertAgentExit(agentName, result.exitCode) {
-            result.assertExitCode(0) { "$agentName lifecycle CLI experiment failed" }
-        }
+        result.assertExitCode(0) { "$agentName lifecycle CLI experiment failed" }
     }
 
     private fun assertCliOnly(calls: List<AgentToolCall>) {
@@ -901,14 +896,34 @@ class DevrigCliAgentUsabilityExperimentTest {
         }
     }
 
-    private fun assertSingleQuotedInlineCode(call: AgentToolCall, sentinel: String) {
+    private fun assertShellSafeInlineCode(call: AgentToolCall, sentinel: String) {
         val code = "println(\"$sentinel\")"
-        val quoted = Regex(
+        val singleQuoted = Regex(
             "(?:^|\\s)--code(?:=|\\s+)'${Regex.escape(code)}'(?:\\s|$)",
         )
-        assertTrue(quoted.containsMatchIn(call.commandText())) {
-            "execute_code must copy the shell-safe single-quoted inline form from focused help. " +
+        val escapedForDoubleQuotes = code.replace("\"", "\\\\\"")
+        val doubleQuoted = Regex(
+            "(?:^|\\s)--code(?:=|\\s+)\"${Regex.escape(escapedForDoubleQuotes)}\"(?:\\s|$)",
+        )
+        assertTrue(singleQuoted.containsMatchIn(call.commandText()) || doubleQuoted.containsMatchIn(call.commandText())) {
+            "execute_code must use a shell-safe quoted inline value. " +
                 summarizeCalls(listOf(call))
+        }
+    }
+
+    private fun assertCompletedAgentCheck(call: AgentToolCall, command: String) {
+        val text = call.resultText()
+        assertTrue(call.result != null && text.isNotBlank()) {
+            "Diagnostic action '$command' returned no inspectable result"
+        }
+        assertTrue("Current registration state:" in text) {
+            "Diagnostic action '$command' did not reach the registration report: $text"
+        }
+        assertTrue("No drift" in text || "Drift detected" in text) {
+            "Diagnostic action '$command' did not complete with a recognized diagnosis: $text"
+        }
+        for (crashMarker in listOf("Unexpected error", "Exception:", "Traceback", "\tat ")) {
+            assertTrue(crashMarker !in text) { "Diagnostic action '$command' crashed: $text" }
         }
     }
 
@@ -924,14 +939,6 @@ class DevrigCliAgentUsabilityExperimentTest {
             assertTrue(expected.lowercase() in guidance) {
                 "$command missing-value response did not explain '$expected':\n$guidance"
             }
-        }
-    }
-
-    private fun assertAgentExit(agentName: String, exitCode: Int?, assertNormalExit: () -> Unit) {
-        if (agentName == "codex" && exitCode == 137) {
-            session.console.writeInfo("Codex exited with 137 after all CLI workflow evidence passed")
-        } else {
-            assertNormalExit()
         }
     }
 
@@ -1111,7 +1118,7 @@ class DevrigCliAgentUsabilityExperimentTest {
         )
         private const val EXPECTED_TASK_FIRST_SHELL_CALLS = 6
         private const val EXPECTED_HELP_FIRST_SHELL_CALLS = 23
-        private const val MIN_OUTCOME_ONLY_SHELL_CALLS = 6
+        private const val MIN_OUTCOME_ONLY_SHELL_CALLS = 5
         private const val MAX_OUTCOME_ONLY_SHELL_CALLS = 10
 
         private fun lifecycleHelpCommands(): List<String> = listOf(

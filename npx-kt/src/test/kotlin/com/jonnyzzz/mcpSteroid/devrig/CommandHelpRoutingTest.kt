@@ -186,4 +186,12 @@ class CommandHelpRoutingTest {
             }
         }
     }
+
+    @Test
+    fun `missing execute code guidance uses the shell safe inline form`() {
+        val invocation = parseDevrigCommand(arrayOf("execute_code"))
+        val text = assertNotNull(invocation.informationalText)
+
+        assertTrue("--code='println(\"hello\")'" in text, text)
+    }
 }

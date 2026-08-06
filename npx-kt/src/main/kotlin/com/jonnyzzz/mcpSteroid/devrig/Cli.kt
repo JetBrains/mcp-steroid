@@ -220,6 +220,8 @@ abstract class DevrigCliktCommand(
     printHelpOnEmptyArgs = printHelpOnEmptyArgs,
     hidden = hidden,
 ) {
+    val hiddenFromHelp: Boolean = hidden
+
     private val debugFlag by option(
         "--debug",
         help = DEVRIG_DEBUG_FLAG_HELP,
@@ -409,6 +411,9 @@ class DevrigRootCommand(
 
     override fun runCommand() {
         if (versionFlag) {
+            if (currentContext.invokedSubcommand != null) {
+                throw UsageError("--version cannot be combined with a subcommand; use `devrig version` instead")
+            }
             select(DevrigCliMode.INFORMATIONAL, supportsJson = true) { json ->
                 printVersion(mcpStdout, json)
             }
@@ -583,11 +588,19 @@ private class HelpCommand(
         for (token in requestedPath) {
             val expanded = target.aliases()[token] ?: listOf(token)
             for (commandName in expanded) {
-                target = target.registeredSubcommands().singleOrNull { it.commandName == commandName }
-                    ?: throw UsageError(
+                val next = target.registeredSubcommands().singleOrNull { it.commandName == commandName }
+                if (next == null) {
+                    val choices = target.registeredSubcommands()
+                        .filterNot { (it as? DevrigCliktCommand)?.hiddenFromHelp == true }
+                        .map { it.commandName }
+                        .sorted()
+                        .joinToString(", ")
+                    throw UsageError(
                         "unknown command path '${requestedPath.joinToString(" ")}'. " +
-                            "Choose one of: ${target.registeredSubcommandNames().sorted().joinToString(", ")}",
+                            "Choose one of: $choices",
                     )
+                }
+                target = next
             }
         }
         throw PrintHelpMessage(target.currentContext)

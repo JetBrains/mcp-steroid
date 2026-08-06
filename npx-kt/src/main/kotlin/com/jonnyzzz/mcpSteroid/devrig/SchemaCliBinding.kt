@@ -129,8 +129,8 @@ class SchemaCliBinding private constructor(
      * surfacing one at a time only after every Clikt-`.required()` option is already supplied. By the time
      * this runs those rules are satisfied.
      *
- * A required string given empty or whitespace (`--task_id=`) is also rejected by a parse-time check.
- * Keeping that rule in the same finalize pass lets it aggregate with every other missing value.
+     * A required string given empty or whitespace (`--task_id=`) is also rejected by a parse-time check.
+     * Keeping that rule in the same finalize pass lets it aggregate with every other missing value.
      */
     fun parsed(): SchemaCliValues {
         val arguments = LinkedHashMap<String, JsonElement>()

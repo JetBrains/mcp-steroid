@@ -114,7 +114,7 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
         )
         .cliSynopsis("Kotlin script body; shell-safe inline form: --code='println(\"hello\")'")
         .cliMissingHint(
-            "missing code. Pass --code-file=<path> (preferred) or --code=\"...\". Example:\n" +
+            "missing code. Pass --code-file=<path> (preferred) or --code='println(\"hello\")'. Example:\n" +
                 "  devrig execute_code --project_name=\"<key>\" --code-file=repro.kts --task_id=t1 --reason=\"reproduce issue\""
         )
         .string()
