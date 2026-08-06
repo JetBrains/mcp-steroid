@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.github.ajalt.clikt.core.UsageError
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.McpTool
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
