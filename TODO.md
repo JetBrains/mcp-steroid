@@ -1,5 +1,21 @@
 # TODO
 
+- [ ] **dpaia/ee-dataset exporter strips trailing whitespace from patches (upstream fix)**: 11 of 304
+  patches in the live `java-spring-ee-dataset.json` are damaged (blank context lines trimmed to empty,
+  trailing context lines dropped) — the arena works because `repairTrimmedUnifiedDiff` repairs them at
+  parse time (#447, `test-experiments/.../DpaiaDataset.kt`), but the exporter in `dpaia/ee-dataset`
+  (READ permission only from here — needs a PR or owner access) should stop trimming so the dataset is
+  valid for every consumer, not just ours.
+
+- [ ] **TC Mac agents (icri-big-agent-eqx-\*) — residual infra asks** (from the 2026-08-05 Maven-429
+  investigation; the in-repo cache-redirector fix already unblocks the lane): (a) persistent/warmed
+  `~/.gradle/caches` for the ephemeral eqx pool (agent image bake or TC ephemeral-agent dependency
+  cache) so cold resolution stops depending on any external host; (b) optionally point the TC-side
+  Gradle wrapper distribution at `cache-redirector.jetbrains.com/services.gradle.org/...` (every cold
+  agent re-downloads the dist; low priority — not throttled today; must NOT be changed in-repo, the
+  wrapper properties cannot be conditional); (c) FYI to JB infra: Maven Central began throttling the
+  Equinix Mac egress between 2026-08-02 and 2026-08-04.
+
 - [ ] **KtBlock matrix has no GoLand/WebStorm/RubyMine/DataGrip lane** (noted in the #406 quorum
   review). Unannotated (all-IDE) prompt fences are compile-verified only against
   Idea/PyCharm/Rider/CLion (stable+EAP) yet render in GO/WS/RM/DB at runtime. Risk is low while

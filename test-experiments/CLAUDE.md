@@ -122,6 +122,40 @@ SKIP_IMPROVE=1 MAX_RUNS=1 bash ../docs/dpaia-arena-runner.sh 0
 Working notes, comparison tables, and autoresearch loop prompts live in `../docs/CLAUDE.md` and
 `../docs/autoresearch/`.
 
+### Dataset patches are repaired at parse time — triage "corrupt patch" there, not in GitDriver
+
+The dpaia.dev dataset serialization **strips trailing whitespace from its unified diffs**, which
+damages them two ways: a blank context line inside a hunk loses its mandatory leading space, and
+pure-trailing context lines vanish, leaving the `@@` header promising more lines than the body
+carries (11 of 304 patches in the live dataset; Petclinic36 + JhipsterApp3 failed EVERY run for
+weeks as `git apply: error: corrupt patch at line N` — issue #447, fixed 2026-08-05).
+`repairTrimmedUnifiedDiff` (`DpaiaDataset.kt`, pinned by `DpaiaPatchRepairTest`) fixes both shapes
+at parse time, **header-driven**: the declared hunk counts decide what is hunk content, so a bare
+empty line BETWEEN file sections is never absorbed as phantom context. Do NOT reach for
+`git apply --recount` instead — it does exactly that absorption and matches phantom context past
+EOF. Asymmetric damage (a lost `+`/`-` line) fails loudly: the repair never guesses content. The
+upstream exporter fix is tracked in TODO.md (`dpaia/ee-dataset` is read-only from here).
+
+### The #251 mandatory-first-call guard: schema rejections don't count
+
+`firstExecutionTargetsProject` (ArenaOutputParsing.kt) requires the first EXECUTED
+`steroid_execute_code` result to print the `base:` marker for the arena project. Leading
+**parameter-validation rejections** ("ERROR: Parameter task_id … is required" — codex omits required
+args on its first call now and then, TC build 1022424067) are skipped: the schema layer refused the
+call before any project was resolved, so the result carries zero targeting information. A runtime
+error or a wrong/missing marker still invalidates the run — do not widen the skip beyond the
+`Parameter ` prefix.
+
+### Validating an arena scenario on demand
+
+Scheduled runs are sparse; after touching arena infra, trigger the affected configs directly and
+watch (each run is a real Codex/Claude session, ~20–40 min):
+
+```bash
+jb tc native run start mcp_steroid_IntegrationTests_DpaiaArena_Petclinic36_Codex   # queues on main
+jb tc native run log -f <run-id>
+```
+
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 
 Pattern used by `FindDuplicatesPromptTest` (issue #33; lives in `:test-integration`). Reusable in any
