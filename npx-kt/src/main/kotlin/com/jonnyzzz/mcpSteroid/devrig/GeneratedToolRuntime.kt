@@ -9,6 +9,7 @@ import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
 import com.jonnyzzz.mcpSteroid.server.NoOpProgressReporter
 import java.io.IOException
@@ -23,12 +24,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
@@ -107,7 +110,17 @@ fun DevrigServices.runGeneratedToolCommand(
     val spec = liveToolSpec(command.toolName, tools)
     val presentation = presentationFor(command.json, spec.cli.outputStyle, homePaths::tmpDir)
     val preparedOut = try {
+        // A usage failure must win before --out preflight creates a parent directory or probe file.
+        // This also keeps unsupported orchestration flags ahead of the backend call below.
+        command.requireNoUnhandledExtraOption()
         preflightOutTarget(command.out)
+    } catch (e: IllegalArgumentException) {
+        return presentation.renderError(
+            command.commandName,
+            "devrig ${command.commandName}: ${e.message}",
+            CliExit.USAGE,
+            mcpStdout,
+        )
     } catch (e: IOException) {
         return presentation.renderError(
             command.commandName,
@@ -121,17 +134,16 @@ fun DevrigServices.runGeneratedToolCommand(
         val progress = if (command.json) NoOpProgressReporter else stderrProgressReporter(spec.name)
         runBlocking(Dispatchers.IO) {
             val toolResult = callToolViaSpec(spec, arguments, progress)
-            if (!toolResult.isError && command.extraOptions[WAIT_EXTRA_OPTION_NAME] == true) {
+            val completedResult = if (!toolResult.isError && command.extraOptions[WAIT_EXTRA_OPTION_NAME] == true) {
                 awaitWaitOption(command, tools)
-            }
-            command.requireNoUnhandledExtraOption()
-            toolResult
+            } else toolResult
+            completedResult
         }
     } catch (e: CliInputException) {
         return presentation.renderError(command.commandName, e.message.orEmpty(), e.exit, mcpStdout)
     } catch (e: ProjectNotReadyException) {
         // Thrown by awaitWaitOption above when a declared `wait` extra option's poll deadline passed
-        // before `steroid_list_windows` reported the project ready — the same "no usable IDE" story an
+        // before `steroid_list_projects` reported the project route — the same "no usable IDE" story an
         // IOException tells below, just discovered after open_project's own call already succeeded.
         return presentation.renderError(command.commandName, e.message.orEmpty(), CliExit.UNAVAILABLE, mcpStdout)
     } catch (e: ProjectRouteNotFoundException) {
@@ -227,10 +239,10 @@ fun liveToolSpec(toolName: String, tools: McpSteroidTools): CliToolSpec {
  * `CliExtraOption("wait", ...)` over a `project_path` argument gets the same poll for free. */
 private const val WAIT_EXTRA_OPTION_NAME: String = "wait"
 
-/** How long a declared `wait` extra option polls `steroid_list_windows` before giving up. */
+/** How long a declared `wait` extra option polls `steroid_list_projects` before giving up. */
 private const val WAIT_TIMEOUT_MS: Long = 300_000
 
-/** How long a declared `wait` extra option sleeps between polls of `steroid_list_windows`. */
+/** How long a declared `wait` extra option sleeps between polls of `steroid_list_projects`. */
 private const val WAIT_INTERVAL_MS: Long = 1_000
 
 /**
@@ -258,65 +270,83 @@ private fun GeneratedToolInvocation.requireNoUnhandledExtraOption() {
 }
 
 /**
- * Thrown by [awaitWaitOption] when its poll deadline passes before `steroid_list_windows` reports the
- * project ready. Caught in [runGeneratedToolCommand]'s own pipeline, alongside every other failure that
+ * Thrown by [awaitWaitOption] when its poll deadline passes before `steroid_list_projects` reports the
+ * project route. Caught in [runGeneratedToolCommand]'s own pipeline, alongside every other failure that
  * pipeline classifies, and mapped to [CliExit.UNAVAILABLE] there — a project that never finishes opening
  * is the same "no usable IDE" story as an unreachable backend, just discovered after the call.
  */
 private class ProjectNotReadyException(projectPath: String, timeoutMs: Long) : RuntimeException(
-    "project '$projectPath' not initialized within ${timeoutMs / 1000}s"
+    "project '$projectPath' was not routed by list_projects within ${timeoutMs / 1000}s"
+)
+
+/** Structured success returned by `open_project --wait`, including the routing values needed next. */
+@Serializable
+private data class AwaitedProjectResult(
+    @SerialName("project_name") val projectName: String,
+    @SerialName("backend_name") val backendName: String?,
+    val path: String,
 )
 
 /**
  * The orchestration a declared `wait` extra option means: after [command]'s own tool call has already
- * returned, poll [tools]' `steroid_list_windows` until [command]'s `project_path` argument reports ready
- * ([isProjectReady]), or throw [ProjectNotReadyException] once [WAIT_TIMEOUT_MS] passes. Keyed off
+ * returned, poll [tools]' `steroid_list_projects` until [command]'s `project_path` appears as an addressable
+ * route, or throw [ProjectNotReadyException] once [WAIT_TIMEOUT_MS] passes. Keyed off
  * [WAIT_EXTRA_OPTION_NAME] alone by the one caller in [runGeneratedToolCommand] — this function itself
  * assumes nothing about WHICH tool called it beyond "it declared a `project_path` argument", which is
  * `wait`'s whole contract: it orchestrates opening a project, so there is always a project path to poll
  * for.
  *
  * [rawProjectPath] is normalized with [Path.toRealPath] before polling: `open_project` resolves its own
- * `project_path` input the same way (`OpenProjectTool.kt`) before opening it, and `steroid_list_windows`
+ * `project_path` input the same way (`OpenProjectTool.kt`) before opening it, and `steroid_list_projects`
  * reports that resolved path, not the caller's original string — a relative path or an unresolved symlink
  * would otherwise never match. Resolution can only fail here if the directory vanished between
  * `open_project` validating it and this call, which is exotic enough to fall out through the ordinary
  * [IOException] arm below rather than needing its own.
  */
-private suspend fun DevrigServices.awaitWaitOption(command: GeneratedToolInvocation, tools: McpSteroidTools) {
+private suspend fun awaitWaitOption(
+    command: GeneratedToolInvocation,
+    tools: McpSteroidTools,
+): ToolCallResult {
     val rawProjectPath = command.arguments["project_path"]?.jsonPrimitive?.contentOrNull
         ?: error(
             "'$WAIT_EXTRA_OPTION_NAME' extra option requires a 'project_path' argument, which " +
                 "'${command.toolName}' does not declare"
         )
-    val projectPath = Path.of(rawProjectPath).toRealPath().toString()
-    val listWindowsSpec = liveToolSpec("steroid_list_windows", tools)
+    val projectPath = withContext(Dispatchers.IO) { Path.of(rawProjectPath).toRealPath().toString() }
+    val backendName = command.arguments["backend_name"]?.jsonPrimitive?.contentOrNull
+        ?.trim()?.takeIf { it.isNotEmpty() }
+    val listProjectsSpec = liveToolSpec("steroid_list_projects", tools)
     // Created ONCE, outside the poll lambda: `stderrProgressReporter` prints "Tool call started: devrig
-    // list_windows" on its FIRST `report()` call, and a wait that polls for minutes must not repeat that
+    // list_projects" on its FIRST `report()` call, and a wait that polls for minutes must not repeat that
     // line on every iteration.
-    val listWindowsProgress = if (command.json) NoOpProgressReporter else stderrProgressReporter(listWindowsSpec.name)
-    val ready = awaitProjectReady(
-        pollListWindows = { callToolViaSpec(listWindowsSpec, JsonObject(emptyMap()), listWindowsProgress).listWindowsJson() },
+    val listProjectsProgress = if (command.json) NoOpProgressReporter else stderrProgressReporter(listProjectsSpec.name)
+    val route = awaitProjectReady(
+        pollListProjects = {
+            callToolViaSpec(listProjectsSpec, JsonObject(emptyMap()), listProjectsProgress).listProjectsResponse()
+        },
         projectPath = projectPath,
+        backendName = backendName,
         timeoutMs = WAIT_TIMEOUT_MS,
         intervalMs = WAIT_INTERVAL_MS,
         now = System::currentTimeMillis,
         sleep = ::delay,
     )
-    if (!ready) throw ProjectNotReadyException(projectPath, WAIT_TIMEOUT_MS)
+        ?: throw ProjectNotReadyException(projectPath, WAIT_TIMEOUT_MS)
+    val result = AwaitedProjectResult(route.projectName, route.backendName, route.path)
+    return ToolCallResult(content = listOf(ContentItem.Text(McpJson.encodeToString(result))))
 }
 
 /**
- * A `steroid_list_windows` call result, parsed as the [JsonObject] [isProjectReady] reads. A malformed or
- * absent text payload is the backend's fault, not the caller's, so it is reported with [error] — an
+ * A `steroid_list_projects` call result, decoded to the shared response model. A malformed or absent text
+ * payload is the backend's fault, not the caller's, so it is reported with [error] — an
  * invariant violation propagating to `runCliWithLastResortHandling`, not a [CliExit] this pipeline knows
  * how to name; a genuinely undecodable JSON body instead throws [SerializationException] here, which the
  * pipeline's own arm already maps to [CliExit.DATA_ERROR].
  */
-private fun ToolCallResult.listWindowsJson(): JsonObject {
+private fun ToolCallResult.listProjectsResponse(): ListProjectsResponse {
     val text = content.filterIsInstance<ContentItem.Text>().firstOrNull()?.text
-        ?: error("steroid_list_windows returned no text content to parse")
-    return McpJson.parseToJsonElement(text).jsonObject
+        ?: error("steroid_list_projects returned no text content to parse")
+    return McpJson.decodeFromString(ListProjectsResponse.serializer(), text)
 }
 
 /**

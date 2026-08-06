@@ -7,9 +7,9 @@ import org.junit.jupiter.api.Test
 
 /**
  * `fetch_resource`'s `uri` is a bare CLI positional (see `FetchResourceToolHandler.uri`), and `prompt` is
- * its declared alias (issue #284). `bindPositional` (`SchemaCliBinding.kt`) registers a Clikt argument,
- * never an option, so there is no `--uri` flag under either name — this pins the bare-positional form
- * under both the `prompt` alias and the canonical `fetch_resource` command name.
+ * its declared alias (issue #284). Help advertises that concise form under both names. The schema-driven
+ * binding also retains the former `--uri` option as a hidden compatibility spelling so existing scripts
+ * survive the presentation change without creating a second command implementation.
  */
 class FetchResourceCommandTest {
 
@@ -30,5 +30,20 @@ class FetchResourceCommandTest {
         val run = requireNotNull(parseDevrigCommand(arrayOf("fetch_resource", skill, "--project_name=key")).generatedTool)
         assertEquals("steroid_fetch_resource", run.toolName)
         assertEquals(JsonPrimitive(skill), run.arguments["uri"])
+    }
+
+    @Test
+    fun `the former uri flag remains accepted without becoming the advertised form`() {
+        val skill = com.jonnyzzz.mcpSteroid.prompts.generated.prompt.SkillPromptArticle().uri
+        for (command in listOf("fetch_resource", "prompt")) {
+            val run = requireNotNull(
+                parseDevrigCommand(arrayOf(command, "--uri=$skill", "--project_name=key")).generatedTool,
+            )
+            assertEquals("steroid_fetch_resource", run.toolName)
+            assertEquals(JsonPrimitive(skill), run.arguments["uri"])
+        }
+
+        val help = requireNotNull(parseDevrigCommand(arrayOf("fetch_resource", "--help")).informationalText)
+        assertEquals(false, "--uri" in help, help)
     }
 }

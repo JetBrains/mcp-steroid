@@ -2,7 +2,6 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.github.ajalt.clikt.core.CliktCommand
-import com.github.ajalt.clikt.core.MissingArgument
 import com.github.ajalt.clikt.core.MissingOption
 import com.github.ajalt.clikt.core.PrintHelpMessage
 import com.github.ajalt.clikt.core.UsageError
@@ -304,6 +303,26 @@ class SchemaCliBindingTest {
         val values = bind(listOf(uri), "mcp-steroid://skill/design-philosophy")
 
         assertEquals("mcp-steroid://skill/design-philosophy", values.arguments["uri"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a positional parameter retains its hidden flag as a compatibility spelling`() {
+        val uri = param("uri", "string", required = true).copy(cliPositional = true)
+
+        val values = bind(listOf(uri), "--uri=mcp-steroid://skill/design-philosophy")
+
+        assertEquals("mcp-steroid://skill/design-philosophy", values.arguments["uri"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a positional and its compatibility flag cannot both supply the same parameter`() {
+        val uri = param("uri", "string", required = true).copy(cliPositional = true)
+
+        val error = assertFailsWith<UsageError> {
+            BindingCommand(listOf(uri)).parse(listOf("first", "--uri=second"))
+        }
+
+        assertTrue("not both" in error.message.orEmpty(), error.message.orEmpty())
     }
 
     @Test
@@ -729,14 +748,14 @@ class SchemaCliBindingTest {
     }
 
     @Test
-    fun `the name Clikt reports for a missing positional maps back to its declaring parameter`() {
-        // The positional half of the same lookup: Clikt reports a missing argument by the name it was
-        // declared with (not the upper-cased metavar its help shows), so a positional parameter's
-        // cliMissingHint is reachable the same way an option's is.
+    fun `a missing positional with a compatibility flag maps back to its declaring parameter`() {
+        // The positional is optional at Clikt's argument layer because its hidden compatibility option can
+        // satisfy the same value. The aggregate requiredness check still reports the positional's declared
+        // name, so its cliMissingHint is reachable the same way an option's is.
         val uri = param("uri", "string", required = true).copy(cliPositional = true, cliMissingHint = "pass a uri")
 
         val command = BindingCommand(listOf(uri))
-        val error = assertFailsWith<MissingArgument> { command.parse(emptyList()) }
+        val error = assertFailsWith<MissingCliValue> { command.parse(emptyList()) }
 
         val spec = command.binding.paramFor(error.paramName!!)
         assertEquals("uri", spec?.name)

@@ -73,7 +73,7 @@ fun resolveGithubCommunityArchiveFromReleasesJson(
         ?: error("'${product.id}' is not a GitHub Community product")
     val wanted = version?.takeIf { it.isNotBlank() }
 
-    val releases = Json { ignoreUnknownKeys = true }.parseToJsonElement(payload).jsonArray
+    val releases = Json.parseToJsonElement(payload).jsonArray
         .filterIsInstance<JsonObject>()
         .filter { (it["prerelease"] as? JsonPrimitive)?.content != "true" }
         .mapNotNull { release ->

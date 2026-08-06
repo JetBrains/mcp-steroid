@@ -1,61 +1,48 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
+import com.jonnyzzz.mcpSteroid.server.ListedProject
 
 /**
- * True iff a parsed `steroid_list_windows` result ([listWindowsJson]) contains a window for
- * [projectPath] that has finished opening: initialized, not indexing, and with no modal dialog
- * blocking it. This is the pure decision `open_project --wait` polls on; [awaitProjectReady] is the
- * loop around it.
+ * Returns the project route whose canonical [ListedProject.path] matches [projectPath]. When
+ * [backendName] is known, the match must also belong to that backend so an already-open copy in a
+ * different IDE cannot make `open_project --wait` return early with the wrong routing key.
  *
- * Field names match `ListedWindow` in `mcp-steroid-server`'s `ListWindowsTool.kt` verbatim, confirmed
- * from that class rather than assumed: `McpJson` sets no naming strategy, so a property serializes
- * under its own name unless annotated. `projectPath` carries an explicit `@SerialName("project_path")`
- * (issue #381 — the same snake_case key `steroid_list_projects` uses), while `projectInitialized`,
- * `indexingInProgress` and `modalDialogShowing` carry no annotation and so stay camelCase on the wire.
- * `project_path` is matched against `open_project`'s OWN normalized value: that tool resolves its
- * `project_path` input through `toRealPath()` before opening, so the caller must pass the same
- * resolved path here for the two to line up.
+ * Project routing is the readiness contract deliberately: a Remote Development backend normally has
+ * no frontend window, while every project-scoped MCP call requires the opaque [ListedProject.projectName]
+ * published by `steroid_list_projects`. Window state is useful for interactive dialog handling, but it
+ * cannot be required for a project to become addressable.
  */
-fun isProjectReady(listWindowsJson: JsonObject, projectPath: String): Boolean {
-    val windows = listWindowsJson["windows"]?.jsonArray ?: return false
-    return windows.any { window ->
-        val entry = window.jsonObject
-        entry["project_path"]?.jsonPrimitive?.content == projectPath &&
-            entry["projectInitialized"]?.jsonPrimitive?.boolean == true &&
-            entry["indexingInProgress"]?.jsonPrimitive?.boolean != true &&
-            entry["modalDialogShowing"]?.jsonPrimitive?.boolean != true
-    }
+fun findProjectRoute(
+    response: ListProjectsResponse,
+    projectPath: String,
+    backendName: String? = null,
+): ListedProject? = response.projects.singleOrNull { project ->
+    project.path == projectPath && (backendName == null || project.backendName == backendName)
 }
 
 /**
- * Polls [pollListWindows] for [projectPath] to become [isProjectReady], returning `true` as soon as it
- * does and `false` once [timeoutMs] has elapsed without that happening. [now] and [sleep] are injected
- * rather than reading the wall clock or calling `kotlinx.coroutines.delay` directly, so a test drives the
- * whole loop deterministically, with no real waiting: production passes `System::currentTimeMillis` and
- * `kotlinx.coroutines.delay`.
+ * Polls [pollListProjects] until [findProjectRoute] returns the requested route, or returns `null` once
+ * [timeoutMs] has elapsed. The matched [ListedProject] is returned rather than a boolean because its
+ * opaque routing key is the primary value a caller needs after opening a project.
  *
- * Each iteration polls FIRST and only then checks the deadline, so a caller always gets at least one
- * poll even when [timeoutMs] is small — matching "ask the IDE, then decide whether to give up", not
- * "give up before ever asking".
+ * [now] and [sleep] are injected so tests drive the loop deterministically. Each iteration polls first
+ * and only then checks the deadline, so even a zero-duration wait asks the IDE once before giving up.
  */
 suspend fun awaitProjectReady(
-    pollListWindows: suspend () -> JsonObject,
+    pollListProjects: suspend () -> ListProjectsResponse,
     projectPath: String,
+    backendName: String? = null,
     timeoutMs: Long,
     intervalMs: Long,
     now: () -> Long,
     sleep: suspend (Long) -> Unit,
-): Boolean {
+): ListedProject? {
     val deadline = now() + timeoutMs
     while (true) {
-        if (isProjectReady(pollListWindows(), projectPath)) return true
-        if (now() >= deadline) return false
+        findProjectRoute(pollListProjects(), projectPath, backendName)?.let { return it }
+        if (now() >= deadline) return null
         sleep(intervalMs)
     }
 }

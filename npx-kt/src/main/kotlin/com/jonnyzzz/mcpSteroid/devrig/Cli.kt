@@ -357,7 +357,8 @@ abstract class DevrigToolCliktCommand(
     parent: DevrigCliktCommand?,
     help: String,
     acceptsOut: Boolean,
-) : JsonDevrigCliktCommand(name = name, help = help, selected = selected, parent = parent) {
+    epilog: String = "",
+) : JsonDevrigCliktCommand(name = name, help = help, selected = selected, parent = parent, epilog = epilog) {
     private val outFlag =
         if (acceptsOut) option("--out", help = DEVRIG_OUT_FLAG_HELP).path(canBeDir = false).also { registerOption(it) }
         else null

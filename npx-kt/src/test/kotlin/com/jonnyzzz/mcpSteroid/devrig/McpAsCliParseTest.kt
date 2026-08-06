@@ -2,8 +2,8 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -18,55 +18,52 @@ import kotlin.test.assertTrue
  */
 class McpAsCliParseTest {
 
-    private fun parse(vararg args: String): DevrigCommand = parseDevrigCommand(args.toList().toTypedArray())
+    private fun parseError(vararg args: String): String {
+        val invocation = parseDevrigCommand(args.toList().toTypedArray())
+        assertEquals("parse-error", invocation.commandPath)
+        return requireNotNull(invocation.informationalText)
+    }
 
     @Test
     fun `execute_code rejects an unknown --modal value at parse`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-            parse(
-                "execute_code", "--project_name=demo", "--code=x", "--task_id=t", "--reason=r",
-                "--modal=bogus",
-            ),
+        val error = parseError(
+            "execute_code", "--project_name=demo", "--code=x", "--task_id=t", "--reason=r",
+            "--modal=bogus",
         )
 
-        assertTrue("--modal" in error.text, "got:\n${error.text}")
-        assertTrue("bogus" in error.text, "got:\n${error.text}")
+        assertTrue("--modal" in error, "got:\n$error")
+        assertTrue("bogus" in error, "got:\n$error")
         for (valid in listOf("smart_non_modal", "non_modal", "unleashed")) {
-            assertTrue(valid in error.text, "expected the valid-values listing to include $valid; got:\n${error.text}")
+            assertTrue(valid in error, "expected the valid-values listing to include $valid; got:\n$error")
         }
     }
 
     @Test
     fun `execute_feedback rejects NaN and Infinity success_rating at parse`() {
         for (badValue in listOf("NaN", "Infinity", "-Infinity")) {
-            val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-                parse(
-                    "execute_feedback", "--project_name=demo", "--task_id=t", "--explanation=e",
-                    "--success_rating=$badValue",
-                ),
-                "--success_rating=$badValue must be a parse error, not silently accepted",
+            val error = parseError(
+                "execute_feedback", "--project_name=demo", "--task_id=t", "--explanation=e",
+                "--success_rating=$badValue",
             )
-            assertTrue("--success_rating" in error.text, "got:\n${error.text}")
+            assertTrue("--success_rating" in error, "got:\n$error")
         }
     }
 
     @Test
     fun `input without --window_id and --sequence reports both curated hints in one error`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-            parse("input", "--project_name=demo", "--task_id=t", "--reason=r"),
-        )
+        val error = parseError("input", "--project_name=demo", "--task_id=t", "--reason=r")
 
         assertTrue(
-            "missing required --window_id (get it from" in error.text,
-            "expected input's curated window_id hint; got:\n${error.text}",
+            "missing required --window_id (get it from" in error,
+            "expected input's curated window_id hint; got:\n$error",
         )
         assertTrue(
-            "missing --sequence" in error.text && "press:CTRL+P" in error.text,
-            "expected input's curated multi-line sequence hint with its example; got:\n${error.text}",
+            "missing --sequence" in error && "press:CTRL+P" in error,
+            "expected input's curated multi-line sequence hint with its example; got:\n$error",
         )
         assertFalse(
-            "Any string works" in error.text,
-            "task_id/reason are supplied here, so their unrelated hint must not appear; got:\n${error.text}",
+            "Any string works" in error,
+            "task_id/reason are supplied here, so their unrelated hint must not appear; got:\n$error",
         )
     }
 }

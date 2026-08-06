@@ -91,20 +91,20 @@ class OpenProjectToolSpec(
     } else null
 
     // Not a tool input: the tool returns as soon as opening starts, and the CLI itself polls
-    // list_windows afterwards until the project is initialized. Declared unconditionally — unlike
+    // list_projects afterwards until the project has an addressable route. Declared unconditionally — unlike
     // backend_name, this changes nothing on the MCP wire, so it needs no per-surface gate.
     override val cliExtraOptions = listOf(
         CliExtraOption(
             name = "wait",
             type = CliOptionType.BOOLEAN,
-            synopsis = "reserved, not implemented; will poll until the project is initialized",
+            synopsis = "wait up to 300s for list_projects to return the project route",
         ),
     )
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
         val projectPathStr = context[projectPath]
-        context[taskId]
-        context[reason]
+        val taskIdValue = context[taskId]
+        val reasonValue = context[reason]
         val trustProject = context[trustProject] ?: true
         val backendNameValue = backendName?.let { context[it] }
 
@@ -132,6 +132,8 @@ class OpenProjectToolSpec(
         return handler().handleOpenProject(
             OpenProjectParams(
                 projectPath = projectPath.toString(),
+                taskId = taskIdValue,
+                reason = reasonValue,
                 trustProject = trustProject,
                 backendName = backendNameValue,
             ),
@@ -183,6 +185,8 @@ See ${ManagingBackendsPromptArticle().uri}."""
 @Serializable
 data class OpenProjectParams(
     val projectPath: String,
+    val taskId: String,
+    val reason: String,
     val trustProject: Boolean,
     /**
      * Optional devrig-only routing hint: the stable backend id — the `backend_name` from

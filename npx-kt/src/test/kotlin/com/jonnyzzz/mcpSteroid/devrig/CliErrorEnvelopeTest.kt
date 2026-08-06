@@ -7,6 +7,8 @@ import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
+import com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler
 import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
 import com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
@@ -80,6 +82,15 @@ class CliErrorEnvelopeTest {
         }
     }
 
+    private class CountingListProjects : ListProjectsToolHandler {
+        var called: Boolean = false
+
+        override suspend fun collectListProjectsResponse(): ListProjectsResponse {
+            called = true
+            return ListProjectsResponse(projects = emptyList())
+        }
+    }
+
     private fun listWindowsFailing(failure: () -> Nothing) =
         FakeMcpSteroidTools().with(ListWindowsToolHandler::class.java, ThrowingListWindows(failure))
 
@@ -135,24 +146,29 @@ class CliErrorEnvelopeTest {
     }
 
     @Test
-    fun `an unhandled extra option fails loudly instead of being ignored`() {
+    fun `an unhandled extra option fails before tool and out filesystem side effects`() {
         // A synthetic extra option no runtime name-keyed handler (like the `--wait` poll) ever consumes.
-        // `list_windows` declares no extra options at all, so `SchemaCliBinding` could never produce this
-        // on a real parse — this hand-builds the RunTool to prove the RUNTIME'S OWN guard rejects it, not
-        // merely that the parser never emits it.
+        // `execute_code` declares no extra options at all, so `SchemaCliBinding` could never produce this
+        // on a real parse — this hand-builds the invocation to prove the RUNTIME'S OWN guard rejects it
+        // before either the image-producing tool or --out preflight can have an observable side effect.
+        val outParent = home.resolve("unsupported-extra-output")
         val command = GeneratedToolInvocation(
-            toolName = "steroid_list_windows",
-            commandName = "list_windows",
+            toolName = "steroid_execute_code",
+            commandName = "execute_code",
             extraOptions = mapOf("phantom" to true),
+            out = outParent.resolve("result.png"),
             json = true,
         )
-        val tools = FakeMcpSteroidTools().with(ListWindowsToolHandler::class.java, CountingListWindows())
+        val handler = CountingExecuteCode()
+        val tools = FakeMcpSteroidTools().with(ExecuteCodeToolHandler::class.java, handler)
 
         val run = runGeneratedToolForTest(home, command, tools)
 
         assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
-        run.assertIsErrorEnvelope("list_windows")
+        run.assertIsErrorEnvelope("execute_code")
         assertTrue("phantom" in run.errorMessage(), run.errorMessage())
+        assertFalse(handler.called, "an unsupported orchestration flag must fail before the tool can have side effects")
+        assertFalse(Files.exists(outParent), "unsupported options must fail before --out creates its parent directory")
     }
 
     @Test
@@ -395,8 +411,8 @@ class CliErrorEnvelopeTest {
         // BEFORE ever reaching an OpenProjectToolHandler — so no handler double is registered here at all.
         // If the runtime's `--wait` handling ever regressed to reach the handler anyway, FakeMcpSteroidTools
         // would fail loudly ("no test double is registered") rather than silently passing.
-        val listWindows = CountingListWindows()
-        val tools = FakeMcpSteroidTools().with(ListWindowsToolHandler::class.java, listWindows)
+        val listProjects = CountingListProjects()
+        val tools = FakeMcpSteroidTools().with(ListProjectsToolHandler::class.java, listProjects)
         val missingPath = home.resolve("does-not-exist")
         val command = parseRunTool(
             "open_project", "--json", "--project_path=$missingPath", "--task_id=t", "--reason=r", "--wait",
@@ -407,7 +423,7 @@ class CliErrorEnvelopeTest {
         assertEquals(CliExit.TOOL_ERROR, run.exit, "stdout was:\n${run.stdout}")
         run.assertIsErrorEnvelope("open_project")
         assertEquals("ERROR: Project path is not a directory: $missingPath", run.errorMessage())
-        assertFalse(listWindows.called, "a failed open_project must never trigger the --wait poll")
+        assertFalse(listProjects.called, "a failed open_project must never trigger the --wait poll")
     }
 
     // ------------------------------------- 0 OK -------------------------------------

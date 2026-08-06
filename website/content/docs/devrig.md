@@ -139,8 +139,8 @@ a second command definition.
 | `devrig execute_feedback` | Rates an execution. Requires `--project_name`, `--task_id`, `--success_rating`, and `--explanation`; code can also come from `--code-file`. |
 | `devrig take_screenshot` | Captures an IDE image. Requires `--project_name`, `--task_id`, and `--reason`; accepts `--window_id` and `--out`. |
 | `devrig input` | Sends keyboard and mouse steps to a window. Requires `--project_name`, `--task_id`, `--reason`, `--window_id`, and `--sequence`. |
-| `devrig fetch_resource` | Fetches an `mcp-steroid://` guide by `--uri` and `--project_name`. `devrig prompt` is an alias. |
-| `devrig open_project` | Opens `--project_path`. When one backend already owns that path, devrig reuses it automatically; use `--backend_name` to choose among candidates for a new or multiply-open path. `--trust_project` is on by default and `--no-trust_project` disables it. The declared `--wait` option is reserved and currently fails explicitly instead of pretending to wait. |
+| `devrig fetch_resource` | Fetches an `mcp-steroid://` guide given as a positional URI plus `--project_name`. `devrig prompt` is an alias; the former `--uri` spelling remains accepted for existing scripts. |
+| `devrig open_project` | Opens `--project_path`. When one backend already owns that path, devrig reuses it automatically; use `--backend_name` to choose among candidates for a new or multiply-open path. `--trust_project` is on by default and `--no-trust_project` disables it. `--wait` polls for up to 300 seconds and returns the opened project's opaque `project_name`, `backend_name`, and canonical path. |
 
 Use command-scoped help for the authoritative grammar, for example:
 
@@ -148,7 +148,7 @@ Use command-scoped help for the authoritative grammar, for example:
 $ devrig execute_code --help
 $ devrig list_projects --json
 $ devrig execute_code --project_name <routing-key> --code='println("hello")' --task_id demo --reason 'verify IDE access' --json
-$ devrig prompt --project_name <routing-key> --uri mcp-steroid://prompt/skill --json
+$ devrig prompt mcp-steroid://prompt/skill --project_name <routing-key> --json
 ```
 
 Generated tool commands do not repair the launcher or write to `PATH`; they

@@ -3,9 +3,9 @@ package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
-import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
-import com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler
-import com.jonnyzzz.mcpSteroid.server.ListedWindow
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
+import com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler
+import com.jonnyzzz.mcpSteroid.server.ListedProject
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import com.jonnyzzz.mcpSteroid.server.OpenProjectParams
 import com.jonnyzzz.mcpSteroid.server.OpenProjectToolHandler
@@ -18,13 +18,16 @@ import java.nio.file.Path
 import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * `devrig take_screenshot` and `devrig open_project` end to end: the generated command reaches the real
  * specs, which build [ScreenshotParams] / [OpenProjectParams] from the parsed arguments and — for
  * `take_screenshot` — whose image result flows through `--out` ([renderWithOut], unit-tested directly and
  * exhaustively in `CliToolSupportTest`; this file proves the WIRING, not the decode/write logic itself).
- * `open_project`'s generic `--wait` poll mechanics (deadline, interval, ready predicate) are proven with a
+ * `open_project`'s generic `--wait` poll mechanics (deadline, interval, route predicate) are proven with a
  * fake clock in `WaitForProjectReadyTest`; the one polling test here proves the runtime actually invokes
  * that mechanism for a real `--wait` invocation.
  */
@@ -53,20 +56,18 @@ class ScreenshotAndOpenProjectCommandTest {
         }
     }
 
-    private class SequencedListWindows(private val responses: List<ListWindowsResponse>) : ListWindowsToolHandler {
+    private class SequencedListProjects(private val responses: List<ListProjectsResponse>) : ListProjectsToolHandler {
         var calls: Int = 0
 
-        override suspend fun collectListWindowsResponse(): ListWindowsResponse {
+        override suspend fun collectListProjectsResponse(): ListProjectsResponse {
             val response = responses[calls.coerceAtMost(responses.size - 1)]
             calls += 1
             return response
         }
     }
 
-    private fun window(path: String, initialized: Boolean) = ListedWindow(
-        projectName = "k", projectPath = path, title = null, isActive = false, isVisible = true,
-        bounds = null, windowId = "w", modalDialogShowing = false, indexingInProgress = false,
-        projectInitialized = initialized,
+    private fun project(path: String) = ListedProject(
+        projectName = "opaque-project-key", name = "raw-name", path = path, backendName = "iu-backend",
     )
 
     // ------------------------------ take_screenshot ------------------------------
@@ -102,7 +103,7 @@ class ScreenshotAndOpenProjectCommandTest {
     fun `open_project dispatches to the real spec, normalizing project_path and defaulting trust_project to true`() {
         val open = RecordingOpenProject(ToolCallResult(content = listOf(ContentItem.Text("opening"))))
         val tools = FakeMcpSteroidTools().with(OpenProjectToolHandler::class.java, open)
-        // No ListWindowsToolHandler double is registered: without --wait the runtime must never reach for
+        // No ListProjectsToolHandler double is registered: without --wait the runtime must never reach for
         // one, so a regression that polls anyway fails loudly ("no test double is registered") instead of
         // silently passing.
         val command = parseRunTool(
@@ -115,22 +116,24 @@ class ScreenshotAndOpenProjectCommandTest {
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
         val params = open.params!!
         assertEquals(home.toRealPath().toString(), params.projectPath, "project_path must be resolved to a real, absolute path")
+        assertEquals("t", params.taskId, "task_id must reach the open-project handler unchanged")
+        assertEquals("r", params.reason, "reason must reach the open-project handler unchanged")
         assertEquals(true, params.trustProject, "trust_project must default to true when omitted")
     }
 
     @Test
-    fun `open_project --wait polls list_windows until the project reports ready, then exits OK`() {
+    fun `open_project --wait polls list_projects and returns the opaque route once it appears`() {
         val open = RecordingOpenProject(ToolCallResult(content = listOf(ContentItem.Text("opening"))))
         val realPath = home.toRealPath().toString()
-        val windows = SequencedListWindows(
+        val projects = SequencedListProjects(
             listOf(
-                ListWindowsResponse(windows = listOf(window(realPath, initialized = false)), backgroundTasks = emptyList()),
-                ListWindowsResponse(windows = listOf(window(realPath, initialized = true)), backgroundTasks = emptyList()),
+                ListProjectsResponse(projects = emptyList()),
+                ListProjectsResponse(projects = listOf(project(realPath))),
             ),
         )
         val tools = FakeMcpSteroidTools()
             .with(OpenProjectToolHandler::class.java, open)
-            .with(ListWindowsToolHandler::class.java, windows)
+            .with(ListProjectsToolHandler::class.java, projects)
         val command = parseRunTool(
             "open_project", "--json",
             "--project_path=$home", "--task_id=t", "--reason=r", "--wait",
@@ -139,6 +142,35 @@ class ScreenshotAndOpenProjectCommandTest {
         val run = runGeneratedToolForTest(home, command, tools)
 
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
-        assertTrue(windows.calls >= 2, "must poll again after a not-ready response (polled ${windows.calls} times)")
+        assertEquals(2, projects.calls, "must poll again after the path is absent")
+        val payload = run.envelope().getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("json").jsonObject
+        assertEquals("opaque-project-key", payload.getValue("project_name").jsonPrimitive.content)
+        assertEquals("iu-backend", payload.getValue("backend_name").jsonPrimitive.content)
+        assertEquals(realPath, payload.getValue("path").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `open_project --wait human output identifies the route to use next`() {
+        val realPath = home.toRealPath().toString()
+        val tools = FakeMcpSteroidTools()
+            .with(
+                OpenProjectToolHandler::class.java,
+                RecordingOpenProject(ToolCallResult(content = listOf(ContentItem.Text("opening")))),
+            )
+            .with(
+                ListProjectsToolHandler::class.java,
+                SequencedListProjects(listOf(ListProjectsResponse(projects = listOf(project(realPath))))),
+            )
+        val command = parseRunTool(
+            "open_project", "--project_path=$home", "--task_id=t", "--reason=r", "--wait",
+        )
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
+        for (expected in listOf("opaque-project-key", "iu-backend", realPath)) {
+            assertTrue(expected in run.stdout, "human output must include '$expected':\n${run.stdout}")
+        }
     }
 }

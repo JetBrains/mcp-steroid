@@ -298,6 +298,21 @@ class McpToolsCliHelpTest {
     }
 
     @Test
+    fun `focused execute_code help renders every declared guide and a copyable fetch route`() {
+        val spec = visibleTools().single { it.cli.name == "execute_code" }
+        val invocation = parseDevrigCommand(arrayOf("help", "execute_code"))
+        assertEquals("help", invocation.commandPath)
+        val help = requireNotNull(invocation.informationalText)
+
+        assertTrue("Guides for deeper workflows:" in help, help)
+        for (uri in spec.cli.guideUris) assertTrue(uri in help, "focused help omitted $uri:\n$help")
+        assertTrue(
+            "devrig prompt <uri> --project_name=<routing-key>" in help,
+            "focused help must lead directly from a guide URI to an executable CLI action:\n$help",
+        )
+    }
+
+    @Test
     fun `root help comes from the executable Clikt tree rather than the old manual banner`() {
         val help = globalHelp()
         assertTrue(help.startsWith("Usage: devrig [<options>] <command> [<args>]..."), help)

@@ -35,8 +35,8 @@ class DevrigOpenProjectToolHandler(
         return bridge.callTool(ide, "steroid_open_project", callProgress) {
             put("project_path", openProjectParams.projectPath)
             put("trust_project", openProjectParams.trustProject)
-            put("task_id", "open-project")
-            put("reason", "Open project through devrig")
+            put("task_id", openProjectParams.taskId)
+            put("reason", openProjectParams.reason)
         }
     }
 

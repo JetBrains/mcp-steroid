@@ -52,7 +52,7 @@ class FeedbackAndInputCommandTest {
         val tools = FakeMcpSteroidTools().with(ExecuteFeedbackToolHandler::class.java, rec)
         val command = parseRunTool(
             "execute_feedback", "--json",
-            "--project_name=demo", "--task_id=t1", "--success_rating=0.75",
+            "--project_name=demo", "--task_id=t1", "--execution_id=eid_original", "--success_rating=0.75",
             "--explanation=worked", "--code=val x = 1",
         )
 
@@ -62,6 +62,7 @@ class FeedbackAndInputCommandTest {
         assertEquals("demo", rec.projectName)
         val params = rec.params!!
         assertEquals("t1", params.taskId)
+        assertEquals("eid_original", params.executionId)
         assertEquals(0.75, params.successRating)
         assertEquals("worked", params.explanation)
         assertEquals("val x = 1", params.code)

@@ -29,10 +29,10 @@ import org.junit.jupiter.api.Timeout
  * exercising the three CLI tools that genuinely need one, not a fake/stub bridge:
  *
  *  - `list_windows --json`: the running project's window must be visible through the CLI's own JSON
- *    envelope, with `windows[0]` reachable from the SAME parse as the envelope's `tool`/`command`/
+ *    envelope, with the original project's window reachable from the SAME parse as the envelope's `tool`/`command`/
  *    `isError` fields — a `jq` consumer parses stdout exactly once.
- *  - `open_project --wait`: the CLI must poll `steroid_list_windows` itself and only return once the
- *    project reports ready (no modal, indexing settled), not merely once the open call was accepted.
+ *  - `open_project --wait`: an initially unrouted directory must appear through `steroid_list_projects`,
+ *    and the command must return its opaque project/backend routing values.
  *  - `take_screenshot --out=<path>`: the CLI must write a real PNG to disk, not merely report success.
  *
  * Every assertion below is on the WHOLE parsed envelope/document, never a substring: three Phase-B
@@ -53,7 +53,7 @@ class CliDevrigToolsIntegrationTest {
 
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
-    fun `list_windows --json exposes the whole envelope with windows first entry reachable in one parse`() {
+    fun `list_windows --json exposes the whole envelope with the original project reachable in one parse`() {
         val result = devrig("list_windows", "--json").assertExitCode(0) {
             "devrig list_windows --json\nstdout=$stdout\nstderr=$stderr"
         }
@@ -70,22 +70,43 @@ class CliDevrigToolsIntegrationTest {
         val windows = payload.getValue("windows").jsonArray
         assertTrue(windows.isNotEmpty(), "expected at least one open window in the envelope; envelope=$envelope")
 
-        val firstWindow = windows[0].jsonObject
+        val projectWindow = windows.map { it.jsonObject }.singleOrNull {
+            it["project_path"]?.jsonPrimitive?.content == guestProjectDir
+        } ?: error("expected exactly one window for $guestProjectDir; windows=$windows")
         assertEquals(
             guestProjectDir,
-            firstWindow["project_path"]?.jsonPrimitive?.content,
-            "windows[0] must be the already-open project; envelope=$envelope",
+            projectWindow["project_path"]?.jsonPrimitive?.content,
+            "the original project window must remain addressable; envelope=$envelope",
         )
     }
 
     @Test
     @Timeout(value = 15, unit = TimeUnit.MINUTES)
-    fun `open_project --wait returns only after the project reports ready`() {
+    fun `open_project --wait routes an initially unopened path and returns its opaque key`() {
+        val targetPath = "/mcp-run-dir/cli-open-project-wait-target"
+        val before = devrig("list_projects", "--json").assertExitCode(0) {
+            "devrig list_projects --json (before open_project --wait)\nstdout=$stdout\nstderr=$stderr"
+        }
+        val beforeProjects = json.parseToJsonElement(before.stdout).jsonObject
+            .getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("json").jsonObject.getValue("projects").jsonArray
+        assertTrue(
+            beforeProjects.none { it.jsonObject["path"]?.jsonPrimitive?.content == targetPath },
+            "the wait target must start unrouted; projects=$beforeProjects",
+        )
+        session.scope.startProcessInContainer {
+            args("mkdir", "-p", targetPath)
+                .timeoutSeconds(30)
+                .description("create initially unopened CLI wait target")
+        }.awaitForProcessFinish().assertExitCode(0) {
+            "create $targetPath\nstdout=$stdout\nstderr=$stderr"
+        }
+
         val result = devrig(
             "open_project",
-            "--project_path=$guestProjectDir",
+            "--project_path=$targetPath",
             "--task_id=cli-open-project-wait",
-            "--reason=verify devrig open_project --wait polls list_windows until ready against a real IDE",
+            "--reason=verify devrig open_project --wait returns the new list_projects route against a real IDE",
             "--wait",
             "--json",
             timeoutSeconds = 360,
@@ -95,20 +116,25 @@ class CliDevrigToolsIntegrationTest {
         assertEquals("devrig", envelope.getValue("tool").jsonObject.getValue("name").jsonPrimitive.content)
         assertEquals("open_project", envelope.getValue("command").jsonPrimitive.content)
         assertEquals("false", envelope.getValue("isError").jsonPrimitive.content)
+        val opened = envelope.getValue("data").jsonObject.getValue("content").jsonArray
+            .single().jsonObject.getValue("json").jsonObject
+        assertEquals(targetPath, opened.getValue("path").jsonPrimitive.content)
+        val projectName = opened.getValue("project_name").jsonPrimitive.content
+        val backendName = opened.getValue("backend_name").jsonPrimitive.content
+        assertTrue(projectName.isNotBlank(), "wait result needs the opaque project_name: $opened")
+        assertTrue(backendName.isNotBlank(), "wait result needs the owning backend_name: $opened")
 
-        // "--wait" only returns 0 once the CLI's own poll of steroid_list_windows observes readiness —
-        // assert that readiness directly, rather than trusting the exit code alone.
-        val listWindows = devrig("list_windows", "--json").assertExitCode(0) {
-            "devrig list_windows --json (post open_project --wait)\nstdout=$stdout\nstderr=$stderr"
+        val listProjects = devrig("list_projects", "--json").assertExitCode(0) {
+            "devrig list_projects --json (post open_project --wait)\nstdout=$stdout\nstderr=$stderr"
         }
-        val windows = json.parseToJsonElement(listWindows.stdout).jsonObject
+        val projects = json.parseToJsonElement(listProjects.stdout).jsonObject
             .getValue("data").jsonObject.getValue("content").jsonArray
-            .single().jsonObject.getValue("json").jsonObject.getValue("windows").jsonArray
-        val readyWindow = windows.map { it.jsonObject }.singleOrNull { it["project_path"]?.jsonPrimitive?.content == guestProjectDir }
-            ?: error("expected exactly one window for $guestProjectDir; windows=$windows")
-        assertEquals("true", readyWindow["projectInitialized"]?.jsonPrimitive?.content, "windows=$windows")
-        assertEquals("false", readyWindow["indexingInProgress"]?.jsonPrimitive?.content, "windows=$windows")
-        assertEquals("false", readyWindow["modalDialogShowing"]?.jsonPrimitive?.content, "windows=$windows")
+            .single().jsonObject.getValue("json").jsonObject.getValue("projects").jsonArray
+        val routed = projects.map { it.jsonObject }.singleOrNull {
+            it["path"]?.jsonPrimitive?.content == targetPath
+        } ?: error("expected exactly one route for $targetPath; projects=$projects")
+        assertEquals(projectName, routed.getValue("project_name").jsonPrimitive.content)
+        assertEquals(backendName, routed.getValue("backend_name").jsonPrimitive.content)
     }
 
     @Test

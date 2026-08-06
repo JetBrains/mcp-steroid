@@ -1,70 +1,78 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.jonnyzzz.mcpSteroid.mcp.McpJson
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
+import com.jonnyzzz.mcpSteroid.server.ListedProject
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
 
-/**
- * `win`'s field names are NOT a guess: they are `ListedWindow`'s (`mcp-steroid-server`'s
- * `ListWindowsTool.kt`) serialized shape verbatim. `McpJson` sets no naming strategy, so a property
- * serializes under its declared name unless annotated — `projectPath` alone carries
- * `@SerialName("project_path")` (#381), while the three readiness flags carry no annotation and stay
- * camelCase.
- */
 class WaitForProjectReadyTest {
-    private fun windows(vararg w: String) = McpJson.parseToJsonElement(
-        """{"windows":[${w.joinToString(",")}]}"""
-    ).jsonObject
+    private fun project(
+        path: String,
+        projectName: String = "opaque-project-key",
+        backendName: String = "iu-backend",
+    ) = ListedProject(projectName = projectName, name = "raw-name", path = path, backendName = backendName)
 
-    private fun win(path: String, init: Boolean, indexing: Boolean, modal: Boolean) =
-        """{"project_path":"$path","projectInitialized":$init,"indexingInProgress":$indexing,""" +
-            """"modalDialogShowing":$modal}"""
+    private fun projects(vararg entries: ListedProject) = ListProjectsResponse(entries.toList())
 
     @Test
-    fun `ready when initialized, not indexing, no modal`() {
-        assertTrue(isProjectReady(windows(win("/p", true, false, false)), "/p"))
+    fun `a routed frontendless project is ready without any window`() {
+        val route = project("/p")
+
+        assertEquals(route, findProjectRoute(projects(route), "/p"))
     }
 
     @Test
-    fun `not ready while indexing`() {
-        assertFalse(isProjectReady(windows(win("/p", true, true, false)), "/p"))
+    fun `an absent path is not ready`() {
+        assertNull(findProjectRoute(projects(project("/other")), "/p"))
     }
 
     @Test
-    fun `not ready with a modal`() {
-        assertFalse(isProjectReady(windows(win("/p", true, false, true)), "/p"))
+    fun `an explicit backend cannot match the same path routed by another backend`() {
+        val wrong = project("/p", projectName = "wrong-key", backendName = "iu-wrong")
+        val expected = project("/p", projectName = "right-key", backendName = "iu-right")
+
+        assertEquals(expected, findProjectRoute(projects(wrong, expected), "/p", "iu-right"))
+        assertNull(findProjectRoute(projects(wrong), "/p", "iu-right"))
     }
 
     @Test
-    fun `not ready when the project window is absent`() {
-        assertFalse(isProjectReady(windows(win("/other", true, false, false)), "/p"))
-    }
-
-    @Test
-    fun `awaitProjectReady returns true once ready before timeout`() = runTest {
-        var t = 0L
+    fun `awaitProjectReady returns the opaque route once the path appears`() = runTest {
+        var time = 0L
         var calls = 0
-        val ok = awaitProjectReady(
-            pollListWindows = { calls++; windows(win("/p", true, calls < 3, false)) },
-            projectPath = "/p", timeoutMs = 300_000, intervalMs = 1000,
-            now = { t }, sleep = { t += it },
+        val expected = project("/p", projectName = "opaque-9fk2a0xq")
+
+        val route = awaitProjectReady(
+            pollListProjects = {
+                calls += 1
+                if (calls < 3) projects() else projects(expected)
+            },
+            projectPath = "/p",
+            timeoutMs = 300_000,
+            intervalMs = 1_000,
+            now = { time },
+            sleep = { time += it },
         )
-        assertTrue(ok)
-        assertTrue(calls >= 3)
+
+        assertEquals(expected, route)
+        assertEquals(3, calls)
     }
 
     @Test
-    fun `awaitProjectReady returns false at timeout`() = runTest {
-        var t = 0L
-        val ok = awaitProjectReady(
-            pollListWindows = { windows(win("/p", true, true, false)) },
-            projectPath = "/p", timeoutMs = 5_000, intervalMs = 1000,
-            now = { t }, sleep = { t += it },
+    fun `awaitProjectReady returns null at timeout`() = runTest {
+        var time = 0L
+
+        val route = awaitProjectReady(
+            pollListProjects = { projects() },
+            projectPath = "/p",
+            timeoutMs = 5_000,
+            intervalMs = 1_000,
+            now = { time },
+            sleep = { time += it },
         )
-        assertFalse(ok)
+
+        assertNull(route)
     }
 }

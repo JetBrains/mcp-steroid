@@ -162,14 +162,6 @@
   JSON payload as one minified line. Add a structured, colorful human renderer while preserving the
   current ANSI-free `--json` envelope for agents.
 
-- [ ] **`open_project --wait` never reports ready on a frontendless backend (#284)**: the poll is
-  implemented (`WaitForProjectReady.kt`, `awaitWaitOption` in `GeneratedToolRuntime.kt`) but reads
-  `steroid_list_windows` only, and a frontendless Remote Development backend has NO window — so `--wait`
-  against one burns the full 300 s and then answers `UNAVAILABLE 69` for a project that opened fine.
-  Poll the project list for the target path first, and treat the window flags (`projectInitialized` /
-  `indexingInProgress` / `modalDialogShowing`) as an additional condition only when a frontend window
-  exists. Needs a Docker case on the Remote Development fixture, not a unit test alone.
-
 - [ ] **`--json` parse-time usage errors emit nothing on stdout (#284)**: a parse failure becomes
   `DevrigCommandParseError`, which prints to stderr and answers 64 with no `--json` envelope — the KDoc
   argues the failure precedes the command's options so the `--json` intent is unknowable, yet the sibling
