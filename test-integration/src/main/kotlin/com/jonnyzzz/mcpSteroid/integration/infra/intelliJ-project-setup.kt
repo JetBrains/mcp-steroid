@@ -25,6 +25,9 @@ package com.jonnyzzz.mcpSteroid.integration.infra
  * @param projectJdkVersion JDK version to set as project SDK ("21", "17", etc.), null = skip
  * @param buildSystem Build system for import/compile. NONE = IntelliJ auto-detect only
  * @param compileProject Whether to compile every imported module through IntelliJ before returning
+ * @param requireCleanCompile Whether that compile must succeed. False for task projects that are
+ *   expected not to build yet (a DPAIA arena scenario's test patch calls production code the agent has
+ *   still to write), where the compile is a warm-up rather than an assertion.
  */
 fun IntelliJContainer.waitForProjectReady(
     timeoutMillis: Long = System.getProperty("test.integration.project.ready.timeout.ms")?.toLongOrNull() ?: 600_000L,
@@ -38,6 +41,7 @@ fun IntelliJContainer.waitForProjectReady(
      */
     buildSystem: BuildSystem? = null,
     compileProject: Boolean = false,
+    requireCleanCompile: Boolean = true,
 ) : IntelliJContainer {
     // Step 1: Wait for IDE window
     val waitLabel = if (requireIndexingComplete) "project import and indexing" else "project initialization"
@@ -96,7 +100,7 @@ fun IntelliJContainer.waitForProjectReady(
     // Step 8: Compile project (optional)
     if (compileProject) {
         console.writeStep(text = "Compiling project through IntelliJ...")
-        mcpSteroid.mcpCompileProject()
+        mcpSteroid.mcpCompileProject(requireCleanCompile = requireCleanCompile)
         console.writeSuccess("Compilation complete")
     }
 

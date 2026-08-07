@@ -119,6 +119,10 @@ abstract class DpaiaScenarioBaseTest {
                 projectJdkVersion = caseConfig.projectJdkVersion,
                 buildSystem = buildSystem,
                 compileProject = true,
+                // The arena project is expected NOT to compile here: the dataset's test patch is the
+                // task, and its tests call production code the agent has yet to write. The compile is a
+                // warm-up (dependencies, indexes) before the agent's timer starts, never an assertion.
+                requireCleanCompile = false,
             )
 
             val ideProjectDir = session.intellijDriver.getGuestProjectDir()
