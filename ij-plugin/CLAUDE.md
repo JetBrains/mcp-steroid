@@ -171,7 +171,7 @@ ProgramRunnerUtil.executeConfiguration(settings, DefaultRunExecutor.getRunExecut
 
 **Don't, in almost every case.** Read [`docs/PHILOSOPHY.md`](../docs/PHILOSOPHY.md)
 (canonical) or `mcp-steroid://skill/design-philosophy` (runtime mirror)
-first. The MCP tool surface is intentionally narrow (10 today); a new tool
+first. The MCP tool surface is intentionally narrow (8 today); a new tool
 ships only when **all three** of:
 
 1. The need cannot be met by `steroid_execute_code` + a direct IntelliJ API
