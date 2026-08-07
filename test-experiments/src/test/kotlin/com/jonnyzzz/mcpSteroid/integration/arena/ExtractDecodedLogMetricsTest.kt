@@ -18,6 +18,59 @@ class ExtractDecodedLogMetricsTest {
 
     private val extract = ::extractDecodedLogMetrics
 
+    // ── Codex shell invocations ───────────────────────────────────────────────────────────────
+    //
+    // Claude runs shell through a `Bash` tool and its decoded line reads `>> Bash (cmd)`. Codex has
+    // no such tool — it executes the shell directly, so the line is `>> /bin/bash -lc '…'` and the
+    // old `>> Bash` prefix never matched. Every Codex run therefore reported `Glob/Grep/Bash: 0/0/0`
+    // while genuinely issuing 17 shell commands, hiding the most informative metric in the arena:
+    // the no-MCP arm spends roughly twice the shell calls of the MCP arm (120 vs 59 over one pass).
+    //
+    // Shapes below are verbatim from TC build 1023520459 (dpaia__train__ticket-31, both arms).
+
+    @Test
+    fun `counts a codex shell invocation as a bash call`() {
+        val log = ">> /bin/bash -lc 'JAVA_HOME=/usr/lib/jvm/temurin-11-jdk-amd64 ./mvnw -pl ts-payment-service test'"
+        val metrics = extract(log)
+        assertNotNull(metrics)
+        assertEquals(1, metrics!!.bashCalls)
+        assertEquals(0, metrics.execCodeCalls)
+    }
+
+    @Test
+    fun `the exit-status line of a codex command is not a second call`() {
+        // Codex emits the command and then its exit status; counting both doubles every shell call.
+        val log = listOf(
+            ">> /bin/bash -lc 'mvn test'",
+            ">> exit 127 (/bin/bash -lc 'mvn test')",
+        ).joinToString("\n")
+        assertEquals(1, extract(log)!!.bashCalls)
+    }
+
+    @Test
+    fun `a codex arm counts shell and execute-code independently`() {
+        val log = listOf(
+            ">> steroid_list_projects",
+            ">> steroid_execute_code (Inspect readiness)",
+            ">> /bin/bash -lc 'ls'",
+            ">> exit 0 (/bin/bash -lc 'ls')",
+            ">> /bin/bash -lc './mvnw test'",
+        ).joinToString("\n")
+        val m = extract(log)!!
+        assertEquals(1, m.execCodeCalls)
+        assertEquals(2, m.bashCalls)
+    }
+
+    @Test
+    fun `claude's Bash tool line still counts`() {
+        assertEquals(1, extract(">> Bash (npm test)")!!.bashCalls)
+    }
+
+    @Test
+    fun `a plain sh invocation counts too`() {
+        assertEquals(1, extract(">> /bin/sh -c 'echo hi'")!!.bashCalls)
+    }
+
     @Test
     fun `returns null when text has no tool lines`() {
         assertNull(extract(""))

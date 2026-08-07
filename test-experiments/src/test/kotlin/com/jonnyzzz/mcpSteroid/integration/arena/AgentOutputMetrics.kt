@@ -188,6 +188,14 @@ data class DecodedLogMetrics(
  *
  * Returns null when the text contains no `>>` tool lines at all (e.g. agent never produced decoded output).
  */
+/** Shells Codex spawns directly, as they appear after the `>> ` marker in a decoded transcript. */
+private val CODEX_SHELLS = listOf("/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh", "bash", "sh")
+
+private fun String.isCodexShellInvocation(): Boolean {
+    val command = removePrefix(">> ").trimStart()
+    return CODEX_SHELLS.any { command == it || command.startsWith("$it ") }
+}
+
 fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
     var execCodeCalls = 0
     var readCalls = 0
@@ -209,6 +217,11 @@ fun extractDecodedLogMetrics(decodedLogText: String): DecodedLogMetrics? {
             line.startsWith(">> Bash ") || line == ">> Bash" -> bashCalls++
             line.startsWith(">> Glob ") || line == ">> Glob" -> globCalls++
             line.startsWith(">> Grep ") || line == ">> Grep" -> grepCalls++
+            // Codex has no `Bash` tool — it invokes the shell directly, so its decoded line is
+            // `>> /bin/bash -lc '…'`. Without this every Codex run reported Bash: 0 while issuing
+            // a dozen-plus commands. `>> exit N (…)` echoes the finished command's status and must
+            // not be counted as a second call.
+            line.isCodexShellInvocation() -> bashCalls++
         }
     }
 
