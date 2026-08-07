@@ -71,6 +71,16 @@ data class FullSuiteSnapshot(
 ) {
     val passing: Set<String> get() = perClass.filter { it.passed }.map { it.className }.toSet()
     val failing: Set<String> get() = perClass.filterNot { it.passed }.map { it.className }.toSet()
+
+    /**
+     * True when this snapshot can serve as a regression baseline at all.
+     *
+     * A run that reported no classes AND failed is not "a project with nothing to break" — it is a
+     * build that never got to the tests. Treating the two alike publishes "0 regressions" for a
+     * scenario where regressions were never observable; an empty project that builds cleanly (exit 0)
+     * really does have nothing to regress and stays usable.
+     */
+    val usableAsBaseline: Boolean get() = perClass.isNotEmpty() || mavenExitCode == 0
 }
 
 /** One FAIL_TO_PASS dataset entry: a class, plus the single method when the entry names one. */
@@ -215,6 +225,20 @@ fun verificationNeverRanTests(
     return owningModule != failedMavenProject
 }
 
+private val JAVAC_RELEASE_UNSUPPORTED = Regex("""release version (\d+) not supported""")
+
+/**
+ * The Java release the build demands when javac rejected the one it was given, else null.
+ *
+ * The baseline suite picks its JDK from the case's configured version, which describes the *agent's*
+ * environment and need not match what the pristine repository compiles with: `dpaia__empty__maven__
+ * springboot3-*` is configured for JDK 21 while its pom asks for release 24, so the baseline died with
+ * `release version 24 not supported` and reported zero classes — no regression could be detected for
+ * those scenarios. The number in that message is exactly the JDK to retry on.
+ */
+fun requiredJavaReleaseFromError(mavenOutput: String): String? =
+    JAVAC_RELEASE_UNSUPPORTED.find(mavenOutput)?.groupValues?.get(1)
+
 private val DIFF_FILE_HEADER = Regex("""^diff --git a/(\S+) b/\S+$""", RegexOption.MULTILINE)
 
 /** All file paths a unified diff touches ("a/" side is enough — arena patches never rename). */
@@ -315,6 +339,7 @@ class ArenaVerifier(
         projectJdkVersion: String,
         label: String,
         dir: String = projectDir,
+        retried: Boolean = false,
     ): FullSuiteSnapshot {
         val javaHome = resolveJavaHome(projectJdkVersion)
         val mavenCommand = resolveMavenCommand(dir)
@@ -345,6 +370,19 @@ class ArenaVerifier(
                 "[ARENA-VERIFY] $label full suite produced NO surefire reports at all (Maven " +
                     "exit=${mvn.exitCode}). Tail:\n${mvn.stdout.takeLast(4_000)}"
             )
+            // The configured JDK describes the AGENT's environment; the pristine repository may demand a
+            // newer one. Retrying on the release javac named is the difference between a real baseline
+            // and none at all — measured on the springboot3 scenarios, configured for 21 against a pom
+            // asking for release 24. Retried once, and only when nothing ran, so a genuinely empty
+            // project still costs one suite run.
+            val required = requiredJavaReleaseFromError(mvn.stdout)
+            if (required != null && required != projectJdkVersion && !retried) {
+                println(
+                    "[ARENA-VERIFY] $label full suite needs Java $required, not the case's configured " +
+                        "$projectJdkVersion — retrying the baseline on Java $required"
+                )
+                return fullSuiteSnapshot(required, label, dir, retried = true)
+            }
         }
         return FullSuiteSnapshot(
             perClass = perClass,
@@ -556,12 +594,20 @@ class ArenaVerifier(
         // Regression half of the verdict: re-run the whole suite and compare with the pre-agent baseline.
         // Runs AFTER the targeted grading above so its `clean` cannot wipe the FAIL_TO_PASS reports the
         // grade is read from, and so a broken whole-suite run can never cost us the FAIL_TO_PASS numbers.
-        var truncated = baseline?.timedOut == true
-        val regressions = if (baseline == null) emptyList() else {
+        val usableBaseline = baseline?.takeIf { it.usableAsBaseline }
+        if (baseline != null && usableBaseline == null) {
+            System.err.println(
+                "[ARENA-VERIFY] the pre-agent baseline never ran the tests (Maven " +
+                    "exit=${baseline.mavenExitCode}, 0 classes), so regressions are UNKNOWN for this run " +
+                    "— not zero. Reported as null rather than a measured clean result."
+            )
+        }
+        var truncated = usableBaseline?.timedOut == true
+        val regressions = if (usableBaseline == null) emptyList() else {
             val after = fullSuiteSnapshot(projectJdkVersion, label = "post-agent")
             truncated = truncated || after.timedOut
             val ftpClassNames = failToPass.map { parseFailToPassEntry(it).fqcn }.toSet()
-            regressedClasses(baseline, after, excluded = ftpClassNames).also {
+            regressedClasses(usableBaseline, after, excluded = ftpClassNames).also {
                 if (it.isEmpty()) println("[ARENA-VERIFY] no regressions vs baseline")
                 else println("[ARENA-VERIFY] REGRESSIONS vs baseline (${it.size}): ${it.joinToString()}")
             }
@@ -572,7 +618,7 @@ class ArenaVerifier(
             failToPassTampered = tampered,
             collateralTestFilesEdited = collateral,
             regressions = regressions,
-            baselineAvailable = baseline != null,
+            baselineAvailable = usableBaseline != null,
             regressionScanTruncated = truncated,
             verificationDurationMs = System.currentTimeMillis() - startMs,
         )

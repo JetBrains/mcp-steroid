@@ -470,6 +470,48 @@ class ArenaVerificationTest {
         assertTrue(regressedClasses(before = snapshot("A" to true), after = snapshot()).isEmpty())
     }
 
+    // ── Baseline usability ───────────────────────────────────────────────────
+
+    @Test
+    fun `javac names the release the pristine repository needs`() {
+        // Verbatim from build 1025034600 — Maven keeps the whole goal failure on ONE line.
+        val tail = "[INFO] BUILD FAILURE\n" +
+            "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.14.0:compile " +
+            "(default-compile) on project empty-spring-boot3: Fatal error compiling: error: release " +
+            "version 24 not supported -> [Help 1]\n"
+        assertEquals("24", requiredJavaReleaseFromError(tail))
+    }
+
+    @Test
+    fun `a suite that merely failed its tests names no required release`() {
+        assertNull(requiredJavaReleaseFromError("[ERROR] Tests run: 58, Failures: 0, Errors: 2"))
+    }
+
+    @Test
+    fun `a suite that ran nothing and failed cannot serve as a baseline`() {
+        // The springboot3 shape: `release version 24 not supported`, exit 1, no reports. Calling that
+        // "nothing to regress" would publish a measured-looking zero for a scenario where regressions
+        // were never observable.
+        assertFalse(FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 1).usableAsBaseline)
+    }
+
+    @Test
+    fun `an empty project that builds cleanly is still a valid baseline`() {
+        assertTrue(FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0).usableAsBaseline)
+    }
+
+    @Test
+    fun `a snapshot with reports is a valid baseline whatever Maven exited with`() {
+        // -fae plus maven.test.failure.ignore normally give exit 0, but a late module failure can still
+        // set a non-zero code while every earlier module reported honestly.
+        assertTrue(
+            FullSuiteSnapshot(
+                perClass = listOf(SurefireClassResult("A", 3, 0, 0, 0)),
+                mavenExitCode = 1,
+            ).usableAsBaseline,
+        )
+    }
+
     // ── objectiveSuccess ─────────────────────────────────────────────────────
 
     @Test
