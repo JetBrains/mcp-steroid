@@ -116,13 +116,21 @@ those artifacts.
    Every IDE entry must say `Compatible.` If any IDE prints `Compatibility problems`,
    investigate and fix before continuing.
 
-   **5b. Internal-API usages: must be zero. This is the only hard gate.** The detailed
-   report under `ij-plugin/build/reports/pluginVerifier/IU-<build>/` lists
-   `Internal API usages` if any. Internal APIs (`@ApiStatus.Internal`) can be removed in any
-   IntelliJ minor release without notice, so using them is a release blocker. If the
-   verifier reports any internal-API usage on any supported IDE, replace it with a public
-   alternative before continuing — **do not ship.** As of v0.94.0 the count is **0** on
-   both 253 and 261.
+   **5b. Internal-API usages on the primary (shipping) targets: must be zero. This is the
+   only hard gate.** The detailed report under
+   `ij-plugin/build/reports/pluginVerifier/IU-<build>/` lists `Internal API usages` if any.
+   Internal APIs (`@ApiStatus.Internal`) can be removed in any IntelliJ minor release
+   without notice, so using them is a release blocker on the versions we ship for. If the
+   verifier reports any internal-API usage on a primary target, replace it with a public
+   alternative before continuing — **do not ship.**
+
+   **Secondary EAP-target exception (0.101/0.102 precedent):** a *forward-looking EAP*
+   target in the verification set may report internal usages when the EAP newly marks an
+   API internal and no public replacement exists on BOTH the shipping and the EAP version.
+   Such usages must be tracked upstream and named in the release notes — 0.101 shipped
+   with 8 on IU-262, 0.102 with 2 (the `PluginManagerCore.getPlugin`/`getLoadedPlugins`
+   pair, [IJPL-246183](https://youtrack.jetbrains.com/issue/IJPL-246183)) — and migrated
+   before that EAP version becomes a shipping target.
 
    **5c. Experimental-API usages: acceptable — not a gate.** Experimental APIs
    (`@ApiStatus.Experimental`) are part of IntelliJ's public surface; we are allowed to use
@@ -202,6 +210,21 @@ Never hard-wrap prose: GitHub renders release bodies with newline→`<br>`, so e
 paragraph, bullet, and blockquote must be ONE physical line no matter how long;
 only fenced code blocks may contain manual line breaks
 (`release/scripts/unwrap-release-notes.py` normalizes existing wrapped files).
+
+**The regression filter — notes report only release-over-release changes.** A fix
+for a bug that was itself introduced AFTER the previous release tag (an intra-window
+regression) is not a user-visible change and must not appear as a "fix" — and a fix
+to a feature that is new in this release is part of the feature, never a separate
+fix bullet. For every "fixed / no longer / is gone" claim, verify the defect existed
+at the previous tag (`git show v<prev>:<path>`, blame). The 0.102 audit removed four
+such claims (#462, #445/#407 framing, a #423 clause) and one claim whose fix never
+landed at all (#471, a duplicate of open #468).
+
+**Validate the notes against the repository and issues before publishing** — an
+independent agent review (regression filter, per-claim fact check against git/gh,
+link topic-match) catches wrong claims cheaply; the GitHub release body can still be
+amended post-publish (`gh release edit v<version> --notes-file …`), but the goal is
+to publish clean.
 
 If external contributors participated in this release, add a **Contributors** section:
 ```markdown
@@ -367,8 +390,10 @@ carries `mcp-steroid-<version>.0-r-<gitHash>.zip` (plugin), `devrig-<version>.0-
 **EULA**: The root `EULA` file is uploaded directly. The `gh` CLI uses the source
 filename as the asset name — it appears as `EULA` on the release page.
 
-**Immutable**: Once created, releases cannot have assets added. If a fix is needed,
-delete and recreate the release.
+**Immutable assets, editable body**: Once created, releases cannot have assets added —
+if an artifact is wrong, delete and recreate the release. The release **notes body**,
+however, can be amended in place at any time:
+`gh release edit v<version> --repo jonnyzzz/mcp-steroid --notes-file release/notes/<version>.md`.
 
 **7c. Advance the `website` branch (this publishes the website AND starts the auto-update rollout):**
 
@@ -496,6 +521,12 @@ Release notes: https://devrig.dev/releases/<version>/"
 ```
 
 If a developer has already mentioned the fix version on the issue, skip the comment.
+
+**Verify each issue's state individually before commenting** — `gh issue view <N> --json
+state` per issue, never a diffed pair of listings (a numeric `sort -n` fed to `comm`, which
+expects lexicographic order, silently dropped open #412 from the 0.102 sweep and put a
+"Fixed in v0.102" comment on an issue that was still open). A "Fixed in v<version>" comment
+on an open issue misleads every watcher; when it happens, post an explicit correction.
 
 ### Stage 10: Mark Older Releases Obsolete (Optional)
 

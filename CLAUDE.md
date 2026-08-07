@@ -13,7 +13,7 @@ prompts. **Read [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md)** (mirrored as
 - a new method on `McpScriptContext`
 - a "helper" that wraps an IntelliJ API
 
-Short version: the **MCP tool** surface (10 today) stays narrow on
+Short version: the **MCP tool** surface (8 today) stays narrow on
 purpose; the **IntelliJ capability** surface stays full, exposed via
 `steroid_execute_code` plus prompt resources. The strategy page's
 "Give AI the whole IDE, not just the files" is delivered through that
@@ -132,8 +132,9 @@ When changing files across multiple sub-folders, read the guides for each.
   compiler reports `Unclosed comment` at the end of the file plus a cascade
   of unresolved-reference errors. Rewrite as `//` line comments or quote the
   substring to avoid the `/*` sequence.
-- **Windows-hostile test fixtures and assertions.** Three recurring shapes, all found live on the TC
-  Windows agent (2026-08-05, issues #445 + the CliToolSupportTest CRLF round):
+- **Windows-hostile test fixtures and assertions.** Five recurring shapes, all found live on the TC
+  Windows agent (2026-08-05 #445 + the CliToolSupportTest CRLF round; 2026-08-07 the 0.102
+  release-week rounds, TC builds 629–630):
   1. Whole-string assertions on `PrintStream` output MUST normalize `\r\n` → `\n` in the capture
      helper (`println` uses the platform separator; the TC report renders expected/actual as
      visually identical). `GeneratedToolRuntimeTestSupport` is the reference implementation.
@@ -143,6 +144,17 @@ When changing files across multiple sub-folders, read the guides for each.
      `isExecutable` seam), never chmod-based fixtures.
   3. Never assert `contains("some/relative/path")` against a message that embeds `Path.toString()`
      — build the expected fragment with `Path.of("some", "relative", "path").toString()`.
+  4. A Unix-style fixture like `Path.of("/home/u")` is NOT drive-absolute on Windows: any production
+     path that goes through `toAbsolutePath()`/`normalize()` gains the current drive (`Z:\home\u`)
+     and the equality fails. Use a temp-dir fixture (`@TempDir`, `Files.createTempDirectory`) — it
+     is genuinely absolute on every OS (`HomePathsTest`, `DevrigSetupTest` are the references).
+  5. Never assert a raw `Path.toString()` substring against output that re-encodes the value as
+     JSON: Windows backslashes arrive JSON-escaped (`Z:\\dir`). Compare against
+     `JsonPrimitive(value).toString()` instead (`ScreenshotAndOpenProjectCommandTest`).
+  **Diagnosing a red Windows leg:** without `--continue`, the first failing module's test task stops
+  later modules — compare the leg's total test count against the Linux leg; a large shortfall means
+  more Windows-hostile tests hide behind the reported ones (the 629→630 "onion": fixing 1 exposed 3).
+  The NEW-failure surface is exactly the test files changed since the last green Windows run.
 - **Snapshotting `/proc/<pid>/cmdline` (ProcessHandle.info().arguments()) right after a spawn.**
   On Linux a spawned child execs IN PLACE through `jspawnhelper → setsid → env → sh` before becoming
   the target binary; a one-shot read races that chain and sees `"sh"` or an empty Optional (broke
@@ -348,9 +360,11 @@ The IntelliJ project at `~/Work/intellij` is open in the IDE for research. Use `
 `project_name="intellij"` and PSI APIs (`FilenameIndex`, `JavaPsiFacade`) — faster and more accurate than
 `grep`. See `test-integration/AGENTS.md` → "Researching IntelliJ APIs" for the recipe.
 
-`run-agent.sh` from `~/Work/jonnyzzz-ai-coder/` launches AI agents (Claude/Codex/Gemini) for peer reviews,
+`run-agent.sh` from `~/Work/jonnyzzz-x/` launches AI agents (Claude/Codex/Gemini) for peer reviews,
 research, and consensus checks. Encouraged from agent sessions — the BANNED rule applies only to
-production code/tests referencing it.
+production code/tests referencing it. Usage: `run-agent.sh <agent> <cwd> <prompt-file>`; the default
+hard timeout is 900 s — deep reviews need `RUN_AGENT_TIMEOUT_SECONDS=2700` (the env var is
+`RUN_AGENT_`-prefixed; a bare `TIMEOUT_SECONDS` is silently ignored).
 
 ## Environment Constraints
 
