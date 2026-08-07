@@ -141,9 +141,9 @@ abstract class DpaiaScenarioBaseTest {
             // regression evidence available: 149 of the 154 dataset cases ship an empty PASS_TO_PASS, so
             // "did the agent break anything" is otherwise unanswerable, and a suite that was already red
             // (unrelated module, or tests needing an absent Docker socket) reads as the agent's fault.
-            val baselineSuite = verifier.fullSuiteSnapshot(
+            val baselineSuite = verifier.baselineSnapshotAtBaseCommit(
+                baseCommit = testCase.baseCommit,
                 projectJdkVersion = caseConfig.projectJdkVersion,
-                label = "pre-agent baseline",
             )
 
             // Hashed AFTER the baseline suite, not before: anything the build itself rewrites (a

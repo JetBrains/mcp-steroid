@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
+import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import javax.xml.parsers.DocumentBuilderFactory
 
 data class SurefireClassResult(
@@ -304,25 +305,28 @@ class ArenaVerifier(
         hashTestFiles(extractPatchFilePaths(testPatch))
 
     /**
-     * Run the WHOLE test suite and index every surefire report — the pre-agent baseline of what already
-     * passes, and the post-agent state to compare it against.
+     * Run the WHOLE test suite in [dir] and index every surefire report.
      *
      * `-fae` plus `maven.test.failure.ignore` are what make the snapshot complete: without them Maven
      * stops at the first module whose tests fail, so every later module would look "absent" rather than
      * "green", and a pre-existing failure in an early module would hide the whole reactor.
      */
-    fun fullSuiteSnapshot(projectJdkVersion: String, label: String): FullSuiteSnapshot {
+    fun fullSuiteSnapshot(
+        projectJdkVersion: String,
+        label: String,
+        dir: String = projectDir,
+    ): FullSuiteSnapshot {
         val javaHome = resolveJavaHome(projectJdkVersion)
-        val mavenCommand = resolveMavenCommand()
-        cleanSurefireReports()
+        val mavenCommand = resolveMavenCommand(dir)
+        cleanSurefireReports(dir)
         val mvn = bash(
-            "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand test " +
+            "set -o pipefail; cd '$dir' && JAVA_HOME='$javaHome' $mavenCommand test " +
                 "-fae -Dmaven.test.failure.ignore=true -Dsurefire.failIfNoSpecifiedTests=false " +
                 "-Dspotless.check.skip=true 2>&1 | tail -200",
             timeoutSeconds = 2_400,
             description = "Arena $label full-suite snapshot",
         )
-        val perClass = parseSurefireSuiteIndex(readSurefireIndex())
+        val perClass = parseSurefireSuiteIndex(readSurefireIndex(dir))
         // A harness timeout does not throw — it returns exit=-1 with this marker on stderr. Left
         // undetected it would look like a completed suite that simply reported fewer classes.
         val timedOut = mvn.stderr.contains("Terminated by timeout")
@@ -336,11 +340,50 @@ class ArenaVerifier(
                     "that finished. Regression counts derived from it are a lower bound, not a clean zero."
             )
         }
+        if (perClass.isEmpty()) {
+            System.err.println(
+                "[ARENA-VERIFY] $label full suite produced NO surefire reports at all (Maven " +
+                    "exit=${mvn.exitCode}). Tail:\n${mvn.stdout.takeLast(4_000)}"
+            )
+        }
         return FullSuiteSnapshot(
             perClass = perClass,
             mavenExitCode = mvn.exitCode ?: -1,
             timedOut = timedOut,
         )
+    }
+
+    /**
+     * The regression baseline: the whole suite as it stood at [baseCommit], BEFORE the dataset's test
+     * patch was applied.
+     *
+     * It cannot be taken in the agent's own directory. The applied test patch is the task: its tests
+     * call production code that does not exist yet, so `test-compile` fails there and the suite reports
+     * zero classes — measured on `dpaia__spring__petclinic-27`, where the patched tree yields
+     * `exit=1, 0 classes` and no regression could ever be detected. The pre-patch tree is also the right
+     * oracle on the merits: "did the agent break something" means something that worked in the original
+     * repository.
+     *
+     * Run in a throwaway `git worktree` so the agent's directory keeps its own cold `target/` and is
+     * never left in a half-reverted state if this fails. The worktree is removed either way.
+     */
+    fun baselineSnapshotAtBaseCommit(baseCommit: String, projectJdkVersion: String): FullSuiteSnapshot {
+        val worktree = "/tmp/arena-baseline-worktree"
+        bash(
+            "git -C '$projectDir' worktree remove --force '$worktree' 2>/dev/null; rm -rf '$worktree'; " +
+                "git -C '$projectDir' worktree add --detach '$worktree' '$baseCommit'",
+            timeoutSeconds = 300,
+            description = "Create pre-patch baseline worktree at $baseCommit",
+        ).assertExitCode(0, "create baseline worktree at $baseCommit")
+        try {
+            return fullSuiteSnapshot(projectJdkVersion, label = "pre-agent baseline", dir = worktree)
+        } finally {
+            bash(
+                "git -C '$projectDir' worktree remove --force '$worktree' 2>/dev/null; rm -rf '$worktree'; true",
+                timeoutSeconds = 120,
+                description = "Remove baseline worktree",
+            )
+        }
     }
 
     /**
@@ -357,13 +400,13 @@ class ArenaVerifier(
      * ones, so both are probed. Failing loudly when none resolves is the point: no Maven means the run
      * measured nothing, and a silent 0 is indistinguishable from a real agent failure.
      */
-    private fun resolveMavenCommand(): String {
+    private fun resolveMavenCommand(dir: String = projectDir): String {
         val candidates = listOf(
             "/opt/idea/plugins/maven-plugin/lib/maven3/bin/mvn",
             "/opt/idea/plugins/maven/lib/maven3/bin/mvn",
         )
         val probe = buildString {
-            append("if [ -x '$projectDir/mvnw' ]; then echo './mvnw'; ")
+            append("if [ -x '$dir/mvnw' ]; then echo './mvnw'; ")
             append("elif command -v mvn >/dev/null 2>&1; then echo 'mvn'; ")
             candidates.forEach { append("elif [ -x '$it' ]; then echo '$it'; ") }
             append("fi")
@@ -374,7 +417,7 @@ class ArenaVerifier(
             description = "Resolve arena verification Maven command",
         ).stdout.trim()
         check(resolved.isNotBlank()) {
-            "Arena verification cannot run Maven for $projectDir: no executable ./mvnw wrapper, no `mvn` " +
+            "Arena verification cannot run Maven for $dir: no executable ./mvnw wrapper, no `mvn` " +
                 "on PATH, and no bundled Maven at ${candidates.joinToString(" or ")}. Every FAIL_TO_PASS " +
                 "class would grade 0 and the run would look like an agent failure instead of a missing " +
                 "build tool."
@@ -399,17 +442,17 @@ class ArenaVerifier(
      * Multi-module repos keep reports per module (`<module>/target/surefire-reports`), hence the walk
      * instead of assuming a single root `target/`.
      */
-    private fun cleanSurefireReports() {
+    private fun cleanSurefireReports(dir: String = projectDir) {
         bash(
-            "find '$projectDir' -type d -path '*/target/surefire-reports' -exec rm -rf {} + 2>/dev/null; true",
+            "find '$dir' -type d -path '*/target/surefire-reports' -exec rm -rf {} + 2>/dev/null; true",
             timeoutSeconds = 60,
             description = "Clean stale surefire reports",
         )
     }
 
     /** One `<path>\t<testsuite …>` line per surefire report in the tree — see [parseSurefireSuiteIndex]. */
-    private fun readSurefireIndex(): String = bash(
-        "find '$projectDir' -type f -path '*/target/surefire-reports/TEST-*.xml' 2>/dev/null | " +
+    private fun readSurefireIndex(dir: String = projectDir): String = bash(
+        "find '$dir' -type f -path '*/target/surefire-reports/TEST-*.xml' 2>/dev/null | " +
             "while IFS= read -r f; do printf '%s\\t' \"${'$'}f\"; " +
             "tr '\\n' ' ' < \"${'$'}f\" | grep -o '<testsuite[^>]*>' | head -1; printf '\\n'; done",
         timeoutSeconds = 120,
