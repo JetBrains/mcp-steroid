@@ -72,6 +72,7 @@ class StubMcpSteroidTools(
         DevrigOpenProjectToolHandler(
             bridge = bridge,
             backends = services.devrigBackendService,
+            routing = services.projectRouting,
         )
     }
 

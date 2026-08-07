@@ -13,7 +13,7 @@ const val DEVRIG_DEBUG_FLAG_HELP: String =
     "enable verbose stderr logging (also enabled by the DEVRIG_DEBUG env var)"
 
 /** Help for devrig's own `--json`, stated once and read by both the option declaration and the footer. */
-const val DEVRIG_JSON_FLAG_HELP: String = "emit JSON output where supported"
+const val DEVRIG_JSON_FLAG_HELP: String = "emit one machine-readable JSON document where supported"
 
 /** Help for devrig's own `--out`, stated once and read by both the option declaration and the footer. */
 const val DEVRIG_OUT_FLAG_HELP: String =
@@ -31,7 +31,8 @@ private const val HELP_WIDTH = 100
  * Per tool: a usage line naming every token the parser accepts, the tool's own command synopsis, then one
  * line per accepted flag carrying that flag's own declared synopsis. The trailing footer holds only the
  * facts that belong to no parameter: devrig's own framework flags, split by the scope each one really has
- * (`--debug`/`--json` everywhere, `--out` on the tool commands alone — see [DevrigToolCliktCommand]).
+ * (`--debug` everywhere, `--json` where advertised, `--out` on image-producing tool commands — see
+ * [DevrigToolCliktCommand]).
  * Nothing may be stated there that the command line does not actually do — the footer once advertised a cwd
  * inference of `project_name` that no code performed, and later listed `--out` as universal while every
  * lifecycle verb ignored it.
@@ -43,8 +44,9 @@ fun renderMcpToolsCliSection(tools: List<CliToolSpec>): String = buildString {
         appendToolBlock(tool)
         appendLine()
     }
-    appendLine("  Common CLI flags (devrig's own; accepted by every command, tool and lifecycle alike):")
+    appendLine("  Global CLI flag (accepted by every command, tool and lifecycle alike):")
     appendLine("    --debug       $DEVRIG_DEBUG_FLAG_HELP")
+    appendLine("  Accepted by commands that advertise structured output:")
     appendLine("    --json        $DEVRIG_JSON_FLAG_HELP")
     val imageCommands = tools.filterNot { it.cli.hidden }.filter { it.cli.producesImage }.map { it.cli.name }
     appendLine("  Accepted only by ${imageCommands.joinToString(", ")} — the commands whose result carries an image:")

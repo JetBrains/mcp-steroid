@@ -4,6 +4,11 @@ package com.jonnyzzz.mcpSteroid.devrig
 import com.jonnyzzz.mcpSteroid.aiAgents.StdioMcpCommand
 import java.nio.file.Path
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 
 /**
@@ -39,6 +44,15 @@ class InstallConfigCommandTest {
         assertContains(text, "gemini mcp add --type stdio --scope user --trust mcp-steroid $launcherPath mcp")
         // The automatic path stays advertised next to the manual one.
         assertContains(text, "devrig install claude|codex|gemini")
+    }
+
+    @Test
+    fun `config JSON is one structured document with tokenized agent commands`() {
+        val root = Json.parseToJsonElement(renderInstallConfigJson(mcpCommand)).jsonObject
+
+        assertEquals("mcp-steroid", root["serverName"]!!.jsonPrimitive.content)
+        assertEquals(launcherPath, root["mcpServers"]!!.jsonObject["mcp-steroid"]!!.jsonObject["command"]!!.jsonPrimitive.content)
+        assertEquals("claude", root["agentCommands"]!!.jsonObject["claude"]!!.jsonArray.first().jsonPrimitive.content)
     }
 
     @Test

@@ -6,17 +6,19 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ParentDeathWatchdogTest {
     @Test
     fun `fires once after the configured number of consecutive dead readings`() = runTest {
         val fired = AtomicInteger()
         ParentDeathWatchdog(
-            ancestorsAlive = listOf({ false }),
+            ancestorsAlive = listOf { false },
             onParentDeath = { fired.incrementAndGet() },
             pollInterval = 5.seconds,
             confirmations = 2,
@@ -71,7 +73,7 @@ class ParentDeathWatchdogTest {
         val fired = AtomicInteger()
         var alive = false
         ParentDeathWatchdog(
-            ancestorsAlive = listOf({ alive }),
+            ancestorsAlive = listOf { alive },
             onParentDeath = { fired.incrementAndGet() },
             pollInterval = 5.seconds,
             confirmations = 2,

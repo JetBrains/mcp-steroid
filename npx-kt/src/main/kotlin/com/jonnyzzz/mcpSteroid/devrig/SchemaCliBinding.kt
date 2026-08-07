@@ -129,10 +129,8 @@ class SchemaCliBinding private constructor(
      * surfacing one at a time only after every Clikt-`.required()` option is already supplied. By the time
      * this runs those rules are satisfied.
      *
-     * One requirement stays here as a [MissingCliValue]: a required string given empty or whitespace
-     * (`--task_id=`) is *present* to Clikt, so only reading the value back reveals it carries nothing.
-     * Keying it on `paramName` keeps `paramName` → [paramFor] → [InputSchemaParamSpec.cliMissingHint]
-     * reaching the user.
+     * A required string given empty or whitespace (`--task_id=`) is also rejected by a parse-time check.
+     * Keeping that rule in the same finalize pass lets it aggregate with every other missing value.
      */
     fun parsed(): SchemaCliValues {
         val arguments = LinkedHashMap<String, JsonElement>()
@@ -141,10 +139,6 @@ class SchemaCliBinding private constructor(
             val spec = bound.spec
             val value = bound.value()
             val path = bound.filePath()
-            if (spec.cliRequired && value.isBlankString()) throw MissingCliValue(
-                "'${spec.name}' must not be blank: pass a non-empty ${spec.cliParamName}",
-                paramName = spec.cliParamName,
-            )
             if (value != null) arguments[spec.name] = value
             if (path != null) fileSources[spec.name] = path
         }
@@ -195,10 +189,11 @@ private class BoundExtra(val option: CliExtraOption, val value: () -> Boolean)
 /**
  * Every CLI name this command will carry, mapped back to its declaring parameter, failing fast on any
  * collision: Clikt keeps one option per name, so two declarations claiming one name would let one
- * silently shadow the other. All four sources of a name take part — a parameter's own flag or positional
- * name, an optional boolean's negative spelling, a file-source flag, and an [CliExtraOption] flag — and
- * they are checked against each other, not only within their own kind. Extra options are not in the
- * returned map: an extra option is not a parameter, so nothing can map back to a spec for it.
+ * silently shadow the other. All sources of a name take part — a parameter's own flag or positional
+ * name, a positional's hidden compatibility flag, an optional boolean's negative spelling, a file-source
+ * flag, and an [CliExtraOption] flag — and they are checked against each other, not only within their own
+ * kind. Extra options are not in the returned map: an extra option is not a parameter, so nothing can map
+ * back to a spec for it.
  */
 private fun cliNames(
     params: List<InputSchemaParamSpec>,
@@ -213,6 +208,9 @@ private fun cliNames(
     }
     for (spec in params) {
         claim(spec.cliParamName, "parameter '${spec.name}'", spec)
+        if (spec.cliPositional) {
+            claim(spec.cliFlag, "the compatibility flag of positional parameter '${spec.name}'", spec)
+        }
         spec.negativeCliFlag?.let { claim(it, "the negative flag of '${spec.name}'", spec) }
         spec.cliFileSource?.let { claim(it.flag, "the file source of '${spec.name}'", spec) }
     }
@@ -230,13 +228,64 @@ private fun bindParam(command: CliktCommand, spec: InputSchemaParamSpec): BoundP
     require(!spec.cliHidden) { "cliHidden parameter '${spec.name}' must never be bound to the CLI" }
     // The parameter's own form is registered first so generated help lists it before the alternative
     // (`--code` above `--code-file`); Clikt renders options in registration order.
-    val value = if (spec.cliPositional) bindPositional(command, spec) else bindOption(command, spec)
+    val value = if (spec.cliPositional) bindPositionalWithCompatibilityFlag(command, spec) else bindOption(command, spec)
     val fileOption = spec.cliFileSource?.let { source ->
         command.option(source.flag, help = source.synopsis, metavar = "PATH").also { command.registerOption(it) }
     }
     val filePath: () -> String? = { fileOption?.value }
     registerRequirednessChecks(command, spec, value, filePath)
     return BoundParam(spec, value, filePath)
+}
+
+/**
+ * Makes the positional the only advertised form while retaining the parameter's former `--name` option
+ * as a hidden compatibility spelling. A schema migration from option to positional is presentation, not
+ * a reason to break existing shell scripts. Both forms still flow through Clikt and the same type
+ * conversion; no second parser or command implementation is involved.
+ */
+private fun bindPositionalWithCompatibilityFlag(
+    command: CliktCommand,
+    spec: InputSchemaParamSpec,
+): () -> JsonElement? {
+    val positional = bindPositional(command, spec, required = false)
+    val compatibilityFlag = bindHiddenValueOption(command, spec)
+    val value = { positional() ?: compatibilityFlag() }
+    command.registerCliParseCheck {
+        val positionalValue = positional()
+        val flagValue = compatibilityFlag()
+        if (positionalValue != null && flagValue != null) {
+            throw UsageError(
+                "give either <${spec.name}> or ${spec.cliFlag} for '${spec.name}', not both",
+                paramName = spec.name,
+            )
+        }
+        if (positionalValue == null && flagValue == null && spec.cliRequired) {
+            throw MissingCliValue(
+                "'${spec.name}' is required: pass <${spec.name}> (the former ${spec.cliFlag} spelling is also accepted)",
+                paramName = spec.name,
+            )
+        }
+    }
+    return value
+}
+
+/** A positional parameter's non-advertised former option spelling, with the same typed conversion. */
+private fun bindHiddenValueOption(command: CliktCommand, spec: InputSchemaParamSpec): () -> JsonElement? {
+    val typed = command.option(spec.cliFlag, hidden = true).typedJson(spec)
+    if (spec.type == "array") {
+        val bound = typed.multiple()
+        command.registerOption(bound)
+        return { bound.value.toJsonArrayOrNull() }
+    }
+    val bound = typed.multiple()
+    command.registerOption(bound)
+    return {
+        if (bound.value.size > 1) throw UsageError(
+            "${spec.cliFlag} was given ${bound.value.size} times but takes a single value",
+            paramName = spec.name,
+        )
+        bound.value.singleOrNull()
+    }
 }
 
 /**
@@ -261,7 +310,7 @@ private fun registerRequirednessChecks(
 ) {
     val fileSource = spec.cliFileSource
     if (fileSource != null) {
-        command.registerOptionGroup(ParseTimeCheckGroup {
+        command.registerCliParseCheck {
             val v = value()
             val path = filePath()
             if (v != null && path != null) throw UsageError(
@@ -272,16 +321,24 @@ private fun registerRequirednessChecks(
                 "'${spec.name}' is required: pass ${spec.cliParamName} or ${fileSource.flag}",
                 paramName = spec.cliParamName,
             )
-        })
+        }
     }
     val negativeFlag = spec.negativeCliFlag
     if (negativeFlag != null && spec.cliRequired) {
-        command.registerOptionGroup(ParseTimeCheckGroup {
+        command.registerCliParseCheck {
             if (value() == null) throw MissingCliValue(
                 "'${spec.name}' is required: pass ${spec.cliParamName} for true or $negativeFlag for false",
                 paramName = spec.cliParamName,
             )
-        })
+        }
+    }
+    if (spec.cliRequired) {
+        command.registerCliParseCheck {
+            if (value().isBlankString()) throw MissingCliValue(
+                "'${spec.name}' must not be blank: pass a non-empty ${spec.cliParamName}",
+                paramName = spec.cliParamName,
+            )
+        }
     }
 }
 
@@ -299,6 +356,11 @@ private class ParseTimeCheckGroup(private val check: () -> Unit) : ParameterGrou
     override val groupHelp: String? = null
     override fun finalize(context: Context, invocationsByOption: Map<Option, List<Invocation>>) = check()
     override fun postValidate(context: Context) {}
+}
+
+/** Register a validation in Clikt's aggregate finalize pass without adding anything to rendered help. */
+fun CliktCommand.registerCliParseCheck(check: () -> Unit) {
+    registerOptionGroup(ParseTimeCheckGroup(check))
 }
 
 private fun bindExtra(command: CliktCommand, option: CliExtraOption): BoundExtra =
@@ -361,14 +423,18 @@ private fun bindOption(command: CliktCommand, spec: InputSchemaParamSpec): () ->
     }
 }
 
-private fun bindPositional(command: CliktCommand, spec: InputSchemaParamSpec): () -> JsonElement? {
+private fun bindPositional(
+    command: CliktCommand,
+    spec: InputSchemaParamSpec,
+    required: Boolean = spec.cliRequired,
+): () -> JsonElement? {
     val typed = command.argument(spec.name, help = spec.cliSynopsis).typedJson(spec)
     if (spec.type == "array") {
-        val bound = typed.multiple(required = spec.cliRequired)
+        val bound = typed.multiple(required = required)
         command.registerArgument(bound)
         return { bound.value.toJsonArrayOrNull() }
     }
-    if (spec.cliRequired) {
+    if (required) {
         command.registerArgument(typed)
         return { typed.value }
     }

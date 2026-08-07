@@ -56,7 +56,9 @@ class BackendCommandDownloadOutputTest {
         val exitCode = runBackendDownloadCommand(
             out = PrintStream(output, true, Charsets.UTF_8),
             homePaths = homePaths,
-            command = DevrigCommand.DevrigCommandBackendDownload(id = "idea-ultimate"),
+            id = "idea-ultimate",
+            version = null,
+            json = false,
             backendService = DownloadOnlyBackendService(result),
         )
 

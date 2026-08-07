@@ -113,7 +113,7 @@ class IdeProjectMonitorServiceTest {
 
         val ide = waitForValue(10.seconds.inWholeMilliseconds) {
             monitor.stateSnapshot().firstOrNull {
-                it.ide.pid == ourPid && it.projects.isNotEmpty()
+                it.ide.processId == ourPid && it.projects.isNotEmpty()
             }
         }
 

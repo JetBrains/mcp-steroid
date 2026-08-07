@@ -358,7 +358,7 @@ class InstallCommandTest {
         val stdout = ByteArrayOutputStream()
         val stderr = ByteArrayOutputStream()
         val exitCode = runInstallCheckCommand(
-            command = DevrigCommand.DevrigCommandInstall(agent, check = true),
+            agent = agent,
             mcpCommand = mcpCommand,
             out = PrintStream(stdout, true, Charsets.UTF_8),
             err = PrintStream(stderr, true, Charsets.UTF_8),
@@ -398,7 +398,7 @@ class InstallCommandTest {
         val stderr = ByteArrayOutputStream()
         val thrown = try {
             runInstallCommand(
-                command = DevrigCommand.DevrigCommandInstall(AiAgentCli.CLAUDE),
+                agent = AiAgentCli.CLAUDE,
                 mcpCommand = mcpCommand,
                 out = PrintStream(stdout, true, Charsets.UTF_8),
                 err = PrintStream(stderr, true, Charsets.UTF_8),
@@ -413,15 +413,15 @@ class InstallCommandTest {
     }
 
     @Test
-    fun `install and check propagate the typed missing-CLI exception to runCli's central handler`() {
-        // The friendly translation lives in runCli (PR #397 review: one handler up the stack, the
+    fun `install and check propagate the typed missing-CLI exception to the CLI invocation handler`() {
+        // The friendly translation lives in DevrigCliInvocation (PR #397 review: one handler up the stack, the
         // ManagedBackend*Exception pattern) — the pure command functions must PROPAGATE the typed
         // exception untouched, never swallow it.
         val stdout = ByteArrayOutputStream()
         val stderr = ByteArrayOutputStream()
         assertFailsWith<com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException> {
             runInstallCommand(
-                command = DevrigCommand.DevrigCommandInstall(AiAgentCli.CLAUDE),
+                agent = AiAgentCli.CLAUDE,
                 mcpCommand = mcpCommand,
                 out = PrintStream(stdout, true, Charsets.UTF_8),
                 err = PrintStream(stderr, true, Charsets.UTF_8),
@@ -430,7 +430,7 @@ class InstallCommandTest {
         }
         assertFailsWith<com.jonnyzzz.mcpSteroid.aiAgents.AgentCliNotLaunchableException> {
             runInstallCheckCommand(
-                command = DevrigCommand.DevrigCommandInstall(AiAgentCli.CLAUDE, check = true),
+                agent = AiAgentCli.CLAUDE,
                 mcpCommand = mcpCommand,
                 out = PrintStream(stdout, true, Charsets.UTF_8),
                 err = PrintStream(stderr, true, Charsets.UTF_8),
@@ -462,7 +462,7 @@ class InstallCommandTest {
         val stdout = ByteArrayOutputStream()
         val stderr = ByteArrayOutputStream()
         val exitCode = runInstallCommand(
-            command = DevrigCommand.DevrigCommandInstall(agent),
+            agent = agent,
             mcpCommand = mcpCommand,
             out = PrintStream(stdout, true, Charsets.UTF_8),
             err = PrintStream(stderr, true, Charsets.UTF_8),

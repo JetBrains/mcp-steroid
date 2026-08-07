@@ -65,7 +65,12 @@
             serviceInterface="com.jonnyzzz.mcpSteroid.server.PromptsContextHandler"
             serviceImplementation="com.jonnyzzz.mcpSteroid.server.PromptsContextHandlerIJ"/>
 
-        <!-- Update checker notification group -->
+        <!-- The plugin's single notification group: plugin-update notifications, the once-per-run devrig
+             promotion, and devrig-install results and failures. Plain BALLOON on purpose (owner call):
+             every message here may auto-hide — a balloon is a nudge, and anything missed stays reachable
+             in the Notifications tool window. The id predates the merge (it was the update checker's) and
+             is kept stable so users' notification settings survive. Must match
+             MCP_STEROID_NOTIFICATION_GROUP in notifications/McpSteroidNotifications.kt. -->
         <notificationGroup id="jonnyzzz.mcp.steroid.updates"
                            displayType="BALLOON"/>
 
@@ -104,6 +109,13 @@
         <!-- Update checker registry keys -->
         <registryKey key="mcp.steroid.updates.enabled" defaultValue="true"
             description="Enable automatic update checks"/>
+
+        <!-- Devrig promotion: the once-per-IDE-run, delayed, non-sticky offer to install devrig when it
+             is missing. Off by default: a startup balloon is not ours to take uninvited, and the settings
+             page carries the same offer with room to explain it. The key id predates the (since deleted)
+             status-bar widget and stays stable so machines that already flipped it keep their choice. -->
+        <registryKey key="mcp.steroid.devrig.widget.enabled" defaultValue="false"
+            description="Show the once-per-run startup offer to install devrig"/>
 
         <!-- Storage folder configuration -->
         <registryKey key="mcp.steroid.storage.path" defaultValue=""

@@ -12,14 +12,18 @@ class OpenProjectParamsTest {
     fun `backendName defaults to null and decodes when absent`() {
         val decoded = McpJson.decodeFromString(
             OpenProjectParams.serializer(),
-            """{"projectPath":"/tmp/p","trustProject":true}""",
+            """{"projectPath":"/tmp/p","taskId":"t","reason":"r","trustProject":true}""",
         )
         assertNull(decoded.backendName)
+        assertEquals("t", decoded.taskId)
+        assertEquals("r", decoded.reason)
     }
 
     @Test
     fun `backendName round-trips when present`() {
-        val params = OpenProjectParams(projectPath = "/tmp/p", trustProject = false, backendName = "pid-1234")
+        val params = OpenProjectParams(
+            projectPath = "/tmp/p", taskId = "t", reason = "r", trustProject = false, backendName = "pid-1234",
+        )
         val json = McpJson.encodeToString(OpenProjectParams.serializer(), params)
         val decoded = McpJson.decodeFromString(OpenProjectParams.serializer(), json)
         assertEquals("pid-1234", decoded.backendName)
@@ -27,7 +31,9 @@ class OpenProjectParamsTest {
 
     @Test
     fun `backendName null round-trips (key omitted by explicitNulls=false)`() {
-        val params = OpenProjectParams(projectPath = "/tmp/p", trustProject = true, backendName = null)
+        val params = OpenProjectParams(
+            projectPath = "/tmp/p", taskId = "t", reason = "r", trustProject = true, backendName = null,
+        )
         val json = McpJson.encodeToString(OpenProjectParams.serializer(), params)
         // McpJson has explicitNulls=false, so the key is omitted, keeping the wire additive.
         assertFalse(json.contains("backendName"))

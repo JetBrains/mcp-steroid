@@ -54,7 +54,7 @@ class BackendCommandJsonRenderTest {
         val ideInfo = IdeInfo(name = name, version = version, build = build)
         val pluginInfo = PluginInfo(id = "com.jonnyzzz.mcp-steroid", name = "MCP Steroid", version = "0.0.0-test")
         return DiscoveredIde(
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
             bridgeHeaders = mapOf("Authorization" to "Bearer test-token"),
             ide = ideInfo,
@@ -128,7 +128,7 @@ class BackendCommandJsonRenderTest {
     // -------------------------- mcpSteroidBackends -------------------------
 
     @Test
-    fun `mcpSteroidBackends entry has backend_name displayName build and pid`() {
+    fun `mcpSteroidBackends entry uses backend_name and retains pid for compatibility`() {
         val ide = markerIde(pid = 1234L, build = "IU-253.21581.142")
         val root = render(s1 = listOf(ide))
         val backends = root["mcpSteroidBackends"]!!.jsonArray
@@ -136,9 +136,9 @@ class BackendCommandJsonRenderTest {
         val entry = backends.single().jsonObject
 
         assertEquals(backendNameForMarker(1234L, "IU-253.21581.142"), entry["backend_name"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(1234L, entry["pid"]?.jsonPrimitive?.long)
         assertEquals(markerBackendDisplayName(ide), entry["displayName"]?.jsonPrimitive?.contentOrNull)
         assertEquals("IU-253.21581.142", entry["build"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(1234L, entry["pid"]?.jsonPrimitive?.long)
     }
 
     @Test

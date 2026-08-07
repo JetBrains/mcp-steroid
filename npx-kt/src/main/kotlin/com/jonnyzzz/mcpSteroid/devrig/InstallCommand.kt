@@ -102,10 +102,11 @@ fun renderInstallDevrigInfo(launcherPath: Path): String = buildString {
 }
 
 fun DevrigServices.runInstallCommand(
-    command: DevrigCommand.DevrigCommandInstall,
+    agent: AiAgentCli,
+    check: Boolean,
     runner: AiAgentCliRunner = ProcessAiAgentCliRunner(),
 ): Int {
-    if (command.check) {
+    if (check) {
         // `--check` is the read-only dry-run of install: it writes NOTHING — no launcher, no agent
         // config. The canonical command it compares against is the same stable wrapper install would
         // register, computed as a pure path (DevrigUserLauncher.invocation never touches disk), so the
@@ -114,7 +115,7 @@ fun DevrigServices.runInstallCommand(
         // stat, no write. Without it the registered command would point at a path that does not exist.
         val launcherFile = DevrigUserLauncher.path(homePaths)
         return runInstallCheckCommand(
-            command = command,
+            agent = agent,
             mcpCommand = DevrigUserLauncher.invocation(homePaths, listOf("mcp")),
             missingLauncherPath = launcherFile.takeUnless { it.isRegularFile() },
             out = mcpStdout,
@@ -137,7 +138,7 @@ fun DevrigServices.runInstallCommand(
         return 64
     }
     return runInstallCommand(
-        command = command,
+        agent = agent,
         mcpCommand = DevrigUserLauncher.invocation(homePaths, listOf("mcp")),
         out = mcpStdout,
         err = System.err,
@@ -161,13 +162,12 @@ fun DevrigServices.runInstallCommand(
  * server under a different name (see issues #84/#86).
  */
 fun runInstallCommand(
-    command: DevrigCommand.DevrigCommandInstall,
+    agent: AiAgentCli,
     mcpCommand: StdioMcpCommand,
     out: PrintStream,
     err: PrintStream,
     runner: AiAgentCliRunner,
 ): Int {
-    val agent = command.agent
     val renderedCommand = "${mcpCommand.command} ${mcpCommand.args.joinToString(" ")}"
 
     out.println("Installing devrig as the '$DEVRIG_MCP_SERVER_NAME' MCP server for ${agent.displayName}.")
@@ -179,7 +179,7 @@ fun runInstallCommand(
         "'$DEVRIG_MCP_SERVER_NAME' registration (user scope).")
     out.println("  - ${agent.displayName} will launch this command to start it:")
     out.println("      $renderedCommand")
-    out.println("  - It points at the stable ~/.mcp-steroid/bin launcher, so it survives devrig upgrades")
+    out.println("  - It points at the stable ~/$DEVRIG_HOME_DIR_NAME/bin launcher, so it survives devrig upgrades")
     out.println("    without re-registering.")
     out.println()
     out.println("Re-running install is safe — existing devrig entries are replaced.")
@@ -247,9 +247,8 @@ fun runInstallCommand(
 /**
  * jonnyzzz/mcp-steroid#342: when the agent CLI is not installed (or not spawnable — e.g. a Windows
  * .cmd npm shim), the runner throws [AgentCliNotLaunchableException]. That must read as guidance,
- * never a raw stacktrace. Handled centrally in [runCli]'s typed-exception catches — the same
- * pattern as ManagedBackend*Exception — so every command that spawns an agent CLI gets the same
- * treatment. Only the typed launch failure is translated; other IOExceptions (temp files, output
+ * never a raw stacktrace. [DevrigCliInvocation.execute] translates it for every command that spawns
+ * an agent CLI. Only the typed launch failure is translated; other IOExceptions (temp files, output
  * reads) are infrastructure errors and keep propagating to the generic handler.
  */
 fun reportAgentCliNotLaunchable(e: AgentCliNotLaunchableException, err: PrintStream): Int {
@@ -277,7 +276,7 @@ private fun emitAgentOutput(result: AiAgentCliResult, err: PrintStream) {
  * (always, so the re-add is clean even if the listing missed it), plus the legacy name when the agent's
  * list could not be read.
  */
-internal fun installRemovalNames(detected: List<McpServerRef>, listReadable: Boolean): Set<String> {
+fun installRemovalNames(detected: List<McpServerRef>, listReadable: Boolean): Set<String> {
     val names = LinkedHashSet<String>()
     detected.forEach { names += it.name }
     names += DEVRIG_MCP_SERVER_NAME
@@ -326,7 +325,7 @@ fun DevrigServices.collectIdeReachability(): IdeReachabilityReport {
  * reads markers/ports on demand, and the check writes nothing — two concurrent `--check` runs are safe.
  */
 fun runInstallCheckCommand(
-    command: DevrigCommand.DevrigCommandInstall,
+    agent: AiAgentCli,
     mcpCommand: StdioMcpCommand,
     out: PrintStream,
     err: PrintStream,
@@ -335,7 +334,6 @@ fun runInstallCheckCommand(
     /** Non-null = the devrig launcher does not exist yet at this path (reported as a diagnostic). */
     missingLauncherPath: Path? = null,
 ): Int {
-    val agent = command.agent
     val renderedCommand = "${mcpCommand.command} ${mcpCommand.args.joinToString(" ")}"
 
     out.println(
@@ -427,4 +425,3 @@ private fun reportIdeReachability(out: PrintStream, err: PrintStream, probe: () 
             out.println("  ${report.reachable} of ${report.discovered} discovered backend(s) reachable.")
     }
 }
-

@@ -211,7 +211,7 @@ class DevrigListToolHandlersTest {
         // Each window's project name is rewritten to the devrig-exposed form of ITS OWN backend's route.
         for (window in response.windows) {
             val pid = if (window.backendName == name42) 42L else 43L
-            val route = routing.routes().single { it.route.pid == pid }
+            val route = routing.routes().single { it.route.processId == pid }
             assertEquals(route.exposedProjectName, window.projectName)
         }
         // #155: backends[] resolves both referenced backend_names — referenced-only, sorted, with the
@@ -261,7 +261,7 @@ class DevrigListToolHandlersTest {
         port: Int = 0,
         token: String = "token-$pid",
     ): DiscoveredIde = DiscoveredIde(
-        pid = pid,
+        processId = pid,
         rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:$port/mcp").rpcBaseUrl,
         bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
         ide = IdeInfo("IntelliJ IDEA", "2026.1", build),

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 class DevrigOpenProjectToolHandler(
     private val bridge: DevrigToolBridgeClient,
     private val backends: DevrigBackendService,
+    private val routing: DevrigProjectRoutingService,
 ) : OpenProjectToolHandler {
     override suspend fun handleOpenProject(
         openProjectParams: OpenProjectParams,
@@ -22,7 +23,8 @@ class DevrigOpenProjectToolHandler(
             requested != null -> candidates.firstOrNull { it.backendName == requested }
                 ?: return ToolCallResult.errorResult(unknownBackendMessage(requested, candidates))
             candidates.size == 1 -> candidates.single()
-            else -> return ToolCallResult.errorResult(chooseBackendMessage(candidates))
+            else -> existingProjectCandidate(openProjectParams.projectPath, candidates)
+                ?: return ToolCallResult.errorResult(chooseBackendMessage(candidates))
         }
         val ide = try {
             backends.ensureBackendRunning(chosen, progress = callProgress)
@@ -33,9 +35,24 @@ class DevrigOpenProjectToolHandler(
         return bridge.callTool(ide, "steroid_open_project", callProgress) {
             put("project_path", openProjectParams.projectPath)
             put("trust_project", openProjectParams.trustProject)
-            put("task_id", "open-project")
-            put("reason", "Open project through devrig")
+            put("task_id", openProjectParams.taskId)
+            put("reason", openProjectParams.reason)
         }
+    }
+
+    private fun existingProjectCandidate(
+        projectPath: String,
+        candidates: List<BackendCandidate>,
+    ): BackendCandidate? {
+        val canonicalPath = DevrigProjectRoutingService.canonicalProjectHome(projectPath)
+        val backendName = routing.routes()
+            .asSequence()
+            .filter { it.projectPath == canonicalPath }
+            .map { it.exposedBackendName }
+            .distinct()
+            .singleOrNull()
+            ?: return null
+        return candidates.singleOrNull { it.backendName == backendName }
     }
 }
 

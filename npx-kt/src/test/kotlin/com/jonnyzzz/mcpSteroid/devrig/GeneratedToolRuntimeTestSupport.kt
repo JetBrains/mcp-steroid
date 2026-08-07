@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Path
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -31,8 +32,8 @@ class FakeMcpSteroidTools : McpSteroidTools() {
         type.cast(handlers[type] ?: error("no test double is registered for handler ${type.name}"))
 }
 
-/** Everything one dispatched command produced: its exit code and everything it wrote to devrig's stdout. */
-data class GeneratedToolRun(val exit: Int, val stdout: String) {
+/** Everything one dispatched command produced, with stdout and stderr kept separate. */
+data class GeneratedToolRun(val exit: Int, val stdout: String, val stderr: String) {
     /** The `--json` envelope parsed back, for asserting its shape rather than its exact formatting. */
     fun envelope(): JsonObject = Json.parseToJsonElement(stdout).jsonObject
 }
@@ -41,9 +42,9 @@ data class GeneratedToolRun(val exit: Int, val stdout: String) {
  * Parses [args] and asserts the invocation reached a generated tool command, so a test that mistypes a
  * flag fails on the parse rather than silently asserting against a help or parse-error command.
  */
-fun parseRunTool(vararg args: String): DevrigCommand.RunTool {
+fun parseRunTool(vararg args: String): GeneratedToolInvocation {
     val command = parseDevrigCommand(arrayOf(*args))
-    return command as? DevrigCommand.RunTool
+    return command.generatedTool
         ?: error("'devrig ${args.joinToString(" ")}' did not parse into a generated tool command, but into $command")
 }
 
@@ -54,7 +55,7 @@ fun parseRunTool(vararg args: String): DevrigCommand.RunTool {
  */
 fun runGeneratedToolForTest(
     home: Path,
-    command: DevrigCommand.RunTool,
+    command: GeneratedToolInvocation,
     tools: McpSteroidTools,
     stdin: ByteArray = ByteArray(0),
 ): GeneratedToolRun = withDevrigServices(home, stdin) { runGeneratedToolCommand(command, tools) }
@@ -70,8 +71,11 @@ fun runGeneratedToolForTest(
  * pid marker or one `/windows` fetch failing would turn a green CI test red on that machine. With no route
  * the listers answer from a known table and open no connection.
  */
-fun runCliForToolTest(home: Path, command: DevrigCommand): GeneratedToolRun =
-    withDevrigServices(home, ByteArray(0)) { runCli(command) }
+fun runCliForToolTest(home: Path, command: DevrigCliInvocation): GeneratedToolRun =
+    withDevrigServices(home, ByteArray(0)) services@{ runBlocking { command.execute(this@services) } }
+
+fun runCliForToolTest(home: Path, command: GeneratedToolInvocation): GeneratedToolRun =
+    withDevrigServices(home, ByteArray(0)) { runGeneratedToolCommand(command) }
 
 private fun withDevrigServices(
     home: Path,
@@ -79,8 +83,11 @@ private fun withDevrigServices(
     block: DevrigServices.() -> Int,
 ): GeneratedToolRun {
     val out = ByteArrayOutputStream()
+    val err = ByteArrayOutputStream()
+    val originalErr = System.err
     val lifetime = CloseableStackHost()
     val exit = try {
+        System.setErr(PrintStream(err, true, Charsets.UTF_8))
         DevrigServices(
             lifetime = lifetime,
             homePaths = HomePaths(home).also { it.mkdirsAll() },
@@ -89,7 +96,15 @@ private fun withDevrigServices(
             ideStateProvider = { emptyList() },
         ).block()
     } finally {
-        lifetime.closeAllStacks()
+        try {
+            lifetime.closeAllStacks()
+        } finally {
+            System.setErr(originalErr)
+        }
     }
-    return GeneratedToolRun(exit, out.toString(Charsets.UTF_8).replace("\r\n", "\n"))
+    return GeneratedToolRun(
+        exit,
+        out.toString(Charsets.UTF_8).replace("\r\n", "\n"),
+        err.toString(Charsets.UTF_8).replace("\r\n", "\n"),
+    )
 }

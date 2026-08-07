@@ -91,7 +91,7 @@ class IdeProjectMonitorService(
             }
         }.execute { response ->
             if (!response.status.value.let { it in 200..299 }) {
-                throw IllegalStateException("HTTP ${response.status.value} from ${ide.label}")
+                throw IllegalStateException("HTTP ${response.status.value} from backend ${ide.backendName}")
             }
 
             val response = response.bodyAsText()

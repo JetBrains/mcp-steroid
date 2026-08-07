@@ -109,11 +109,12 @@ class ExecuteFeedbackToolSpec(val handler: () -> ExecuteFeedbackToolHandler) : M
         if (explanation.isBlank()) {
             return ToolCallResult.errorResult("explanation is required (free-form: what worked, what didn't, what you'll try next)")
         }
-        // execution_id is optional — noted for context but value is not currently used
+        val executionId = context[executionId]
         val code = context[code]
 
         val params = FeedbackParams(
             taskId = taskId,
+            executionId = executionId,
             successRating = successRating,
             explanation = explanation,
             code = code,
@@ -127,6 +128,7 @@ class ExecuteFeedbackToolSpec(val handler: () -> ExecuteFeedbackToolHandler) : M
 @Serializable
 data class FeedbackParams(
     val taskId: String,
+    val executionId: String? = null,
     val successRating: Double,
     val explanation: String?,
     val code: String?,

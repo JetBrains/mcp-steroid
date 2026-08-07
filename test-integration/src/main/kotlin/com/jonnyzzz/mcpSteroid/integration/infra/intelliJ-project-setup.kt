@@ -18,13 +18,13 @@ package com.jonnyzzz.mcpSteroid.integration.infra
  * 5. Trigger build tool import (Maven/Gradle/NONE)
  * 6. Wait for import + indexing to complete
  * 7. Install IDE plugins (after import so dependency detection works)
- * 8. Compile project (testClasses/test-compile) — optional
+ * 8. Compile every imported module through IntelliJ — optional
  * 9. Open file + show tool windows
  *
  * @param timeoutMillis Max time for initial IDE window wait
  * @param projectJdkVersion JDK version to set as project SDK ("21", "17", etc.), null = skip
  * @param buildSystem Build system for import/compile. NONE = IntelliJ auto-detect only
- * @param compileProject Whether to run compilation (testClasses/test-compile) before returning
+ * @param compileProject Whether to compile every imported module through IntelliJ before returning
  */
 fun IntelliJContainer.waitForProjectReady(
     timeoutMillis: Long = System.getProperty("test.integration.project.ready.timeout.ms")?.toLongOrNull() ?: 600_000L,
@@ -95,9 +95,8 @@ fun IntelliJContainer.waitForProjectReady(
 
     // Step 8: Compile project (optional)
     if (compileProject) {
-        val compileWith = systemsToImport.firstOrNull() ?: BuildSystem.NONE
-        console.writeStep(text = "Compiling project ($compileWith)...")
-        mcpSteroid.mcpCompileProject(compileWith, projectJdkVersion)
+        console.writeStep(text = "Compiling project through IntelliJ...")
+        mcpSteroid.mcpCompileProject()
         console.writeSuccess("Compilation complete")
     }
 

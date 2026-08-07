@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
+import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import com.jonnyzzz.mcpSteroid.aiAgents.StdioMcpCommand
 import java.nio.file.Path
 
@@ -18,24 +19,95 @@ import java.nio.file.Path
 object DevrigUserLauncher {
     /** The user-facing launcher file for [windows]: `~/.mcp-steroid/bin/devrig` or `…/devrig.cmd`. */
     fun path(home: HomePaths, windows: Boolean = isWindows()): Path =
-        home.binDir.resolve(if (windows) "devrig.cmd" else "devrig").toAbsolutePath().normalize()
+        home.binDir.resolve(devrigLauncherFileName(windows)).toAbsolutePath().normalize()
 
     /**
-     * OS-correct command to run the user launcher with [args]. Windows runs the `.cmd` through
-     * `cmd.exe /d /c` (a `.cmd` is not directly executable as a process image, and `/d` skips any
-     * AutoRun script); POSIX execs the script directly. **No JAVA_HOME** — the launcher exports
-     * `DEVRIG_JAVA_HOME` for the JDK devrig runs under.
+     * OS-correct stdio command to run the user launcher with [args] (default `mcp`, the stdio MCP
+     * server verb). Windows runs the `.cmd` through `cmd.exe /d /c` — a `.cmd` is not directly
+     * executable as a process image, and `/d` skips any AutoRun script. The launcher path is quoted
+     * because `cmd.exe` parses everything after `/c` as ONE command line, so an unquoted
+     * `C:\Users\First Last\…` splits and the server never starts. POSIX execs the script directly.
+     * **No JAVA_HOME** — the launcher exports `DEVRIG_JAVA_HOME` for the JDK devrig runs under.
      */
-    fun invocation(home: HomePaths, args: List<String>, windows: Boolean = isWindows()): StdioMcpCommand {
-        val launcher = path(home, windows).toString()
+    fun invocation(home: HomePaths, args: List<String> = listOf("mcp"), windows: Boolean = isWindows()): StdioMcpCommand {
+        val launcherPath = path(home, windows).toString()
         return if (windows) {
-            // cmd.exe parses everything after `/c` as ONE command line, so the launcher path must be
-            // quoted or a `%USERPROFILE%` with a space (e.g. C:\Users\First Last) splits and the server
-            // never starts.
-            val line = (listOf("\"$launcher\"") + args).joinToString(" ")
-            StdioMcpCommand(command = "cmd.exe", args = listOf("/d", "/c", line))
+            StdioMcpCommand(
+                command = "cmd.exe",
+                args = listOf("/d", "/c", (listOf("\"$launcherPath\"") + args).joinToString(" ")),
+            )
         } else {
-            StdioMcpCommand(command = launcher, args = args)
+            StdioMcpCommand(command = launcherPath, args = args)
         }
     }
+}
+
+/**
+ * The stable launcher's file name for this OS: a `.cmd` shim on Windows (so cmd.exe and PowerShell resolve
+ * it via PATHEXT), a plain `devrig` script on POSIX.
+ */
+fun devrigLauncherFileName(windows: Boolean): String = if (windows) "devrig.cmd" else "devrig"
+
+/**
+ * The stable launcher path rendered for humans.
+ *
+ * Display policy for every user-visible devrig path: the **real absolute home** (never `~`), joined with
+ * the OS-native separator — `C:\Users\me\.mcp-steroid\bin\devrig.cmd` on Windows,
+ * `/home/me/.mcp-steroid/bin/devrig` on POSIX. `~` is a lie on Windows (neither cmd.exe nor an
+ * `mcp.json`-reading client expands it), and a copy button must put exactly what is displayed on the
+ * clipboard — so the display IS the clipboard content, on every OS.
+ *
+ * A string renderer, not [DevrigUserLauncher.path], on purpose: the display must show Windows
+ * separators even when rendered on a POSIX JVM (tests, docs), which `java.nio.file.Path` cannot do.
+ */
+fun devrigLauncherDisplayPath(userHome: String, windows: Boolean): String =
+    displayPath(userHome, windows, DEVRIG_HOME_DIR_NAME, "bin", devrigLauncherFileName(windows))
+
+/**
+ * The one-line command that runs devrig as a stdio MCP server — what a user types into an MCP client that
+ * asks for a command line instead of reading an `mcpServers` file.
+ *
+ * No PowerShell call operator here, unlike [devrigInstallAgentCommandLine]: this line goes into a
+ * client's own command field, and the client spawns the process from it directly — a leading `&` would
+ * be read as part of the program path, not shell syntax.
+ */
+fun devrigMcpCommandLine(userHome: String, windows: Boolean): String =
+    devrigCommandLine(userHome, windows, "mcp")
+
+/**
+ * The one-line command that registers devrig with [agent]'s CLI — `<launcher> install <agent>`, the
+ * canonical, idempotent registration verb (issue #399: re-running it repairs and consolidates, never
+ * duplicates). This is what the IDE settings page displays for the user to run in a terminal.
+ *
+ * A terminal command, so a quoted Windows launcher takes PowerShell's call operator:
+ * `& "C:\Users\First Last\…\devrig.cmd" install claude`. To PowerShell — the default shell of Windows
+ * Terminal and of the IDE's terminal — a quoted leading token is a string expression, not a command, so
+ * the bare quoted form is a parse error exactly where users will paste this. The `&` form does not run
+ * in cmd.exe, but no single form serves both shells once the path holds a space, so the default shell
+ * wins; the space-free launcher (the overwhelmingly common home) stays unquoted, which every shell runs.
+ */
+fun devrigInstallAgentCommandLine(userHome: String, windows: Boolean, agent: AiAgentCli): String {
+    val line = devrigCommandLine(userHome, windows, "install ${agent.binary}")
+    return if (windows && line.startsWith("\"")) "& $line" else line
+}
+
+/**
+ * The stable launcher plus [arguments], as one copy-pasteable line. The launcher path follows the
+ * [devrigLauncherDisplayPath] policy (real absolute home, OS-native separators) and is quoted when it
+ * contains a space, because every shell and client splits an unquoted `C:\Users\First Last\…` in two.
+ *
+ * Private: the two blessed verbs above are the whole command-line surface, and each documents its own
+ * quoting semantics (client field vs terminal) — a third caller would have to pick one knowingly.
+ */
+private fun devrigCommandLine(userHome: String, windows: Boolean, arguments: String): String {
+    val launcher = devrigLauncherDisplayPath(userHome, windows)
+    val quoted = if (' ' in launcher) "\"$launcher\"" else launcher
+    return "$quoted $arguments"
+}
+
+private fun displayPath(userHome: String, windows: Boolean, vararg segments: String): String {
+    val separator = if (windows) "\\" else "/"
+    // A Windows home can arrive with forward slashes (a config file, a test) — render it Windows-naturally.
+    val home = (if (windows) userHome.replace('/', '\\') else userHome).trimEnd('/', '\\')
+    return (listOf(home) + segments).joinToString(separator)
 }

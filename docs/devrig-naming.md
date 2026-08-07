@@ -4,12 +4,16 @@ This is the canonical spec for how the **devrig** binary names projects
 and IDEs in every output it produces (CLI text, CLI JSON, devrig stdio
 MCP).
 
+The command grammar, aliases, focused-help behavior, JSON envelope, and direct-tool readiness contract
+live in [`devrig-cli-contract.md`](devrig-cli-contract.md). This document owns only the identifiers and
+routing data carried by those surfaces.
+
 ## Scope
 
 devrig is an **independent binary**. Its output is consumed by:
 
-1. **Humans** reading `devrig backend` / `devrig project` text.
-2. **Scripts** consuming `devrig backend --json` / `devrig project --json`.
+1. **Humans** reading `devrig backend` / `devrig list_projects` text.
+2. **Scripts** consuming `devrig backend --json` / `devrig list_projects --json`.
 3. **AI agents** calling `steroid_list_projects` / `steroid_list_windows`
    over the devrig stdio MCP server (`devrig mcp`).
 
@@ -335,15 +339,26 @@ Installed, not running (startable) (1):
 To download additional backends: devrig backend download …
 ```
 
-Per-backend open projects are listed under `devrig project`, not `devrig backend`.
+Per-backend open projects are listed under `devrig list_projects`, not `devrig backend`.
+`devrig projects` is its compatibility alias; the older singular `devrig project` spelling remains
+accepted, but its former top-level `--json` shape is replaced by the generated envelope below.
 
 The hash suffix is **part of the displayed name**, not a separate
 column. Locator label stays parenthesised.
 
-### `devrig backend --json` / `devrig project --json`
+### `devrig list_projects --json`
+
+`list_projects` is a schema-generated tool command. Like every generated command, it emits the
+single `{tool, command, isError, data}` envelope. Its structured MCP payload is unpacked under
+`.data.content[].json`, so project routing keys are available at
+`.data.content[].json.projects[].project_name` without parsing an escaped JSON string.
+Both `projects` and the legacy `project` alias emit the identical envelope with canonical
+`command: "list_projects"`.
+
+### `devrig backend --json`
 
 All JSON surfaces listed in this document are self-contained:
-`devrig backend --json`, `devrig project --json`, every lifecycle
+`devrig backend --json`, every lifecycle
 subcommand called with `--json`, and the devrig stdio MCP rows carry
 the fields a script needs to drive a follow-up `devrig` command or an
 MCP call. For row-based surfaces, `id` is the canonical reference (the
@@ -437,7 +452,7 @@ same field set where applicable):
 
 | Field | Meaning |
 |---|---|
-| `id` | Exposed project name. Primary key. Same string flows through `steroid_list_projects`'s `ProjectInfo.name` field and MCP tool calls' `project_name` parameter. |
+| `id` | Exposed project name. Primary key. Same string flows through `steroid_list_projects`'s `ListedProject.project_name` field and MCP tool calls' `project_name` parameter. |
 | `originalName` | Raw `Project.name` from the running IntelliJ. Display only. |
 | `path` | Canonical project base path (`Path.of(projectBasePath).toRealPath()`). Same value the hash computes over. Symlinks resolved. |
 | `idePid` | OS PID of the IntelliJ JVM that owns this project row. Same value as the `pid` field on the `mcpSteroidBackends[]` entry referenced by `backend`. Folded into the project hash for debuggability and as a redundancy check against `bootHash`. |
@@ -473,9 +488,9 @@ snapshot is malformed; see the routing-service invariant below.
 
 ### devrig stdio MCP — `steroid_list_projects`
 
-`ProjectInfo.name` returned over the wire is always
-`exposedProjectName`. Implementation: `DevrigListProjectsToolHandler`
-in `StubMcpSteroidTools.kt` (line numbers may shift with refactors).
+`ListedProject.project_name` returned by `steroid_list_projects` is always the exposed routing key;
+`ListedProject.name` remains the raw IntelliJ project name for display only. Implementation:
+`DevrigListProjectsToolHandler` in `StubMcpSteroidTools.kt` (line numbers may shift with refactors).
 
 For `steroid_list_windows`, `DevrigProjectRoutingService.rewriteWindow`
 rewrites **only** `WindowInfo.projectName` to the exposed project name
@@ -493,7 +508,8 @@ and no reverse map.
 Each lifecycle command emits a single JSON document on stdout when
 called with `--json`. All documents share a `tool` envelope
 (`{name, version}`) and use the same naming/ID conventions as
-`backend --json` / `project --json`. No alias fields exist.
+`backend --json`. The generated `list_projects --json` envelope is described above; aliases do not
+change its canonical `command` field.
 
 ### `devrig backend download` (list mode — no id)
 
@@ -696,9 +712,9 @@ top-level invariant this section implements.
 
 A single per-call routine (`rebuildSnapshot()`) constructs devrig's
 live model on demand. It returns an immutable
-`DiscoverySnapshot` with the same shape as the JSON data model
-this spec defines for `devrig backend --json` /
-`devrig project --json`.
+`DiscoverySnapshot` that feeds both JSON projections in this spec:
+the lifecycle-specific `devrig backend --json` document and the generated
+`devrig list_projects --json` `{tool, command, isError, data}` envelope.
 
 `rebuildSnapshot()` runs three pieces in parallel:
 
@@ -889,7 +905,7 @@ MCP call's lifetime (the per-call snapshot cache covers this).
   endpoint exposes raw `project.name`. devrig owns its own naming
   and consumers must pick one transport.
 - **Not human-memorisable.** `projectHash` is opaque. If you need to type
-  a name, use shell completion against `devrig project --json` /
+  a name, use shell completion against `devrig list_projects --json` /
   `devrig backend --json`.
 - **No alias IDs.** The spec defines exactly one id format
   (`<originalName>-<projectHash>`). There is no migration path from a
@@ -1036,4 +1052,5 @@ The invariants above are pinned by:
 
 - `docs/PHILOSOPHY.md` — the design tenets that gate every change in
   this repo.
+- `docs/devrig-cli-contract.md` — the command/help/output contract that carries these names.
 - `docs/ARCHITECTURE.md` — the broader request-flow picture.

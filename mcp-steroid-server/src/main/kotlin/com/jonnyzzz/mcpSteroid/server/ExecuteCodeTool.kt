@@ -82,16 +82,24 @@ data class ExecCodeParams(
     @Transient val executionBackend: ExecutionBackendProvenance? = null,
 )
 
+/** Article URIs a `devrig help execute_code` renders alongside the subcommand's synopsis. */
+val executeCodeGuideUris = listOf(
+    ExecuteCodeToolDescriptionPromptArticle().uri,
+    CodingWithIntelliJContextApiPromptArticle().uri,
+)
+
 /**
  * Handler for the steroid_execute_code MCP tool.
  */
 class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBase() {
     override val name = "steroid_execute_code"
     override val description get() = ExecuteCodeToolDescriptionPromptArticle().readPayload(PromptsContext.Generic)
-    override val cliSynopsis = "run a Kotlin script in the target IDE"
+    override val cliSynopsis = "run Kotlin in the target IDE; quote --code or prefer --code-file"
 
     /** A script can return an image (`logImage`), and a modal-dialog failure attaches one, so `--out` applies. */
     override val cliProducesImage = true
+
+    override val cliGuideUris = executeCodeGuideUris
 
     val projectName = CommonToolParams.projectName().registerToSchema()
 
@@ -112,9 +120,9 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
                 "${CodingWithIntelliJContextApiPromptArticle().uri} — fetch it with " +
                 "steroid_fetch_resource."
         )
-        .cliSynopsis("Kotlin script body to run (omit when using --code-file)")
+        .cliSynopsis("Kotlin script body; shell-safe inline form: --code='println(\"hello\")'")
         .cliMissingHint(
-            "missing code. Pass --code-file=<path> (preferred) or --code=\"...\". Example:\n" +
+            "missing code. Pass --code-file=<path> (preferred) or --code='println(\"hello\")'. Example:\n" +
                 "  devrig execute_code --project_name=\"<key>\" --code-file=repro.kts --task_id=t1 --reason=\"reproduce issue\""
         )
         .string()
@@ -123,13 +131,9 @@ class ExecuteCodeToolSpec(val handler: () -> ExecuteCodeToolHandler) : McpToolBa
         .cliCodeFileSource()
         .registerToSchema()
 
-    val taskId = CommonToolParams.taskId()
-        .cliMissingHint("missing --task_id. Any string works; reuse it across related calls.")
-        .registerToSchema()
+    val taskId = CommonToolParams.taskId().registerToSchema()
 
-    val reason = CommonToolParams.reason()
-        .cliMissingHint("missing --reason. Describe your intent and expected outcome for the audit log.")
-        .registerToSchema()
+    val reason = CommonToolParams.reason().registerToSchema()
 
     private val defaultTimeoutSeconds = 600
     val timeout = InputSchemaElement.param("timeout")

@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.mcp.McpToolBase
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallContext
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.boolean
+import com.jonnyzzz.mcpSteroid.mcp.cliMissingHint
 import com.jonnyzzz.mcpSteroid.mcp.cliSynopsis
 import com.jonnyzzz.mcpSteroid.mcp.description
 import com.jonnyzzz.mcpSteroid.mcp.errorResult
@@ -52,6 +53,10 @@ class OpenProjectToolSpec(
     val projectPath = InputSchemaElement.param("project_path")
         .description("Absolute path to the project directory to open.")
         .cliSynopsis("absolute path to the project directory to open")
+        .cliMissingHint(
+            "missing --project_path. Pass an absolute directory path. Example:\n" +
+                "  devrig open_project --project_path=/work/app --task_id=t1 --reason=\"open the project\""
+        )
         .string()
         .required()
         .registerToSchema()
@@ -86,20 +91,20 @@ class OpenProjectToolSpec(
     } else null
 
     // Not a tool input: the tool returns as soon as opening starts, and the CLI itself polls
-    // list_windows afterwards until the project is initialized. Declared unconditionally — unlike
+    // list_projects afterwards until the project has an addressable route. Declared unconditionally — unlike
     // backend_name, this changes nothing on the MCP wire, so it needs no per-surface gate.
     override val cliExtraOptions = listOf(
         CliExtraOption(
             name = "wait",
             type = CliOptionType.BOOLEAN,
-            synopsis = "poll until the project is initialized (no modal, indexing done)",
+            synopsis = "wait up to 300s for list_projects to return the project route",
         ),
     )
 
     override suspend fun call(context: ToolCallContext): ToolCallResult {
         val projectPathStr = context[projectPath]
-        context[taskId]
-        context[reason]
+        val taskIdValue = context[taskId]
+        val reasonValue = context[reason]
         val trustProject = context[trustProject] ?: true
         val backendNameValue = backendName?.let { context[it] }
 
@@ -127,6 +132,8 @@ class OpenProjectToolSpec(
         return handler().handleOpenProject(
             OpenProjectParams(
                 projectPath = projectPath.toString(),
+                taskId = taskIdValue,
+                reason = reasonValue,
                 trustProject = trustProject,
                 backendName = backendNameValue,
             ),
@@ -178,6 +185,8 @@ See ${ManagingBackendsPromptArticle().uri}."""
 @Serializable
 data class OpenProjectParams(
     val projectPath: String,
+    val taskId: String,
+    val reason: String,
     val trustProject: Boolean,
     /**
      * Optional devrig-only routing hint: the stable backend id — the `backend_name` from

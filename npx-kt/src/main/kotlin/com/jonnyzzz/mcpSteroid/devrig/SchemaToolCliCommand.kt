@@ -1,7 +1,6 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.github.ajalt.clikt.core.UsageError
 import com.jonnyzzz.mcpSteroid.mcp.CliToolSpec
 import com.jonnyzzz.mcpSteroid.mcp.McpTool
 import com.jonnyzzz.mcpSteroid.server.McpSteroidTools
@@ -34,7 +33,7 @@ private class MetadataOnlyMcpSteroidTools : McpSteroidTools() {
  * registration rule: there is no per-tool command class, no `when (toolName)`, and no command-name list.
  */
 fun schemaToolCliCommands(
-    selected: SelectedDevrigCommand,
+    selected: SelectedDevrigInvocation,
     parent: DevrigCliktCommand?,
     tools: List<CliToolSpec> = devrigCliTools(),
 ): List<SchemaToolCliCommand> =
@@ -43,9 +42,9 @@ fun schemaToolCliCommands(
 /**
  * One `devrig <tool>` subcommand, generated from a metadata-only [CliToolSpec]. It PARSES ONLY: Clikt owns
  * tokenizing and routing, [SchemaCliBinding] turns the declaration into typed Clikt parameters, and [run]
- * ends by selecting an inert [DevrigCommand.RunTool]. No handler, service or backend is touched while
+ * ends by selecting an inert [GeneratedToolInvocation]. No handler, service or backend is touched while
  * parsing — the spec bound here is handler-free by construction (see [devrigCliTools]) — and the runtime
- * resolves the live spec later, by [DevrigCommand.RunTool.toolName].
+ * resolves the live spec later, by [GeneratedToolInvocation.toolName].
  *
  * Every rule about the parameters themselves lives in the binding: typing, numeric bounds, enum choices,
  * requiredness, the `--flag`/`--no-flag` pair of an optional boolean, and the two rules a
@@ -54,7 +53,7 @@ fun schemaToolCliCommands(
  */
 class SchemaToolCliCommand(
     private val spec: CliToolSpec,
-    selected: SelectedDevrigCommand,
+    selected: SelectedDevrigInvocation,
     parent: DevrigCliktCommand?,
 ) : DevrigToolCliktCommand(
     name = spec.cli.name,
@@ -65,6 +64,7 @@ class SchemaToolCliCommand(
     help = spec.cli.synopsis,
     // Only a tool whose result can carry an image gets `--out`; the rest refuse it as an unknown option.
     acceptsOut = spec.cli.producesImage,
+    epilog = renderGuideEpilog(spec),
 ) {
     private val binding = SchemaCliBinding.bind(this, spec)
 
@@ -77,6 +77,14 @@ class SchemaToolCliCommand(
         require(duplicates.isEmpty()) {
             "${spec.cli.name}: CLI name(s) $duplicates are claimed both by a parameter and by devrig itself"
         }
+        rejectFlagsConsumedAsValues(buildMap {
+            for (param in spec.schema.asCliParams()) {
+                if (param.cliHidden) continue
+                put(param.cliFlag, param.name)
+                param.cliFileSource?.let { put(it.flag, param.name) }
+            }
+            if (spec.cli.producesImage) put("--out", "out")
+        })
     }
 
     /**
@@ -97,61 +105,41 @@ class SchemaToolCliCommand(
      */
     fun positiveFlagFor(paramName: String): String? = binding.paramFor(paramName)?.cliFlag
 
-    override fun run() {
+    override fun runCommand() {
         val options = options()
         val values = binding.parsed()
-        rejectFlagConsumedAsValue()
-        select(
-            DevrigCommand.RunTool(
-                toolName = spec.name,
-                commandName = spec.cli.name,
-                arguments = values.arguments,
-                fileSources = values.fileSources,
-                extraOptions = values.extraOptions,
-                out = outPath(),
-                debug = options.debug,
-                json = options.json,
-            )
+        val command = GeneratedToolInvocation(
+            toolName = spec.name,
+            commandName = spec.cli.name,
+            arguments = values.arguments,
+            fileSources = values.fileSources,
+            extraOptions = values.extraOptions,
+            out = outPath(),
+            debug = options.debug,
+            json = options.json,
         )
+        select(
+            mode = DevrigCliMode.GENERATED_TOOL,
+            supportsJson = true,
+            telemetryMode = command.commandName,
+            jsonEnvelopeCommand = command.commandName,
+            generatedTool = command,
+        ) { runGeneratedToolCommand(command) }
     }
 
-    /**
-     * Rejects a parsed value that is actually one of this command's own flags, given SPACE-SEPARATED. With
-     * `--task_id --help` Clikt reads `--help` as `--task_id`'s value and the tool would run with
-     * `task_id = "--help"`; with `--code-file --help` it would try to open a file named `--help`. A flag
-     * appearing where a value belongs is far more likely a flag the caller meant to pass on its own than a
-     * literal value, so it fails as a usage error before any tool call — the flag they wanted never fired,
-     * and running the tool with it as data would hide the mistake.
-     *
-     * The `=` form is the opposite and is NOT rejected: `--code=--help` and `--reason=--json` bind the token
-     * to the flag explicitly — an odd value, but an unambiguous one the caller clearly typed on purpose.
-     * The parsed values alone cannot tell the two apart (both yield `code = "--help"`), so the raw argv is
-     * scanned positionally: only a value-taking option immediately followed by a registered flag token is
-     * refused (including an assignment-shaped token such as `--json=true`). An `=`-bound value never occupies
-     * that next-token position, even when the same flag also appears later for real
-     * (`--reason=--json --json`).
-     */
-    private fun rejectFlagConsumedAsValue() {
-        val knownFlags = registeredOptions().flatMap { it.names + it.secondaryNames }.toSet()
-        val valueOptions = buildMap {
-            for (param in spec.schema.asCliParams()) {
-                if (param.cliHidden || param.cliPositional) continue
-                put(param.cliFlag, param.name)
-                param.cliFileSource?.let { put(it.flag, param.name) }
-            }
-            if (spec.cli.producesImage) put("--out", "out")
-        }
-        val args = rawArgs()
-        for (index in 0 until args.lastIndex) {
-            val option = args[index]
-            val paramName = valueOptions[option] ?: continue
-            val token = args[index + 1]
-            if (token.substringBefore('=') !in knownFlags) continue
-            throw UsageError(
-                "'$token' is a devrig flag, not a value; it was read as the value of '$paramName'. " +
-                    "Pass a real value for '$paramName' and give '$token' on its own, or bind the literal " +
-                    "explicitly as '$option=$token'."
-            )
-        }
+}
+
+/**
+ * Focused help's optional second layer. The tool owns the URI list; the generic command tree only explains
+ * how to fetch each declared article through the same CLI. Keeping article bodies out of `--help` makes
+ * the grammar scannable while leaving a direct, copyable route to the full workflow guidance.
+ */
+fun renderGuideEpilog(spec: CliToolSpec): String {
+    if (spec.cli.guideUris.isEmpty()) return ""
+    return buildString {
+        appendLine("Guides for deeper workflows:")
+        for (uri in spec.cli.guideUris) appendLine("  $uri")
+        appendLine()
+        append("Read one with `devrig prompt <uri> --project_name=<routing-key>`.")
     }
 }

@@ -40,60 +40,54 @@ fun runBackendProvisionListCommand(
 
 fun runBackendProvisionCommand(
     out: PrintStream,
-    command: DevrigCommand.DevrigCommandBackendProvision,
-    provision: suspend (HttpClient) -> ProvisionResult = { httpClient ->
-        val id = command.id
-            ?: error("backend provision id is required")
-        provisionBackend(id, httpClient)
+    id: String?,
+    json: Boolean,
+    provision: suspend (String, HttpClient) -> ProvisionResult = { selectedId, httpClient ->
+        provisionBackend(selectedId, httpClient)
     },
     markers: () -> List<DiscoveredIde> = { scanMarkersOnce() },
     httpClientFactory: () -> HttpClient = ::createProvisionHttpClient,
     closeHttpClient: Boolean = true,
 ): Int {
-    val id = command.id ?: run {
+    val selectedId = id ?: run {
         runBackendProvisionListCommand(
             out = out,
-            json = command.json,
+            json = json,
             markers = markers,
             httpClientFactory = httpClientFactory,
             closeHttpClient = closeHttpClient,
         )
         return 0
     }
-    if (!isSupportedProvisionTargetId(id)) {
-        return unknownArguments(
-            listOf("backend", "provision", id),
-            "Run `devrig backend provision` with no id to list valid backend ids.",
-        )
-    }
-    if (command.json) {
-        return runBackendActionJson(out, action = PROVISION_ACTION_ID, id = id) {
+    if (json) {
+        return runBackendActionJson(out, action = PROVISION_ACTION_ID, id = selectedId) {
+            validateProvisionTargetId(selectedId)
             val result = withProvisionHttpClient(httpClientFactory, closeHttpClient) { httpClient ->
                 runBlocking(Dispatchers.IO) {
-                    provision(httpClient)
+                    provision(selectedId, httpClient)
                 }
             }
             provisionResultJson(result)
         }
     }
 
+    validateProvisionTargetId(selectedId)
     val result = withProvisionHttpClient(httpClientFactory, closeHttpClient) { httpClient ->
         runBlocking(Dispatchers.IO) {
-            provision(httpClient)
+            provision(selectedId, httpClient)
         }
     }
     renderProvisionInstructionsText(result, out)
     return 0
 }
 
-fun DevrigServices.runBackendProvisionCommand(command: DevrigCommand.DevrigCommandBackendProvision): Int =
+fun DevrigServices.runBackendProvisionCommand(id: String?, json: Boolean): Int =
     runBackendProvisionCommand(
         out = mcpStdout,
-        command = command,
-        provision = { httpClient ->
-            val id = command.id
-                ?: error("backend provision id is required")
-            backendProvisioner.provision(id, httpClient) {
+        id = id,
+        json = json,
+        provision = { selectedId, httpClient ->
+            backendProvisioner.provision(selectedId, httpClient) {
                 detectProvisionTargets(portDiscovery)
             }
         },
@@ -103,6 +97,15 @@ fun DevrigServices.runBackendProvisionCommand(command: DevrigCommand.DevrigComma
     )
 
 fun isSupportedProvisionTargetId(raw: String): Boolean = Regex("""port-\d{1,5}""").matches(raw)
+
+private fun validateProvisionTargetId(id: String) {
+    if (!isSupportedProvisionTargetId(id)) {
+        throw ManagedBackendValidationException(
+            "Unsupported provision target id '$id'. " +
+                "Run 'devrig backend provision' without an id to list valid choices.",
+        )
+    }
+}
 
 fun renderBackendProvisionListText(
     rows: List<ProvisionTarget>,

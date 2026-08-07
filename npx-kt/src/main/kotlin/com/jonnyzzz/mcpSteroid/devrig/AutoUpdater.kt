@@ -1,20 +1,11 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.devrig
 
-import com.jonnyzzz.mcpSteroid.logger
 import com.jonnyzzz.mcpSteroid.util.text.DevrigVersion
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.isSuccess
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.time.Instant
-import kotlin.io.path.exists
 import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
@@ -86,7 +77,7 @@ class AutoUpdater(
         // scheduled tick (3–8 h), forever. Diagnosis lives in stderr + the per-attempt log files.
 
         // step 7 — announce ourselves (the "I am updating" record others yield to; not a lock)
-        val scriptUrl = if (isWin) "https://devrig.dev/install.ps1" else "https://devrig.dev/install.sh"
+        val scriptUrl = devrigInstallerUrl(isWin)
         val logFile = logFileFor(target)
         val info = UpdateStateInfo(
             pid = coordination.ownPid,
@@ -215,17 +206,6 @@ suspend fun runAutoUpdateFlow(
 /** Opens every installer attempt in the per-pid log file; the timestamp follows. */
 const val INSTALLER_ATTEMPT_SEPARATOR_PREFIX = "===== [mcp-steroid] installer attempt at "
 
-/** Most reliable first: absolute System32 PowerShell (agents often carry stripped PATHs), then PATH lookups. */
-fun windowsInstallerHostCandidates(systemRoot: String? = System.getenv("SystemRoot")): List<String> {
-    val root = systemRoot?.takeIf { it.isNotBlank() } ?: "C:\\Windows"
-    val system32 = Path.of(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    return buildList {
-        if (system32.exists()) add(system32.toString())
-        add("powershell")
-        add("pwsh")
-    }
-}
-
 /**
  * Run the install script detached (own stdio, survives devrig's death; stays in devrig's process
  * group — shielding it is platform-branch territory, see the design doc) and supervise it: exit
@@ -238,13 +218,7 @@ suspend fun superviseInstallerProcess(
     isWin: Boolean,
     timeout: Duration = 1.hours,
 ): Int? {
-    val hostCandidates = if (isWin) {
-        windowsInstallerHostCandidates().map {
-            listOf(it, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.toString())
-        }
-    } else {
-        listOf(listOf("/bin/sh", script.toString()))
-    }
+    val hostCandidates = installerCommands(script, isWin)
 
     Files.createDirectories(logFile.parent)
     Files.writeString(
@@ -303,37 +277,12 @@ suspend fun superviseInstallerProcess(
     return null
 }
 
-/** Download an install script over TLS to [target]; false on any failure (the caller retries quietly). */
-suspend fun downloadInstallScript(url: String, target: Path): Boolean {
-    class InstallScriptDownloader
-
-    val client = HttpClient(CIO) {
-        install(HttpTimeout) {
-            connectTimeoutMillis = 10_000
-            requestTimeoutMillis = 60_000
-            socketTimeoutMillis = 60_000
-        }
-        expectSuccess = false
-    }
-    return try {
-        // Cache-buster: a 3-8h retry must see a server-side fix, not Cloudflare's cached copy
-        // (query strings bypass the edge cache — same pattern as the release verification).
-        val response = client.get("$url?_=${System.currentTimeMillis()}") {
-            header("User-Agent", "devrig/${DevrigVersionMetadata.getDevrigVersion()}")
-            header("Cache-Control", "no-cache")
-        }
-        if (!response.status.isSuccess()) {
-            System.err.println("[mcp-steroid] GET $url returned ${response.status}")
-            return false
-        }
-        Files.createDirectories(target.parent)
-        Files.writeString(target, response.bodyAsText())
-        true
-    } catch (e: Exception) {
-        logger<InstallScriptDownloader>().debug("install script download failed: ${e.message}", e)
-        System.err.println("[mcp-steroid] could not download $url: $e")
-        false
-    } finally {
-        client.close()
-    }
+/**
+ * Download an install script over TLS to [target]; false on any failure (the caller retries quietly).
+ * Delegates to the shared [downloadInstallerScript] — the IDE plugin's install runs the very same
+ * code — adding only devrig's own User-Agent and a coroutine-friendly wrapper (the blocking JDK
+ * client must not occupy the caller's thread, and cancellation interrupts it).
+ */
+suspend fun downloadInstallScript(url: String, target: Path): Boolean = runInterruptible(Dispatchers.IO) {
+    downloadInstallerScript(url, target, userAgent = "devrig/${DevrigVersionMetadata.getDevrigVersion()}")
 }

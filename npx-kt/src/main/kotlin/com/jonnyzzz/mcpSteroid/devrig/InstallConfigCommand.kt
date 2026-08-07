@@ -5,6 +5,16 @@ import com.jonnyzzz.mcpSteroid.aiAgents.AiAgentCli
 import com.jonnyzzz.mcpSteroid.aiAgents.DEFAULT_SERVER_NAME
 import com.jonnyzzz.mcpSteroid.aiAgents.StdioMcpCommand
 import com.jonnyzzz.mcpSteroid.aiAgents.stdioMcpServersJson
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+
+private val installConfigJson = Json { prettyPrint = true }
 
 /**
  * `devrig install config` — print the MANUAL MCP configuration recipe for devrig (issue #398): the
@@ -13,9 +23,31 @@ import com.jonnyzzz.mcpSteroid.aiAgents.stdioMcpServersJson
  * Windsurf, any mcp.json-style config). Informational and read-only: nothing is registered, nothing
  * is written — the recipe goes to stdout so it can be piped/copied.
  */
-fun DevrigServices.runInstallConfigCommand(): Int {
-    mcpStdout.print(renderInstallConfig(DevrigUserLauncher.invocation(homePaths, listOf("mcp"))))
+fun DevrigServices.runInstallConfigCommand(json: Boolean): Int {
+    val invocation = DevrigUserLauncher.invocation(homePaths, listOf("mcp"))
+    if (json) {
+        mcpStdout.println(renderInstallConfigJson(invocation))
+    } else {
+        mcpStdout.print(renderInstallConfig(invocation))
+    }
     return 0
+}
+
+fun renderInstallConfigJson(mcpCommand: StdioMcpCommand): String {
+    val mcpServers = Json.parseToJsonElement(stdioMcpServersJson(mcpCommand)).jsonObject["mcpServers"]
+        ?: error("generated MCP configuration has no mcpServers object")
+    val payload = buildJsonObject {
+        put("serverName", DEFAULT_SERVER_NAME)
+        put("mcpServers", mcpServers)
+        putJsonObject("agentCommands") {
+            for (agent in AiAgentCli.entries) {
+                putJsonArray(agent.binary) {
+                    for (token in listOf(agent.binary) + agent.mcpAddStdioArgs(mcpCommand)) add(JsonPrimitive(token))
+                }
+            }
+        }
+    }
+    return installConfigJson.encodeToString(JsonObject.serializer(), payload)
 }
 
 /**
