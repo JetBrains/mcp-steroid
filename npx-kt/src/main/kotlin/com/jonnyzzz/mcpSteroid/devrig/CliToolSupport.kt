@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.mcp.ContentItem
+import com.jonnyzzz.mcpSteroid.mcp.CliOutputStyle
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.mcp.defaultCliName
@@ -29,7 +30,7 @@ import kotlinx.serialization.json.putJsonArray
  * Shared rendering, exit-code and progress-reporting plumbing for the GENERATED tool commands — the one
  * `devrig <tool>` subcommand issue #284's schema-driven CLI derives per `steroid_*` tool. Those are its
  * only callers ([GeneratedToolRuntime] and, for [CliExit], `Main.kt`'s last-resort handler): the
- * hand-written lifecycle verbs (`project`, `backend`, `install`) call no tool, produce no
+ * hand-written lifecycle verbs (`backend`, `install`) call no tool, produce no
  * [ToolCallResult], and hand-roll their own JSON, as [cliEnvelopeJson] below already records.
  *
  * It factors out only the parts every generated command repeats: rendering a [ToolCallResult] to
@@ -128,13 +129,20 @@ sealed interface Presentation {
     }
 
     /** Human-readable output; image payloads are materialized under [imageDir]. */
-    class Console(private val imageDir: () -> Path) : Presentation {
+    class Console(
+        private val outputStyle: CliOutputStyle = CliOutputStyle.CONTENT,
+        private val imageDir: () -> Path,
+    ) : Presentation {
         override fun render(result: ToolCallResult, command: String, out: PrintStream, err: PrintStream): Int {
+            if (!result.isError && outputStyle == CliOutputStyle.PROJECTS_TABLE) {
+                return renderListProjectsTable(result, out, err)
+            }
             val sink = if (result.isError) err else out
             for ((index, item) in result.content.withIndex()) {
                 when (item) {
-                    // Tool payload: printed verbatim, never name-translated.
-                    is ContentItem.Text -> sink.println(item.text)
+                    // Tool payload: content never name-translated. A JSON object/array payload is
+                    // pretty-printed for a human reader; a scalar or a parse failure prints verbatim.
+                    is ContentItem.Text -> sink.println(prettyPrintIfJsonContainer(item.text))
                     is ContentItem.Image -> {
                         // A hard image failure (undecodable payload, unwritable disk) outranks the tool's
                         // own success/failure: abort rendering immediately and report it as the exit code,
@@ -185,8 +193,11 @@ sealed interface Presentation {
 }
 
 /** Maps the `--json` flag onto a concrete [Presentation]; the only place the boolean is branched on. */
-fun presentationFor(json: Boolean, imageDir: () -> Path): Presentation =
-    if (json) Presentation.Json() else Presentation.Console(imageDir)
+fun presentationFor(
+    json: Boolean,
+    outputStyle: CliOutputStyle = CliOutputStyle.CONTENT,
+    imageDir: () -> Path,
+): Presentation = if (json) Presentation.Json() else Presentation.Console(outputStyle, imageDir)
 
 /**
  * Resolves and probes an `--out` target before a stateful tool runs. Creating the parent and a sibling temp
@@ -341,9 +352,8 @@ private fun writeAtomically(target: Path, bytes: ByteArray) {
  * [Presentation.Json] — `{tool, command, isError, data}`, where `data` is always the tool-result
  * shape this file produces: `{content:[...]}`, plus `savedOut` when `--out` wrote an image (see
  * [renderWithOut]). Commands that predate the schema-driven CLI and never produce a [ToolCallResult]
- * at all — `devrig project --json`, for instance — hand-roll their own JSON today and are out of
- * scope for this envelope; under the schema-driven design a tool-backed command reports through this
- * same shape instead.
+ * hand-roll their own JSON and are out of scope for this envelope. Every generated tool-backed command,
+ * including `list_projects` and its `projects`/`project` aliases, reports through this same shape.
  */
 val CLI_ENVELOPE_JSON: Json = Json {
     prettyPrint = true
@@ -415,4 +425,17 @@ private fun unpackJsonPayload(item: JsonObject): JsonObject {
 private fun parseAsJsonContainer(text: String): JsonElement? {
     val parsed = runCatching { McpJson.parseToJsonElement(text) }.getOrNull() ?: return null
     return parsed.takeIf { it is JsonObject || it is JsonArray }
+}
+
+/**
+ * Console-only counterpart to [unpackJsonPayload]: renders [text] pretty-printed across multiple lines
+ * when it parses whole as a JSON object or array (via the same [parseAsJsonContainer] predicate the
+ * `--json` envelope uses, so console and envelope agree on what counts as JSON), otherwise returns [text]
+ * verbatim. A bare scalar or a parse failure is presentation-neutral prose, not a tool's structured
+ * payload, and is never reformatted. [CLI_ENVELOPE_JSON] is reused rather than a second `Json {
+ * prettyPrint = true }` instance: it already is this module's pretty-printing configuration.
+ */
+private fun prettyPrintIfJsonContainer(text: String): String {
+    val parsed = parseAsJsonContainer(text) ?: return text
+    return CLI_ENVELOPE_JSON.encodeToString(JsonElement.serializer(), parsed)
 }

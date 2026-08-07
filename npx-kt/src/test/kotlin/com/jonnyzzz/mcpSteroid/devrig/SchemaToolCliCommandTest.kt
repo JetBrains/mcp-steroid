@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 /**
  * The registration contract: every visible tool in the canonical `devrigToolSpecs(...)` list is a
  * `devrig` subcommand generated from its own metadata, and parsing one produces an inert
- * [DevrigCommand.RunTool] — no handler, service or backend is touched.
+ * [GeneratedToolInvocation] — no handler, service or backend is touched.
  *
  * These tests deliberately drive the REAL root command ([parseDevrigCommand]) wherever the claim is about
  * registration, because the point of the task is that adding a tool to `devrigToolSpecs(...)` adds its
@@ -33,7 +33,19 @@ import kotlin.test.assertTrue
  */
 class SchemaToolCliCommandTest {
 
-    private fun parse(vararg args: String): DevrigCommand = parseDevrigCommand(args.toList().toTypedArray())
+    private data class ParsedHelp(val generatedHelp: String?)
+    private data class ParsedError(val text: String)
+
+    /** Adapts the executable invocation to the three parse products these schema tests inspect. */
+    private fun parse(vararg args: String): Any {
+        val invocation = parseDevrigCommand(args.toList().toTypedArray())
+        invocation.generatedTool?.let { return it }
+        return when (invocation.commandPath) {
+            "help" -> ParsedHelp(invocation.informationalText)
+            "parse-error" -> ParsedError(requireNotNull(invocation.informationalText))
+            else -> invocation
+        }
+    }
 
     private fun visibleToolNames(): List<String> = devrigCliTools().filterNot { it.cli.hidden }.map { it.cli.name }
 
@@ -71,7 +83,7 @@ class SchemaToolCliCommandTest {
         )
 
         val error = assertFailsWith<IllegalArgumentException> {
-            SchemaToolCliCommand(spec, SelectedDevrigCommand(), parent = null)
+            SchemaToolCliCommand(spec, SelectedDevrigInvocation(), parent = null)
         }
 
         assertTrue("--out" in error.message!!, error.message!!)
@@ -84,9 +96,20 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `every visible tool spec becomes exactly one generated command, in factory order`() {
-        val generated = schemaToolCliCommands(SelectedDevrigCommand(), parent = null).map { it.commandName }
+        val generated = schemaToolCliCommands(SelectedDevrigInvocation(), parent = null).map { it.commandName }
 
         assertEquals(visibleToolNames(), generated)
+    }
+
+    @Test
+    fun `project aliases parse to the same canonical generated invocation as list_projects`() {
+        val canonical = assertIs<GeneratedToolInvocation>(parse("list_projects", "--json"))
+        for (aliasName in listOf("projects", "project")) {
+            val alias = assertIs<GeneratedToolInvocation>(parse(aliasName, "--json"))
+            assertEquals(canonical, alias)
+            assertEquals("steroid_list_projects", alias.toolName)
+            assertEquals("list_projects", alias.commandName)
+        }
     }
 
     @Test
@@ -94,14 +117,14 @@ class SchemaToolCliCommandTest {
         val hidden = FakeToolSpec("steroid_secret", CliCommandSpec(name = "secret", synopsis = "s", hidden = true))
         val visible = FakeToolSpec("steroid_shown", CliCommandSpec(name = "shown", synopsis = "s"))
 
-        val generated = schemaToolCliCommands(SelectedDevrigCommand(), parent = null, tools = listOf(hidden, visible))
+        val generated = schemaToolCliCommands(SelectedDevrigInvocation(), parent = null, tools = listOf(hidden, visible))
 
         assertEquals(listOf("shown"), generated.map { it.commandName })
     }
 
     @Test
     fun `the root registers every visible tool command`() {
-        val tokens = DevrigRootCommand(SelectedDevrigCommand()).registeredSubcommandNames()
+        val tokens = DevrigRootCommand(SelectedDevrigInvocation()).registeredSubcommandNames()
 
         for (name in visibleToolNames()) {
             assertTrue(name in tokens, "'$name' must be a devrig subcommand; got $tokens")
@@ -110,7 +133,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `every root token, aliases included, is claimed exactly once`() {
-        val root = DevrigRootCommand(SelectedDevrigCommand())
+        val root = DevrigRootCommand(SelectedDevrigInvocation())
 
         val tokens = root.registeredSubcommandNames() + root.aliases().keys
         val duplicates = tokens.groupBy { it }.filterValues { it.size > 1 }.keys
@@ -147,14 +170,15 @@ class SchemaToolCliCommandTest {
 
         for (spec in aliased) {
             for (alias in spec.cli.aliases) {
-                assertTrue(alias in DevrigRootCommand(SelectedDevrigCommand()).aliases().keys, "'$alias' is not registered")
+                assertTrue(alias in DevrigRootCommand(SelectedDevrigInvocation()).aliases().keys, "'$alias' is not registered")
             }
         }
 
         // fetch_resource's `prompt` alias shares the canonical grammar: the alias token expands to the
-        // canonical command, so there is exactly one grammar to keep working.
-        val run = assertIs<DevrigCommand.RunTool>(
-            parse("prompt", "--project_name=key", "--uri=mcp-steroid://prompt/skill"),
+        // canonical command — including its bare positional `uri` — so there is exactly one grammar to
+        // keep working.
+        val run = assertIs<GeneratedToolInvocation>(
+            parse("prompt", "mcp-steroid://prompt/skill", "--project_name=key"),
         )
         assertEquals("steroid_fetch_resource", run.toolName)
         assertEquals("mcp-steroid://prompt/skill", run.arguments["uri"]?.jsonPrimitive?.content)
@@ -165,13 +189,13 @@ class SchemaToolCliCommandTest {
     @Test
     fun `list_windows --json parses to an inert RunTool and resolves no handler`() {
         val source = RecordingToolSource()
-        val selected = SelectedDevrigCommand()
+        val selected = SelectedDevrigInvocation()
         val command = schemaToolCliCommands(selected, parent = null, tools = source.devrigToolSpecs())
             .single { it.commandName == "list_windows" }
 
         command.parse(listOf("--json"))
 
-        val run = assertIs<DevrigCommand.RunTool>(selected.command)
+        val run = requireNotNull(selected.invocation?.generatedTool)
         assertEquals("steroid_list_windows", run.toolName)
         assertEquals("list_windows", run.commandName)
         assertTrue(run.json)
@@ -182,7 +206,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `a generated command carries the three parsed payloads through unchanged`() {
-        val run = assertIs<DevrigCommand.RunTool>(
+        val run = assertIs<GeneratedToolInvocation>(
             parse("open_project", "--project_path=/tmp/p", "--task_id=t1", "--reason=open", "--wait"),
         )
 
@@ -194,7 +218,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `a file source contributes a deferred path, never a tool argument`() {
-        val run = assertIs<DevrigCommand.RunTool>(
+        val run = assertIs<GeneratedToolInvocation>(
             parse("execute_code", "--code-file=repro.kts", "--task_id=t1", "--reason=repro", "--project_name=key"),
         )
 
@@ -204,7 +228,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `--out is accepted on a generated command and travels as plain data`() {
-        val run = assertIs<DevrigCommand.RunTool>(
+        val run = assertIs<GeneratedToolInvocation>(
             parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png", "--project_name=key"),
         )
 
@@ -219,14 +243,14 @@ class SchemaToolCliCommandTest {
         // Which help, and what it must name, is CommandHelpRoutingTest's subject; here the claim is only
         // that the eager --help wins over execute_code's required parameters instead of failing on them.
         for (spelling in listOf("--help", "-h")) {
-            val help = assertIs<DevrigCommand.DevrigCommandHelp>(parse("execute_code", spelling))
+            val help = assertIs<ParsedHelp>(parse("execute_code", spelling))
             assertTrue("execute_code" in (help.generatedHelp ?: ""), "got: ${help.generatedHelp}")
         }
     }
 
     @Test
     fun `a missing required parameter reports the tool's own curated wording`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--code=x", "--reason=r", "--project_name=key"),
         )
 
@@ -237,19 +261,20 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
-    fun `a missing required parameter without a curated hint keeps Clikt's default wording`() {
-        // take_screenshot reuses the shared task_id factory, which declares no cliMissingHint.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+    fun `a shared required parameter uses the same curated hint in every tool`() {
+        val error = assertIs<ParsedError>(
             parse("take_screenshot", "--reason=r", "--project_name=key"),
         )
 
-        assertTrue("--task_id" in error.text, "expected Clikt's own missing-option wording; got:\n${error.text}")
-        assertFalse("Any string works" in error.text, "no hint is declared here; got:\n${error.text}")
+        assertTrue(
+            "missing --task_id. Any string works; reuse it across related calls.".unwrapped() in error.text.unwrapped(),
+            "expected the shared task_id hint; got:\n${error.text}",
+        )
     }
 
     @Test
     fun `giving both a parameter and its file source is a usage error`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--code=x", "--code-file=f.kts", "--task_id=t", "--reason=r", "--project_name=key"),
         )
 
@@ -258,7 +283,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `giving neither a required parameter nor its file source reports the curated wording`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--task_id=t", "--reason=r", "--project_name=key"),
         )
 
@@ -274,7 +299,7 @@ class SchemaToolCliCommandTest {
         // one pass. That includes the file-source `code`, whose "one of --code / --code-file" rule Clikt
         // cannot state: its parse-time check aggregates into the same MultiUsageError as the ordinary
         // required options rather than surfacing only after they are supplied.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("execute_code"))
+        val error = assertIs<ParsedError>(parse("execute_code"))
 
         for (name in listOf("--project_name", "--task_id", "--reason")) {
             assertTrue(name in error.text, "the one error must name $name; got:\n${error.text}")
@@ -297,7 +322,7 @@ class SchemaToolCliCommandTest {
         // `--task_id --help`: Clikt reads `--help` as task_id's value, so the eager --help never fires and
         // the tool would run with task_id = "--help". A value that spells a registered flag is refused before
         // any tool call.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--task_id", "--help", "--reason=r", "--project_name=key", "--code=x"),
         )
 
@@ -305,10 +330,25 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `a consumed framework flag aggregates with every remaining missing value`() {
+        val error = assertIs<ParsedError>(parse("execute_code", "--task_id", "--json"))
+        val text = error.text.unwrapped()
+
+        for (expected in listOf(
+            "'--json' is a devrig flag, not a value",
+            "missing --project_name",
+            "Pass --code-file=<path> (preferred)",
+            "missing --reason",
+        )) {
+            assertTrue(expected.unwrapped() in text, "the one error must contain '$expected'; got:\n${error.text}")
+        }
+    }
+
+    @Test
     fun `a flag consumed as a file-source path is a parse error`() {
         // `--code-file --help`: the path becomes "--help", which devrig would try to open. Same rule as a
         // direct value — a registered flag is not a path.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--code-file", "--help", "--task_id=t", "--reason=r", "--project_name=key"),
         )
 
@@ -320,7 +360,7 @@ class SchemaToolCliCommandTest {
         // `--code=--help` explicitly binds "--help" as code's value: odd, but unambiguous — the caller
         // typed the token joined to the flag, so it cannot be the "I forgot the value and --help got
         // swallowed" mistake the space-separated form is. It must run, not fail 64.
-        val run = assertIs<DevrigCommand.RunTool>(
+        val run = assertIs<GeneratedToolInvocation>(
             parse("execute_code", "--code=--help", "--task_id=t", "--reason=r", "--project_name=key"),
         )
 
@@ -331,7 +371,7 @@ class SchemaToolCliCommandTest {
     fun `a framework-flag-like value bound with '=' is kept`() {
         // `--reason=--json`: the framework flag `--json` never appears as its own token, so it is a
         // deliberate value for reason and is not confused with the standalone `--json` flag.
-        val run = assertIs<DevrigCommand.RunTool>(
+        val run = assertIs<GeneratedToolInvocation>(
             parse("execute_code", "--reason=--json", "--task_id=t", "--project_name=key", "--code=x"),
         )
 
@@ -342,7 +382,7 @@ class SchemaToolCliCommandTest {
     fun `an equals-bound flag-like value stays bound when the real framework flag is also present`() {
         // Presence must be associated with the token that consumed it, not checked globally. The standalone
         // --json is the presentation flag; the equal-joined one is deliberately reason's literal value.
-        val run = assertIs<DevrigCommand.RunTool>(
+        val run = assertIs<GeneratedToolInvocation>(
             parse("execute_code", "--reason=--json", "--json", "--task_id=t", "--project_name=key", "--code=x"),
         )
 
@@ -352,7 +392,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `an assignment-shaped flag token consumed as a value is rejected`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse(
                 "execute_code",
                 "--reason", "--json=true",
@@ -371,7 +411,7 @@ class SchemaToolCliCommandTest {
     fun `a blank required parameter is a parse error carrying the curated hint`() {
         // `--task_id=` reaches the tool as an empty string and returns 0 today; now it is refused at parse
         // time with task_id's own curated wording.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--task_id=", "--reason=r", "--project_name=key", "--code=x"),
         )
 
@@ -382,8 +422,47 @@ class SchemaToolCliCommandTest {
     }
 
     @Test
+    fun `a blank required value aggregates with every remaining missing value`() {
+        val error = assertIs<ParsedError>(parse("execute_code", "--task_id="))
+        val text = error.text.unwrapped()
+
+        for (expected in listOf(
+            "Any string works",
+            "missing --project_name",
+            "Pass --code-file=<path> (preferred)",
+            "missing --reason",
+        )) {
+            assertTrue(expected.unwrapped() in text, "the one error must contain '$expected'; got:\n${error.text}")
+        }
+    }
+
+    @Test
+    fun `a value option without a value uses its declared missing hint`() {
+        val error = assertIs<ParsedError>(parse("execute_code", "--task_id"))
+
+        assertTrue(
+            "Any string works".unwrapped() in error.text.unwrapped(),
+            "expected execute_code's curated task_id hint; got:\n${error.text}",
+        )
+    }
+
+    @Test
+    fun `a lifecycle value option cannot consume help or json`() {
+        for (frameworkFlag in listOf("--help", "--json")) {
+            val error = assertIs<ParsedError>(
+                parse("backend", "download", "idea-community", "--version", frameworkFlag),
+                "backend download --version must not consume $frameworkFlag and select an action",
+            )
+            assertTrue(
+                "'$frameworkFlag' is a devrig flag, not a value" in error.text,
+                "the refusal must name the swallowed framework flag; got:\n${error.text}",
+            )
+        }
+    }
+
+    @Test
     fun `a single-value parameter given twice is a parse error`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("execute_code", "--task_id=a", "--task_id=b", "--reason=r", "--project_name=key", "--code=x"),
         )
 
@@ -393,7 +472,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `a boolean flag and its negative spelling together is a parse error`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("open_project", "--project_path=/tmp/p", "--task_id=t", "--reason=r", "--trust_project", "--no-trust_project"),
         )
 
@@ -404,7 +483,7 @@ class SchemaToolCliCommandTest {
     fun `an attached value on a boolean flag is refused with the negative spelling as the fix`() {
         // `--trust_project=false` only draws Clikt's "does not take a value"; the reworded error names
         // `--no-trust_project`, the one spelling that actually sets it false.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("open_project", "--project_path=/tmp/p", "--task_id=t", "--reason=r", "--trust_project=false"),
         )
 
@@ -416,7 +495,7 @@ class SchemaToolCliCommandTest {
         // Clikt reports the name AS TYPED, so for `--no-trust_project=true` that is the negative
         // spelling; the curated fix must resolve both spellings from the spec rather than echo the typed
         // name back as the way to set the value true.
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+        val error = assertIs<ParsedError>(
             parse("open_project", "--project_path=/tmp/p", "--task_id=t", "--reason=r", "--no-trust_project=true"),
         )
 
@@ -432,7 +511,7 @@ class SchemaToolCliCommandTest {
 
     @Test
     fun `an unknown flag on a generated command is a parse error`() {
-        val error = assertIs<DevrigCommand.DevrigCommandParseError>(parse("list_windows", "--bogus"))
+        val error = assertIs<ParsedError>(parse("list_windows", "--bogus"))
 
         assertTrue("--bogus" in error.text, "got:\n${error.text}")
     }
@@ -440,16 +519,16 @@ class SchemaToolCliCommandTest {
     // --------------------------- --out is scoped to the tool commands ---------------------------
 
     @Test
-    fun `--out is rejected on a lifecycle command, which can never honour it`() {
-        // `--out` redirects the image a tool RESULT carries, and no lifecycle verb returns a result at
-        // all. It used to be declared on the shared base class, so `devrig project --out=/tmp/x.png`
-        // parsed, exited 0, wrote nothing and said nothing. Declaring it only on the generated tool
-        // commands turns that into Clikt's own parse-time refusal — the same answer `--wait` gets, one
-        // phase earlier.
-        for (lifecycle in listOf("project", "backend", "version", "help")) {
-            val error = assertIs<DevrigCommand.DevrigCommandParseError>(
-                parse(lifecycle, "--out=/tmp/x.png"),
-                "'devrig $lifecycle --out' must be refused, not silently accepted",
+    fun `--out is rejected on aliases and lifecycle commands that can never honour it`() {
+        // `--out` redirects an image carried by a generated tool result. Both project aliases resolve to
+        // non-image `list_projects`, while lifecycle commands return no tool result at all. It used to be
+        // declared on the shared base class, so the old handwritten `devrig project --out=/tmp/x.png`
+        // parsed, exited 0, wrote nothing and said nothing. Scoping it to image-producing tools makes each
+        // spelling a parse-time refusal.
+        for (command in listOf("projects", "project", "backend", "version", "help")) {
+            val error = assertIs<ParsedError>(
+                parse(command, "--out=/tmp/x.png"),
+                "'devrig $command --out' must be refused, not silently accepted",
             )
             assertTrue("--out" in error.text, "the refusal must name the flag; got:\n${error.text}")
         }
@@ -462,11 +541,11 @@ class SchemaToolCliCommandTest {
         // surprise.
         assertEquals(
             Path.of("/tmp/shot.png"),
-            assertIs<DevrigCommand.RunTool>(
+            assertIs<GeneratedToolInvocation>(
                 parse("take_screenshot", "--task_id=t1", "--reason=look", "--out=/tmp/shot.png", "--project_name=key"),
             ).out,
         )
-        assertIs<DevrigCommand.DevrigCommandParseError>(
+        assertIs<ParsedError>(
             parse("--out=/tmp/shot.png", "take_screenshot", "--task_id=t1", "--reason=look", "--project_name=key"),
         )
     }
@@ -479,7 +558,7 @@ class SchemaToolCliCommandTest {
         val nonImageTools =
             listOf("list_projects", "list_windows", "open_project", "input", "fetch_resource", "execute_feedback")
         for (tool in nonImageTools) {
-            val error = assertIs<DevrigCommand.DevrigCommandParseError>(
+            val error = assertIs<ParsedError>(
                 parse(tool, "--out=/tmp/x.png"),
                 "'devrig $tool --out' must be refused: its result carries no image",
             )
@@ -493,7 +572,7 @@ class SchemaToolCliCommandTest {
         // command must declare --out too — a script's logImage or a dialog-failure screenshot fills it.
         assertEquals(
             Path.of("/tmp/x.png"),
-            assertIs<DevrigCommand.RunTool>(
+            assertIs<GeneratedToolInvocation>(
                 parse("execute_code", "--project_name=key", "--code=x", "--task_id=t", "--reason=r", "--out=/tmp/x.png"),
             ).out,
         )

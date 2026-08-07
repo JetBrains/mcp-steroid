@@ -53,6 +53,13 @@ class CliToolSupportTest {
     private fun countOccurrences(haystack: String, needle: String): Int =
         Regex(Regex.escape(needle)).findAll(haystack).count()
 
+    /** Runs [result] through [Presentation.Console] and returns everything written to stdout. */
+    private fun renderConsole(result: ToolCallResult): String {
+        val out = CapturedStream()
+        Presentation.Console { tempDir }.render(result, "list_windows", out.stream)
+        return out.text()
+    }
+
     // ------------------------------ presentationFor / stderrProgressReporter ------------------------------
 
     @Test
@@ -244,14 +251,45 @@ class CliToolSupportTest {
     }
 
     @Test
-    fun `console rendering of a json-shaped payload is untouched, printing the raw text verbatim`() {
+    fun `console rendering of a json-shaped payload is pretty-printed, not the raw minified text`() {
         val out = CapturedStream()
         val payload = """{"windows":[{"windowId":"w1"}]}"""
 
         val exit = Presentation.Console { tempDir }.render(textResult(payload), "list_windows", out.stream)
 
         assertEquals(CliExit.OK, exit)
-        assertEquals(payload + "\n", out.text())
+        val rendered = out.text()
+        // More than one line: println's own trailing "\n" alone must not satisfy this — a minified blob
+        // is exactly one line plus that trailing newline, so require at least two non-blank lines.
+        assertTrue(rendered.trim().lines().size > 1, "a JSON object must be pretty-printed across lines, not one minified blob: $rendered")
+        // Content-equivalent, not byte-identical: only the formatting changed.
+        assertEquals(parseJson.parseToJsonElement(payload), parseJson.parseToJsonElement(rendered))
+    }
+
+    @Test
+    fun `console pretty-prints a JSON object text payload`() {
+        val out = renderConsole(textResult("""{"windows":[{"a":1}]}"""))
+        assertTrue(out.trim().lines().size > 1, "a JSON object must be pretty-printed across lines, not one minified blob: $out")
+        assertTrue(out.contains("\"windows\""))
+    }
+
+    @Test
+    fun `console pretty-prints a JSON array text payload`() {
+        val out = renderConsole(textResult("""[1,2,3]"""))
+        assertTrue(out.trim().lines().size > 1, "a JSON array must be pretty-printed across lines, not one minified blob: $out")
+        assertEquals(listOf(1, 2, 3), parseJson.parseToJsonElement(out).jsonArray.map { it.jsonPrimitive.int })
+    }
+
+    @Test
+    fun `console leaves a prose text payload untouched`() {
+        val out = renderConsole(textResult("just some prose"))
+        assertEquals("just some prose", out.trim())
+    }
+
+    @Test
+    fun `console leaves a bare scalar untouched`() {
+        val out = renderConsole(textResult("123"))
+        assertEquals("123", out.trim())
     }
 
     // ------------------------------ console image rendering ------------------------------

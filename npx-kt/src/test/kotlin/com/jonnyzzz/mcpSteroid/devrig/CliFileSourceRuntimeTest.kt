@@ -7,8 +7,6 @@ import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
@@ -17,15 +15,13 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
 /**
  * The runtime half of a declared [com.jonnyzzz.mcpSteroid.mcp.CliFileSource]. The parse phase must never
  * touch the filesystem, so it records only the PATH a file-source flag was given
- * ([DevrigCommand.RunTool.fileSources]); reading it — from a file, or from standard input when the path is
+ * ([GeneratedToolInvocation.fileSources]); reading it — from a file, or from standard input when the path is
  * `-` — happens here, once, for every tool, driven by the declaration and never by the tool name.
  *
  * Driven through `execute_code`, the tool that declares `--code-file`. The two listers declare no file
@@ -39,23 +35,6 @@ class CliFileSourceRuntimeTest {
 
     @TempDir
     lateinit var work: Path
-
-    private lateinit var originalErr: PrintStream
-    private lateinit var errBuf: ByteArrayOutputStream
-
-    @BeforeEach
-    fun captureStderr() {
-        originalErr = System.err
-        errBuf = ByteArrayOutputStream()
-        System.setErr(PrintStream(errBuf, true, Charsets.UTF_8))
-    }
-
-    @AfterEach
-    fun restoreStderr() {
-        System.setErr(originalErr)
-    }
-
-    private fun stderr(): String = errBuf.toString(Charsets.UTF_8).replace("\r\n", "\n")
 
     /** Records the `code` the tool spec finally parsed, so a test can assert what the substitution produced. */
     private class RecordingExecuteCode : ExecuteCodeToolHandler {
@@ -71,12 +50,19 @@ class CliFileSourceRuntimeTest {
         }
     }
 
-    private fun runExecuteCode(codeFile: String, stdin: ByteArray = ByteArray(0)): Pair<GeneratedToolRun, String?> {
+    private fun runExecuteCode(
+        codeFile: String,
+        stdin: ByteArray = ByteArray(0),
+        json: Boolean = true,
+    ): Pair<GeneratedToolRun, String?> {
         val handler = RecordingExecuteCode()
         val tools = FakeMcpSteroidTools().with(ExecuteCodeToolHandler::class.java, handler)
-        val command = parseRunTool(
-            "execute_code", "--json", "--project_name=demo", "--code-file=$codeFile", "--task_id=t", "--reason=r",
-        )
+        val args = buildList {
+            add("execute_code")
+            if (json) add("--json")
+            addAll(listOf("--project_name=demo", "--code-file=$codeFile", "--task_id=t", "--reason=r"))
+        }
+        val command = parseRunTool(*args.toTypedArray())
         return runGeneratedToolForTest(home, command, tools, stdin) to handler.seenCode
     }
 
@@ -110,13 +96,22 @@ class CliFileSourceRuntimeTest {
         // An agent that runs devrig non-interactively and pipes nothing would otherwise see the process sit
         // silent with no way to tell whether it is waiting on stdin or on the IDE. The note is printed
         // BEFORE the read, so it is visible even when the read never returns.
-        runExecuteCode("-", stdin = "x\n".toByteArray())
+        val (run, _) = runExecuteCode("-", stdin = "x\n".toByteArray(), json = false)
 
         assertTrue(
-            stderr().contains("standard input"),
-            "stderr must say it is reading standard input; got:\n${stderr()}",
+            run.stderr.contains("standard input"),
+            "stderr must say it is reading standard input; got:\n${run.stderr}",
         )
-        assertTrue(stderr().contains("code"), "the note must name the parameter it is filling; got:\n${stderr()}")
+        assertTrue(run.stderr.contains("code"), "the note must name the parameter it is filling; got:\n${run.stderr}")
+    }
+
+    @Test
+    fun `json standard input keeps stderr clean`() {
+        val (run, seenCode) = runExecuteCode("-", stdin = "println(1)\n".toByteArray())
+
+        assertEquals(CliExit.OK, run.exit)
+        assertEquals("println(1)\n", seenCode)
+        assertEquals("", run.stderr)
     }
 
     // ------------------------------- diagnosable failures -------------------------------

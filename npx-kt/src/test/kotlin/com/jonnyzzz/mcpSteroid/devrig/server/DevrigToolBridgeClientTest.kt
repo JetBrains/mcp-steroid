@@ -12,6 +12,7 @@ import com.jonnyzzz.mcpSteroid.devrig.InstalledBackend
 import com.jonnyzzz.mcpSteroid.server.backendNameForMarker
 import com.jonnyzzz.mcpSteroid.devrig.monitor.DiscoveredIde
 import com.jonnyzzz.mcpSteroid.devrig.startableBackendName
+import com.jonnyzzz.mcpSteroid.devrig.startTestHttpServer
 import com.jonnyzzz.mcpSteroid.devrig.testDevrigEndpoint
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.devrig.monitor.IdeMonitorState
@@ -32,16 +33,12 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationStarted
-import io.ktor.server.cio.CIO as ServerCIO
 import io.ktor.server.engine.EmbeddedServer
-import io.ktor.server.engine.embeddedServer
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respondText
 import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
-import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.coroutines.cancellation.CancellationException
@@ -56,7 +53,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -83,8 +79,7 @@ class DevrigToolBridgeClientTest {
 
     @BeforeEach
     fun setUp() {
-        port = freePort()
-        server = embeddedServer(ServerCIO, port = port, host = "127.0.0.1") {
+        val started = startTestHttpServer {
             routing {
                 post("/api/jonnyzzz/mcp-steroid/v1/tools/call/stream") {
                     receivedAuth = call.request.headers["Authorization"]
@@ -123,8 +118,9 @@ class DevrigToolBridgeClientTest {
                     }
                 }
             }
-        }.also { it.start(wait = false) }
-        runBlocking { server.monitor.subscribe(ApplicationStarted) {} }
+        }
+        server = started.server
+        port = started.port
 
         httpClient = HttpClient(CIO) {
             install(HttpTimeout) {
@@ -144,8 +140,10 @@ class DevrigToolBridgeClientTest {
         holdStreamRelease = null
         httpStatus = HttpStatusCode.OK
         httpBody = ""
-        httpClient.close()
-        server.stop(0L, 0L)
+        // Guarded: when setUp fails these were never assigned, and an
+        // UninitializedPropertyAccessException from teardown would bury the real cause (#477).
+        if (::httpClient.isInitialized) httpClient.close()
+        if (::server.isInitialized) server.stop(0L, 0L)
     }
 
     @Test
@@ -235,6 +233,7 @@ class DevrigToolBridgeClientTest {
             projectName = route.exposedProjectName,
             params = FeedbackParams(
                 taskId = "feedback-task",
+                executionId = "eid_original",
                 successRating = 0.75,
                 explanation = "worked",
                 code = "println(1)",
@@ -247,6 +246,7 @@ class DevrigToolBridgeClientTest {
         val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
         assertEquals("original-project", arguments["project_name"]?.jsonPrimitive?.content)
         assertEquals("feedback-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("eid_original", arguments["execution_id"]?.jsonPrimitive?.content)
         assertEquals("0.75", arguments["success_rating"]?.jsonPrimitive?.content)
         assertEquals("worked", arguments["explanation"]?.jsonPrimitive?.content)
         assertEquals("println(1)", arguments["code"]?.jsonPrimitive?.content)
@@ -303,7 +303,7 @@ class DevrigToolBridgeClientTest {
                 projects = listOf(IdeProjectState("project-b", projectB.toString())),
             ),
         )
-        val route = routing.routes().single { it.route.pid == 43L }
+        val route = routing.routes().single { it.route.processId == 43L }
         val handler = DevrigVisionInputToolHandler(DevrigToolBridgeClient(httpClient), routing)
 
         val result = handler.handleInputSequence(
@@ -333,11 +333,13 @@ class DevrigToolBridgeClientTest {
         @TempDir tempDir: Path,
     ) = runBlocking {
         val backends = backendService()
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = tempDir.resolve("target").toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
             ),
             NoOpProgressReporter,
@@ -362,11 +364,13 @@ class DevrigToolBridgeClientTest {
             IdeMonitorState(ide = discoveredIde(pid = 43, build = "IU-261.1", token = "secret-newer")),
         )
         val backends = backendService(*states.toTypedArray())
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = tempDir.resolve("target").toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
             ),
             NoOpProgressReporter,
@@ -383,16 +387,58 @@ class DevrigToolBridgeClientTest {
     }
 
     @Test
+    fun `open project without backend_name reuses the backend that already owns the requested path`(
+        @TempDir tempDir: Path,
+    ) = runBlocking {
+        val targetProject = Files.createDirectories(tempDir.resolve("target"))
+        val otherProject = Files.createDirectories(tempDir.resolve("other"))
+        val states = listOf(
+            IdeMonitorState(
+                ide = discoveredIde(pid = 42, token = "secret-target"),
+                projects = listOf(IdeProjectState("target", targetProject.toString())),
+            ),
+            IdeMonitorState(
+                ide = discoveredIde(pid = 43, token = "secret-other"),
+                projects = listOf(IdeProjectState("other", otherProject.toString())),
+            ),
+        )
+        val handler = DevrigOpenProjectToolHandler(
+            DevrigToolBridgeClient(httpClient),
+            backendService(*states.toTypedArray()),
+            routingService(*states.toTypedArray()),
+        )
+
+        val result = handler.handleOpenProject(
+            OpenProjectParams(
+                projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
+                trustProject = true,
+            ),
+            NoOpProgressReporter,
+        )
+
+        assertEquals(false, result.isError)
+        assertEquals("Bearer secret-target", receivedAuth)
+        val json = McpJson.parseToJsonElement(receivedBody ?: error("missing request body")).jsonObject
+        assertEquals("steroid_open_project", json["name"]?.jsonPrimitive?.content)
+        val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
+        assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `open project bridge handler forwards request when exactly one ide is discovered`(
         @TempDir tempDir: Path,
     ) = runBlocking {
         val targetProject = Files.createDirectories(tempDir.resolve("target"))
         val backends = backendService(IdeMonitorState(ide = discoveredIde(pid = 42)))
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = false,
             ),
             NoOpProgressReporter,
@@ -405,8 +451,8 @@ class DevrigToolBridgeClientTest {
         val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
         assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
         assertEquals("false", arguments["trust_project"]?.jsonPrimitive?.content)
-        assertEquals("open-project", arguments["task_id"]?.jsonPrimitive?.content)
-        assertEquals("Open project through devrig", arguments["reason"]?.jsonPrimitive?.content)
+        assertEquals("test-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("test reason", arguments["reason"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -419,11 +465,13 @@ class DevrigToolBridgeClientTest {
             IdeMonitorState(ide = discoveredIde(pid = 42, build = "IU-253.1", token = "secret-42")),
             IdeMonitorState(ide = discoveredIde(pid = 43, build = "IU-261.1", token = "secret-43")),
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = backendNameForMarker(42L, "IU-253.1"),
             ),
@@ -439,8 +487,8 @@ class DevrigToolBridgeClientTest {
         // backend_name is resolved locally, never forwarded.
         assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
         assertEquals("true", arguments["trust_project"]?.jsonPrimitive?.content)
-        assertEquals("open-project", arguments["task_id"]?.jsonPrimitive?.content)
-        assertEquals("Open project through devrig", arguments["reason"]?.jsonPrimitive?.content)
+        assertEquals("test-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("test reason", arguments["reason"]?.jsonPrimitive?.content)
         assertEquals(null, arguments["backend_name"])
     }
 
@@ -453,12 +501,14 @@ class DevrigToolBridgeClientTest {
             IdeMonitorState(ide = discoveredIde(pid = 42, token = "secret-42")),
             IdeMonitorState(ide = discoveredIde(pid = 43, token = "secret-43")),
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val unknown = backendNameForMarker(999L, "IU-261.1")
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = unknown,
             ),
@@ -507,10 +557,10 @@ class DevrigToolBridgeClientTest {
     }
 
     @Test
-    fun `CLI project --json and MCP list_projects expose the same project_name for one marker project`(
+    fun `list_projects handler exposes the routing service project and backend identities`(
         @TempDir tempDir: Path,
     ) = runBlocking {
-        // A real directory so toRealPath() (used by both code paths to salt the hash) succeeds identically.
+        // A real directory so routing can salt the opaque project key from its canonical path.
         val projectHome = Files.createDirectories(tempDir.resolve("my-app"))
         val pid = 4242L
         val ide = discoveredIde(pid = pid, build = "IU-261.1")
@@ -520,28 +570,15 @@ class DevrigToolBridgeClientTest {
         )
         val routing = DevrigProjectRoutingService { listOf(state) }
 
-        // MCP surface.
-        val mcpResponse = DevrigListProjectsToolHandler(routing)
+        val response = DevrigListProjectsToolHandler(routing)
             .collectListProjectsResponse()
-        val mcpProjectName = mcpResponse.projects.single().projectName
+        val listed = response.projects.single()
 
-        // CLI surface — rendered by `devrig project --json` from the SAME routing routes.
-        val cliJson = java.io.ByteArrayOutputStream().let { buf ->
-            com.jonnyzzz.mcpSteroid.devrig.renderProjectJson3(
-                routing.routes(),
-                java.io.PrintStream(buf, true, Charsets.UTF_8),
-            )
-            buf.toString(Charsets.UTF_8)
-        }
-        val cliProject = McpJson.parseToJsonElement(cliJson).jsonObject["projects"]!!.jsonArray.single().jsonObject
-        val cliProjectName = cliProject["project_name"]!!.jsonPrimitive.content
-        val cliBackendName = cliProject["backend_name"]!!.jsonPrimitive.content
-
-        assertEquals(mcpProjectName, cliProjectName, "CLI and MCP must expose the same project_name")
-        assertTrue(mcpProjectName.startsWith("my-app-"), mcpProjectName)
-        // ...and the same owning backend_name.
-        assertEquals(mcpResponse.projects.single().backendName, cliBackendName)
-        assertEquals(backendNameForMarker(pid, "IU-261.1"), cliBackendName)
+        assertEquals(routing.routes().single().exposedProjectName, listed.projectName)
+        assertTrue(listed.projectName.startsWith("my-app-"), listed.projectName)
+        assertEquals("my-app", listed.name)
+        assertEquals(projectHome.toRealPath().toString(), listed.path)
+        assertEquals(backendNameForMarker(pid, "IU-261.1"), listed.backendName)
     }
 
     @Test
@@ -772,11 +809,13 @@ class DevrigToolBridgeClientTest {
                     token = "startable-token", ideHome = ideHome)
             },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "caller-task",
+                reason = "caller reason",
                 trustProject = true,
                 backendName = startableBackendName(installed),
             ),
@@ -790,6 +829,8 @@ class DevrigToolBridgeClientTest {
         assertEquals("steroid_open_project", json["name"]?.jsonPrimitive?.content)
         val arguments = json["arguments"]?.jsonObject ?: error("missing arguments: $json")
         assertEquals(targetProject.toString(), arguments["project_path"]?.jsonPrimitive?.content)
+        assertEquals("caller-task", arguments["task_id"]?.jsonPrimitive?.content)
+        assertEquals("caller reason", arguments["reason"]?.jsonPrimitive?.content)
         // backend_name is never forwarded to the plugin.
         assertEquals(null, arguments["backend_name"])
     }
@@ -810,12 +851,14 @@ class DevrigToolBridgeClientTest {
                     token = "sole-startable-token", ideHome = ideHome)
             },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         // Only one candidate (startable) — the handler must use it automatically.
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = false,
             ),
             NoOpProgressReporter,
@@ -841,11 +884,13 @@ class DevrigToolBridgeClientTest {
             installedProvider = { listOf(installed) },
             starter = { throw RuntimeException("boom") },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = startableBackendName(installed),
             ),
@@ -875,11 +920,13 @@ class DevrigToolBridgeClientTest {
                 )
             },
         )
-        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends)
+        val handler = DevrigOpenProjectToolHandler(DevrigToolBridgeClient(httpClient), backends, routingService())
 
         val result = handler.handleOpenProject(
             OpenProjectParams(
                 projectPath = targetProject.toString(),
+                taskId = "test-task",
+                reason = "test reason",
                 trustProject = true,
                 backendName = startableBackendName(installed),
             ),
@@ -911,7 +958,7 @@ class DevrigToolBridgeClientTest {
     ): DiscoveredIde =
         DiscoveredIde(
             backendName = backendNameForMarker(pid, build),
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:$port/mcp").rpcBaseUrl,
             bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
             ide = IdeInfo("IntelliJ IDEA", "2026.1", build),
@@ -930,7 +977,7 @@ class DevrigToolBridgeClientTest {
         ProjectRoute(
             route = DiscoveredIde(
                 backendName = backendNameForMarker(42L, "IU-261.1"),
-                pid = 42,
+                processId = 42,
                 rpcBaseUrl = "http://127.0.0.1:$port/api/jonnyzzz/mcp-steroid/v1",
                 bridgeHeaders = mapOf("Authorization" to "Bearer $token"),
                 ide = IdeInfo("IntelliJ IDEA", "2026.1", "IU-261.1"),
@@ -942,7 +989,7 @@ class DevrigToolBridgeClientTest {
         )
 }
 
-private fun freePort(): Int = ServerSocket(0).use { it.localPort }
+
 
 private fun ToolCallResult.errorText(): String =
     (content.single() as ContentItem.Text).text

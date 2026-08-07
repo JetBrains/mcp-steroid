@@ -20,7 +20,7 @@ class DevrigExecuteCodeToolHandler(
     ): ToolCallResult {
         val route = routing.requireProject(projectName)
         // Version-base skew check on every routed exec_code call (devrig scenario only; stderr).
-        BackendVersionSkew.warnOnExecCode(pid = route.route.pid, pluginVersion = route.route.plugin.version)
+        BackendVersionSkew.warnOnExecCode(pid = route.route.processId, pluginVersion = route.route.plugin.version)
         val result = bridge.callProjectTool(route, "steroid_execute_code", callProgress) {
             put("code", execCodeParams.code)
             put("task_id", execCodeParams.taskId)

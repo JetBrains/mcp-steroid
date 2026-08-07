@@ -132,6 +132,23 @@ When changing files across multiple sub-folders, read the guides for each.
   compiler reports `Unclosed comment` at the end of the file plus a cascade
   of unresolved-reference errors. Rewrite as `//` line comments or quote the
   substring to avoid the `/*` sequence.
+- **Windows-hostile test fixtures and assertions.** Three recurring shapes, all found live on the TC
+  Windows agent (2026-08-05, issues #445 + the CliToolSupportTest CRLF round):
+  1. Whole-string assertions on `PrintStream` output MUST normalize `\r\n` → `\n` in the capture
+     helper (`println` uses the platform separator; the TC report renders expected/actual as
+     visually identical). `GeneratedToolRuntimeTestSupport` is the reference implementation.
+  2. `File.setExecutable(false)` is a **silent no-op on NTFS** and `Files.isExecutable()` stays true
+     for any readable file — a "non-executable file" precondition is unrepresentable there. Use an
+     injectable probe with a production default (see `RemoteDevelopmentLauncherResolver`'s
+     `isExecutable` seam), never chmod-based fixtures.
+  3. Never assert `contains("some/relative/path")` against a message that embeds `Path.toString()`
+     — build the expected fragment with `Path.of("some", "relative", "path").toString()`.
+- **Snapshotting `/proc/<pid>/cmdline` (ProcessHandle.info().arguments()) right after a spawn.**
+  On Linux a spawned child execs IN PLACE through `jspawnhelper → setsid → env → sh` before becoming
+  the target binary; a one-shot read races that chain and sees `"sh"` or an empty Optional (broke
+  `mcp_steroid_DevrigTest` deterministically on cold TC agents). Poll with
+  `withTimeout { while (...) delay(...) }` until the expected command appears. Identity checks must
+  use exec-stable properties (pid + `startInstant`), never the cmdline.
 - **MCP stdio scripts writing to stdout.** Any shell/PowerShell wrapper
   invoked by an agent CLI as a stdio MCP server (`devrig mcp`, etc.) must
   emit **only stderr** before `exec`-ing the inner binary. Stdout is the
@@ -188,6 +205,15 @@ well (JetBrains Marketplace).
 - **Modules**: see `settings.gradle.kts`. Plugin code lives in `ij-plugin/`; prompt resources in `prompts/`;
   Docker IDE smoke tests in `test-integration/`; experimental/long-running tests in `test-experiments/`.
 
+### devrig CLI contributor contract
+
+[`docs/devrig-cli-contract.md`](docs/devrig-cli-contract.md) is authoritative for command grammar, help,
+human/JSON output, direct MCP-tool commands, and `open_project --wait`. Keep one Clikt parser and derive
+tool commands from their schemas. Use canonical `list_projects`; `projects` and `project` are compatibility
+aliases. Missing/invalid parameters must route to focused help with allowed values, and parse validation
+must happen before backend, file/stdin, or `--out` side effects. Agent-facing changes require the unit,
+stable Docker, and Claude/Codex experiment buckets named in that contract.
+
 ## Technology Stack
 
 Gradle 9.6.1 / Kotlin 2.3.20 / Java 25 toolchain / IntelliJ Platform 2026.1+ / Ktor 3.3.2 (CIO+SSE) / kotlinx.serialization
@@ -233,6 +259,16 @@ silently skips both. Direct `./gradlew :test-integration:test --tests '...'` sti
 `:test-integration:test` is split by the `mcp.testIntegration.lane` property (`main` = smoke matrix,
 excludes playgrounds; `compat` = verifier/262-compat/Android-Studio legs on a fresh agent; unset = full
 suite, the local behavior) — see `test-integration/AGENTS.md` → "CI lane split".
+
+**On TeamCity, public Maven hosts route through the JetBrains cache redirector.** The TC Mac farm
+(`icri-big-agent-eqx-*`) shares one NAT egress IP that Maven Central 429-rate-limits on cold resolution,
+and Gradle disables a repository for the whole build on the first transport error — the failing lookup
+was not even a repo dependency but buildSrc's `kotlin-dsl` → Gradle-distribution-pinned Kotlin, via the
+implicit Plugin Portal. `gradle/jetbrains-cache-redirector.settings.gradle.kts` (+ `pluginManagement`
+mirrors in both settings files) rewrites `repo.maven.apache.org` / `repo1.maven.org` /
+`plugins.gradle.org` to `cache-redirector.jetbrains.com/<host>/<path>`, gated on `TEAMCITY_VERSION`
+alone — GitHub Actions and local builds stay byte-identical. Only verified-mirrored hosts belong in
+that list (`packages.jetbrains.team` is NOT mirrored and stays direct).
 
 **Vendor-feed tests are opt-in**, so a Google/JetBrains/GitHub outage can never redden a normal build:
 
@@ -291,6 +327,12 @@ git checkout main && git branch -D jb-merge
 `--no-ff` preserves `jb/main`'s existing head as the merge's first parent so jb-only history stays
 reachable. **Why this matters for CI:** TC pulls from `jb`. If your commit isn't on `jb/main`, TC builds
 stale code.
+
+**Push origin BEFORE jb-merging.** Concurrent sessions push to origin/main constantly; a rejected
+`git push origin main` after the jb push already landed leaves jb *ahead* of the source of truth
+(hit twice on 2026-08-05). Recovery when it happens anyway: `git pull --rebase origin main` →
+`git push origin main` — the same change now exists under two SHAs (one on each remote), which is
+fine: the next jb-merge unifies identical content without conflict. Never cherry-pick it back.
 
 **No GitHub Actions on `jb`.** The JetBrains-org mirror runs **TeamCity only** — it must carry **no**
 `.github/workflows/` at all (those are origin/jonnyzzz-only: the GitHub Pages website deploy, PR compile

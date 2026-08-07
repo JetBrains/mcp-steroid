@@ -41,6 +41,71 @@ import org.junit.jupiter.api.parallel.ExecutionMode
 class DevrigRemoteDevelopmentKeycloakTypeHierarchyTest {
 
     @Test
+    @Timeout(value = 45, unit = TimeUnit.MINUTES)
+    fun `CLI wait opens and routes a project on a frontendless Remote Development backend`() =
+        runWithCloseableStack { lifetime ->
+            val container = DevrigContainer.create(
+                lifetime,
+                DevrigContainerOpts(
+                    consoleTitle = "devrig-remote-backend-cli-wait",
+                    mountDependencyCaches = true,
+                ),
+            )
+            container.console.writeHeader(
+                "test-experiments — ${this::class.simpleName} — frontendless devrig open_project --wait",
+            )
+
+            container.execAndAssertWithConsoleStream(
+                description = "open an initially unrouted project with CLI --wait on IU Remote Development",
+                timeoutSeconds = 40 * 60L,
+                script = $$"""
+                    set -euo pipefail
+                    project="/home/agent/frontendless-cli-wait-project"
+                    cleanup() {
+                      "$${container.devrig}" backend stop idea-ultimate --version "$$IDE_VERSION" >/dev/null 2>&1 || true
+                    }
+                    trap cleanup EXIT
+
+                    mkdir -p "$project"
+                    printf '# frontendless CLI wait fixture\n' > "$project/README.md"
+
+                    "$${container.devrig}" list_projects --json > /tmp/projects-before.json
+                    jq -e --arg path "$project" \
+                      '[.data.content[].json.projects[] | select(.path == $path)] | length == 0' \
+                      /tmp/projects-before.json >/dev/null
+
+                    "$${container.devrig}" backend download idea-ultimate --version "$$IDE_VERSION"
+                    "$${container.devrig}" open_project \
+                      --project_path="$project" \
+                      --task_id=frontendless-cli-wait \
+                      --reason="verify list_projects readiness without a frontend window" \
+                      --wait --json > /tmp/open-project-wait.json
+                    cat /tmp/open-project-wait.json
+
+                    jq -e --arg path "$project" '
+                      .command == "open_project" and .isError == false and
+                      (.data.content | length == 1) and
+                      (.data.content[0].json.path == $path) and
+                      (.data.content[0].json.project_name | length > 0) and
+                      (.data.content[0].json.backend_name | length > 0)
+                    ' /tmp/open-project-wait.json >/dev/null
+                    project_name="$(jq -r '.data.content[0].json.project_name' /tmp/open-project-wait.json)"
+                    backend_name="$(jq -r '.data.content[0].json.backend_name' /tmp/open-project-wait.json)"
+
+                    "$${container.devrig}" list_projects --json > /tmp/projects-after.json
+                    jq -e --arg path "$project" --arg project_name "$project_name" --arg backend_name "$backend_name" '
+                      [.data.content[].json.projects[] |
+                        select(.path == $path and .project_name == $project_name and .backend_name == $backend_name)] |
+                      length == 1
+                    ' /tmp/projects-after.json >/dev/null
+
+                    printf 'FRONTENDLESS_WAIT_PROJECT_NAME=%s\n' "$project_name"
+                    printf 'FRONTENDLESS_WAIT_BACKEND_NAME=%s\n' "$backend_name"
+                """.trimIndent(),
+            )
+        }
+
+    @Test
     @Timeout(value = 75, unit = TimeUnit.MINUTES)
     fun `claude installs devrig and uses a remote development backend for keycloak hierarchy`() =
         runScenario("claude")
@@ -632,11 +697,11 @@ class DevrigRemoteDevelopmentKeycloakTypeHierarchyTest {
                   false
                 fi
 
-                failed_invariant="devrig project route eventually reports Keycloak"
+                failed_invariant="devrig list_projects route eventually reports Keycloak"
                 project_deadline=$((SECONDS + 60))
                 while true; do
-                  if "$$INSTALLED_DEVRIG" project --json > /tmp/devrig-projects.json && \
-                    jq -e --arg path "$$PROJECT_DIR" '.projects[] | select(.path == $path)' /tmp/devrig-projects.json >/dev/null; then
+                  if "$$INSTALLED_DEVRIG" list_projects --json > /tmp/devrig-projects.json && \
+                    jq -e --arg path "$$PROJECT_DIR" '.data.content[].json.projects[] | select(.path == $path)' /tmp/devrig-projects.json >/dev/null; then
                     break
                   fi
                   if [ "$SECONDS" -ge "$project_deadline" ]; then

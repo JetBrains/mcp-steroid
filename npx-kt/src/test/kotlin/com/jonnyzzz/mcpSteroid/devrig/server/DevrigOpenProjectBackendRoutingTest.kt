@@ -21,7 +21,7 @@ class DevrigOpenProjectBackendRoutingTest {
             setOf(backendNameForMarker(42L, build), backendNameForMarker(43L, build)),
             backends.map { it.backendName }.toSet(),
         )
-        assertEquals(setOf(42L, 43L), backends.map { it.pid }.toSet())
+        assertEquals(setOf(42L, 43L), backends.map { it.processId }.toSet())
     }
 
     private fun routingWith(pids: List<Long>): DevrigProjectRoutingService {
@@ -37,7 +37,7 @@ class DevrigOpenProjectBackendRoutingTest {
     private fun discoveredIde(pid: Long): DiscoveredIde =
         DiscoveredIde(
             backendName = backendNameForMarker(pid, build),
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint("http://127.0.0.1:4343/mcp").rpcBaseUrl,
             bridgeHeaders = mapOf("Authorization" to "Bearer secret-$pid"),
             ide = IdeInfo("IntelliJ IDEA", "2026.1", build),

@@ -42,6 +42,15 @@ enum class CliOptionType {
     BOOLEAN,
 }
 
+/** Human presentation selected by schema metadata after a tool call succeeds. */
+enum class CliOutputStyle {
+    /** Render MCP content items directly. */
+    CONTENT,
+
+    /** Render the structured list-projects payload as a compact project/backend table. */
+    PROJECTS_TABLE,
+}
+
 /**
  * A CLI option scoped to one tool's subcommand that is **not** one of the tool's inputs: the CLI acts
  * on it itself — orchestrating around the call, e.g. polling the IDE after the tool has returned — and
@@ -94,6 +103,13 @@ data class CliCommandSpec(
      * dialog-failure screenshot) ever return an image; `--out` on any other command has nothing to write.
      */
     val producesImage: Boolean = false,
+    /** Human-only output style; `--json` always uses the unified envelope. */
+    val outputStyle: CliOutputStyle = CliOutputStyle.CONTENT,
+    /**
+     * `mcp-steroid://` article URIs a layered `devrig help <tool>` renders alongside this subcommand's
+     * synopsis; empty for tools that need none. Never part of the MCP wire.
+     */
+    val guideUris: List<String> = emptyList(),
 )
 
 /** Derives the default CLI subcommand name from an MCP tool [toolName] by stripping the `steroid_` prefix. */
@@ -130,6 +146,14 @@ abstract class McpToolBase : CliToolSpec {
      */
     protected open val cliProducesImage: Boolean get() = false
 
+    /** Human-only renderer selection; most tools print their MCP content directly. */
+    protected open val cliOutputStyle: CliOutputStyle get() = CliOutputStyle.CONTENT
+    /**
+     * `mcp-steroid://` article URIs a layered `devrig help` renders for this tool's subcommand; empty by
+     * default.
+     */
+    protected open val cliGuideUris: List<String> get() = emptyList()
+
     override val cli: CliCommandSpec
         get() = CliCommandSpec(
             name = defaultCliName(name),
@@ -138,6 +162,8 @@ abstract class McpToolBase : CliToolSpec {
             hidden = cliHidden,
             extraOptions = cliExtraOptions,
             producesImage = cliProducesImage,
+            outputStyle = cliOutputStyle,
+            guideUris = cliGuideUris,
         )
 }
 

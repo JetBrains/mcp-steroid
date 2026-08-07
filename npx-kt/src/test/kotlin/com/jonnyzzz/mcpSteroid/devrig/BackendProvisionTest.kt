@@ -11,21 +11,18 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.ContentType
-import io.ktor.server.application.ApplicationStarted
-import io.ktor.server.cio.CIO as ServerCIO
 import io.ktor.server.engine.EmbeddedServer
-import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
-import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.notExists
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -52,6 +49,26 @@ class BackendProvisionTest {
     fun `provision parser target ids are stable`() {
         assertEquals("port-63342", provisionTargetId(63342))
         assertEquals("devrig backend provision port-63342", provisionCommand("port-63342"))
+    }
+
+    @Test
+    fun `invalid provision id is JSON on stdout`() {
+        val buffer = ByteArrayOutputStream()
+
+        val exit = runBackendProvisionCommand(
+            out = PrintStream(buffer, true, Charsets.UTF_8),
+            id = "not-a-port",
+            json = true,
+            provision = { _, _ -> error("provision must not run") },
+        )
+        val root = parser.parseToJsonElement(buffer.toString(Charsets.UTF_8)).jsonObject
+
+        assertEquals(64, exit)
+        assertEquals(setOf("tool", "action", "id", "error", "exitCode"), root.keys)
+        assertEquals("provision", root["action"]!!.jsonPrimitive.content)
+        assertEquals("not-a-port", root["id"]!!.jsonPrimitive.content)
+        assertTrue(root["error"]!!.jsonPrimitive.content.contains("Unsupported provision target id"))
+        assertEquals(64, root["exitCode"]!!.jsonPrimitive.int)
     }
 
     @Test
@@ -257,10 +274,8 @@ class BackendProvisionTest {
     fun `provision resolves port id and computes manual instruction paths without installing plugin`(@TempDir tempDir: Path) = runBlocking {
         val sourcePlugin = tempDir.resolve("source-plugin.zip")
         Files.writeString(sourcePlugin, "fake plugin zip")
-        val port = ServerSocket(0).use { it.localPort }
         val installPluginCalls = mutableListOf<Unit>()
-        val server = ideServer(
-            port = port,
+        val started = ideServer(
             aboutBody = """
                 {
                   "name": "IntelliJ IDEA 2026.1.1",
@@ -272,7 +287,8 @@ class BackendProvisionTest {
             """.trimIndent(),
             installPluginCalls = installPluginCalls,
         )
-        servers += server
+        servers += started.server
+        val port = started.port
         val httpClient = httpClient()
         clients += httpClient
 
@@ -302,8 +318,9 @@ class BackendProvisionTest {
 
         val exit = runBackendProvisionCommand(
             out = PrintStream(buf, true, Charsets.UTF_8),
-            command = DevrigCommand.DevrigCommandBackendProvision(id = "port-63342"),
-            provision = { result },
+            id = "port-63342",
+            json = false,
+            provision = { _, _ -> result },
         )
         val text = buf.toString(Charsets.UTF_8).replace("\r\n", "\n")
 
@@ -324,8 +341,9 @@ class BackendProvisionTest {
         val buf = ByteArrayOutputStream()
         val exit = runBackendProvisionCommand(
             out = PrintStream(buf, true, Charsets.UTF_8),
-            command = DevrigCommand.DevrigCommandBackendProvision(id = "port-63342", json = true),
-            provision = { result },
+            id = "port-63342",
+            json = true,
+            provision = { _, _ -> result },
         )
         val root = parser.parseToJsonElement(buf.toString(Charsets.UTF_8)).jsonObject
 
@@ -417,7 +435,7 @@ class BackendProvisionTest {
         mcpUrl: String = "http://localhost:6315/mcp",
     ): DiscoveredIde {
         return DiscoveredIde(
-            pid = pid,
+            processId = pid,
             rpcBaseUrl = testDevrigEndpoint(mcpUrl).rpcBaseUrl,
             bridgeHeaders = emptyMap(),
             ide = IdeInfo(name = name, version = version, build = build),
@@ -453,11 +471,10 @@ class BackendProvisionTest {
     }
 
     private fun ideServer(
-        port: Int,
         aboutBody: String,
         installPluginCalls: MutableList<Unit>,
-    ): EmbeddedServer<*, *> {
-        val server = embeddedServer(ServerCIO, port = port, host = "127.0.0.1") {
+    ): TestHttpServer {
+        return startTestHttpServer {
             routing {
                 get("/api/about") {
                     call.respondText(aboutBody, ContentType.Application.Json)
@@ -467,9 +484,7 @@ class BackendProvisionTest {
                     call.respondText("{}", ContentType.Application.Json)
                 }
             }
-        }.also { it.start(wait = false) }
-        runBlocking { server.monitor.subscribe(ApplicationStarted) {} }
-        return server
+        }
     }
 
     private class FixedBundledPluginResolver(private val zip: Path) : BundledPluginResolver {

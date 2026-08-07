@@ -2,6 +2,8 @@
 package com.jonnyzzz.mcpSteroid.devrig
 
 import com.jonnyzzz.mcpSteroid.mcp.McpJson
+import com.jonnyzzz.mcpSteroid.server.BackendRef
+import com.jonnyzzz.mcpSteroid.server.IntelliJInfo
 import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
 import com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler
 import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
@@ -55,6 +57,7 @@ class ListCommandsTest {
                 backendName = "IU-253",
             ),
         ),
+        backends = listOf(BackendRef("IU-253", IntelliJInfo("IntelliJ IDEA", "2025.3", "IU-253.1"))),
     )
 
     // ------------------------- the generated command reaches the tool -------------------------
@@ -82,15 +85,39 @@ class ListCommandsTest {
     }
 
     @Test
-    fun `list_projects without --json prints the tool result on stdout`() {
+    fun `list_projects without --json prints a readable project table`() {
         val run = runGeneratedToolForTest(home, parseRunTool("list_projects"), toolsWithProjects(oneProject))
 
         assertEquals(CliExit.OK, run.exit)
-        assertEquals(
-            McpJson.encodeToString(ListProjectsResponse.serializer(), oneProject) + "\n",
-            run.stdout,
-            "console mode prints the tool's text content and nothing else",
+        assertTrue("Listing 1 open project(s) across 1 backend(s):" in run.stdout, run.stdout)
+        assertTrue("demo-abc123" in run.stdout && "/work/demo" in run.stdout, run.stdout)
+        assertTrue("Raw project name: demo" in run.stdout, run.stdout)
+        assertTrue("IntelliJ IDEA 2025.3 (IU-253; build IU-253.1)" in run.stdout, run.stdout)
+    }
+
+    @Test
+    fun `project aliases execute the same list_projects handler and render the same outputs`() {
+        val canonicalConsole = runGeneratedToolForTest(
+            home,
+            parseRunTool("list_projects"),
+            toolsWithProjects(oneProject),
         )
+        val canonicalJson = runGeneratedToolForTest(
+            home,
+            parseRunTool("list_projects", "--json"),
+            toolsWithProjects(oneProject),
+        )
+        for (aliasName in listOf("projects", "project")) {
+            val aliasConsole = runGeneratedToolForTest(home, parseRunTool(aliasName), toolsWithProjects(oneProject))
+            assertEquals(canonicalConsole, aliasConsole)
+            val aliasJson = runGeneratedToolForTest(
+                home,
+                parseRunTool(aliasName, "--json"),
+                toolsWithProjects(oneProject),
+            )
+            assertEquals(canonicalJson, aliasJson)
+            assertEquals("list_projects", aliasJson.envelope().getValue("command").jsonPrimitive.content)
+        }
     }
 
     @Test
@@ -111,12 +138,16 @@ class ListCommandsTest {
     }
 
     @Test
-    fun `list_windows without --json prints the tool result on stdout`() {
+    fun `list_windows without --json pretty-prints the tool result on stdout`() {
         val response = ListWindowsResponse(windows = emptyList(), backgroundTasks = emptyList())
         val run = runGeneratedToolForTest(home, parseRunTool("list_windows"), toolsWithWindows(response))
 
         assertEquals(CliExit.OK, run.exit)
-        assertEquals(McpJson.encodeToString(ListWindowsResponse.serializer(), response) + "\n", run.stdout)
+        assertTrue(run.stdout.trim().lines().size > 1, "expected a pretty-printed, multi-line payload; got:\n${run.stdout}")
+        assertEquals(
+            McpJson.encodeToJsonElement(ListWindowsResponse.serializer(), response),
+            McpJson.parseToJsonElement(run.stdout),
+        )
     }
 
     @Test
@@ -132,6 +163,8 @@ class ListCommandsTest {
         assertTrue(trimmed.endsWith("}"), "stdout must end with the envelope; got:\n${run.stdout}")
         assertTrue(run.stdout.endsWith("\n"), "stdout must be line-terminated; got '${run.stdout.takeLast(20)}'")
         run.envelope()
+        assertEquals("", run.stderr, "--json must not stream progress beside its document")
+        assertTrue("Tool call started" !in run.stdout, "progress polluted JSON stdout:\n${run.stdout}")
     }
 
     // ------------------------- through the production runCli router -------------------------

@@ -7,6 +7,8 @@ import com.jonnyzzz.mcpSteroid.mcp.ToolCallErrorException
 import com.jonnyzzz.mcpSteroid.mcp.ToolCallResult
 import com.jonnyzzz.mcpSteroid.server.ExecCodeParams
 import com.jonnyzzz.mcpSteroid.server.ExecuteCodeToolHandler
+import com.jonnyzzz.mcpSteroid.server.ListProjectsResponse
+import com.jonnyzzz.mcpSteroid.server.ListProjectsToolHandler
 import com.jonnyzzz.mcpSteroid.server.ListWindowsResponse
 import com.jonnyzzz.mcpSteroid.server.ListWindowsToolHandler
 import com.jonnyzzz.mcpSteroid.server.McpProgressReporter
@@ -37,7 +39,7 @@ import kotlinx.serialization.json.put
  * propagate rather than collapsing it into a generic `isError` result.
  *
  * A parse-time usage failure is NOT in this table: it never reaches the runtime, because
- * [parseDevrigCommand] turns it into [DevrigCommand.DevrigCommandParseError] and [runCli] answers 64 there
+ * [parseDevrigCommand] turns it into an informational parse-error invocation that answers 64 there
  * (pinned by `DevrigCommandOutputTest`). That split is deliberate — the runtime pipeline must stay free of
  * Clikt, so it cannot and must not catch a `UsageError`.
  */
@@ -68,6 +70,24 @@ class CliErrorEnvelopeTest {
         ): ToolCallResult {
             called = true
             return ToolCallResult(content = listOf(ContentItem.Text("ran")))
+        }
+    }
+
+    private class CountingListWindows : ListWindowsToolHandler {
+        var called: Boolean = false
+
+        override suspend fun collectListWindowsResponse(): ListWindowsResponse {
+            called = true
+            return ListWindowsResponse(windows = emptyList(), backgroundTasks = emptyList())
+        }
+    }
+
+    private class CountingListProjects : ListProjectsToolHandler {
+        var called: Boolean = false
+
+        override suspend fun collectListProjectsResponse(): ListProjectsResponse {
+            called = true
+            return ListProjectsResponse(projects = emptyList())
         }
     }
 
@@ -126,6 +146,32 @@ class CliErrorEnvelopeTest {
     }
 
     @Test
+    fun `an unhandled extra option fails before tool and out filesystem side effects`() {
+        // A synthetic extra option no runtime name-keyed handler (like the `--wait` poll) ever consumes.
+        // `execute_code` declares no extra options at all, so `SchemaCliBinding` could never produce this
+        // on a real parse — this hand-builds the invocation to prove the RUNTIME'S OWN guard rejects it
+        // before either the image-producing tool or --out preflight can have an observable side effect.
+        val outParent = home.resolve("unsupported-extra-output")
+        val command = GeneratedToolInvocation(
+            toolName = "steroid_execute_code",
+            commandName = "execute_code",
+            extraOptions = mapOf("phantom" to true),
+            out = outParent.resolve("result.png"),
+            json = true,
+        )
+        val handler = CountingExecuteCode()
+        val tools = FakeMcpSteroidTools().with(ExecuteCodeToolHandler::class.java, handler)
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
+        run.assertIsErrorEnvelope("execute_code")
+        assertTrue("phantom" in run.errorMessage(), run.errorMessage())
+        assertFalse(handler.called, "an unsupported orchestration flag must fail before the tool can have side effects")
+        assertFalse(Files.exists(outParent), "unsupported options must fail before --out creates its parent directory")
+    }
+
+    @Test
     fun `an argument the tool itself rejects exits 64 and never blames the backend`() {
         // The rejection the SCHEMA layer raises — `McpSchema`'s `required()` parser for an absent required
         // parameter, and its enum parser for an unknown value. Both throw ToolCallErrorException, which
@@ -141,7 +187,7 @@ class CliErrorEnvelopeTest {
         //
         // Driven through the REAL spec rather than a throwing double: what is under test is that the
         // schema layer's own rejection reaches this arm, and a double would prove only the arm exists.
-        val command = DevrigCommand.RunTool(
+        val command = GeneratedToolInvocation(
             toolName = "steroid_execute_code",
             commandName = "execute_code",
             arguments = buildJsonObject {
@@ -218,7 +264,7 @@ class CliErrorEnvelopeTest {
         run.assertIsErrorEnvelope("list_windows")
         assertEquals(
             "devrig list_windows did not complete: no IDE backend is reachable " +
-                "(IOException: Connection refused: no IDE is running) — check `devrig project`.",
+                "(IOException: Connection refused: no IDE is running) — check `devrig list_projects`.",
             run.errorMessage(),
         )
     }
@@ -233,7 +279,7 @@ class CliErrorEnvelopeTest {
         assertEquals(CliExit.UNAVAILABLE, run.exit, "stdout was:\n${run.stdout}")
         assertEquals(
             "devrig list_windows did not complete: no IDE backend is reachable " +
-                "(IOException: Connect timeout has expired) — check `devrig project`.",
+                "(IOException: Connect timeout has expired) — check `devrig list_projects`.",
             run.errorMessage(),
         )
     }
@@ -359,6 +405,27 @@ class CliErrorEnvelopeTest {
         assertEquals("compilation failed: line 3", run.errorMessage())
     }
 
+    @Test
+    fun `--wait never polls when open_project itself returns isError`() {
+        // OpenProjectToolSpec.call() rejects a non-existent path with its own ToolCallResult.errorResult(...)
+        // BEFORE ever reaching an OpenProjectToolHandler — so no handler double is registered here at all.
+        // If the runtime's `--wait` handling ever regressed to reach the handler anyway, FakeMcpSteroidTools
+        // would fail loudly ("no test double is registered") rather than silently passing.
+        val listProjects = CountingListProjects()
+        val tools = FakeMcpSteroidTools().with(ListProjectsToolHandler::class.java, listProjects)
+        val missingPath = home.resolve("does-not-exist")
+        val command = parseRunTool(
+            "open_project", "--json", "--project_path=$missingPath", "--task_id=t", "--reason=r", "--wait",
+        )
+
+        val run = runGeneratedToolForTest(home, command, tools)
+
+        assertEquals(CliExit.TOOL_ERROR, run.exit, "stdout was:\n${run.stdout}")
+        run.assertIsErrorEnvelope("open_project")
+        assertEquals("ERROR: Project path is not a directory: $missingPath", run.errorMessage())
+        assertFalse(listProjects.called, "a failed open_project must never trigger the --wait poll")
+    }
+
     // ------------------------------------- 0 OK -------------------------------------
 
     @Test
@@ -386,37 +453,6 @@ class CliErrorEnvelopeTest {
         assertFailsWith<CancellationException> {
             failing { throw CancellationException("devrig is shutting down") }
         }
-    }
-
-    // --------------------------- an extra option nothing acts on yet ---------------------------
-
-    @Test
-    fun `an extra option no runtime acts on yet fails loudly instead of being ignored`() {
-        // `--wait` is generated from open_project's declaration and parses today, but the polling that
-        // gives it meaning does not exist yet. Ignoring it would be invisible: the caller asked devrig to
-        // wait for the project, devrig would open it, return 0, and never wait. Derived from the
-        // declaration, so it names the flag the user typed and needs no per-tool knowledge.
-        //
-        // DELETE THIS TEST, along with `requireNoUnhandledExtraOption`, in the phase that implements the
-        // first extra option. The deletion is pre-authorised — it is not a weakened test. The rule it pins
-        // fires on "the declared flag was set" and cannot tell whether a runtime consumes the option, so
-        // once `--wait` works this guard would reject the very invocation it exists to protect.
-        val command = parseRunTool(
-            "open_project", "--json", "--project_path=/tmp/p", "--backend_name=b",
-            "--task_id=t", "--reason=r", "--wait",
-        )
-
-        val run = runGeneratedToolForTest(home, command, FakeMcpSteroidTools())
-
-        assertEquals(CliExit.USAGE, run.exit, "stdout was:\n${run.stdout}")
-        run.assertIsErrorEnvelope("open_project")
-        assertEquals(
-            "devrig open_project: --wait is accepted by the command line but no runtime acts on it yet — " +
-                "drop it and the command runs",
-            run.errorMessage(),
-            "the whole message is asserted, not just the flag: the first version of this rule said " +
-                "'devrig open_project:' twice, because the pipeline already prefixes it",
-        )
     }
 
     // ------------------------------------- console mode -------------------------------------

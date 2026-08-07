@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 fun markerBackendDisplayName(ide: DiscoveredIde): String = ide.ide.displayName
 
 fun markerBackendLocatorLabel(ide: DiscoveredIde): String =
-    markerLocator(ide.ide.build, ide.pid)
+    markerLocator(ide.ide.build, ide.processId)
 
 fun portBackendDisplayName(ide: DiscoveredIdeByPort): String =
     ide.productFullName ?: ide.productName ?: "(unknown JetBrains IDE)"

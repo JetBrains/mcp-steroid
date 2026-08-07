@@ -14,13 +14,13 @@ If no IDE is installed or reachable, use the devrig binary on your PATH:
 
 ```
 devrig backend download --json
-devrig backend download <product-id> --version <version>
+devrig backend download idea-ultimate --version 2026.2.0.1
 ```
 
 The first command lists downloadable product ids with each product's latest stable
-version, build, and license tier; pass `--version <version>` to pin another released
+version, build, and license tier; pass a listed product id and `--version <version>` to pin another released
 version. For unattended Java/JVM work on the supported 2026.2 line, choose
-`devrig backend download idea-ultimate --version <version>`. IDEA Ultimate
+`devrig backend download idea-ultimate --version 2026.2.0.1`. IDEA Ultimate
 262 is launched as a **frontendless Remote Development backend** with MCP
 Steroid included. Plain non-backend headless mode is unsupported; Remote Development product mode takes
 precedence over the raw AWT-headless flag, so that flag alone is not a support detector.
@@ -154,14 +154,21 @@ Download `<id>` values appear in `devrig backend download --json`.
 
 ## After opening — polling for readiness
 
-`steroid_open_project` has two distinct readiness phases:
+`steroid_open_project` participates in three distinct readiness gates:
 
 1. **Backend reachability.** For a startable backend, the call blocks until
    devrig observes its MCP marker. A frontendless Remote Development backend
    does not need a window or screenshot.
-2. **Project/model readiness.** The IDE accepts the open request
+2. **Project routing.** The IDE accepts the open request
    asynchronously. Poll `steroid_list_projects` until the target path appears
    and keep the returned opaque `project_name`.
+3. **External-system configuration.** Route availability does not prove Maven
+   or Gradle import. Before an indexed semantic query, fetch the matching
+   `mcp-steroid://skill/execute-code-maven` or
+   `mcp-steroid://skill/execute-code-gradle` recipe, trigger and await sync exactly
+   as it shows (the Maven recipe uses `Observation.awaitConfiguration(project)`),
+   and run index-dependent work in `smartReadAction`. Treat an unexpectedly tiny first result as incomplete
+   project configuration, not as an exhaustive semantic answer.
 
 If a frontend window exists, `steroid_list_windows` is an additional signal:
 
@@ -173,14 +180,8 @@ If a frontend window exists, `steroid_list_windows` is an additional signal:
 2. If `modalDialogShowing` is `true`, call `steroid_take_screenshot`
    to see the dialog and `steroid_input` to interact.
 
-These four flags describe IDE/window state, **not Maven or Gradle model
-import**. On a first open, they can become ready before external-system
-configuration begins. Before an indexed semantic query, fetch the matching
-`mcp-steroid://skill/execute-code-maven` or
-`mcp-steroid://skill/execute-code-gradle` recipe, trigger and await sync exactly
-as it shows (the Maven recipe uses `Observation.awaitConfiguration(project)`),
-and run index-dependent work in `smartReadAction`. Treat an unexpectedly tiny first result as incomplete
-project configuration, not as an exhaustive semantic answer.
+These four flags describe optional IDE/window state, **not Maven or Gradle model import**. On a first
+open, they can become ready before external-system configuration begins and cannot replace gate 3.
 
 When several IDEs are running, each `windows[]` / `backgroundTasks[]`
 entry carries a `backend_name` — use it to track the right IDE.

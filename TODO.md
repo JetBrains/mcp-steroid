@@ -1,5 +1,52 @@
 # TODO
 
+- [x] **Bundling devrig inside the IDE plugin — REJECTED** (2026-07-28). devrig is the future, not the
+  plugin, so the plugin stays bundled inside devrig; devrig fetching the plugin on demand would add a
+  runtime dependency on the plugin repository that can break in our own `backend download/start` flow.
+  Freshness is solved devrig-side instead (devrig keeps itself current → so does the plugin it carries;
+  known work, devrig-owned). Measurements + the full rationale:
+  [`docs/devrig-bundled-in-plugin-spike.md`](docs/devrig-bundled-in-plugin-spike.md).
+- [ ] **The IDE plugin is the migration path onto devrig** — it must move existing plugin users onto a
+  correct, current devrig by running our canonical install scripts (`DevrigSetup.kt` downloads
+  `install.sh` / `install.ps1` to `~/.mcp-steroid/update/install-<pid>.sh|.ps1` and runs the file via
+  `installerCommands`; the `curl … | sh` / `irm … | iex` one-liner is only the settings page's copyable
+  display string). Done since: the offer lives on the settings page with an **Install devrig** button,
+  every surface renders the one launcher-exists probe (`devrigInstalled` — devrig self-updates by
+  design, so there is no staleness axis; only the plugin's own update check compares `version.json`),
+  the installer's own output drives a cancellable progress bar, and a failure writes the shared
+  `~/.mcp-steroid/markers/bootstrap-install.failed` marker (its agent-side readers — `/devrig:status`,
+  the SessionStart hook — arrive with the unmerged `claude-plugin` branch). The install shares devrig's
+  own updater machinery (`UpdateCoordination` and `installerCommands`/`InstallerHost` in
+  `:devrig-common`; `DevrigVersion` in `:mcp-core`), so the two halves cannot start competing
+  multi-hundred-megabyte downloads. Remaining:
+  - **No funnel data**: `analyticsBeacon` records offered → install-ok, but nothing downstream, so
+    every claim about conversion (including "the settings page converts better than a balloon") is
+    still guesswork.
+  - **When, if ever, to show the startup offer**: the status-bar widget is deleted; the startup
+    notification is behind `mcp.steroid.devrig.widget.enabled` (default off; the key id predates the
+    widget and stays stable) until we have run with it ourselves. "Every IDE run" was the wrong
+    answer; we do not yet have a better one.
+  - **Two `version.json` fetch/parse stacks remain**: `ij-plugin`'s `UpdateChecker` (its own private
+    `VersionInfo` over `HttpRequests`) and `:npx-kt`'s `DevrigUpdateChecker`/`AutoUpdater`. Unifying
+    means promoting a shared version.json model + fetch into `:devrig-common` — new downloader code
+    there, deliberately NOT done as part of the onboarding collapse (out of scope). Follow-up only if
+    the two ever need to agree on more than `version-base`.
+
+- [ ] **dpaia/ee-dataset exporter strips trailing whitespace from patches (upstream fix)**: 11 of 304
+  patches in the live `java-spring-ee-dataset.json` are damaged (blank context lines trimmed to empty,
+  trailing context lines dropped) — the arena works because `repairTrimmedUnifiedDiff` repairs them at
+  parse time (#447, `test-experiments/.../DpaiaDataset.kt`), but the exporter in `dpaia/ee-dataset`
+  (READ permission only from here — needs a PR or owner access) should stop trimming so the dataset is
+  valid for every consumer, not just ours.
+
+- [ ] **TC Mac agents (icri-big-agent-eqx-\*) — residual infra asks** (from the 2026-08-05 Maven-429
+  investigation; the in-repo cache-redirector fix already unblocks the lane): (a) persistent/warmed
+  `~/.gradle/caches` for the ephemeral eqx pool (agent image bake or TC ephemeral-agent dependency
+  cache) so cold resolution stops depending on any external host; (b) optionally point the TC-side
+  Gradle wrapper distribution at `cache-redirector.jetbrains.com/services.gradle.org/...` (every cold
+  agent re-downloads the dist; low priority — not throttled today; must NOT be changed in-repo, the
+  wrapper properties cannot be conditional); (c) FYI to JB infra: Maven Central began throttling the
+  Equinix Mac egress between 2026-08-02 and 2026-08-04.
 - [ ] **KtBlock matrix has no GoLand/WebStorm/RubyMine/DataGrip lane** (noted in the #406 quorum
   review). Unannotated (all-IDE) prompt fences are compile-verified only against
   Idea/PyCharm/Rider/CLion (stable+EAP) yet render in GO/WS/RM/DB at runtime. Risk is low while
@@ -74,7 +121,8 @@
   - [ ] Scenario B (chosen first step): `IntelliJMcpServerProbe.listNativeTools()` (+ drop the
     banned `internal` on `IntelliJMcpServerProbeImpl`), `GET …/native-tools` bridge route,
     `mcp-steroid-server` DTOs (`available`/`unfiltered` on the wire, no `backend_name`),
-    `devrig project tools <project_name> [--json]` (ProjectCommand → `invokeWithoutSubcommand`),
+    a redesigned top-level CLI route such as `devrig native_tools <project_name> [--json]`
+    (`list_projects` is a generated leaf and `projects`/`project` are its aliases, so none can own nested actions),
     explicit 404="plugin too old" branch, WirePristinenessTest + contract pins,
     `:test-integration` canary (list + `find_files_by_glob` call), wire-table entry.
   - [ ] Scenario A follow-up: short static index `skill/native-mcp-tools.md` (guard + LIST
@@ -141,27 +189,9 @@
 - [ ] **list_windows graceful degradation**: devrig's `steroid_list_windows` is all-or-nothing — one
   IDE failing its `/windows` fetch errors the whole call (`coroutineScope` + `error(...)`), unlike
   `list_projects` which degrades per-backend. Return partial windows + a per-backend error marker.
-
-- [ ] **devrig CLI must own the `--wait` polling loop (#284)**: the schema-driven-command reshape
-  removed the `out` parameter from `VisionScreenshotToolSpec` and turned `--wait` into a declared
-  `CliExtraOption` on `steroid_open_project`, because neither is a tool input, so the tool metadata
-  carries neither behavior. **`--out` is done**: it is a devrig framework flag registered only on
-  `execute_code` and `take_screenshot`, and implemented by `renderWithOut` in `CliToolSupport.kt` (verified end to end —
-  `devrig take_screenshot --out=<path>` writes the PNG and prints `Saved --out: <path>`). `--wait` is
-  **not**: it parses, and a generic guard in `GeneratedToolRuntime.kt` then refuses with exit 64
-  (`--wait is accepted by the command line but no runtime acts on it yet`). Implement it as a project-list
-  poll until the target path appears; a frontendless Remote Development backend has no window. If a
-  frontend window exists, additionally poll its modal/indexing/initialized flags. Then delete the guard
-  plus its test.
-
-- [ ] **`--json` parse-time usage errors emit nothing on stdout (#284)**: a parse failure becomes
-  `DevrigCommandParseError`, which prints to stderr and answers 64 with no `--json` envelope — the KDoc
-  argues the failure precedes the command's options so the `--json` intent is unknowable, yet the sibling
-  help path already sniffs `--json`/`--debug` off the raw tokens (`Array<String>.jsonRequested()` in
-  `Cli.kt`). The same sniff could drive a parse-error envelope for machine consumers. Decide whether the
-  envelope is wanted; if yes, re-introduce a `commandName` recovery that survives non-boolean pre-command
-  flags (`--out` falsified the old raw-token scan — see `DevrigCommandParseError`'s KDoc), and pin the
-  contract either way (it is untested today).
+- [ ] **list_windows human presentation (#284 follow-up)**: console mode still prints the tool's
+  JSON payload as pretty-printed JSON, but still lacks a purpose-built, colorful windows/tasks renderer.
+  Add that renderer while preserving the current ANSI-free `--json` envelope for agents.
 
 - [ ] **`--project_name` is not inferred from the current directory (#284)**: `resolveProjectFromCwd`
   in `npx-kt/.../devrig/server/CwdProjectResolver.kt` is fully written and unit-tested (`One` / `None` /
@@ -197,31 +227,22 @@
   implementors. Capture the canonical full set (or query it independently after the agent run) so future
   Keycloak fixture changes can distinguish exact completeness from a strong workflow regression signal.
 
-- [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: three review findings deferred from
-  PR #356. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call
+- [ ] **Harden the CLI tool-spec metadata layer (#284 follow-up)**: remaining review findings after
+  PR #450. (1) `CliToolSpec.schema` exposes the mutable `ToolSchema` — any consumer can call
   `register()` after registration and change the advertised `inputSchema`; expose a read-only view
-  (interface with `asMcpJson()`/`asCliParams()` only). (2) No declaration-time flag-collision
-  validation: a parameter flag, its `cliFileSource` flag, and a tool-level `CliExtraOption` flag can
-  collide — builder checks are order-dependent (`.cliFileSource("--x").cliFlag("--x")` passes) and a
-  bare `--` is accepted as a flag; validate per-tool flag/alias uniqueness at registration or pin it
-  with a `devrigToolSpecs()`-wide test. (3) Wire bounds declared via the `extra {}` closure
+  (interface with `asMcpJson()`/`asCliParams()` only). (2) Collision checks now cover parameter,
+  file-source, tool-extra, framework, command-token, and alias names at command construction, but strict
+  option-name grammar still needs a declaration-time guard (for example, reject a bare `--`). (3) Wire
+  bounds declared via the `extra {}` closure
   (`success_rating` 0..1) are invisible to `asCliParams()`, while `timeout` carries a CLI-only
   `cliMinimum` — the generated CLI cannot enforce the wire bound without parsing `asMcpJson()`; also
   `cliSynopsis` hardcodes "(default 600)" where the MCP description interpolates the constant, so the
   two can silently diverge.
 
-- [ ] **Harvest test coverage from the abandoned `issue-284-schema-driven-cli-phase-b` branch (#284)**: that
-  parallel branch (superseded by `issue-284-cli-engine`, not merged) carries ~12 test classes this branch
-  lacks — MCP-as-CLI contract/parse tests, per-command tests (execute_code / fetch_resource / feedback /
-  screenshot), a layered `help execute_code` topic test, and a Docker live-IDE MCP-as-CLI smoke
-  (`CliDevrigToolsIntegrationTest`). They assert against phase-b's command-class architecture, so port the
-  INTENT into the generated-runtime structure, don't copy the files.
-
-- [ ] **The `devrig --help` banner does not list `install plugin` / `install devrig` (#284)**: the curated
-  `LIFECYCLE_COMMANDS` in `HelpCommand.kt` documents `install [claude|codex|gemini]` and `install config`
-  (pinned by `DevrigCommandOutputTest` + `McpToolsCliHelpTest`), but the `install plugin` and `install devrig`
-  subcommands have no banner entry (main did not document them either — pre-existing, not a Phase B
-  regression). Add their one-line descriptions to the curated banner and extend the pinned test head.
+- [ ] **Make agent-choice commands shell-safe in devrig output (#284 follow-up)**: `InstallCommand` and
+  `InstallConfigCommand` still render `devrig install claude|codex|gemini`, which a shell interprets as a
+  pipeline rather than as alternatives. Print separate concrete commands (or one concrete command plus
+  prose naming the replacements) and pin that no copyable command uses shell alternation as notation.
 
 - [ ] **red-code reporter false-positives on Kotlin files**: `reportProjectRedCode` (PSI reference scan,
   `mcp-steroid-import.kt`) reports Kotlin stdlib/operator references (`mutableMapOf`, `runCatching`,
@@ -305,3 +326,42 @@
   path is settled and must not be reshaped again for a console concern. A richer per-tool table
   (`devrig project`-style columns for the listers) is a different, larger question: it would need declared
   rendering metadata, since a `when (toolName)` is exactly what #284 removes.
+
+- [ ] **Owner decision: fold `PidMarker.markerDirectory` into `HomePaths`** (external review of PR #367,
+  2026-08-06). Two structural residues survived the directive-A audit, both pre-existing and deliberate:
+  (a) `HomePaths.markersDir` ignores the receiver's `home` and always resolves under the REAL
+  `user.home` — the plugin↔devrig marker-discovery contract pins the location, but a member ignoring
+  its own receiver is an API wart, and sandboxed-home tests need the `DevrigServices.markersDir`
+  constructor seam solely because of it; (b) `PidMarker.markerDirectory` hand-joins
+  `userHome/.mcp-steroid/markers` (it IS the named route and uses `DEVRIG_HOME_DIR_NAME`, but a strict
+  "everything through HomePaths" reading would fold it in as `home.resolve("markers")` over the
+  receiver). Folding changes marker discovery under explicit test homes (today it escapes the sandbox
+  on purpose — see `GeneratedToolRuntimeTestSupport`), so it is a design decision, not a cleanup.
+
+- [x] **`devrig mcp` log files all collapse onto `devrig-session.log`, and every line reads `[pid:?]`**
+  — FIXED as #462: `configureLoggingSystemProperties` now publishes the properties as the first
+  statement of `runDevrigMain`, before command-tree construction can reach SLF4J (the first getLogger
+  came from `FetchResourceToolHandler`'s logger field, confirmed by class-load order).
+- [ ] **Gradle test JVMs log into the developer's REAL `~/.mcp-steroid/logs`** (spotted while fixing
+  #462, still open). `~/.mcp-steroid/logs/devrig-session.log` locally carries `[Test worker]` lines from
+  Ktor/`:npx-kt:test` runs — unit tests should never write into the real devrig home. Find which test
+  path initialises logback without redirecting `devrig.log.dir` (a `systemProperty` on the test task
+  pointing at `build/` would do it) and pin it with a test.
+
+- [ ] **stdio framing follow-ups noticed while fixing #461** (both pre-existing, neither blocking).
+  (a) `FramingBuffer.append` grows without bound: a peer that never sends a newline (binary dump, a
+  huge single line) makes devrig buffer it all. A cap — discard-and-report past N MiB, reusing the
+  new `readNextUnparsableChunk` reporting path — would bound it.
+  (b) A final NDJSON message with no trailing newline is now answered with `-32700` ("stdin ended
+  mid-frame") rather than dispatched. That is spec-faithful (newlines delimit frames) and beats the
+  old silence, but a tolerant reading would dispatch parseable EOF residue instead. Deliberate choice,
+  worth revisiting only if a real client trips on it.
+
+- [ ] **`--debug` inside a Clikt `@argfile` still does not enable logging** (residual after the #462 fix).
+  Logging verbosity is now read straight off argv (`Array<String>.debugRequested()`) before Clikt runs,
+  because logback pins its configuration during command-tree construction. Clikt's `expandArgumentFiles`
+  defaults to on, so `devrig backend @args.txt` with `--debug` in the file parses to
+  `DevrigCliInvocation.debug = true` while the argv scan sees only `@args.txt` — verified: 0 bytes on
+  stderr. Left as is deliberately: the parsed flag has no other consumer, `@argfile` is not a documented
+  devrig invocation form, and the alternative is a logback `reset()` + `JoranConfigurator` re-read after
+  parsing. Pick that up only if a real client trips on it.

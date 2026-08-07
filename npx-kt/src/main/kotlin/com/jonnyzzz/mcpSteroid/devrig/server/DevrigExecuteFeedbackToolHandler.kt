@@ -15,6 +15,7 @@ class DevrigExecuteFeedbackToolHandler(
         val route = routing.requireProject(projectName)
         val result = bridge.callProjectTool(route, "steroid_execute_feedback") {
             put("task_id", params.taskId)
+            params.executionId?.let { put("execution_id", it) }
             put("success_rating", params.successRating)
             params.explanation?.let { put("explanation", it) }
             params.code?.let { put("code", it) }

@@ -18,6 +18,12 @@ import kotlin.time.Duration.Companion.hours
  * No lock: each process announces with its own `update-<pid>-version-<v>` file, cleans up files of
  * dead processes, and yields to live ones. Coordination reads only filenames and mtime; file
  * contents are write-only debugging JSON.
+ *
+ * Lives in `:devrig-common` rather than with devrig's updater because the IDE plugin installs devrig too
+ * (`ij-plugin` `onboarding/DevrigSetup.kt`). Both halves must see the same markers, or a devrig
+ * session and an IDE could each start a multi-hundred-megabyte install of the same thing at the same
+ * time. Nothing
+ * here is IDE- or CLI-specific: file names, pids and mtimes.
  */
 class UpdateCoordination(
     val updateDir: Path,
@@ -131,9 +137,17 @@ class UpdateCoordination(
         }
     }
 
+    /**
+     * Write [content] (UTF-8) so [target] is never observed half-written: stage into a
+     * `.tmp.<pid>.<target-name>` sibling — the SAME directory, because a rename is only atomic within
+     * one file system — then move it over the target, falling back to a plain move where the file
+     * system cannot do an atomic replace. Creates [target]'s parent directory itself, so callers never
+     * have to pre-create the update dir. The staging name matches [parseStagingFilePid], so a crash
+     * leftover is swept by [gc].
+     */
     private fun writeJsonAtomically(target: Path, content: String) {
-        Files.createDirectories(updateDir)
-        val tmp = updateDir.resolve(".tmp.$ownPid.${target.name}")
+        target.parent?.let { Files.createDirectories(it) }
+        val tmp = target.resolveSibling(".tmp.$ownPid.${target.name}")
         try {
             Files.writeString(tmp, content)
             try {

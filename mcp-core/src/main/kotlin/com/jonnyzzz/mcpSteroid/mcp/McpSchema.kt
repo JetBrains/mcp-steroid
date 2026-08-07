@@ -37,7 +37,11 @@ data class InputSchemaParamSpec(
     /** Additional JSON keys merged into the property body (e.g. `minimum`, `maximum`, `items`). */
     val extra: JsonObjectBuilder.() -> Unit = {},
     // CLI hints are exposed by [ToolSchema.asCliParams] and are never serialized into MCP inputSchema JSON.
-    /** CLI flag for this parameter; defaults to `--<name>` (e.g. `project_name` -> `--project_name`). */
+    /**
+     * CLI flag for this parameter; defaults to `--<name>` (e.g. `project_name` -> `--project_name`).
+     * When [cliPositional] is true, help promotes the positional and this flag remains accepted as a
+     * hidden compatibility spelling for scripts written before the presentation change.
+     */
     val cliFlag: String = "--$name",
     /**
      * Short one-line flag help for the CLI. Required for every CLI-visible parameter (see
@@ -52,7 +56,7 @@ data class InputSchemaParamSpec(
      * [ToolSchema.asMcpJson], because the parameter itself is an ordinary MCP parameter either way.
      */
     val cliFileSource: CliFileSource? = null,
-    /** True when the parameter is a CLI positional argument rather than a flag (e.g. `uri`). */
+    /** True when the parameter is advertised as a CLI positional argument rather than a flag (e.g. `uri`). */
     val cliPositional: Boolean = false,
     /** True when the parameter is not exposed as a CLI flag at all. */
     val cliHidden: Boolean = false,

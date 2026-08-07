@@ -21,6 +21,8 @@ Long-form contract documents owned by `docs/` (read these directly
 rather than mirroring their contents into per-folder guides):
 
 - [`PHILOSOPHY.md`](PHILOSOPHY.md) — the four design tenets.
+- [`devrig-cli-contract.md`](devrig-cli-contract.md) — canonical devrig command grammar, generated-tool
+  CLI, help/recovery, human and JSON output, `open_project --wait`, and agent-validation contract.
 - [`devrig-naming.md`](devrig-naming.md) — devrig CLI + stdio MCP
   project/backend naming contract (slug rule, `bootHash`,
   `archiveSha256`, `actions[].argv`, on-demand routing).
@@ -32,11 +34,11 @@ rather than mirroring their contents into per-folder guides):
   register it on PATH, NOTHING else — never auto-register devrig with
   agents, never auto-install the IDE plugin; those commands are only
   promoted to the user in the `devrig install devrig` info message.
-- [`devrig-deployment-spec.md`](devrig-deployment-spec.md) — locked v7
-  design for `~/.mcp-steroid/` install layout: wrapper-driven
-  content-addressed cache, bundled Corretto JDK, two-key signed
-  self-update, auto-GC, agent registration wizard, dev-mode
-  pre-population, and a native-binary alternative appendix.
+- [`devrig-deployment-spec.md`](devrig-deployment-spec.md) — historical v7
+  design record for `~/.mcp-steroid/` layout, wrapper ownership, the bundled runtime,
+  cache/GC ideas, and a native-binary alternative. Its wizard and `upgrade` proposals are
+  superseded; current install behavior lives in `install-scripts-contract.md`, current commands in
+  `devrig-cli-contract.md`, and current updates in `updates-check/devrig-auto-update.md`.
 - [`devrig-remote-development-backend-e2e.md`](devrig-remote-development-backend-e2e.md) —
   shipped IU-262 native Remote Development backend contract, Docker fixture, lifecycle evidence,
   and follow-up risks.
@@ -46,8 +48,9 @@ rather than mirroring their contents into per-folder guides):
 - [`native-mcp-tools-design.md`](native-mcp-tools-design.md) —
   research record + spec for listing/calling the IntelliJ MCP Server
   plugin's native tools: validated LIST/CALL recipes (261→master),
-  the devrig `native-tools` bridge endpoint + `devrig project tools`
-  CLI, and the `mcp-steroid://skill/native-mcp-tools` index +
+  the devrig `native-tools` bridge endpoint + the historical `devrig project tools`
+  CLI proposal (the active TODO now requires a new top-level route because `projects`/`project` alias
+  the generated `list_projects` leaf), and the `mcp-steroid://skill/native-mcp-tools` index +
   dynamic per-tool resource pages.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — top-level architecture
   map.

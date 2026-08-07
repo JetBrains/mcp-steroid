@@ -211,8 +211,8 @@ practice, and never wire-crossing: `WirePristinenessTest` guards it.)
 **The devrig-computed MCP/CLI output is devrig-owned and outside this
 contract — free to reshape.** `steroid_list_projects` results
 (`ListProjectsResponse`, `ListedProject`) and the devrig CLI
-`backend`/`project --json` output are built by devrig from its own
-routing snapshot and returned to one freshly-attached agent or user —
+`backend --json` and generated `list_projects --json` output are built by devrig
+from its own routing snapshot and returned to one freshly-attached agent or user —
 devrig **never fetches** the IDE's `steroid_list_projects`, so these
 types never cross the wire. They may be renamed, restructured, or
 re-keyed at will; only the wire above is frozen.
