@@ -329,9 +329,12 @@ class McpSteroidConfigurableTest : BasePlatformTestCase() {
     fun `test the stdio snippet points at the stable launcher and matches what devrig registers`() {
         val home = Path.of("/home/u")
 
+        // Like the Windows case below, this pins the invocation shape (direct exec, `mcp` arg), not the
+        // separator: on a Windows JVM the same NIO resolution absolutizes "/home/u" with a drive letter.
+        val posixLauncher = DevrigSetupRunner.devrigBinPath(home, windows = false).toString()
         val posix = devrigStdioMcpConfigJson(home, windows = false)
         assertEquals(
-            stdioMcpServersJson(StdioMcpCommand("/home/u/.mcp-steroid/bin/devrig", listOf("mcp"))),
+            stdioMcpServersJson(StdioMcpCommand(posixLauncher, listOf("mcp"))),
             posix,
         )
 
