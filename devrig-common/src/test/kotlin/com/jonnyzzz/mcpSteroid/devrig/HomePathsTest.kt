@@ -22,11 +22,11 @@ class HomePathsTest {
     }
 
     @Test
-    fun `the explicit user-home overload resolves the same dot mcp-steroid layout`() {
-        assertEquals(
-            Path.of("/home/u/.mcp-steroid"),
-            resolveHomePaths(Path.of("/home/u")).home,
-        )
+    fun `the explicit user-home overload resolves the same dot mcp-steroid layout`(
+        @TempDir tempDir: Path,
+    ) {
+        // A drive-absolute fixture: a bare "/home/u" gains a drive letter on Windows when normalized.
+        assertEquals(tempDir.resolve(".mcp-steroid"), resolveHomePaths(tempDir).home)
     }
 
     @Test

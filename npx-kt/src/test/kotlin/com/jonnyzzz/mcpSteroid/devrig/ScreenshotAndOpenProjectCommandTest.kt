@@ -18,6 +18,7 @@ import java.nio.file.Path
 import java.util.Base64
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -170,7 +171,10 @@ class ScreenshotAndOpenProjectCommandTest {
 
         assertEquals(CliExit.OK, run.exit, "stdout was:\n${run.stdout}")
         for (expected in listOf("opaque-project-key", "iu-backend", realPath)) {
-            assertTrue(expected in run.stdout, "human output must include '$expected':\n${run.stdout}")
+            // The route payload is re-encoded as JSON for human eyes, so Windows paths appear with
+            // JSON-escaped backslashes — compare against the JSON string literal, not the raw value.
+            val encoded = JsonPrimitive(expected).toString()
+            assertTrue(encoded in run.stdout, "human output must include $encoded:\n${run.stdout}")
         }
     }
 }
