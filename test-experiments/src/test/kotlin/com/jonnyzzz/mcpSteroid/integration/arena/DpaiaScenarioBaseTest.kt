@@ -44,16 +44,22 @@ abstract class DpaiaScenarioBaseTest {
     /** The DPAIA instance ID for this scenario, e.g. "dpaia__jhipster__sample__app-3". */
     protected abstract val instanceId: String
 
+    // The method budget must clear the agent's own budget plus TWO whole-suite runs (the pre-agent
+    // regression baseline and the post-agent comparison) plus container startup and indexing. The
+    // heaviest cases already allow the agent 90 minutes on its own, so 60 here used to cap the agent
+    // rather than the test; a method killed mid-verification loses every artifact it had gathered.
+    // Nothing inside this budget is measured — the agent timer covers the agent run alone.
+
     // ── Claude ───────────────────────────────────────────────────────────────
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `claude with mcp`() {
         runAgent("claude", withMcp = true)
     }
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `claude without mcp`() {
         runAgent("claude", withMcp = false)
     }
@@ -61,13 +67,13 @@ abstract class DpaiaScenarioBaseTest {
     // ── Codex ────────────────────────────────────────────────────────────────
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `codex with mcp`() {
         runAgent("codex", withMcp = true)
     }
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `codex without mcp`() {
         runAgent("codex", withMcp = false)
     }
@@ -130,6 +136,19 @@ abstract class DpaiaScenarioBaseTest {
             // whether the agent (or the prompt itself) tampered with the FAIL_TO_PASS test definitions
             // instead of fixing production code.
             val verifier = ArenaVerifier(session.scope, ideProjectDir)
+
+            // Baseline whole-suite state, taken BEFORE the agent and outside its timer. This is the only
+            // regression evidence available: 149 of the 154 dataset cases ship an empty PASS_TO_PASS, so
+            // "did the agent break anything" is otherwise unanswerable, and a suite that was already red
+            // (unrelated module, or tests needing an absent Docker socket) reads as the agent's fault.
+            val baselineSuite = verifier.fullSuiteSnapshot(
+                projectJdkVersion = caseConfig.projectJdkVersion,
+                label = "pre-agent baseline",
+            )
+
+            // Hashed AFTER the baseline suite, not before: anything the build itself rewrites (a
+            // formatter plugin bound to a lifecycle phase, a code generator) would otherwise be charged
+            // to the agent as tampering with the FAIL_TO_PASS oracle.
             val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
 
             // ── Agent run (TIMED) ────────────────────────────────────────────────
@@ -163,6 +182,7 @@ abstract class DpaiaScenarioBaseTest {
                     projectJdkVersion = caseConfig.projectJdkVersion,
                     testPatch = testCase.testPatch,
                     preAgentSnapshot = preAgentSnapshot,
+                    baseline = baselineSuite,
                 )
             } catch (e: Exception) {
                 System.err.println(
@@ -204,6 +224,8 @@ abstract class DpaiaScenarioBaseTest {
                 testMetrics = testMetrics,
                 decodedLogMetrics = decodedLogMetrics,
                 verification = verification,
+                baselinePassing = baselineSuite.passing.size,
+                baselineAlreadyFailing = baselineSuite.failing.size,
                 runDirPath = session.runDirInContainer.absolutePath,
             )
             results.add(record)
@@ -226,9 +248,28 @@ abstract class DpaiaScenarioBaseTest {
                 println("[ARENA]   Cost:           $${tokens.costUsd ?: "?"}")
                 println("[ARENA]   Turns:          ${tokens.numTurns ?: "?"}")
                 println("[ARENA]   API duration:   ${tokens.durationApiMs?.let { "${it / 1000}s" } ?: "?"}")
+            } else {
+                // Codex sometimes ends its stream on `item.completed` without the closing
+                // `turn.completed` that carries usage. Nothing in the transcript can reconstruct it, so
+                // say so instead of printing no token line at all — an absent line reads as an oversight.
+                println("[ARENA]   Tokens:         MISSING — the agent CLI emitted no usage event; cost is unrecoverable for this arm")
             }
             if (testMetrics != null) {
                 println("[ARENA]   Tests:          ${testMetrics.testsRun} run, ${testMetrics.testsFail} fail, BUILD ${if (testMetrics.buildSuccess == true) "SUCCESS" else "FAILURE"}")
+            }
+            if (verification != null) {
+                println("[ARENA]   Verified FTP:   ${verification.classesPassed}/${verification.classesTotal}")
+                println("[ARENA]   Objective:      ${verification.objectiveSuccess} (regressions: ${verification.regressions.size}${if (verification.regressionScanTruncated) ", scan TRUNCATED — lower bound" else ""})")
+                if (verification.regressions.isNotEmpty()) {
+                    println("[ARENA]   Regressed:      ${verification.regressions.joinToString()}")
+                }
+                if (verification.collateralTestFilesEdited.isNotEmpty()) {
+                    println("[ARENA]   Collateral tests edited: ${verification.collateralTestFilesEdited.joinToString()}")
+                }
+            }
+            println("[ARENA]   Baseline suite: ${baselineSuite.passing.size} passing, ${baselineSuite.failing.size} already failing")
+            if (baselineSuite.failing.isNotEmpty()) {
+                println("[ARENA]   Already red before the agent: ${baselineSuite.failing.sorted().joinToString()}")
             }
             if (decodedLogMetrics != null) {
                 println("[ARENA]   exec_code:      ${decodedLogMetrics.execCodeCalls}")
@@ -248,6 +289,15 @@ abstract class DpaiaScenarioBaseTest {
                 check(result.evaluation.usedMcpSteroid) {
                     "${agentName.replaceFirstChar { it.uppercase() }} [$agentName+mcp] did not use steroid_execute_code for ${testCase.instanceId}."
                 }
+            }
+
+            // Last, so every artifact above is already on disk: an agent that rewrote the FAIL_TO_PASS
+            // files rewrote its own oracle, so its grade measures nothing. Recording that as data next to
+            // a green build (the old behaviour) publishes a number we know is meaningless.
+            check(verification == null || !verification.failToPassTampered) {
+                "[$agentName+$modeLabel] ${testCase.instanceId}: the agent modified FAIL_TO_PASS test " +
+                    "files, so the ${verification?.classesPassed}/${verification?.classesTotal} grade is " +
+                    "not a measurement of the fix — it graded tests the agent rewrote. Run invalid."
             }
         } finally {
             lifetime.closeAllStacks()
@@ -292,10 +342,14 @@ abstract class DpaiaScenarioBaseTest {
                         "BUILD ${if (m.buildSuccess == true) "SUCCESS" else "FAILURE"}".padEnd(49) + "║")
             }
             val v = r.verification
-            val claimMatchesReality = r.claimedFix == (v?.failToPassRate == 1.0)
             println("║   Verified: ${(v?.let { "${it.classesPassed}/${it.classesTotal}" } ?: "?")}  " +
-                    "Claim matches reality: ${if (v != null) claimMatchesReality.toString() else "?"}  " +
-                    "Tamper: ${v?.testsTampered?.toString() ?: "?"}".padEnd(37) + "║")
+                    "Claim matches reality: ${if (v != null) claimMatchesReality(r).toString() else "?"}  " +
+                    "Tamper: ${v?.failToPassTampered?.toString() ?: "?"}".padEnd(37) + "║")
+            if (v != null) {
+                println("║   Objective success: ${v.objectiveSuccess}  " +
+                        "Regressions: ${if (v.baselineAvailable) v.regressions.size.toString() else "?"}  " +
+                        "Collateral tests edited: ${v.collateralTestFilesEdited.size}".padEnd(34) + "║")
+            }
             println("║   ${(r.summary ?: "(no summary)").take(72).padEnd(72)}      ║")
         }
 
@@ -354,6 +408,10 @@ abstract class DpaiaScenarioBaseTest {
         val decodedLogMetrics: DecodedLogMetrics? = null,
         /** Objective FAIL_TO_PASS grade from [ArenaVerifier.verify]; null when verification itself failed. */
         val verification: ArenaVerificationResult? = null,
+        /** Test classes green in the pre-agent whole-suite baseline. */
+        val baselinePassing: Int? = null,
+        /** Test classes ALREADY failing before the agent ran — the pre-existing failures it is not to blame for. */
+        val baselineAlreadyFailing: Int? = null,
         val runDirPath: String = "",
     )
 
@@ -369,6 +427,17 @@ abstract class DpaiaScenarioBaseTest {
         }
     }
 }
+
+/**
+ * Whether the agent's own claim agrees with the harness's measurement.
+ *
+ * Compared against [ArenaVerificationResult.objectiveSuccess] — FAIL_TO_PASS green AND no regression —
+ * rather than against a green whole-suite build. An agent that fixed the task but refused the success
+ * marker because of failures it did not cause is a **conservative agent**, not a wrong one, and it shows
+ * up here as `false` with `objective_success=true`, which is a different finding from a false claim.
+ */
+fun claimMatchesReality(rec: DpaiaScenarioBaseTest.RunRecord): Boolean =
+    rec.claimedFix == (rec.verification?.objectiveSuccess == true)
 
 /**
  * Pure JSON-summary builder for one arena run — no I/O, no container access — so the shape of the
@@ -414,8 +483,15 @@ fun buildRunSummaryJson(rec: DpaiaScenarioBaseTest.RunRecord): JsonObject = buil
     put("verified_ftp_passed", rec.verification?.classesPassed)
     put("verified_ftp_total", rec.verification?.classesTotal)
     put("verified_ftp_rate", rec.verification?.failToPassRate)
-    put("claim_matches_reality", rec.claimedFix == (rec.verification?.failToPassRate == 1.0))
-    put("tests_tampered", rec.verification?.testsTampered)
+    put("objective_success", rec.verification?.objectiveSuccess)
+    put("claim_matches_reality", claimMatchesReality(rec))
+    put("fail_to_pass_tampered", rec.verification?.failToPassTampered)
+    put("collateral_test_files_edited", rec.verification?.collateralTestFilesEdited?.joinToString(";"))
+    put("regressions", rec.verification?.takeIf { it.baselineAvailable }?.regressions?.joinToString(";"))
+    put("regression_count", rec.verification?.takeIf { it.baselineAvailable }?.regressions?.size)
+    put("regression_scan_truncated", rec.verification?.regressionScanTruncated)
+    put("baseline_passing", rec.baselinePassing)
+    put("baseline_already_failing", rec.baselineAlreadyFailing)
     put("agent_summary", rec.summary ?: "")
     put("timestamp", java.time.Instant.now().toString())
 }

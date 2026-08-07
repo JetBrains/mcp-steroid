@@ -19,13 +19,57 @@ data class SurefireClassResult(
 data class ArenaVerificationResult(
     /** One entry per expected FAIL_TO_PASS class; classes with no surefire XML get testsRun=0. */
     val perClass: List<SurefireClassResult>,
-    /** True when any file touched by the test patch changed after the agent ran. */
-    val testsTampered: Boolean,
+    /**
+     * True when a file **defining a FAIL_TO_PASS class** changed after the agent ran — the agent
+     * rewrote the oracle it was graded against, so its grade means nothing.
+     *
+     * Deliberately narrower than "any test-patch file changed": the prompt itself instructs the agent
+     * to update the collateral test classes its production change breaks, and migration scenarios
+     * (JPA→R2DBC) cannot pass without doing so. Those edits are reported separately in
+     * [collateralTestFilesEdited] as data, never as cheating.
+     */
+    val failToPassTampered: Boolean,
+    /** Test-patch files the agent edited that define no FAIL_TO_PASS class — informational. */
+    val collateralTestFilesEdited: List<String>,
+    /** Test classes that passed in the pre-agent baseline and fail afterward; empty when no baseline. */
+    val regressions: List<String>,
+    /** False when no pre-agent baseline suite was available, making [regressions] unknown rather than empty. */
+    val baselineAvailable: Boolean,
+    /** True when either whole-suite run was cut short, making [regressions] a lower bound — see [FullSuiteSnapshot.timedOut]. */
+    val regressionScanTruncated: Boolean = false,
     val verificationDurationMs: Long,
 ) {
     val classesPassed: Int get() = perClass.count { it.passed }
     val classesTotal: Int get() = perClass.size
     val failToPassRate: Double get() = if (perClass.isEmpty()) 0.0 else classesPassed.toDouble() / perClass.size
+
+    /**
+     * The harness's own verdict on the run, to compare the agent's claim against.
+     *
+     * Every FAIL_TO_PASS class passes and nothing that used to pass broke. The regression half is what
+     * makes an honest refusal distinguishable from a wrong claim: 149 of the 154 dataset cases carry an
+     * EMPTY `PASS_TO_PASS` list, so the only regression evidence available is the measured
+     * baseline-vs-after comparison. Without it a suite that was already red before the agent ran (an
+     * unrelated module's pre-existing failures, or tests needing a Docker socket the container lacks)
+     * pushed agents into refusing the success marker for a task they had in fact completed.
+     */
+    val objectiveSuccess: Boolean get() = classesTotal > 0 && failToPassRate == 1.0 && regressions.isEmpty()
+}
+
+/** Per-class results of one whole-suite run, used as the before/after regression baseline. */
+data class FullSuiteSnapshot(
+    val perClass: List<SurefireClassResult>,
+    val mavenExitCode: Int,
+    /**
+     * True when Maven was killed on the harness timeout, so this snapshot covers only the modules that
+     * finished. A truncated snapshot can only UNDER-report regressions (a class it never saw is treated
+     * as unknown, never as broken) — which is the safe direction, but "0 regressions" measured against a
+     * truncated baseline is not evidence of none, and must not be published as if it were.
+     */
+    val timedOut: Boolean = false,
+) {
+    val passing: Set<String> get() = perClass.filter { it.passed }.map { it.className }.toSet()
+    val failing: Set<String> get() = perClass.filterNot { it.passed }.map { it.className }.toSet()
 }
 
 /** One FAIL_TO_PASS dataset entry: a class, plus the single method when the entry names one. */
@@ -177,6 +221,71 @@ fun extractPatchFilePaths(patch: String): Set<String> =
     DIFF_FILE_HEADER.findAll(patch).map { it.groupValues[1] }.toSet()
 
 /**
+ * The test-patch paths that DEFINE one of the [failToPass] classes — the files an agent must not touch,
+ * because they are the oracle its grade is read from.
+ *
+ * Matched by file leaf against each entry's simple name, the same way [moduleDirectoryForClass] does.
+ * A FAIL_TO_PASS entry whose file the patch never adds contributes nothing.
+ */
+fun failToPassFilePaths(testPatch: String, failToPass: List<String>): Set<String> {
+    val leaves = failToPass.map { parseFailToPassEntry(it).simpleName }.toSet()
+    return extractPatchFilePaths(testPatch).filterTo(LinkedHashSet()) { path ->
+        val leaf = path.substringAfterLast('/')
+        leaves.any { leaf == "$it.java" || leaf == "$it.kt" }
+    }
+}
+
+/** Paths whose hash differs between [before] and [after]; a file appearing or vanishing counts. */
+fun changedPaths(before: Map<String, String>, after: Map<String, String>): List<String> =
+    (before.keys + after.keys).sorted().filter { before[it] != after[it] }
+
+private val SUREFIRE_ATTR = Regex("""(\w+)="([^"]*)"""")
+
+/**
+ * Parse the whole-suite report index: one line per surefire XML, `<path>\t<testsuite …>` opening tag.
+ *
+ * Reading only the opening tag keeps a 40-module reactor's worth of reports to a few hundred KB and
+ * avoids building a DOM per file — the whole-suite snapshot needs the per-class totals, nothing else.
+ * Lines without a parsable `<testsuite>` tag (a truncated or in-progress report) are skipped.
+ */
+fun parseSurefireSuiteIndex(indexText: String): List<SurefireClassResult> =
+    indexText.lineSequence().mapNotNull { line ->
+        val tag = line.substringAfter('\t', missingDelimiterValue = "")
+        if (!tag.contains("<testsuite")) return@mapNotNull null
+        val attrs = SUREFIRE_ATTR.findAll(tag).associate { it.groupValues[1] to it.groupValues[2] }
+        val name = attrs["name"]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        fun num(key: String) = attrs[key]?.toIntOrNull() ?: 0
+        SurefireClassResult(
+            className = name,
+            testsRun = num("tests"),
+            failures = num("failures"),
+            errors = num("errors"),
+            skipped = num("skipped"),
+        )
+    }.toList()
+
+/**
+ * Classes that passed [before] the agent and no longer pass [after] it, excluding [excluded].
+ *
+ * A class absent from the baseline is NOT a regression: its module may simply never have built, and
+ * calling that an agent-caused break would recreate the false-zero problem the loud verification check
+ * exists to prevent. FAIL_TO_PASS classes are excluded because they are expected to change state — they
+ * are graded on their own.
+ */
+fun regressedClasses(
+    before: FullSuiteSnapshot,
+    after: FullSuiteSnapshot,
+    excluded: Set<String> = emptySet(),
+): List<String> {
+    val stillFine = after.passing
+    return before.passing.asSequence()
+        .filter { it !in excluded && it !in stillFine }
+        .filter { it in after.failing }
+        .sorted()
+        .toList()
+}
+
+/**
  * Runs the harness-side, objective FAIL_TO_PASS verification for one arena run: hashes the test-patch
  * files before the agent runs, then re-runs all FAIL_TO_PASS classes in one Maven invocation afterward
  * and grades them from the surefire XML — independent of whatever the agent claimed in its transcript.
@@ -193,6 +302,46 @@ class ArenaVerifier(
     /** sha256 of every test-patch file, taken BEFORE the agent runs. Path → hash; missing files map to "ABSENT". */
     fun snapshotTestFiles(testPatch: String): Map<String, String> =
         hashTestFiles(extractPatchFilePaths(testPatch))
+
+    /**
+     * Run the WHOLE test suite and index every surefire report — the pre-agent baseline of what already
+     * passes, and the post-agent state to compare it against.
+     *
+     * `-fae` plus `maven.test.failure.ignore` are what make the snapshot complete: without them Maven
+     * stops at the first module whose tests fail, so every later module would look "absent" rather than
+     * "green", and a pre-existing failure in an early module would hide the whole reactor.
+     */
+    fun fullSuiteSnapshot(projectJdkVersion: String, label: String): FullSuiteSnapshot {
+        val javaHome = resolveJavaHome(projectJdkVersion)
+        val mavenCommand = resolveMavenCommand()
+        cleanSurefireReports()
+        val mvn = bash(
+            "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand test " +
+                "-fae -Dmaven.test.failure.ignore=true -Dsurefire.failIfNoSpecifiedTests=false " +
+                "-Dspotless.check.skip=true 2>&1 | tail -200",
+            timeoutSeconds = 2_400,
+            description = "Arena $label full-suite snapshot",
+        )
+        val perClass = parseSurefireSuiteIndex(readSurefireIndex())
+        // A harness timeout does not throw — it returns exit=-1 with this marker on stderr. Left
+        // undetected it would look like a completed suite that simply reported fewer classes.
+        val timedOut = mvn.stderr.contains("Terminated by timeout")
+        println(
+            "[ARENA-VERIFY] $label full suite: exit=${mvn.exitCode}, ${perClass.size} classes reported, " +
+                "${perClass.count { it.passed }} passing" + if (timedOut) " — TRUNCATED BY TIMEOUT" else ""
+        )
+        if (timedOut) {
+            System.err.println(
+                "[ARENA-VERIFY] $label full suite hit the harness timeout, so it covers only the modules " +
+                    "that finished. Regression counts derived from it are a lower bound, not a clean zero."
+            )
+        }
+        return FullSuiteSnapshot(
+            perClass = perClass,
+            mavenExitCode = mvn.exitCode ?: -1,
+            timedOut = timedOut,
+        )
+    }
 
     /**
      * The Maven entry point to grade with: the project's own `./mvnw` wrapper when it ships one, else
@@ -233,6 +382,40 @@ class ArenaVerifier(
         return resolved
     }
 
+    /** The temurin JDK the case is configured for; blank is fatal — a wrong JDK grades everything 0. */
+    private fun resolveJavaHome(projectJdkVersion: String): String {
+        val javaHome = bash(
+            "ls -d /usr/lib/jvm/temurin-$projectJdkVersion-jdk-* 2>/dev/null | head -1",
+            timeoutSeconds = 20,
+            description = "Resolve verification JAVA_HOME",
+        ).stdout.trim()
+        check(javaHome.isNotBlank()) { "No temurin-$projectJdkVersion JDK in the arena container" }
+        return javaHome
+    }
+
+    /**
+     * Delete every surefire report in the tree, so a later read cannot pick up a stale one.
+     *
+     * Multi-module repos keep reports per module (`<module>/target/surefire-reports`), hence the walk
+     * instead of assuming a single root `target/`.
+     */
+    private fun cleanSurefireReports() {
+        bash(
+            "find '$projectDir' -type d -path '*/target/surefire-reports' -exec rm -rf {} + 2>/dev/null; true",
+            timeoutSeconds = 60,
+            description = "Clean stale surefire reports",
+        )
+    }
+
+    /** One `<path>\t<testsuite …>` line per surefire report in the tree — see [parseSurefireSuiteIndex]. */
+    private fun readSurefireIndex(): String = bash(
+        "find '$projectDir' -type f -path '*/target/surefire-reports/TEST-*.xml' 2>/dev/null | " +
+            "while IFS= read -r f; do printf '%s\\t' \"${'$'}f\"; " +
+            "tr '\\n' ' ' < \"${'$'}f\" | grep -o '<testsuite[^>]*>' | head -1; printf '\\n'; done",
+        timeoutSeconds = 120,
+        description = "Index surefire reports",
+    ).stdout
+
     /** Contents of `TEST-<fqcn>.xml` from anywhere in the tree, or blank when the class produced none. */
     private fun readSurefireReport(fqcn: String): String = bash(
         "f=\$(find '$projectDir' -type f -path '*/target/surefire-reports/TEST-$fqcn.xml' 2>/dev/null | head -1); " +
@@ -265,27 +448,26 @@ class ArenaVerifier(
         projectJdkVersion: String,
         testPatch: String,
         preAgentSnapshot: Map<String, String>,
+        baseline: FullSuiteSnapshot? = null,
     ): ArenaVerificationResult {
         val startMs = System.currentTimeMillis()
 
-        val tampered = hashTestFiles(extractPatchFilePaths(testPatch)) != preAgentSnapshot
+        val oraclePaths = failToPassFilePaths(testPatch, failToPass)
+        val changed = changedPaths(preAgentSnapshot, hashTestFiles(extractPatchFilePaths(testPatch)))
+        val tampered = changed.any { it in oraclePaths }
+        val collateral = changed.filterNot { it in oraclePaths }
+        if (changed.isNotEmpty()) {
+            println(
+                "[ARENA-VERIFY] test-patch files edited by the agent: " +
+                    changed.joinToString { if (it in oraclePaths) "$it (FAIL_TO_PASS ORACLE)" else it }
+            )
+        }
 
         val testFilter = surefireTestFilter(failToPass)
-        val javaHome = bash(
-            "ls -d /usr/lib/jvm/temurin-$projectJdkVersion-jdk-* 2>/dev/null | head -1",
-            timeoutSeconds = 20,
-            description = "Resolve verification JAVA_HOME",
-        ).stdout.trim()
-        check(javaHome.isNotBlank()) { "No temurin-$projectJdkVersion JDK in the arena container" }
+        val javaHome = resolveJavaHome(projectJdkVersion)
         val mavenCommand = resolveMavenCommand()
 
-        // Multi-module repos keep reports per module (`<module>/target/surefire-reports`), so both the
-        // clean and the read below walk the tree instead of assuming a single root `target/`.
-        bash(
-            "find '$projectDir' -type d -path '*/target/surefire-reports' -exec rm -rf {} + 2>/dev/null; true",
-            timeoutSeconds = 60,
-            description = "Clean stale surefire reports",
-        )
+        cleanSurefireReports()
         // `set -o pipefail` keeps Maven's exit code instead of `tail`'s — without it a Maven that never
         // started was logged as `exit=0`, indistinguishable from a clean run whose tests simply failed.
         val mvn = bash(
@@ -328,9 +510,27 @@ class ArenaVerifier(
                 "result — grading it would put a false zero in the comparison. Maven exit=${mvn.exitCode}."
         }
 
+        // Regression half of the verdict: re-run the whole suite and compare with the pre-agent baseline.
+        // Runs AFTER the targeted grading above so its `clean` cannot wipe the FAIL_TO_PASS reports the
+        // grade is read from, and so a broken whole-suite run can never cost us the FAIL_TO_PASS numbers.
+        var truncated = baseline?.timedOut == true
+        val regressions = if (baseline == null) emptyList() else {
+            val after = fullSuiteSnapshot(projectJdkVersion, label = "post-agent")
+            truncated = truncated || after.timedOut
+            val ftpClassNames = failToPass.map { parseFailToPassEntry(it).fqcn }.toSet()
+            regressedClasses(baseline, after, excluded = ftpClassNames).also {
+                if (it.isEmpty()) println("[ARENA-VERIFY] no regressions vs baseline")
+                else println("[ARENA-VERIFY] REGRESSIONS vs baseline (${it.size}): ${it.joinToString()}")
+            }
+        }
+
         return ArenaVerificationResult(
             perClass = perClass,
-            testsTampered = tampered,
+            failToPassTampered = tampered,
+            collateralTestFilesEdited = collateral,
+            regressions = regressions,
+            baselineAvailable = baseline != null,
+            regressionScanTruncated = truncated,
             verificationDurationMs = System.currentTimeMillis() - startMs,
         )
     }

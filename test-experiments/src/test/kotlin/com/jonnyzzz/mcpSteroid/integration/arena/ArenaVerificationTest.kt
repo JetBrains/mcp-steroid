@@ -309,17 +309,193 @@ class ArenaVerificationTest {
 
     @Test
     fun `verification result aggregates rates`() {
-        val result = ArenaVerificationResult(
+        val result = verificationOf(
             perClass = listOf(
                 SurefireClassResult("A", 5, 0, 0, 0),
                 SurefireClassResult("B", 3, 1, 0, 0),
                 SurefireClassResult("C", 0, 0, 0, 0),
             ),
-            testsTampered = false,
-            verificationDurationMs = 1L,
         )
         assertEquals(1, result.classesPassed)
         assertEquals(3, result.classesTotal)
         assertEquals(1.0 / 3.0, result.failToPassRate, 1e-9)
     }
+
+    // ── FAIL_TO_PASS oracle files vs collateral test files ───────────────────
+
+    /** The petclinic-71 shape: a 13-file test patch of which only 4 files define FAIL_TO_PASS classes. */
+    private val petclinic71Patch = listOf(
+        "src/test/java/org/springframework/samples/petclinic/service/ClinicServiceTests.java",
+        "src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java",
+        "src/test/java/org/springframework/samples/petclinic/owner/R2dbcOwnerRepositoryTests.java",
+        "src/test/java/org/springframework/samples/petclinic/vet/R2dbcVetRepositoryTests.java",
+    ).joinToString("\n") { "diff --git a/$it b/$it" }
+
+    private val petclinic71FailToPass = listOf(
+        "org.springframework.samples.petclinic.owner.R2dbcOwnerRepositoryTests",
+        "org.springframework.samples.petclinic.vet.R2dbcVetRepositoryTests",
+    )
+
+    @Test
+    fun `only the files defining FAIL_TO_PASS classes count as the oracle`() {
+        val oracle = failToPassFilePaths(petclinic71Patch, petclinic71FailToPass)
+        assertEquals(
+            setOf(
+                "src/test/java/org/springframework/samples/petclinic/owner/R2dbcOwnerRepositoryTests.java",
+                "src/test/java/org/springframework/samples/petclinic/vet/R2dbcVetRepositoryTests.java",
+            ),
+            oracle,
+        )
+    }
+
+    @Test
+    fun `a method-scoped FAIL_TO_PASS entry still resolves to its file`() {
+        val patch = "diff --git a/src/test/java/com/example/FooTest.java b/src/test/java/com/example/FooTest.java"
+        assertEquals(
+            setOf("src/test/java/com/example/FooTest.java"),
+            failToPassFilePaths(patch, listOf("com.example.FooTest#someMethod")),
+        )
+    }
+
+    @Test
+    fun `editing collateral test files is not tampering with the oracle`() {
+        // The prompt itself tells the agent to update test classes its production change breaks, and the
+        // JPA→R2DBC scenarios cannot pass without doing so. Round 4 flagged all six petclinic-71 arms as
+        // tampered on exactly these edits while every FAIL_TO_PASS file stayed untouched.
+        val before = mapOf(
+            "src/test/java/org/springframework/samples/petclinic/service/ClinicServiceTests.java" to "aaa",
+            "src/test/java/org/springframework/samples/petclinic/owner/R2dbcOwnerRepositoryTests.java" to "bbb",
+        )
+        val after = before + mapOf(
+            "src/test/java/org/springframework/samples/petclinic/service/ClinicServiceTests.java" to "CHANGED",
+        )
+        val changed = changedPaths(before, after)
+        val oracle = failToPassFilePaths(petclinic71Patch, petclinic71FailToPass)
+        assertFalse(changed.any { it in oracle })
+        assertEquals(
+            listOf("src/test/java/org/springframework/samples/petclinic/service/ClinicServiceTests.java"),
+            changed.filterNot { it in oracle },
+        )
+    }
+
+    @Test
+    fun `rewriting a FAIL_TO_PASS file is tampering`() {
+        val path = "src/test/java/org/springframework/samples/petclinic/vet/R2dbcVetRepositoryTests.java"
+        val changed = changedPaths(mapOf(path to "aaa"), mapOf(path to "bbb"))
+        assertTrue(changed.any { it in failToPassFilePaths(petclinic71Patch, petclinic71FailToPass) })
+    }
+
+    @Test
+    fun `a deleted test file counts as changed`() {
+        assertEquals(listOf("A.java"), changedPaths(mapOf("A.java" to "aaa"), mapOf("A.java" to "ABSENT")))
+    }
+
+    // ── Whole-suite index parsing ────────────────────────────────────────────
+
+    @Test
+    fun `parses the whole-suite report index`() {
+        val index = """
+            /p/target/surefire-reports/TEST-com.example.GreenTest.xml	<testsuite xmlns:xsi="x" name="com.example.GreenTest" time="0.4" tests="7" errors="0" skipped="0" failures="0">
+            /p/m2/target/surefire-reports/TEST-com.example.RedTest.xml	<testsuite name="com.example.RedTest" tests="4" errors="1" skipped="0" failures="2">
+        """.trimIndent()
+        val parsed = parseSurefireSuiteIndex(index)
+        assertEquals(2, parsed.size)
+        assertEquals("com.example.GreenTest", parsed[0].className)
+        assertEquals(7, parsed[0].testsRun)
+        assertTrue(parsed[0].passed)
+        assertEquals(1, parsed[1].errors)
+        assertEquals(2, parsed[1].failures)
+        assertFalse(parsed[1].passed)
+    }
+
+    @Test
+    fun `index lines without a parsable testsuite tag are skipped`() {
+        val index = "/p/target/surefire-reports/TEST-Truncated.xml\t<?xml version=\"1.0\"?>\n\n"
+        assertTrue(parseSurefireSuiteIndex(index).isEmpty())
+    }
+
+    // ── Regressions vs the pre-agent baseline ────────────────────────────────
+
+    private fun snapshot(vararg classes: Pair<String, Boolean>) = FullSuiteSnapshot(
+        perClass = classes.map { (name, ok) ->
+            if (ok) SurefireClassResult(name, 3, 0, 0, 0) else SurefireClassResult(name, 3, 1, 0, 0)
+        },
+        mavenExitCode = 0,
+    )
+
+    @Test
+    fun `a class that used to pass and now fails is a regression`() {
+        val regressed = regressedClasses(
+            before = snapshot("A" to true, "B" to true),
+            after = snapshot("A" to true, "B" to false),
+        )
+        assertEquals(listOf("B"), regressed)
+    }
+
+    @Test
+    fun `a test already failing before the agent ran is not a regression`() {
+        // The train-ticket-1 shape: 17 pre-existing ts-contacts-service Mockito errors in a module the
+        // agent never touched. Charging those to the agent is what made it refuse a success marker for a
+        // task it had actually completed.
+        val regressed = regressedClasses(
+            before = snapshot("Fixed" to true, "AlreadyRed" to false),
+            after = snapshot("Fixed" to true, "AlreadyRed" to false),
+        )
+        assertTrue(regressed.isEmpty())
+    }
+
+    @Test
+    fun `a class absent from the baseline is not a regression`() {
+        // Its module may simply never have built at baseline; guessing would recreate the false-zero bug.
+        val regressed = regressedClasses(
+            before = snapshot("A" to true),
+            after = snapshot("A" to true, "NeverSeenBefore" to false),
+        )
+        assertTrue(regressed.isEmpty())
+    }
+
+    @Test
+    fun `FAIL_TO_PASS classes are excluded from regressions`() {
+        val regressed = regressedClasses(
+            before = snapshot("Ftp" to true),
+            after = snapshot("Ftp" to false),
+            excluded = setOf("Ftp"),
+        )
+        assertTrue(regressed.isEmpty())
+    }
+
+    @Test
+    fun `a class that vanishes after the agent ran is not reported as a regression`() {
+        // Absent is "unknown", not "broken" — only a report that says it failed counts.
+        assertTrue(regressedClasses(before = snapshot("A" to true), after = snapshot()).isEmpty())
+    }
+
+    // ── objectiveSuccess ─────────────────────────────────────────────────────
+
+    @Test
+    fun `objective success needs every FAIL_TO_PASS class green and no regression`() {
+        assertTrue(verificationOf(listOf(SurefireClassResult("A", 2, 0, 0, 0))).objectiveSuccess)
+        assertFalse(verificationOf(listOf(SurefireClassResult("A", 2, 1, 0, 0))).objectiveSuccess)
+        assertFalse(
+            verificationOf(listOf(SurefireClassResult("A", 2, 0, 0, 0)), regressions = listOf("Other"))
+                .objectiveSuccess,
+        )
+    }
+
+    @Test
+    fun `objective success is false when no FAIL_TO_PASS class was graded at all`() {
+        assertFalse(verificationOf(emptyList()).objectiveSuccess)
+    }
+
+    private fun verificationOf(
+        perClass: List<SurefireClassResult>,
+        regressions: List<String> = emptyList(),
+    ) = ArenaVerificationResult(
+        perClass = perClass,
+        failToPassTampered = false,
+        collateralTestFilesEdited = emptyList(),
+        regressions = regressions,
+        baselineAvailable = true,
+        verificationDurationMs = 1L,
+    )
 }

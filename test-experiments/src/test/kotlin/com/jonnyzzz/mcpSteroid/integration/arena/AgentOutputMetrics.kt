@@ -369,7 +369,8 @@ private const val CSV_HEADER = "timestamp,instance_id,pass_label,agent_claimed_f
         "exec_code_calls,bash_calls,read_calls,write_calls,edit_calls,glob_calls,grep_calls," +
         "num_turns,total_input_tokens,total_output_tokens,total_cache_creation_tokens," +
         "total_cache_read_tokens,duration_api_ms,estimated_cost_usd,tests_pass,tests_run," +
-        "verified_ftp_passed,verified_ftp_total,verified_ftp_rate,claim_matches_reality,tests_tampered"
+        "verified_ftp_passed,verified_ftp_total,verified_ftp_rate,objective_success," +
+        "claim_matches_reality,fail_to_pass_tampered,regression_count,collateral_tests_edited_count"
 
 /**
  * Append a row to the arena comparison CSV file.
@@ -428,8 +429,11 @@ fun appendComparisonCsv(
         (verification?.classesPassed ?: "").toString(),
         (verification?.classesTotal ?: "").toString(),
         (verification?.failToPassRate ?: "").toString(),
-        (claimedFix == (verification?.failToPassRate == 1.0)).toString(),
-        (verification?.testsTampered ?: "").toString(),
+        (verification?.objectiveSuccess ?: "").toString(),
+        (claimedFix == (verification?.objectiveSuccess == true)).toString(),
+        (verification?.failToPassTampered ?: "").toString(),
+        (verification?.takeIf { it.baselineAvailable }?.regressions?.size ?: "").toString(),
+        (verification?.collateralTestFilesEdited?.size ?: "").toString(),
     ).joinToString(",")
     csvFile.appendText(row + "\n")
 }
