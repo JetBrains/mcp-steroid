@@ -33,3 +33,17 @@
 - [x] Rerun `DpaiaMicroshop2Test.claude with mcp` after the Gradle guidance update; result: fewer native Read/Glob/Bash calls, no build abort, and no tool errors.
 - [x] Run 3-agent review of the Gradle guidance measurement and choose the next low-hanging correction.
 - [ ] Reduce native source discovery/read calls in Gradle DPAIA prompts/resources with a batched IDE/VFS `steroid_execute_code` recipe.
+- [ ] Cap the size of build output an arena agent carries in its context. Measured on
+  `dpaia__spring__petclinic-71` pass 3 (Codex, mcp): a single unfiltered `./mvnw test` returned **410 KB**
+  in one tool result, a targeted run another 240 KB, and re-sending those blobs on every later request
+  drove 21.5M input tokens against 32.6k output — ~$14 for one arm, versus $2.06 for the same scenario's
+  pass 2. Cost here is context replay, not work done, and it is not MCP-specific (the `none` arms of the
+  same scenario cost $11.92 and $11.66). Prompt-side fix, deliberately deferred: the whitepaper's
+  Round 3 data is pinned against the current prompt, so changing it splits the dataset across two prompts.
+- [ ] Generalize the arena prompt's Docker escape hatch from a whitelist of literal error strings
+  (`Could not find a valid Docker environment`, `BadRequestException`, `HTTP 400`, `docker.sock`,
+  `DockerClientException`) to any Docker/Testcontainers infrastructure failure.
+  `DockerProcessStartException` (Docker Compose absent) fell outside the list on
+  `dpaia__spring__petclinic-27`, so the agent withheld the success marker with all 38 targeted tests
+  green. Harness-side this is now covered — such tests are red in the pre-agent baseline too, so they no
+  longer count against the agent — but the prompt still sends it hunting. Deferred with the item above.
