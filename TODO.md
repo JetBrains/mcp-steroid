@@ -337,3 +337,31 @@
   "everything through HomePaths" reading would fold it in as `home.resolve("markers")` over the
   receiver). Folding changes marker discovery under explicit test homes (today it escapes the sandbox
   on purpose — see `GeneratedToolRuntimeTestSupport`), so it is a design decision, not a cleanup.
+
+- [x] **`devrig mcp` log files all collapse onto `devrig-session.log`, and every line reads `[pid:?]`**
+  — FIXED as #462: `configureLoggingSystemProperties` now publishes the properties as the first
+  statement of `runDevrigMain`, before command-tree construction can reach SLF4J (the first getLogger
+  came from `FetchResourceToolHandler`'s logger field, confirmed by class-load order).
+- [ ] **Gradle test JVMs log into the developer's REAL `~/.mcp-steroid/logs`** (spotted while fixing
+  #462, still open). `~/.mcp-steroid/logs/devrig-session.log` locally carries `[Test worker]` lines from
+  Ktor/`:npx-kt:test` runs — unit tests should never write into the real devrig home. Find which test
+  path initialises logback without redirecting `devrig.log.dir` (a `systemProperty` on the test task
+  pointing at `build/` would do it) and pin it with a test.
+
+- [ ] **stdio framing follow-ups noticed while fixing #461** (both pre-existing, neither blocking).
+  (a) `FramingBuffer.append` grows without bound: a peer that never sends a newline (binary dump, a
+  huge single line) makes devrig buffer it all. A cap — discard-and-report past N MiB, reusing the
+  new `readNextUnparsableChunk` reporting path — would bound it.
+  (b) A final NDJSON message with no trailing newline is now answered with `-32700` ("stdin ended
+  mid-frame") rather than dispatched. That is spec-faithful (newlines delimit frames) and beats the
+  old silence, but a tolerant reading would dispatch parseable EOF residue instead. Deliberate choice,
+  worth revisiting only if a real client trips on it.
+
+- [ ] **`--debug` inside a Clikt `@argfile` still does not enable logging** (residual after the #462 fix).
+  Logging verbosity is now read straight off argv (`Array<String>.debugRequested()`) before Clikt runs,
+  because logback pins its configuration during command-tree construction. Clikt's `expandArgumentFiles`
+  defaults to on, so `devrig backend @args.txt` with `--debug` in the file parses to
+  `DevrigCliInvocation.debug = true` while the argv scan sees only `@args.txt` — verified: 0 bytes on
+  stderr. Left as is deliberately: the parsed flag has no other consumer, `@argfile` is not a documented
+  devrig invocation form, and the alternative is a logback `reset()` + `JoranConfigurator` re-read after
+  parsing. Pick that up only if a real client trips on it.
