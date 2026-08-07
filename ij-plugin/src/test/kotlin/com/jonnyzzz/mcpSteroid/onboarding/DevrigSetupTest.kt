@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.onboarding
 
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.progress.ProgressIndicator
 import com.jonnyzzz.mcpSteroid.devrig.devrigLauncherDisplayPath
 import com.jonnyzzz.mcpSteroid.onboarding.DevrigSetupRunner.Companion.devrigBinPath
@@ -36,9 +37,10 @@ class DevrigSetupTest {
 
     @Test
     fun `devrig bin path is per-OS`() {
-        val home = Path.of("/home/u")
-        assertEquals(Path.of("/home/u/.mcp-steroid/bin/devrig"), devrigBinPath(home, windows = false))
-        assertEquals(Path.of("/home/u/.mcp-steroid/bin/devrig.cmd"), devrigBinPath(home, windows = true))
+        // A drive-absolute fixture: a bare "/home/u" gains a drive letter on Windows when normalized.
+        val home = Files.createTempDirectory("home")
+        assertEquals(home.resolve(".mcp-steroid/bin/devrig"), devrigBinPath(home, windows = false))
+        assertEquals(home.resolve(".mcp-steroid/bin/devrig.cmd"), devrigBinPath(home, windows = true))
     }
 
     @Test
@@ -57,14 +59,16 @@ class DevrigSetupTest {
     /**
      * The launcher path the settings page RENDERS and the path this module CHECKS on disk are built by two
      * functions in two modules — they must name the same file, or the page shows a command that does not
-     * run. POSIX only: on this (POSIX) JVM, `Path.resolve` cannot produce a backslash-joined Windows path,
-     * so the Windows rendering is pinned string-only in `McpServerConfigTest`.
+     * run. Pinned for the running OS's own flavor only: `Path` cannot render the other OS's separators
+     * (the foreign-OS rendering is pinned string-only in devrig-common's `DevrigUserLauncherTest`).
      */
     @Test
     fun `the displayed launcher path and the filesystem launcher path agree`() {
+        val windows = SystemInfo.isWindows
+        val home = Files.createTempDirectory("home")
         assertEquals(
-            devrigBinPath(Path.of("/home/u"), windows = false).toString(),
-            devrigLauncherDisplayPath("/home/u", windows = false),
+            devrigBinPath(home, windows = windows).toString(),
+            devrigLauncherDisplayPath(home.toString(), windows = windows),
         )
     }
 
