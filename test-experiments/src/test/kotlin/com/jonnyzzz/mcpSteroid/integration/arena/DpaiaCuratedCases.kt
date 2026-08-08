@@ -46,6 +46,8 @@ object DpaiaCuratedCases {
      * @param projectJdkVersion       JDK version to set as the IDE project SDK before import. Default 21.
      * @param taskType               Primary challenge type driving agent effort.
      * @param mcpBenefit             Observed MCP benefit from A/B comparison runs.
+     * @param overlayTestPatch       Classpath resource with a local test patch applied AFTER the dataset test patch.
+     * @param overlayFailToPass      FAIL_TO_PASS classes added by [overlayTestPatch].
      */
     data class CaseConfig(
         val projectReadyTimeoutMs: Long = 600_000L,
@@ -53,7 +55,31 @@ object DpaiaCuratedCases {
         val projectJdkVersion: String = "21",
         val taskType: TaskType = TaskType.MIXED,
         val mcpBenefit: McpBenefit = McpBenefit.UNKNOWN,
+        val overlayTestPatch: String? = null,
+        val overlayFailToPass: List<String> = emptyList(),
     )
+
+    /**
+     * Augments [base] with the case's overlay test patch, if it declares one: the overlay is appended
+     * after the dataset test patch and contributes its own FAIL_TO_PASS classes, so a locally authored
+     * test can extend the oracle without editing dataset content. The returned instance id carries an
+     * `x` suffix, which keeps an overlay-augmented run distinguishable in every report from a plain
+     * dataset run of the same case.
+     *
+     * [readResource] resolves a classpath resource path to its content.
+     */
+    fun applyOverlay(
+        base: DpaiaTestCase,
+        config: CaseConfig,
+        readResource: (String) -> String,
+    ): DpaiaTestCase {
+        val resourcePath = config.overlayTestPatch ?: return base
+        return base.copy(
+            instanceId = "${base.instanceId}x",
+            testPatch = base.testPatch + "\n" + readResource(resourcePath),
+            failToPass = base.failToPass + config.overlayFailToPass,
+        )
+    }
 
     /**
      * Per-case configuration overrides keyed by instance ID.
@@ -67,7 +93,11 @@ object DpaiaCuratedCases {
     val CASE_CONFIGS: Map<String, CaseConfig> = mapOf(
         // Batch 1
         "dpaia__feature__service-125" to CaseConfig(
+            agentTimeoutSeconds = 1_800L,
+            projectJdkVersion = "24",
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            overlayTestPatch = "arena-overlays/dpaia__feature__service-125.patch",
+            overlayFailToPass = listOf("com.sivalabs.ft.features.config.ReleaseApiSecuritySliceTest"),
         ),
         "dpaia__empty__maven__springboot3-1" to CaseConfig(
             taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.HIGH,

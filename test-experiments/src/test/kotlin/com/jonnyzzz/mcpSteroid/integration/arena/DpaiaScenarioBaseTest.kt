@@ -81,10 +81,19 @@ abstract class DpaiaScenarioBaseTest {
     // ── Test execution ───────────────────────────────────────────────────────
 
     private fun runAgent(agentName: String, withMcp: Boolean) {
-        val testCase = resolvedTestCase
+        val datasetCase = resolvedTestCase
         val modeLabel = if (withMcp) "mcp" else "none"
-        val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[testCase.instanceId]
+        val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[datasetCase.instanceId]
             ?: DpaiaCuratedCases.CaseConfig()
+
+        // Everything below — deploy, oracle, verification, reports — runs against the overlay-augmented
+        // case, so a locally authored test class counts as a FAIL_TO_PASS class like any dataset one.
+        // CASE_CONFIGS is keyed on the dataset id and must be looked up before this point.
+        val testCase = DpaiaCuratedCases.applyOverlay(datasetCase, caseConfig) { resourcePath ->
+            checkNotNull(javaClass.classLoader.getResourceAsStream(resourcePath)) {
+                "Overlay patch resource not found: $resourcePath"
+            }.use { it.readBytes().decodeToString() }
+        }
 
         val consoleTitle = instanceId.take(40)
 
