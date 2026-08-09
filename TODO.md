@@ -365,3 +365,13 @@
   stderr. Left as is deliberately: the parsed flag has no other consumer, `@argfile` is not a documented
   devrig invocation form, and the alternative is a logback `reset()` + `JoranConfigurator` re-read after
   parsing. Pick that up only if a real client trips on it.
+
+## KtBlock compilation on Rider EAP
+
+- [ ] **Every prompt fence fails to compile against the Rider EAP distribution.** The fence classpath
+  includes the plugin's own sources, and `ij-plugin/.../execution/InspectionCrashIsolation.kt` imports
+  `com.intellij.codeInspection.LocalInspectionTool` / `LocalInspectionToolSession`, which do not resolve
+  there. The failure is per-IDE, not per-fence: on `execute-code-tool-description.md` all fences pass on
+  Clion/ClionEap/Idea/IdeaEap/Pycharm/PycharmEap/Rider and all fail on RiderEap, so `:prompts:test` cannot
+  go green for any article regardless of its content. Either gate the file behind the availability of the
+  Java inspection API or keep it off the fence classpath.

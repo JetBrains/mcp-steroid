@@ -5,11 +5,32 @@ MCP tool description for the steroid_execute_code tool.
 ###_NO_AUTO_TOC_###
 Execute Kotlin code directly in IntelliJ's runtime with full API access — builds, tests, refactoring, inspections, debugging, navigation.
 
-## Multi-site edits: one script, one write action
+## Multi-site edits: small batches, one write action each
 
-For similar edits across **two or more files** (same pattern, different paths), do them in ONE
+For similar edits across **two or more files** (same pattern, different paths), do them in one
 `steroid_execute_code` call — read, replace, save each file, all writes inside a single
 `writeAction { }`:
+
+**Keep a batch small — about 5 000 characters of script, and no more than 3–4 files.** A batch is
+all-or-nothing: `check()` on one bad anchor discards the entire script, and the whole thing has to be
+retyped. Three small calls that each cost 1 500 characters on failure beat one call that costs 30 000,
+and the IDE holds a warm compiler session, so an extra call is cheap — a warm compile is a fraction of
+a second and the round trip is a few seconds. Split by file group or by concern rather than growing one
+script.
+
+**Check the anchors first when you are unsure they match.** One cheap read-only call that prints the
+occurrence count per anchor turns a failed 30 000-character write into a 1 000-character probe, and it
+saves the turns otherwise spent on printing a string with its spaces made visible to find out why
+`replace` matched nothing:
+
+```kotlin
+val anchors = listOf("/abs/path/A.java" to "oldA", "/abs/path/B.java" to "oldB")
+for ((path, anchor) in anchors) {
+    val vf = findProjectFile(path)
+    val text = vf?.let { String(it.contentsToByteArray(), it.charset) }
+    println("$path: " + if (text == null) "FILE NOT FOUND" else "${text.split(anchor).size - 1} match(es)")
+}
+```
 
 ```kotlin
 val edits = listOf(
@@ -34,6 +55,17 @@ println("edited: " + resolved.joinToString { it.first.path })
 The pre-check loop validates every match before any write lands; `VfsUtil.saveText` keeps
 VFS + PSI consistent; native `Edit` chains bypass the VFS and cost one tool call per site.
 
+**Escape a literal `${…}` in any text you insert.** Thymeleaf attributes, Spring property
+placeholders and Gradle/Maven tokens all contain `${…}`, and Kotlin interpolates it inside YOUR
+script — compilation then fails with `Unresolved reference 'owner'` and the whole batch is lost.
+Break the sequence with a dollar indirection:
+
+```kotlin
+val dollar = "$"
+val replacement = """        <td th:text="${dollar}{owner.email}" />"""
+println(replacement)   // <td th:text="${owner.email}" />
+```
+
 Escape hatch for COMPLEX changes only (an existing unified diff, or drifted files where
 literal anchors keep failing): the IDE's tolerance-matching patch engine — fetch
 `mcp-steroid://ide/apply-unified-diff`. This recipe stays primary.
@@ -42,7 +74,7 @@ literal anchors keep failing): the IDE's tolerance-matching patch engine — fet
 
 | Task shape | One-line IDE call |
 |---|---|
-| **Two or more literal-text edits, same or different files** | one `steroid_execute_code` script: read + `replace` each file, pre-check every match, then save all inside a single `writeAction { }` (see "Multi-site edits" above) |
+| **Two or more literal-text edits, same or different files** | one `steroid_execute_code` script per small batch (3–4 files, ~5 000 characters): read + `replace` each file, pre-check every match, then save that batch inside a single `writeAction { }` (see "Multi-site edits" above) — several small calls, not one large one |
 | **One literal-text edit, single file** | `val vf = findProjectFile(p) ?: error("not found: $p"); writeAction { VfsUtil.saveText(vf, String(vf.contentsToByteArray(), vf.charset).replace(OLD, NEW)) }` |
 | **Find files by extension** | `readAction { FilenameIndex.getAllFilesByExt(project, "java", projectScope()) }` — not `Bash find … -name "*.java"` |
 | **Find files by exact name** | `readAction { FilenameIndex.getVirtualFilesByName("UserService.java", projectScope()) }` |
