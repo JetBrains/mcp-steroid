@@ -329,6 +329,38 @@ class ArenaVerifier(
         hashTestFiles(extractPatchFilePaths(testPatch))
 
     /**
+     * Let the project's own code formatter rewrite the working tree once, so the pre-agent snapshot
+     * already holds the bytes the formatter will produce.
+     *
+     * Without this, a test-patch file that is not formatted to the project's own style is rewritten by
+     * the FIRST build the agent runs — `spotless-maven-plugin` is bound to the lifecycle in several
+     * dataset repos — and the resulting hash change is charged to the agent as tampering with the
+     * FAIL_TO_PASS oracle. That voided all 12 arms of the `feature__service-125x` round while not one
+     * transcript contained a single mutating call against the file. `-Dspotless.check.skip=true` on the
+     * harness's own Maven runs does not help: it suppresses `check`, not `apply`.
+     *
+     * A project without the plugin answers "no plugin found for prefix", which is not an error here —
+     * there is simply nothing to normalize. Logged either way, never fatal: this runs before the agent
+     * and must not be able to fail a run on its own.
+     */
+    fun normalizeFormattingBeforeSnapshot(projectJdkVersion: String) {
+        val javaHome = resolveJavaHome(projectJdkVersion)
+        val result = bash(
+            "cd '$projectDir' && JAVA_HOME='$javaHome' ${resolveMavenCommand()} -q spotless:apply 2>&1 | tail -20",
+            timeoutSeconds = 600,
+            description = "Normalize formatting before the pre-agent snapshot",
+        )
+        if (result.exitCode == 0) {
+            println("[ARENA-VERIFY] project formatter applied before the pre-agent snapshot")
+        } else {
+            println(
+                "[ARENA-VERIFY] no formatter normalization (exit=${result.exitCode}) — expected when the " +
+                    "project has no spotless plugin: ${result.stdout.trim().takeLast(300)}"
+            )
+        }
+    }
+
+    /**
      * Run the WHOLE test suite in [dir] and index every surefire report.
      *
      * `-fae` plus `maven.test.failure.ignore` are what make the snapshot complete: without them Maven

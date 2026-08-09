@@ -161,7 +161,9 @@ abstract class DpaiaScenarioBaseTest {
 
             // Hashed AFTER the baseline suite, not before: anything the build itself rewrites (a
             // formatter plugin bound to a lifecycle phase, a code generator) would otherwise be charged
-            // to the agent as tampering with the FAIL_TO_PASS oracle.
+            // to the agent as tampering with the FAIL_TO_PASS oracle. The baseline runs in a detached
+            // worktree, so it cannot normalize this tree — the formatter has to be invoked here.
+            verifier.normalizeFormattingBeforeSnapshot(caseConfig.projectJdkVersion)
             val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
 
             // ── Agent run (TIMED) ────────────────────────────────────────────────

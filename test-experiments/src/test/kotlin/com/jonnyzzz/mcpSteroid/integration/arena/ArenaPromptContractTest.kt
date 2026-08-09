@@ -219,6 +219,26 @@ class ArenaPromptContractTest {
         )
     }
 
+    @Test
+    fun `docker surrender guidance present by default and removed when the oracle works`() {
+        val runner = ArenaTestRunner(
+            container = ContainerDriver(logPrefix = "prompt-test", containerId = "unused", startRequest = StartContainerRequest()),
+            projectGuestDir = "/workspace",
+        )
+        val defaultPrompt = runner.buildPrompt(sampleMavenTestCase(), "/home/agent/project-home", withMcp = true)
+        assertTrue(defaultPrompt.contains("HARD STOP ON DOCKER FAILURES"))
+        assertTrue(defaultPrompt.contains("If Docker is unavailable"))
+
+        val oraclePrompt = runner.buildPrompt(
+            sampleMavenTestCase().copy(instanceId = "dpaia__feature__service-125"),
+            "/home/agent/project-home",
+            withMcp = true,
+        )
+        assertFalse(oraclePrompt.contains("HARD STOP ON DOCKER FAILURES"))
+        assertFalse(oraclePrompt.contains("If Docker is unavailable"))
+        assertTrue(oraclePrompt.contains("Docker and Testcontainers WORK"))
+    }
+
     private fun sampleMavenTestCase() = DpaiaTestCase(
         instanceId = "dpaia__sample",
         issueNumbers = listOf("1"),

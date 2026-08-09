@@ -48,6 +48,9 @@ object DpaiaCuratedCases {
      * @param mcpBenefit             Observed MCP benefit from A/B comparison runs.
      * @param overlayTestPatch       Classpath resource with a local test patch applied AFTER the dataset test patch.
      * @param overlayFailToPass      FAIL_TO_PASS classes added by [overlayTestPatch].
+     * @param dockerOracleWorks      True once the Testcontainers oracle is verified working in the arena
+     *   container for this case. It suppresses every Docker-surrender paragraph in the prompt, so the
+     *   agent cannot claim success on a compile check alone.
      */
     data class CaseConfig(
         val projectReadyTimeoutMs: Long = 600_000L,
@@ -57,6 +60,7 @@ object DpaiaCuratedCases {
         val mcpBenefit: McpBenefit = McpBenefit.UNKNOWN,
         val overlayTestPatch: String? = null,
         val overlayFailToPass: List<String> = emptyList(),
+        val dockerOracleWorks: Boolean = false,
     )
 
     /**
@@ -98,6 +102,7 @@ object DpaiaCuratedCases {
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
             overlayTestPatch = "arena-overlays/dpaia__feature__service-125.patch",
             overlayFailToPass = listOf("com.sivalabs.ft.features.config.ReleaseApiSecuritySliceTest"),
+            dockerOracleWorks = true,
         ),
         "dpaia__empty__maven__springboot3-1" to CaseConfig(
             taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.HIGH,
