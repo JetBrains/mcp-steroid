@@ -133,6 +133,10 @@ object DpaiaCuratedCases {
             taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,   // measured 1.76x over 3 passes — worst in the set, and greenfield
         ),
         "dpaia__feature__service-25" to CaseConfig(
+            // The project needs release 24: on 21 the grading run compiled nothing and reported 0/1 for
+            // both arms, while the baseline's own retry found 8 passing classes on 24. service-125, the
+            // same repository, has carried 24 all along.
+            projectJdkVersion = "24",
             taskType = TaskType.NAVIGATE_MODIFY,
             // Never run as a pair; the old HIGH was a guess. Queued as the falsification case for the
             // size hypothesis: same repo and shape as service-125, but one FAIL_TO_PASS class and 17 KB
@@ -170,6 +174,10 @@ object DpaiaCuratedCases {
         ),
         "dpaia__spring__boot__microshop-18" to CaseConfig(
             projectReadyTimeoutMs = 1_200_000L,
+            // The biggest task in the pool: 60 KB of patch over 23 files in 3 modules. The default 15
+            // minutes killed the MCP arm at exit=-1 without a claim, the same 90 minutes petclinic-71 and
+            // petclinic-rest-3 already carry.
+            agentTimeoutSeconds = 5_400L,
             projectJdkVersion = "24",
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,   // 60 KB / 23 files / 3 modules — biggest unrun task, queued
         ),

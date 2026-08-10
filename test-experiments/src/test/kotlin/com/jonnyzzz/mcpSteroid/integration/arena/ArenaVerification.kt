@@ -121,6 +121,43 @@ fun surefireTestFilter(failToPass: List<String>): String {
 }
 
 /**
+ * Build the `--tests` arguments covering every [failToPass] entry, for a Gradle project.
+ *
+ * Gradle differs from surefire in three ways that all bite silently: the selector is the FULLY
+ * QUALIFIED name (a simple name matches nothing), a single method is addressed as `Class.method`
+ * rather than `Class#method`, and there is no `m1+m2` shorthand — repeated `--tests` are unioned, so
+ * each method gets its own. As in [surefireTestFilter], a whole-class entry supersedes method entries
+ * for the same class.
+ */
+fun gradleTestFilter(failToPass: List<String>): String {
+    val methodsByClass = LinkedHashMap<String, MutableList<String>?>()
+    for (entry in failToPass) {
+        val selector = parseFailToPassEntry(entry)
+        val existing = methodsByClass[selector.fqcn]
+        when {
+            selector.method == null -> methodsByClass[selector.fqcn] = null
+            selector.fqcn !in methodsByClass -> methodsByClass[selector.fqcn] = mutableListOf(selector.method)
+            existing != null -> existing.add(selector.method)
+        }
+    }
+    return methodsByClass.entries.joinToString(" ") { (fqcn, methods) ->
+        if (methods.isNullOrEmpty()) "--tests '$fqcn'" else methods.joinToString(" ") { "--tests '$fqcn.$it'" }
+    }
+}
+
+/**
+ * Where the build system leaves its JUnit XML, relative to any module root.
+ *
+ * Both surefire and Gradle's `Test` task write the same `<testsuite>` schema, which is why
+ * [parseSurefireXml] and [parseSurefireSuiteIndex] serve both — only the location differs. Gradle's
+ * middle segment is the task name (`test`, `integrationTest`, …), hence the wildcard.
+ */
+fun junitReportGlob(buildSystem: String): String = when (buildSystem) {
+    "gradle" -> "*/build/test-results/*/TEST-*.xml"
+    else -> "*/target/surefire-reports/TEST-*.xml"
+}
+
+/**
  * Parse one surefire `TEST-*.xml` report.
  *
  * With [methodName] null the `<testsuite>` root attributes are the verdict. With [methodName] set,
@@ -318,7 +355,17 @@ fun regressedClasses(
 class ArenaVerifier(
     private val container: ContainerDriver,
     private val projectDir: String,
+    /**
+     * The case's `build_system` as the dataset spells it — `"maven"` or `"gradle"`.
+     *
+     * A Gradle case graded through the Maven path reports zero for every class: Maven answers
+     * `there is no POM in this directory` in 0.1 s and no report is ever written, which is
+     * indistinguishable from an agent that fixed nothing. All three `microshop-*` cases are Gradle and
+     * graded 0/4 in both arms for exactly that reason before this parameter existed.
+     */
+    private val buildSystem: String = "maven",
 ) {
+    private val isGradle get() = buildSystem == "gradle"
     private fun bash(script: String, timeoutSeconds: Long, description: String): ProcessResult =
         container.startProcessInContainer {
             this.args("bash", "-lc", script).timeoutSeconds(timeoutSeconds).description(description)
@@ -346,7 +393,7 @@ class ArenaVerifier(
     fun normalizeFormattingBeforeSnapshot(projectJdkVersion: String) {
         val javaHome = resolveJavaHome(projectJdkVersion)
         val result = bash(
-            "cd '$projectDir' && JAVA_HOME='$javaHome' ${resolveMavenCommand()} -q spotless:apply 2>&1 | tail -20",
+            "cd '$projectDir' && JAVA_HOME='$javaHome' ${resolveMavenCommand()} -q $formatterGoal 2>&1 | tail -20",
             timeoutSeconds = 600,
             description = "Normalize formatting before the pre-agent snapshot",
         )
@@ -378,8 +425,7 @@ class ArenaVerifier(
         cleanSurefireReports(dir)
         val mvn = bash(
             "set -o pipefail; cd '$dir' && JAVA_HOME='$javaHome' $mavenCommand test " +
-                "-fae -Dmaven.test.failure.ignore=true -Dsurefire.failIfNoSpecifiedTests=false " +
-                "-Dspotless.check.skip=true 2>&1 | tail -200",
+                "$keepGoingFlags 2>&1 | tail -200",
             timeoutSeconds = 2_400,
             description = "Arena $label full-suite snapshot",
         )
@@ -471,6 +517,7 @@ class ArenaVerifier(
      * measured nothing, and a silent 0 is indistinguishable from a real agent failure.
      */
     private fun resolveMavenCommand(dir: String = projectDir): String {
+        if (isGradle) return resolveGradleCommand(dir)
         val candidates = listOf(
             "/opt/idea/plugins/maven-plugin/lib/maven3/bin/mvn",
             "/opt/idea/plugins/maven/lib/maven3/bin/mvn",
@@ -495,6 +542,40 @@ class ArenaVerifier(
         return resolved
     }
 
+    /**
+     * The Gradle entry point: the project's own `./gradlew` wrapper, else `gradle` from PATH.
+     *
+     * There is no bundled Gradle to fall back on the way there is for Maven, so a repo without a wrapper
+     * and without Gradle on PATH is fatal rather than silently zero-graded.
+     */
+    private fun resolveGradleCommand(dir: String = projectDir): String {
+        val resolved = bash(
+            "if [ -x '$dir/gradlew' ]; then echo './gradlew'; " +
+                "elif command -v gradle >/dev/null 2>&1; then echo 'gradle'; fi",
+            timeoutSeconds = 20,
+            description = "Resolve arena verification Gradle command",
+        ).stdout.trim()
+        check(resolved.isNotBlank()) {
+            "Arena verification cannot run Gradle for $dir: no executable ./gradlew wrapper and no " +
+                "`gradle` on PATH. Every FAIL_TO_PASS class would grade 0 and the run would look like an " +
+                "agent failure instead of a missing build tool."
+        }
+        return resolved
+    }
+
+    /** Flags that make a whole-suite run report every module instead of stopping at the first failure. */
+    private val keepGoingFlags
+        get() = if (isGradle) "--continue --console=plain"
+        else "-fae -Dmaven.test.failure.ignore=true -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true"
+
+    /** Flags that restrict a run to the FAIL_TO_PASS classes. */
+    private fun filterFlags(failToPass: List<String>) =
+        if (isGradle) "${gradleTestFilter(failToPass)} --console=plain"
+        else "-Dtest='${surefireTestFilter(failToPass)}' -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true"
+
+    /** The formatter task, so the pre-agent snapshot holds what the build itself would write. */
+    private val formatterGoal get() = if (isGradle) "spotlessApply" else "spotless:apply"
+
     /** The temurin JDK the case is configured for; blank is fatal — a wrong JDK grades everything 0. */
     private fun resolveJavaHome(projectJdkVersion: String): String {
         val javaHome = bash(
@@ -513,16 +594,17 @@ class ArenaVerifier(
      * instead of assuming a single root `target/`.
      */
     private fun cleanSurefireReports(dir: String = projectDir) {
+        val dirGlob = if (isGradle) "*/build/test-results" else "*/target/surefire-reports"
         bash(
-            "find '$dir' -type d -path '*/target/surefire-reports' -exec rm -rf {} + 2>/dev/null; true",
+            "find '$dir' -type d -path '$dirGlob' -exec rm -rf {} + 2>/dev/null; true",
             timeoutSeconds = 60,
-            description = "Clean stale surefire reports",
+            description = "Clean stale JUnit reports",
         )
     }
 
     /** One `<path>\t<testsuite …>` line per surefire report in the tree — see [parseSurefireSuiteIndex]. */
     private fun readSurefireIndex(dir: String = projectDir): String = bash(
-        "find '$dir' -type f -path '*/target/surefire-reports/TEST-*.xml' 2>/dev/null | " +
+        "find '$dir' -type f -path '${junitReportGlob(buildSystem)}' 2>/dev/null | " +
             "while IFS= read -r f; do printf '%s\\t' \"${'$'}f\"; " +
             "tr '\\n' ' ' < \"${'$'}f\" | grep -o '<testsuite[^>]*>' | head -1; printf '\\n'; done",
         timeoutSeconds = 120,
@@ -531,7 +613,7 @@ class ArenaVerifier(
 
     /** Contents of `TEST-<fqcn>.xml` from anywhere in the tree, or blank when the class produced none. */
     private fun readSurefireReport(fqcn: String): String = bash(
-        "f=\$(find '$projectDir' -type f -path '*/target/surefire-reports/TEST-$fqcn.xml' 2>/dev/null | head -1); " +
+        "f=\$(find '$projectDir' -type f -path '${junitReportGlob(buildSystem).replace("TEST-*.xml", "TEST-")}$fqcn.xml' 2>/dev/null | head -1); " +
             "if [ -n \"\$f\" ]; then cat \"\$f\"; fi",
         timeoutSeconds = 60,
         description = "Read surefire report for $fqcn",
@@ -562,6 +644,7 @@ class ArenaVerifier(
         testPatch: String,
         preAgentSnapshot: Map<String, String>,
         baseline: FullSuiteSnapshot? = null,
+        retried: Boolean = false,
     ): ArenaVerificationResult {
         val startMs = System.currentTimeMillis()
 
@@ -576,7 +659,7 @@ class ArenaVerifier(
             )
         }
 
-        val testFilter = surefireTestFilter(failToPass)
+        val testFilter = filterFlags(failToPass)
         val javaHome = resolveJavaHome(projectJdkVersion)
         val mavenCommand = resolveMavenCommand()
 
@@ -585,7 +668,7 @@ class ArenaVerifier(
         // started was logged as `exit=0`, indistinguishable from a clean run whose tests simply failed.
         val mvn = bash(
             "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand test " +
-                "-Dtest='$testFilter' -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true " +
+                "$testFilter " +
                 // 200, not 100: a 43-module reactor summary plus the [ERROR] block must fit, because
                 // the `-rf :<artifactId>` line inside it is what identifies the module that failed.
                 "2>&1 | tail -200",
@@ -601,6 +684,23 @@ class ArenaVerifier(
                 SurefireClassResult(className = entry, testsRun = 0, failures = 0, errors = 0, skipped = 0)
             } else {
                 parseSurefireXml(xml, selector.method).copy(className = entry)
+            }
+        }
+
+        // The same wrong-JDK trap the baseline already guards against: the case's configured JDK
+        // describes the AGENT's environment, and the project may demand a newer release to compile at
+        // all. Without this retry the grade is 0/N for BOTH arms and reads as two failed fixes — that is
+        // exactly what happened to `feature__service-25`, configured for 21 against a project needing 24,
+        // where the baseline auto-retried into 8 passing classes while the grading run kept reporting
+        // nothing. Retried once, and only when not a single class produced a report.
+        if (perClass.none { it.testsRun > 0 } && !retried) {
+            val required = requiredJavaReleaseFromError(mvn.stdout)
+            if (required != null && required != projectJdkVersion) {
+                println(
+                    "[ARENA-VERIFY] the FAIL_TO_PASS run needs Java $required, not the case's configured " +
+                        "$projectJdkVersion — retrying the grading on Java $required"
+                )
+                return verify(failToPass, required, testPatch, preAgentSnapshot, baseline, retried = true)
             }
         }
 

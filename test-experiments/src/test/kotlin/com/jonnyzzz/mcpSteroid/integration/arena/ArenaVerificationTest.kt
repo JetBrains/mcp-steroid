@@ -174,6 +174,47 @@ class ArenaVerificationTest {
         )
     }
 
+    // ── Gradle --tests filter construction ────────────────────────────────────────────────────
+
+    @Test
+    fun `gradle filters by fully qualified name, one --tests per class`() {
+        assertEquals(
+            "--tests 'a.b.OwnerControllerTests'",
+            gradleTestFilter(listOf("a.b.OwnerControllerTests")),
+        )
+        assertEquals(
+            "--tests 'a.b.ValidatorTests' --tests 'a.b.OwnerControllerTests'",
+            gradleTestFilter(listOf("a.b.ValidatorTests", "a.b.OwnerControllerTests")),
+        )
+    }
+
+    @Test
+    fun `gradle addresses a single method with a dot, not a hash`() {
+        assertEquals("--tests 'a.b.C.onlyThis'", gradleTestFilter(listOf("a.b.C#onlyThis")))
+    }
+
+    @Test
+    fun `gradle keeps one selector per method of the same class`() {
+        // Gradle has no `Class#m1+m2` shorthand: repeated --tests are unioned, so each method is its own.
+        assertEquals(
+            "--tests 'a.b.C.one' --tests 'a.b.C.two'",
+            gradleTestFilter(listOf("a.b.C#one", "a.b.C#two")),
+        )
+    }
+
+    @Test
+    fun `a whole-class gradle entry wins over method entries for the same class`() {
+        assertEquals("--tests 'a.b.C'", gradleTestFilter(listOf("a.b.C#one", "a.b.C")))
+    }
+
+    // ── JUnit report locations differ per build system ────────────────────────────────────────
+
+    @Test
+    fun `report paths point at surefire for maven and at test-results for gradle`() {
+        assertEquals("*/target/surefire-reports/TEST-*.xml", junitReportGlob("maven"))
+        assertEquals("*/build/test-results/*/TEST-*.xml", junitReportGlob("gradle"))
+    }
+
     @Test
     fun `an entry splits into its class and optional method`() {
         assertEquals(FailToPassSelector("a.b.C", "m"), parseFailToPassEntry("a.b.C#m"))

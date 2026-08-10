@@ -148,7 +148,7 @@ abstract class DpaiaScenarioBaseTest {
             // Snapshot every test-patch file's hash BEFORE the agent runs, so verify() below can detect
             // whether the agent (or the prompt itself) tampered with the FAIL_TO_PASS test definitions
             // instead of fixing production code.
-            val verifier = ArenaVerifier(session.scope, ideProjectDir)
+            val verifier = ArenaVerifier(session.scope, ideProjectDir, testCase.buildSystem)
 
             // Baseline whole-suite state, taken BEFORE the agent and outside its timer. This is the only
             // regression evidence available: 149 of the 154 dataset cases ship an empty PASS_TO_PASS, so
