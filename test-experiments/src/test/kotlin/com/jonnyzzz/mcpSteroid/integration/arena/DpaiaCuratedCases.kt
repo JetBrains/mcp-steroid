@@ -28,13 +28,30 @@ object DpaiaCuratedCases {
         MIXED,
     }
 
-    /** Observed MCP benefit based on A/B comparison data. */
+    /**
+     * Measured cost of the `mcp` arm relative to its own `none` control on the same case.
+     *
+     * **Set this from measurement, never from expectation.** The values here were a-priori guesses until
+     * 2026-08-10, and 24 paired Opus 5 runs contradicted them: the three cases guessed `HIGH` averaged
+     * 1.24x the control's cost, while the `LOW` and `UNKNOWN` ones averaged 0.84x. A case nobody has run
+     * stays [UNKNOWN] — that is the honest state, and it is what keeps headline numbers from being
+     * computed over a set selected by guesswork.
+     *
+     * What the measurements actually predict, on the paired runs available so far: the arm's saving grows
+     * with the SIZE of the task, because the IDE path trades a fixed per-call overhead for a variable
+     * saving on context replay. The two cases where it wins are the two most expensive ones
+     * (`petclinic-71` 0.64x at $7-11 per arm, `feature__service-125` 0.79x at $3-4); everything at ~$1 per
+     * arm loses at 1.3-1.8x. The second factor is whether there is an existing codebase to navigate:
+     * `empty__maven__springboot3-1` is the worst case of the whole set (1.76x) despite being tagged HIGH,
+     * and it is greenfield — nothing to index, nothing to find, so the IDE arm pays overhead for no
+     * navigation. Cross-layer reach, which the old tags were guessing at, did not separate the cases.
+     */
     enum class McpBenefit {
-        /** MCP measurably faster (>10% time or log lines). */
+        /** Measured cheaper than the control by more than 10% on at least 3 paired runs. */
         HIGH,
-        /** MCP slower or no advantage (<10% delta). */
+        /** Measured no better than the control (within 10%, or worse). */
         LOW,
-        /** Not yet measured. */
+        /** Never run as a pair, or fewer than 3 passes — no claim either way. */
         UNKNOWN,
     }
 
@@ -93,22 +110,34 @@ object DpaiaCuratedCases {
      * - **microshop-18**: 23-module project; default 10-min IDE-ready timeout is too short → 20 min.
      * - **petclinic-rest-3**: cache-eviction task; NONE agent needs more wall time → 90 min.
      * - **petclinic-71**: JPA→R2DBC migration; both agents timed out at 30 min → 90 min.
+     *
+     * **Two vintages of [McpBenefit] live in this map.** Entries carrying a `measured Nx over N passes`
+     * comment come from the 2026-08 Opus 5 paired rounds and are the current, reproducible ones. Entries
+     * without such a comment that are not [McpBenefit.UNKNOWN] — `petclinic__rest-14`,
+     * `petclinic__microservices-5`, `petclinic__rest-37` — still carry the 2026-03-05 classification, taken
+     * on a different model and a much older harness (before the verifier fixes, before objective_success).
+     * Treat them as provenance, not as a current measurement, and re-measure before quoting them.
      */
     val CASE_CONFIGS: Map<String, CaseConfig> = mapOf(
         // Batch 1
         "dpaia__feature__service-125" to CaseConfig(
             agentTimeoutSeconds = 1_800L,
             projectJdkVersion = "24",
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            taskType = TaskType.NAVIGATE_MODIFY,
+            mcpBenefit = McpBenefit.HIGH,   // measured 0.79x over 4 passes, and 0.82x over 4 more
             overlayTestPatch = "arena-overlays/dpaia__feature__service-125.patch",
             overlayFailToPass = listOf("com.sivalabs.ft.features.config.ReleaseApiSecuritySliceTest"),
             dockerOracleWorks = true,
         ),
         "dpaia__empty__maven__springboot3-1" to CaseConfig(
-            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.HIGH,
+            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,   // measured 1.76x over 3 passes — worst in the set, and greenfield
         ),
         "dpaia__feature__service-25" to CaseConfig(
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            taskType = TaskType.NAVIGATE_MODIFY,
+            // Never run as a pair; the old HIGH was a guess. Queued as the falsification case for the
+            // size hypothesis: same repo and shape as service-125, but one FAIL_TO_PASS class and 17 KB
+            // of patch, so if scale is what decides, this one must NOT win.
+            mcpBenefit = McpBenefit.UNKNOWN,
         ),
         "dpaia__spring__petclinic__rest-14" to CaseConfig(
             taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,
@@ -119,10 +148,10 @@ object DpaiaCuratedCases {
         ),
         // Batch 2
         "dpaia__spring__petclinic-36" to CaseConfig(
-            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,
+            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,   // measured 1.04x over 3 passes — guess confirmed
         ),
         "dpaia__jhipster__sample__app-3" to CaseConfig(
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,   // measured 1.30x over 3 passes — was a HIGH guess
         ),
         // train-ticket predates JDK 21: its Lombok crashes javac with
         // `NoSuchFieldError: Class com.sun.tools.javac.tree.JCTree$JCImport … member field 'qualid'`,
@@ -133,27 +162,30 @@ object DpaiaCuratedCases {
         // which JDK 17 did require.
         "dpaia__train__ticket-1" to CaseConfig(
             projectJdkVersion = "11",
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,   // measured 1.63x over 3 passes
         ),
         "dpaia__train__ticket-31" to CaseConfig(
             projectJdkVersion = "11",
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,   // measured 1.61x over 3 passes — guess confirmed
         ),
         "dpaia__spring__boot__microshop-18" to CaseConfig(
             projectReadyTimeoutMs = 1_200_000L,
             projectJdkVersion = "24",
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,   // 60 KB / 23 files / 3 modules — biggest unrun task, queued
         ),
         "dpaia__spring__boot__microshop-2" to CaseConfig(
             projectJdkVersion = "24",
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            // Never run as a pair; the old HIGH was a guess. Queued: the only case whose FAIL_TO_PASS
+            // classes sit in 4 packages across 3 Maven modules, which is where text search degrades
+            // fastest and an index lookup should pay for itself.
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,
         ),
         "dpaia__spring__petclinic-27" to CaseConfig(
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.LOW,   // measured 1.04x over 3 passes — was a HIGH guess
         ),
         "dpaia__spring__petclinic__rest-3" to CaseConfig(
             agentTimeoutSeconds = 5_400L,
-            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,
+            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.UNKNOWN,   // the control arm is the one that needs 90 min here, queued
         ),
         // Batch 3
         "dpaia__piggymetrics-6" to CaseConfig(
@@ -167,7 +199,10 @@ object DpaiaCuratedCases {
         ),
         "dpaia__spring__petclinic-71" to CaseConfig(
             agentTimeoutSeconds = 5_400L,
-            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.UNKNOWN,
+            taskType = TaskType.NAVIGATE_MODIFY, mcpBenefit = McpBenefit.HIGH,   // measured 0.64x over 3 passes — the largest task in the set
+        ),
+        "dpaia__empty__maven__springboot3-3" to CaseConfig(
+            taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,   // measured 1.65x over 3 passes
         ),
     )
 
