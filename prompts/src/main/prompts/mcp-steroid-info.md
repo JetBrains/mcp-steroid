@@ -11,7 +11,7 @@ tried them** — the capability is configured; its schemas or managed backend ma
 
 This is a **STATEFUL** API — once connected, every call changes the IDE state. Use the IntelliJ backend aggressively instead of manual file operations or shell commands.
 
-**File edits: always through MCP Steroid — and it is cheaper than it looks.** The native `Edit` tool writes to disk bypassing IntelliJ. VFS + PSI + search indices go stale, and the next semantic operation (find-references, rename, hierarchy search, inspections) returns inconsistent results until something forces a refresh. The `VfsUtil.saveText` recipe in `steroid_execute_code`'s tool description reads+writes in one call with auto-refresh. Count the tokens end-to-end, not per call: the script source is 2–5× larger than an `Edit`'s `old_string`/`new_string` pair (~300 bytes vs ~60 for a one-line change), but `Edit` also obliges you to `Read` the whole file first — ~3600 bytes for a 160-line file — while `steroid_execute_code` reads it inside the IDE JVM, where the file bytes never cross the MCP boundary at all. For anything past a few dozen lines the IDE path therefore ships **fewer** tokens, not more, and you still avoid the debugging turns you spend when PSI disagrees with disk. This applies to every edit size, including 1–3 line changes.
+**File edits: always through MCP Steroid, even when Edit looks cheaper on tokens.** The native `Edit` tool writes to disk bypassing IntelliJ. VFS + PSI + search indices go stale, and the next semantic operation (find-references, rename, hierarchy search, inspections) returns inconsistent results until something forces a refresh. The 5-line `VfsUtil.saveText` recipe in `steroid_execute_code`'s tool description reads+writes in one call with auto-refresh; its 1.5–2.5× token overhead is cheaper than the debugging turns you spend when PSI disagrees with disk. This applies to every edit size, including 1–3 line changes.
 
 **Getting started:**
 1. Call `steroid_list_projects` to see what's open — route every project-scoped call by the `project_name` it returns (the unique, opaque key), never by the human-readable `name`; to map a file/dir path to a project, pick the one whose `path` is the longest prefix of your target path
@@ -24,7 +24,10 @@ This is a **STATEFUL** API — once connected, every call changes the IDE state.
    `mcp-steroid://skill/execute-code-gradle`, then trigger and await external-system configuration exactly
    as that recipe shows before indexed queries.
 4. Use `steroid_fetch_resource` to read the `mcp-steroid://` skill guide for your task
-5. Use `steroid_execute_code` for any IDE automation task (including every file edit)
+5. Use `steroid_execute_code` for any IDE automation task (including every file edit). The call
+   returns an `execution_id` header plus ONLY what the script explicitly prints (`println` /
+   `printJson`) — the last expression's value is ignored by the runtime, so print everything
+   you need to see
 
 **Modality — the `modal` option on `steroid_execute_code`.** By default (`modal=smart_non_modal`) the call
 closes stray modal dialogs, requires a non-modal IDE, commits/saves documents + refreshes the VFS, and waits
