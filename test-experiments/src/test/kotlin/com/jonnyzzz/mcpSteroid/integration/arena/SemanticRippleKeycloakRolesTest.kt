@@ -11,6 +11,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.Timeout
@@ -106,12 +107,32 @@ class SemanticRippleKeycloakRolesTest {
                 logDir = session.runDirInContainer,
             )
 
-            val postOutput = session.mcpSteroid.mcpExecuteCode(
-                code = SemanticRippleOracleScripts.postcondition(),
-                reason = "Grade the post-agent semantic state for the semantic-ripple oracle",
-                taskId = "semantic-ripple-post",
-                timeout = 900,
-            ).stdout
+            // The IDE that ran the gold capture can be dead by the time we get here — e.g. an agent
+            // that OOM-killed it with a self-verification build outside our control. That is an
+            // instrument failure, not evidence the agent got the rename wrong, so it must be legible
+            // as a LOST MEASUREMENT rather than as a graded (and possibly zero) result.
+            val postOutput = try {
+                session.mcpSteroid.mcpExecuteCode(
+                    code = SemanticRippleOracleScripts.postcondition(),
+                    reason = "Grade the post-agent semantic state for the semantic-ripple oracle",
+                    taskId = "semantic-ripple-post",
+                    timeout = 900,
+                ).stdout
+            } catch (e: Exception) {
+                println("[RIPPLE] MEASUREMENT LOST: could not reach the IDE to take the post-condition")
+                println("[RIPPLE]   reading. The grade for this run is UNKNOWN, not zero — this is an")
+                println("[RIPPLE]   instrument failure, not a verdict on the agent.")
+                println("[RIPPLE]   gold: ${gold.totalReferences} references, ${gold.files} files, " +
+                    "${gold.decoyReferences.size} decoys")
+                println("[RIPPLE]   agent time: ${result.agentDurationMs / 1000}s, " +
+                    "exit code: ${result.agentResult.exitCode}")
+                println("[RIPPLE]   cause: ${e::class.simpleName}: ${e.message}")
+                fail(
+                    "[$agentName+$modeLabel] MEASUREMENT LOST: the post-condition read failed " +
+                        "(${e::class.simpleName}: ${e.message}). This is an instrument failure — the " +
+                        "IDE could not be reached to grade the run — and is not a verdict on the agent."
+                )
+            }
             val grade = parseSemanticPostcondition(postOutput, gold)
 
             // The layer that covers all 445 call sites: a site the agent missed still names a method

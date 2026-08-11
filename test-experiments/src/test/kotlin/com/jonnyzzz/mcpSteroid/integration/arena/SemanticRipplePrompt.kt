@@ -50,6 +50,10 @@ fun buildSemanticRipplePrompt(projectDir: String, withMcp: Boolean): String = bu
     appendLine("  `./mvnw <goal> -pl <module>`; never ask the build to also build upstream dependencies,")
     appendLine("  which exhausts the container's memory.")
     appendLine("- The dependencies of every module are already installed locally, so `-pl` works on its own.")
+    appendLine("- A full build-and-test run across the whole reactor does not fit this task's time budget.")
+    appendLine("  Verify your work by compiling the modules you changed, one at a time, with")
+    appendLine("  `./mvnw compile -pl <module>` (and `test-compile` for test sources); do not launch a")
+    appendLine("  reactor-wide test run to check yourself.")
     if (withMcp) {
         appendLine("- Bash build commands must use the exact `Recommended JAVA_HOME` printed by your first")
         appendLine("  tool call, which starts with `$jdkPrefix`.")

@@ -78,4 +78,16 @@ class SemanticRipplePromptContractTest {
     fun `no maven invocation suggests also-make`() {
         both.forEach { p -> assertFalse(p.contains("-am")) { p } }
     }
+
+    @Test
+    fun `both arms state that a reactor-wide test run does not fit the time budget`() {
+        both.forEach { p ->
+            assertTrue(p.contains("does not fit this task's time budget")) {
+                "The prompt must state that a full-reactor run does not fit the time budget:\n$p"
+            }
+            assertTrue(p.contains("one at a time")) {
+                "The prompt must tell the agent to verify by compiling changed modules one at a time:\n$p"
+            }
+        }
+    }
 }
