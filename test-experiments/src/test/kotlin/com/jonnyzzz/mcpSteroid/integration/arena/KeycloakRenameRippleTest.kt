@@ -21,9 +21,17 @@ import java.util.concurrent.TimeUnit
  * The rename experiment of the keycloak-semantic family: one cross-module rename on Keycloak, run in
  * both arms of a single agent.
  *
- * The TeamCity config for this family runs `-PtestFilter=*KeycloakRenameTest.<agent>*`, which glob-matches
- * this class's `<agent> with mcp` and `<agent> without mcp` methods for a given agent. The task
- * specification (repo, base commit, patch, target case) lives in [SemanticRippleSpec] and
+ * There is a second, pre-existing class named `KeycloakRenameTest` in
+ * `com.jonnyzzz.mcpSteroid.integration.tests` — do not confuse the two. That class scores from the
+ * agent's self-reported markers, and its prompt names the refactoring API the agent is expected to use.
+ * This class instead grades a PSI post-condition captured before and after the run — alias left behind,
+ * missed call sites, over-reach onto a same-named method of another type, and reference conservation —
+ * backed by a scoped compile gate and a hidden reflection consumer, and its prompt deliberately does
+ * NOT name the mechanism the agent must use to satisfy that consumer.
+ *
+ * The TeamCity config for this family runs `-PtestFilter=*KeycloakRenameRippleTest.<agent>*`, which
+ * glob-matches this class's `<agent> with mcp` and `<agent> without mcp` methods for a given agent. The
+ * task specification (repo, base commit, patch, target case) lives in [SemanticRippleSpec] and
  * [SemanticRippleCases]; the oracle that grades pre/post semantic state lives in [SemanticRippleOracle]
  * and [SemanticRippleOracleScripts].
  *
@@ -36,7 +44,7 @@ import java.util.concurrent.TimeUnit
  * cases use, so the two tracks' numbers stay comparable.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class KeycloakRenameTest {
+class KeycloakRenameRippleTest {
 
     // The agent's own budget is 90 min (SemanticRippleSpec.agentTimeoutSeconds). A cold CI agent
     // additionally pays Docker image build (measured 34 min for the image build alone on a developer
