@@ -17,14 +17,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Infrastructure gate for the semantic-ripple track: proves a container can clone Keycloak from the
- * host bare-repo cache, import 189 Maven modules, and reach a state where PSI queries resolve — and
- * reports how long that takes, because the prewarm timeout in [SemanticRippleSpec] is a guess until
- * this test has run once.
+ * host bare-repo cache, import the project (156 IntelliJ modules from 152 Maven projects), and reach
+ * a state where PSI queries resolve — and reports how long that takes, because the prewarm timeout in
+ * [SemanticRippleSpec] is a guess until this test has run once.
  *
  * No agent, no oracle. When this fails the track is blocked on infrastructure, which is a different
  * finding from the hypothesis being wrong.
  */
 class SemanticRipplePrewarmProbeTest {
+
+    private val rolesDeclLine = Regex("""\bROLES_DECLS 17\b""")
 
     @Test
     @Timeout(value = 120, unit = TimeUnit.MINUTES)
@@ -46,10 +48,9 @@ class SemanticRipplePrewarmProbeTest {
                 mcpConnectionMode = McpConnectionMode.None,
                 mountDockerSocket = false,
             )).waitForProjectReady(
-                // A first observation put IDE-readiness alone at ~35 minutes, with the Maven import of
-                // 189 modules only starting after that. A 60-minute budget would likely expire mid-import
-                // and yield "at least 60 minutes" instead of the number this probe exists to measure.
-                // Bounded by the method's own 120-minute @Timeout.
+                // Measured warm run reached readiness in 384 s. The wide bound provides headroom for
+                // a genuinely cold dependency cache, which has never been measured. Bounded by the
+                // method's own 120-minute @Timeout.
                 timeoutMillis = 6_000_000L,
                 projectJdkVersion = "21",
                 buildSystem = BuildSystem.MAVEN,
@@ -92,7 +93,7 @@ class SemanticRipplePrewarmProbeTest {
             assertTrue(probe.stdout.contains("JDK_RESOLVES true")) {
                 "JDK symbols do not resolve after import; PSI counts would be wrong.\n${probe.stdout}"
             }
-            assertTrue(probe.stdout.contains("ROLES_DECLS 17")) {
+            assertTrue(rolesDeclLine.containsMatchIn(probe.stdout)) {
                 "Expected 17 declarations named 'roles' at the pinned commit.\n${probe.stdout}"
             }
         } finally {
