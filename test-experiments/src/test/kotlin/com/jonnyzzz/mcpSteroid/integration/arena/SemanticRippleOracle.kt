@@ -70,18 +70,12 @@ fun parseSemanticGold(output: String): SemanticGold {
     val headerParts = header.removePrefix("GOLD_TARGET ").split('|')
     check(headerParts.size == 3) { "Malformed GOLD_TARGET line: $header" }
 
-    val sites = lines.filter { it.startsWith("GOLD_SITE ") }.map { line ->
-        val parts = line.removePrefix("GOLD_SITE ").split('|')
-        check(parts.size == 3) { "Malformed GOLD_SITE line: $line" }
-        GoldSite(parts[0], parts[1], parts[2].toInt())
-    }
-    val decoys = lines.filter { it.startsWith("GOLD_DECOY ") }.associate { line ->
-        val parts = line.removePrefix("GOLD_DECOY ").split('|')
-        check(parts.size == 2) { "Malformed GOLD_DECOY line: $line" }
-        parts[0] to parts[1].toInt()
-    }
-    val newNameDeclarations = lines.first { it.startsWith("GOLD_NEWNAME_DECLS ") }
-        .removePrefix("GOLD_NEWNAME_DECLS ").toInt()
+    val sites = parseSiteLines(lines, "GOLD_SITE ")
+    val decoys = parseDecoyLines(lines, "GOLD_DECOY ")
+    val newNameDeclarations = (
+        lines.firstOrNull { it.startsWith("GOLD_NEWNAME_DECLS ") }
+            ?: error("Gold capture output is missing the GOLD_NEWNAME_DECLS field:\n$output")
+        ).removePrefix("GOLD_NEWNAME_DECLS ").toInt()
 
     return SemanticGold(
         targetFqn = headerParts[0],
@@ -91,6 +85,46 @@ fun parseSemanticGold(output: String): SemanticGold {
         decoyReferences = decoys,
         newNameDeclarations = newNameDeclarations,
     )
+}
+
+/**
+ * Parses `$prefix<file>|<enclosing declaration>|<references>` lines into [GoldSite]s.
+ *
+ * A repeated `(file, enclosingDeclaration)` key is a broken capture script, not two observations to
+ * merge: summing would double-count a duplicated gold line, and keeping only one would silently drop
+ * the other. Either way a repair-by-guessing would corrupt the count that everything else is graded
+ * against, so a repeated key throws instead.
+ */
+private fun parseSiteLines(lines: List<String>, prefix: String): List<GoldSite> {
+    val parsed = lines.filter { it.startsWith(prefix) }.map { line ->
+        val parts = line.removePrefix(prefix).split('|')
+        check(parts.size == 3) { "Malformed $prefix line: $line" }
+        GoldSite(parts[0], parts[1], parts[2].toInt())
+    }
+    val duplicateKeys = parsed.groupBy { it.file to it.enclosingDeclaration }
+        .filterValues { it.size > 1 }.keys
+    check(duplicateKeys.isEmpty()) {
+        "Duplicate $prefix key(s) $duplicateKeys — each (file, enclosing declaration) must appear " +
+            "at most once in $prefix output"
+    }
+    return parsed
+}
+
+/**
+ * Parses `$prefix<owner>|<references>` lines into a map. See [parseSiteLines] for why a repeated key
+ * throws rather than being merged.
+ */
+private fun parseDecoyLines(lines: List<String>, prefix: String): Map<String, Int> {
+    val parsed = lines.filter { it.startsWith(prefix) }.map { line ->
+        val parts = line.removePrefix(prefix).split('|')
+        check(parts.size == 2) { "Malformed $prefix line: $line" }
+        parts[0] to parts[1].toInt()
+    }
+    val duplicateKeys = parsed.groupBy { it.first }.filterValues { it.size > 1 }.keys
+    check(duplicateKeys.isEmpty()) {
+        "Duplicate $prefix key(s) $duplicateKeys — each owner must appear at most once in $prefix output"
+    }
+    return parsed.toMap()
 }
 
 /**
@@ -122,16 +156,19 @@ fun parseSemanticPostcondition(output: String, gold: SemanticGold): SemanticPost
     check(lines.any { it == "POST_END" }) {
         "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
     }
-    fun flag(prefix: String): String = lines.first { it.startsWith(prefix) }.removePrefix(prefix).trim()
+    fun flag(prefix: String): String =
+        (lines.firstOrNull { it.startsWith(prefix) }
+            ?: error("Post-condition output is missing the $prefix field:\n$output"))
+            .removePrefix(prefix).trim()
 
     val newNameDeclared = flag("POST_NEWNAME_DECLARED ").toBooleanStrict()
     val oldNameOnTarget = flag("POST_OLDNAME_ON_TARGET ").toInt()
     val totalNewRefs = flag("POST_TOTAL_NEW_REFS ").toInt()
 
-    val postSites = lines.filter { it.startsWith("POST_SITE ") }.map { line ->
-        val parts = line.removePrefix("POST_SITE ").split('|')
-        check(parts.size == 3) { "Malformed POST_SITE line: $line" }
-        GoldSite(parts[0], parts[1], parts[2].toInt())
+    val postSites = parseSiteLines(lines, "POST_SITE ")
+    check(postSites.sumOf { it.references } <= totalNewRefs) {
+        "POST_SITE references sum to ${postSites.sumOf { it.references }}, which exceeds the " +
+            "declared POST_TOTAL_NEW_REFS $totalNewRefs — the capture script or its parsing is broken"
     }
     val postByKey = postSites.associate { (it.file to it.enclosingDeclaration) to it.references }
 
@@ -142,11 +179,7 @@ fun parseSemanticPostcondition(output: String, gold: SemanticGold): SemanticPost
         minOf(postByKey[gold.keyOf(site)] ?: 0, site.references)
     }
 
-    val postDecoys = lines.filter { it.startsWith("POST_DECOY ") }.associate { line ->
-        val parts = line.removePrefix("POST_DECOY ").split('|')
-        check(parts.size == 2) { "Malformed POST_DECOY line: $line" }
-        parts[0] to parts[1].toInt()
-    }
+    val postDecoys = parseDecoyLines(lines, "POST_DECOY ")
     val overReached = gold.decoyReferences.filter { (owner, before) ->
         (postDecoys[owner] ?: 0) != before
     }.keys.sorted()

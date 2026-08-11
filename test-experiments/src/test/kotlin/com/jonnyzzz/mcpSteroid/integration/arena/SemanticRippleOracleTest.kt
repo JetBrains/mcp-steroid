@@ -142,4 +142,66 @@ class SemanticRippleOracleTest {
         val e = assertThrows(IllegalStateException::class.java) { parseSemanticGold(taken).checkTripwires() }
         assertTrue(e.message!!.contains(SemanticRippleSpec.newName))
     }
+
+    // --- Fix round 1 ---
+
+    @Test
+    fun `a duplicated GOLD_SITE key fails loudly instead of being double-counted`() {
+        val duplicated = goldOutput.replace(
+            "GOLD_SITE a/A.java|A#one|2",
+            "GOLD_SITE a/A.java|A#one|2\nGOLD_SITE a/A.java|A#one|5",
+        )
+        val e = assertThrows(IllegalStateException::class.java) { parseSemanticGold(duplicated) }
+        assertTrue(e.message!!.contains("a/A.java")) { "Message should name the duplicated key: ${e.message}" }
+    }
+
+    @Test
+    fun `a duplicated POST_DECOY key fails loudly instead of keeping only the last line`() {
+        val duplicated = perfectPost.replace(
+            "POST_DECOY org.keycloak.admin.client.resource.ClientResource|343",
+            "POST_DECOY org.keycloak.admin.client.resource.ClientResource|343\n" +
+                "POST_DECOY org.keycloak.admin.client.resource.ClientResource|999",
+        )
+        val e = assertThrows(IllegalStateException::class.java) { parseSemanticPostcondition(duplicated, gold()) }
+        assertTrue(e.message!!.contains("ClientResource")) {
+            "Message should name the duplicated decoy owner: ${e.message}"
+        }
+    }
+
+    @Test
+    fun `POST_SITE references exceeding the declared total fail loudly`() {
+        val inflatedSites = perfectPost
+            .replace("POST_SITE a/A.java|A#one|2", "POST_SITE a/A.java|A#one|20")
+        val e = assertThrows(IllegalStateException::class.java) {
+            parseSemanticPostcondition(inflatedSites, gold())
+        }
+        assertTrue(e.message!!.contains("POST_TOTAL_NEW_REFS")) {
+            "Message should name the exceeded declared total: ${e.message}"
+        }
+    }
+
+    @Test
+    fun `a missing post-condition field names itself instead of throwing NoSuchElementException`() {
+        val missingField = perfectPost.lines()
+            .filterNot { it.startsWith("POST_TOTAL_NEW_REFS") }
+            .joinToString("\n")
+        val e = assertThrows(IllegalStateException::class.java) {
+            parseSemanticPostcondition(missingField, gold())
+        }
+        assertTrue(e.message!!.contains("POST_TOTAL_NEW_REFS")) {
+            "Message should name the missing field: ${e.message}"
+        }
+    }
+
+    @Test
+    fun `a decoy whose count increased is also reported as over-reach`() {
+        val increased = perfectPost.replace(
+            "POST_DECOY org.keycloak.admin.client.resource.ClientResource|343",
+            "POST_DECOY org.keycloak.admin.client.resource.ClientResource|400",
+        )
+        val r = parseSemanticPostcondition(increased, gold())
+        assertFalse(r.p3DecoysUnchanged)
+        assertEquals(listOf("org.keycloak.admin.client.resource.ClientResource"), r.overReachedDecoys)
+        assertFalse(r.allPassed)
+    }
 }
