@@ -19,7 +19,7 @@ object SemanticRippleCases {
     const val instanceId: String = "ripple__keycloak__realm-roles-rename"
 
     const val hiddenConsumerFqn: String =
-        "org.keycloak.admin.client.resource.RealmResourceRenameContractTest"
+        "org.keycloak.tests.admin.RealmResourceRenameContractTest"
 
     private const val PATCH_RESOURCE = "arena-overlays/semantic-ripple-keycloak-roles.patch"
 

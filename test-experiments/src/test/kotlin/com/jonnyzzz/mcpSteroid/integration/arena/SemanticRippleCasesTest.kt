@@ -26,11 +26,11 @@ class SemanticRippleCasesTest {
     }
 
     @Test
-    fun `hidden consumer lives in a compile-gate module`() {
+    fun `hidden consumer lives under tests-base test sources`() {
         val paths = extractPatchFilePaths(SemanticRippleCases.testPatch())
         assertTrue(paths.isNotEmpty())
-        assertTrue(paths.all { it.contains("/src/test/java/") }) {
-            "The consumer belongs in test sources so the scoped test-compile builds it: $paths"
+        assertTrue(paths.all { it.startsWith("tests/base/src/test/java/") }) {
+            "The consumer belongs in keycloak-tests-base's test sources, not any other module: $paths"
         }
     }
 
