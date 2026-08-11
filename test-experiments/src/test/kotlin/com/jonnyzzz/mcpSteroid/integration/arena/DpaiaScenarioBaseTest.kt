@@ -3,7 +3,6 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.integration.infra.AiMode
 import com.jonnyzzz.mcpSteroid.integration.infra.BuildSystem
-import com.jonnyzzz.mcpSteroid.integration.infra.IdeTestFolders
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
@@ -209,21 +208,11 @@ abstract class DpaiaScenarioBaseTest {
             }
 
             // ── Extract metrics from agent NDJSON ────────────────────────────────
-            val decodedLogName = when (agentName) {
-                "claude" -> "claude-code"
-                "codex" -> "codex"
-                "gemini" -> "gemini"
-                else -> agentName
-            }
-            // Prefer the persisted UNFILTERED transcript: the captured process stdout is the
-            // console-filtered stream, which drops the usage/result events these metrics parse.
-            val rawOutput = findRawNdjsonFile(session.runDirInContainer, agentName = decodedLogName)
-                ?.readText()
-                ?: result.agentResult.stdout
-            val tokens = extractTokenUsage(rawOutput)
-            val testMetrics = extractTestMetrics(rawOutput)
-            val decodedLogMetrics = findDecodedLogFile(session.runDirInContainer, agentName = decodedLogName)
-                ?.let { extractDecodedLogMetrics(it.readText()) }
+            val metrics = collectRunMetrics(
+                runDir = session.runDirInContainer,
+                agentName = agentName,
+                fallbackStdout = result.agentResult.stdout,
+            )
 
             val record = RunRecord(
                 instanceId = testCase.instanceId,
@@ -235,9 +224,9 @@ abstract class DpaiaScenarioBaseTest {
                 claimedFix = result.evaluation.agentClaimedFix,
                 usedMcpSteroid = result.evaluation.usedMcpSteroid,
                 summary = result.evaluation.agentSummary,
-                tokenUsage = tokens,
-                testMetrics = testMetrics,
-                decodedLogMetrics = decodedLogMetrics,
+                tokenUsage = metrics.tokenUsage,
+                testMetrics = metrics.testMetrics,
+                decodedLogMetrics = metrics.decodedLogMetrics,
                 verification = verification,
                 baselinePassing = baselineSuite.passing.size,
                 baselineAlreadyFailing = baselineSuite.failing.size,
@@ -246,7 +235,7 @@ abstract class DpaiaScenarioBaseTest {
             results.add(record)
 
             // Write JSON summary
-            writeRunSummary(testCase, agentName, modeLabel, record)
+            writeArenaRunSummary(testCase.instanceId, agentName, modeLabel, record)
 
             // Print summary
             println("[ARENA] ════════════════════════════════════════")
@@ -256,21 +245,21 @@ abstract class DpaiaScenarioBaseTest {
             println("[ARENA]   Exit code:      ${record.exitCode}")
             println("[ARENA]   Agent time:     ${record.agentDurationMs / 1000}s")
             println("[ARENA]   Prewarm time:   ${record.prewarmMs / 1000}s")
-            if (tokens != null) {
-                println("[ARENA]   Tokens in/out:  ${tokens.inputTokens}/${tokens.outputTokens}")
-                println("[ARENA]   Cache create:   ${tokens.cacheCreationTokens}")
-                println("[ARENA]   Cache read:     ${tokens.cacheReadTokens}")
-                println("[ARENA]   Cost:           $${tokens.costUsd ?: "?"}")
-                println("[ARENA]   Turns:          ${tokens.numTurns ?: "?"}")
-                println("[ARENA]   API duration:   ${tokens.durationApiMs?.let { "${it / 1000}s" } ?: "?"}")
+            if (metrics.tokenUsage != null) {
+                println("[ARENA]   Tokens in/out:  ${metrics.tokenUsage.inputTokens}/${metrics.tokenUsage.outputTokens}")
+                println("[ARENA]   Cache create:   ${metrics.tokenUsage.cacheCreationTokens}")
+                println("[ARENA]   Cache read:     ${metrics.tokenUsage.cacheReadTokens}")
+                println("[ARENA]   Cost:           $${metrics.tokenUsage.costUsd ?: "?"}")
+                println("[ARENA]   Turns:          ${metrics.tokenUsage.numTurns ?: "?"}")
+                println("[ARENA]   API duration:   ${metrics.tokenUsage.durationApiMs?.let { "${it / 1000}s" } ?: "?"}")
             } else {
                 // Codex sometimes ends its stream on `item.completed` without the closing
                 // `turn.completed` that carries usage. Nothing in the transcript can reconstruct it, so
                 // say so instead of printing no token line at all — an absent line reads as an oversight.
                 println("[ARENA]   Tokens:         MISSING — the agent CLI emitted no usage event; cost is unrecoverable for this arm")
             }
-            if (testMetrics != null) {
-                println("[ARENA]   Tests:          ${testMetrics.testsRun} run, ${testMetrics.testsFail} fail, BUILD ${if (testMetrics.buildSuccess == true) "SUCCESS" else "FAILURE"}")
+            if (metrics.testMetrics != null) {
+                println("[ARENA]   Tests:          ${metrics.testMetrics.testsRun} run, ${metrics.testMetrics.testsFail} fail, BUILD ${if (metrics.testMetrics.buildSuccess == true) "SUCCESS" else "FAILURE"}")
             }
             if (verification != null) {
                 println("[ARENA]   Verified FTP:   ${verification.classesPassed}/${verification.classesTotal}")
@@ -286,10 +275,10 @@ abstract class DpaiaScenarioBaseTest {
             if (baselineSuite.failing.isNotEmpty()) {
                 println("[ARENA]   Already red before the agent: ${baselineSuite.failing.sorted().joinToString()}")
             }
-            if (decodedLogMetrics != null) {
-                println("[ARENA]   exec_code:      ${decodedLogMetrics.execCodeCalls}")
-                println("[ARENA]   Read/Edit/Write: ${decodedLogMetrics.readCalls}/${decodedLogMetrics.editCalls}/${decodedLogMetrics.writeCalls}")
-                println("[ARENA]   Glob/Grep/Bash: ${decodedLogMetrics.globCalls}/${decodedLogMetrics.grepCalls}/${decodedLogMetrics.bashCalls}")
+            if (metrics.decodedLogMetrics != null) {
+                println("[ARENA]   exec_code:      ${metrics.decodedLogMetrics.execCodeCalls}")
+                println("[ARENA]   Read/Edit/Write: ${metrics.decodedLogMetrics.readCalls}/${metrics.decodedLogMetrics.editCalls}/${metrics.decodedLogMetrics.writeCalls}")
+                println("[ARENA]   Glob/Grep/Bash: ${metrics.decodedLogMetrics.globCalls}/${metrics.decodedLogMetrics.grepCalls}/${metrics.decodedLogMetrics.bashCalls}")
             }
             println("[ARENA]   Summary:        ${record.summary ?: "(none)"}")
             println("[ARENA] ════════════════════════════════════════")
@@ -370,36 +359,6 @@ abstract class DpaiaScenarioBaseTest {
 
         println("╚═══════════════════════════════════════════════════════════════════════════════════════╝")
         println()
-    }
-
-    private fun writeRunSummary(
-        testCase: DpaiaTestCase,
-        agentName: String,
-        modeLabel: String,
-        record: RunRecord,
-    ) {
-        val summary = buildRunSummaryJson(record)
-        val summaryFile = IdeTestFolders.testOutputDir
-            .resolve("dpaia-arena-run-${testCase.instanceId}-$agentName-$modeLabel.json")
-        summaryFile.parentFile.mkdirs()
-        summaryFile.writeText(summary.toString())
-        println("[ARENA] Run summary written to: ${summaryFile.absolutePath}")
-
-        // Append to comparison CSV
-        val passLabel = System.getProperty("arena.pass.label", "")
-        val csvFile = IdeTestFolders.testOutputDir.resolve("arena-comparison.csv")
-        appendComparisonCsv(
-            csvFile = csvFile,
-            instanceId = testCase.instanceId,
-            passLabel = passLabel,
-            claimedFix = record.claimedFix,
-            durationS = record.agentDurationMs / 1000,
-            tokens = record.tokenUsage,
-            testMetrics = record.testMetrics,
-            decoded = record.decodedLogMetrics,
-            verification = record.verification,
-        )
-        println("[ARENA] Comparison CSV appended to: ${csvFile.absolutePath}")
     }
 
     // ── Dataset loading ──────────────────────────────────────────────────────
