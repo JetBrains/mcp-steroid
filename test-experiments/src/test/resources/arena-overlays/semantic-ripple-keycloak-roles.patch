@@ -1,0 +1,36 @@
+diff --git a/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/admin/client/resource/RealmResourceRenameContractTest.java b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/admin/client/resource/RealmResourceRenameContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/admin/client/resource/RealmResourceRenameContractTest.java
+@@ -0,0 +1,31 @@
++package org.keycloak.admin.client.resource;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Pins the renamed realm-roles accessor on {@link RealmResource}.
++ *
++ * The new name must be present and the old one must be gone entirely — keeping the old name as a
++ * deprecated forwarder would leave every caller compiling against a name that no longer exists in
++ * the contract this test defines.
++ */
++public class RealmResourceRenameContractTest {
++
++    @Test
++    public void newNameIsDeclaredAndReturnsRolesResource() throws Exception {
++        Assert.assertEquals(
++                RolesResource.class,
++                RealmResource.class.getMethod("realmLevelRoles").getReturnType());
++    }
++
++    @Test
++    public void oldNameIsGone() {
++        try {
++            RealmResource.class.getMethod("roles");
++            Assert.fail("RealmResource still declares roles(); the rename left a compatibility alias");
++        } catch (NoSuchMethodException expected) {
++            // the old accessor is gone, which is what this test asserts
++        }
++    }
++}
