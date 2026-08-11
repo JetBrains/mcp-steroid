@@ -18,7 +18,14 @@ import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
 
 /**
- * The semantic-ripple pilot: one cross-module rename on Keycloak, run in both arms.
+ * The rename experiment of the keycloak-semantic family: one cross-module rename on Keycloak, run in
+ * both arms of a single agent.
+ *
+ * The TeamCity config for this family runs `-PtestFilter=*KeycloakRenameTest.<agent>*`, which glob-matches
+ * this class's `<agent> with mcp` and `<agent> without mcp` methods for a given agent. The task
+ * specification (repo, base commit, patch, target case) lives in [SemanticRippleSpec] and
+ * [SemanticRippleCases]; the oracle that grades pre/post semantic state lives in [SemanticRippleOracle]
+ * and [SemanticRippleOracleScripts].
  *
  * A sibling of [DpaiaScenarioBaseTest] rather than a subclass — that class loads its case from the
  * dpaia dataset and takes a whole-suite regression baseline, and neither applies here. Regression
@@ -29,22 +36,29 @@ import java.util.concurrent.TimeUnit
  * cases use, so the two tracks' numbers stay comparable.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SemanticRippleKeycloakRolesTest {
+class KeycloakRenameTest {
 
+    // The agent's own budget is 90 min (SemanticRippleSpec.agentTimeoutSeconds). A cold CI agent
+    // additionally pays Docker image build (measured 34 min for the image build alone on a developer
+    // machine) plus a cold Keycloak clone and Maven import. After the agent returns, grading adds the
+    // post-condition query, the scoped compile gate, and the FAIL_TO_PASS verification. 90 + 34 min of
+    // fixed setup plus grading overhead already exceeds 124 minutes before any headroom; 180 minutes
+    // covers that with headroom, and the TeamCity cap for a two-arm build is derived from this number
+    // and must stay above it.
     @Test
-    @Timeout(value = 240, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `claude with mcp`() = runArm("claude", withMcp = true)
 
     @Test
-    @Timeout(value = 240, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `claude without mcp`() = runArm("claude", withMcp = false)
 
     @Test
-    @Timeout(value = 240, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `codex with mcp`() = runArm("codex", withMcp = true)
 
     @Test
-    @Timeout(value = 240, unit = TimeUnit.MINUTES)
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `codex without mcp`() = runArm("codex", withMcp = false)
 
     private fun runArm(agentName: String, withMcp: Boolean) {
