@@ -26,6 +26,38 @@ class SemanticRippleCasesTest {
     }
 
     @Test
+    fun `every hunk header counts its body exactly`() {
+        // git apply rejects the whole patch when a header promises more lines than the body holds —
+        // "corrupt patch at line N", which surfaces as a container that cannot prepare the tree at all.
+        // Counting it here costs milliseconds instead of a ten-minute Docker run.
+        val lines = SemanticRippleCases.testPatch().lines()
+        val headers = lines.withIndex().filter { it.value.startsWith("@@") }
+        assertTrue(headers.isNotEmpty()) { "The patch has no hunk header at all" }
+        headers.forEach { (index, header) ->
+            val promised = Regex("""\+\d+,(\d+)""").find(header)
+                ?.groupValues?.get(1)?.toInt()
+                ?: error("Hunk header states no line count: $header")
+            val body = lines.drop(index + 1).takeWhile { it.startsWith("+") || it.startsWith(" ") }
+            assertEquals(promised, body.size) {
+                "Hunk '$header' promises $promised lines but the body holds ${body.size}; git apply " +
+                    "would reject the whole patch as corrupt"
+            }
+        }
+    }
+
+    @Test
+    fun `the consumer imports the types it names`() {
+        val patch = SemanticRippleCases.testPatch()
+        listOf(SemanticRippleSpec.targetClassFqn, "org.keycloak.admin.client.resource.RolesResource")
+            .forEach { fqn ->
+                assertTrue(patch.contains("+import $fqn;")) {
+                    "The consumer sits in another package, so without this import it cannot compile at " +
+                        "all, and the gate then fails for every run whatever the agent did:\n$patch"
+                }
+            }
+    }
+
+    @Test
     fun `hidden consumer lives under tests-base test sources`() {
         val paths = extractPatchFilePaths(SemanticRippleCases.testPatch())
         assertTrue(paths.isNotEmpty())

@@ -2,11 +2,13 @@ diff --git a/tests/base/src/test/java/org/keycloak/tests/admin/RealmResourceRena
 new file mode 100644
 --- /dev/null
 +++ b/tests/base/src/test/java/org/keycloak/tests/admin/RealmResourceRenameContractTest.java
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,31 @@
 +package org.keycloak.tests.admin;
 +
 +import org.junit.jupiter.api.Assertions;
 +import org.junit.jupiter.api.Test;
++import org.keycloak.admin.client.resource.RealmResource;
++import org.keycloak.admin.client.resource.RolesResource;
 +
 +/**
 + * Pins the renamed realm-roles accessor on {@link RealmResource}.
