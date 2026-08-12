@@ -99,6 +99,11 @@ class KeycloakRenameRippleTest {
 
             val projectDir = session.intellijDriver.getGuestProjectDir()
 
+            // `~/.m2` is shared by every container of every run, and agents are told to install into
+            // it, so this arm can otherwise begin against the PREVIOUS arm's renamed API — under which
+            // the pristine tree it was handed does not even compile.
+            installPristineGateArtifacts(session.scope, projectDir)
+
             // Gold BEFORE the agent. The IDE runs in both arms — withMcp only controls whether the
             // AGENT may reach it — so the shell arm is measured without being given any access.
             val goldOutput = session.mcpSteroid.mcpExecuteCode(
@@ -176,7 +181,7 @@ class KeycloakRenameRippleTest {
                 testPatch = testCase.testPatch,
                 preAgentSnapshot = preAgentSnapshot,
                 baseline = FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0),
-                mavenProjectSelector = SemanticRippleSpec.failToPassModuleSelector,
+                mavenProjectSelector = SemanticRippleSpec.gradingScopeSelector,
             )
 
             val metrics = collectRunMetrics(

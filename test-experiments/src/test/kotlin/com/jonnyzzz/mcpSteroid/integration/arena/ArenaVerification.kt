@@ -252,19 +252,20 @@ fun verificationNeverRanTests(
     ftpModuleDirectory: String?,
     failedMavenProject: String?,
     /**
-     * The owning module's Maven artifactId, when the run was scoped to it with `-pl`.
+     * The artifactIds the run was scoped to with `-pl`, when it was scoped at all.
      *
      * The directory-name heuristic below cannot be used then: Keycloak's owning module is the
      * directory `tests/base` but the artifactId `keycloak-tests-base`, so comparing "base" against
      * the reported project would call every genuine compile failure in that very module an
-     * infrastructure fault and throw instead of grading it. A scoped run also cannot be stopped by
-     * an unrelated module, so the artifactId is both available and authoritative here.
+     * infrastructure fault and throw instead of grading it. A scoped run also cannot be stopped by an
+     * unrelated module — every module in it is one the agent's edits reach — so a failure inside the
+     * scope is a real measurement and a failure outside it is not.
      */
-    owningArtifactId: String? = null,
+    scopedArtifactIds: Set<String> = emptySet(),
 ): Boolean {
     if (anyReportFound) return false
     if (failedMavenProject == null) return false
-    if (owningArtifactId != null) return owningArtifactId != failedMavenProject
+    if (scopedArtifactIds.isNotEmpty()) return failedMavenProject !in scopedArtifactIds
     if (ftpModuleDirectory == null) return false
     // Single-module project: the tests live in the root project, so whatever failed IS their module.
     // Its directory is "" and can never be matched against an artifactId, so comparing would report
@@ -748,18 +749,19 @@ class ArenaVerifier(
         val ftpModule = failToPass.firstNotNullOfOrNull { entry ->
             moduleDirectoryForClass(testPatch, parseFailToPassEntry(entry).fqcn)
         }
-        val owningArtifactId = mavenProjectSelector?.removePrefix(":")?.substringAfterLast(':')
+        val scopedArtifactIds = mavenProjectSelector.orEmpty()
+            .split(',').map { it.trim().removePrefix(":") }.filter { it.isNotEmpty() }.toSet()
         check(
             !verificationNeverRanTests(
                 anyReportFound = perClass.any { it.testsRun > 0 },
                 ftpModuleDirectory = ftpModule,
                 failedMavenProject = failedProject,
-                owningArtifactId = owningArtifactId,
+                scopedArtifactIds = scopedArtifactIds,
             ),
         ) {
             "Arena verification never executed the FAIL_TO_PASS tests: Maven stopped on project " +
                 "'$failedProject', which is not the module owning them " +
-                "('${owningArtifactId ?: ftpModule.orEmpty()}'), so " +
+                "('${scopedArtifactIds.ifEmpty { setOfNotNull(ftpModule) }.joinToString()}'), so " +
                 "every class graded 0 without running. That is a harness/dataset fault, not an agent " +
                 "result — grading it would put a false zero in the comparison. Maven exit=${mvn.exitCode}."
         }

@@ -342,20 +342,29 @@ class ArenaVerificationTest {
         // `keycloak-tests-base`. The directory heuristic would compare "base" against the reported
         // project, call the agent's own compile failure an infrastructure fault, and throw instead of
         // grading it.
+        val scope = setOf("keycloak-admin-client-core", "keycloak-tests-base")
         assertFalse(
             verificationNeverRanTests(
                 anyReportFound = false,
                 ftpModuleDirectory = "tests/base",
                 failedMavenProject = "keycloak-tests-base",
-                owningArtifactId = "keycloak-tests-base",
+                scopedArtifactIds = scope,
             ),
         )
+        assertFalse(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = "tests/base",
+                failedMavenProject = "keycloak-admin-client-core",
+                scopedArtifactIds = scope,
+            ),
+        ) { "The declaring module is in scope precisely because the agent edits it" }
         assertTrue(
             verificationNeverRanTests(
                 anyReportFound = false,
                 ftpModuleDirectory = "tests/base",
                 failedMavenProject = "keycloak-quarkus-dist",
-                owningArtifactId = "keycloak-tests-base",
+                scopedArtifactIds = scope,
             ),
         )
     }

@@ -69,16 +69,47 @@ object SemanticRippleSpec {
      */
     const val reactorProfile: String = "testsuite"
 
+    /** The module declaring the rename target. */
+    const val declaringModuleArtifactId: String = "keycloak-admin-client-core"
+
+    /** The module owning the hidden consumer. */
+    const val consumerModuleArtifactId: String = "keycloak-tests-base"
+
     /**
-     * The module owning the hidden consumer, as a `-pl` selector for the grading run.
+     * The `-pl` scope of the grading run: the consumer's module plus the module DECLARING the renamed
+     * method.
      *
-     * Keycloak's default reactor cannot be built to completion at all — `keycloak-quarkus-dist`
-     * depends on a `:zip` artifact only the `distribution` profile produces — so a root `mvn test`
-     * stops there and skips every test module behind it. Note the directory (`tests/base`) and the
-     * artifactId disagree, which is why the grading run identifies the module by this selector rather
-     * than by the patch's directory.
+     * Two separate reasons, both measured. Scoping at all is required because Keycloak's default
+     * reactor cannot be built to completion — `keycloak-quarkus-dist` depends on a `:zip` artifact
+     * only the `distribution` profile produces, so a root `mvn test` stops there and skips every test
+     * module behind it. Including the declaring module is required because without it the consumer
+     * compiles against whatever `keycloak-admin-client-core` jar happens to sit in the shared local
+     * repository, which is a mutable leftover of earlier runs rather than the tree under test.
+     *
+     * Note also that the directory (`tests/base`) and the artifactId disagree, which is why the
+     * grading run identifies its modules by these selectors and not by the patch's directory.
      */
-    const val failToPassModuleSelector: String = ":keycloak-tests-base"
+    val gradingScopeSelector: String =
+        listOf(declaringModuleArtifactId, consumerModuleArtifactId).joinToString(",") { ":$it" }
+
+    /**
+     * Maven arguments that reinstate the pristine artifacts of [compileGateModules] in the shared
+     * local repository, run before the agent starts.
+     *
+     * `~/.m2` is a host bind mount shared by every container of every run, and the arena prompt tells
+     * agents to `install` modules into it. So an arm can start against the PREVIOUS arm's renamed
+     * artifacts: measured after a local mcp run, where the installed `keycloak-admin-client-core`
+     * declared `realmLevelRoles()` and no `roles()`, which makes the pristine tree of the next run
+     * fail to compile with `cannot find symbol: method roles()`. Reinstalling from the tree under test
+     * makes each arm start from the same state whatever ran before it, and makes the prompt's claim
+     * that every module's dependencies are already installed true rather than incidental.
+     */
+    fun pristineInstallArgs(): List<String> = listOf(
+        "install",
+        "-P", reactorProfile,
+        "-pl", compileGateSelectors.joinToString(","),
+        "-DskipTests",
+    )
 
     const val projectJdkVersion: String = "21"
 

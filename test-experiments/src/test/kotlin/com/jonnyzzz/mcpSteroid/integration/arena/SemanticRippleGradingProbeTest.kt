@@ -27,10 +27,11 @@ import java.util.concurrent.TimeUnit
  * builds. Both are properties of Keycloak's build, not of any agent, and both are visible in one
  * agentless container run.
  *
- * The expected outcome is that both layers FAIL — the rename has not been done here, so the reference
- * modules cannot compile and the hidden consumer cannot pass. What this test asserts is that they fail
- * *for the task's reason* rather than by never running: no reactor-selector error, and a real surefire
- * report for the consumer class.
+ * This is the positive control for a rename task, so the two layers are expected to disagree. Nothing
+ * has been renamed here, and an untouched tree is self-consistent, so the gate must PASS: it detects a
+ * PARTIAL rename, never the absence of one. The consumer, on the other hand, asks by reflection for a
+ * method that does not exist yet, so it must RUN and FAIL. A gate that fails here, or a consumer that
+ * passes, means the layer is measuring something other than the task.
  */
 class SemanticRippleGradingProbeTest {
 
@@ -62,15 +63,16 @@ class SemanticRippleGradingProbeTest {
             )
             val projectDir = session.intellijDriver.getGuestProjectDir()
 
+            installPristineGateArtifacts(session.scope, projectDir)
+
             val gate = runCompileGate(session.scope, projectDir)
             println("[RIPPLE-PROBE] compile gate exit=${gate.exitCode}\n${gate.tail}")
             assertFalse(gate.tail.contains("Could not find the selected project in the reactor")) {
                 "The gate's -pl selectors do not resolve, so it graded nothing:\n${gate.tail}"
             }
-            assertFalse(gate.passed) {
-                "The gate PASSED on a tree where the rename has not been done. Either the hidden " +
-                    "consumer's module is not being compiled, or the consumer no longer references the " +
-                    "new name — in both cases the gate cannot detect a missed call site:\n${gate.tail}"
+            assertTrue(gate.passed) {
+                "The gate FAILED on an untouched tree, so it is not a rename gate — it would report a " +
+                    "missed call site for every run whatever the agent did:\n${gate.tail}"
             }
 
             val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
@@ -80,7 +82,7 @@ class SemanticRippleGradingProbeTest {
                 projectJdkVersion = SemanticRippleSpec.projectJdkVersion,
                 testPatch = testCase.testPatch,
                 preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch),
-                mavenProjectSelector = SemanticRippleSpec.failToPassModuleSelector,
+                mavenProjectSelector = SemanticRippleSpec.gradingScopeSelector,
             )
 
             // The consumer must be REACHED and fail on its own terms. `verify` throws rather than
@@ -89,6 +91,10 @@ class SemanticRippleGradingProbeTest {
             assertEquals(1, verification.classesTotal)
             assertEquals(0, verification.classesPassed) {
                 "The consumer passed without the rename — it is not pinning the new name at all"
+            }
+            assertTrue(verification.perClass.single().testsRun > 0) {
+                "The consumer produced no surefire report, so it did not run at all — a zero here is a " +
+                    "harness fault dressed up as a failed fix: ${verification.perClass}"
             }
             assertFalse(verification.failToPassTampered) {
                 "No agent ran, so a tamper flag here means the pre-agent snapshot is taken after " +
