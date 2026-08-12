@@ -28,6 +28,13 @@ object SemanticRippleCases {
             "Patch resource not found on the test classpath: $PATCH_RESOURCE"
         }.use { it.readBytes().decodeToString() }
 
+    /**
+     * The files the hidden consumer adds. Their references to the new name resolve only after the
+     * rename, so they can never appear in the gold set and must not be charged against reference
+     * conservation — see [parseSemanticPostcondition].
+     */
+    fun hiddenConsumerFiles(): Set<String> = extractPatchFilePaths(testPatch())
+
     fun pilotCase(): DpaiaTestCase = DpaiaTestCase(
         instanceId = instanceId,
         issueNumbers = emptyList(),

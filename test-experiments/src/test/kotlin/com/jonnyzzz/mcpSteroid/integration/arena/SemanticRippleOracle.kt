@@ -49,6 +49,11 @@ data class SemanticPostconditionResult(
     val f1: Double,
     val missedSites: List<GoldSite>,
     val overReachedDecoys: List<String>,
+    /**
+     * References counted in the post-agent reading that live in a hidden-consumer file and were
+     * therefore excluded from [p4Conserved] and [precision] — see [parseSemanticPostcondition].
+     */
+    val excludedConsumerReferences: Int = 0,
 ) {
     val allPassed: Boolean
         get() = p1NoAliasAndNewNameDeclared && p2AllSitesConverted && p3DecoysUnchanged && p4Conserved
@@ -150,8 +155,24 @@ fun SemanticGold.checkTripwires() {
     }
 }
 
-/** Parse the post-agent script's output and grade it against [gold]. */
-fun parseSemanticPostcondition(output: String, gold: SemanticGold): SemanticPostconditionResult {
+/**
+ * Parse the post-agent script's output and grade it against [gold].
+ *
+ * [hiddenConsumerFiles] are the test-patch paths whose references CANNOT exist in [gold] by
+ * construction: the hidden consumer names the new method before it exists, so pre-agent that name
+ * resolves to nothing and post-agent it resolves — including through
+ * `Class.getMethod("realmLevelRoles")`, which IntelliJ resolves as a real reference. Counting those
+ * against conservation makes a perfect rename read as one invented reference too many (446 against a
+ * gold of 445, in both arms of build 1028521545). They are excluded from [SemanticPostconditionResult.
+ * p4Conserved] and from precision, and reported separately; the consumer itself is graded by the
+ * compile gate and by its own FAIL_TO_PASS run, not by this count. Paths are matched as suffixes
+ * because the reading carries absolute container paths.
+ */
+fun parseSemanticPostcondition(
+    output: String,
+    gold: SemanticGold,
+    hiddenConsumerFiles: Set<String> = emptySet(),
+): SemanticPostconditionResult {
     val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     check(lines.any { it == "POST_END" }) {
         "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
@@ -165,10 +186,19 @@ fun parseSemanticPostcondition(output: String, gold: SemanticGold): SemanticPost
     val oldNameOnTarget = flag("POST_OLDNAME_ON_TARGET ").toInt()
     val totalNewRefs = flag("POST_TOTAL_NEW_REFS ").toInt()
 
-    val postSites = parseSiteLines(lines, "POST_SITE ")
-    check(postSites.sumOf { it.references } <= totalNewRefs) {
-        "POST_SITE references sum to ${postSites.sumOf { it.references }}, which exceeds the " +
+    val allPostSites = parseSiteLines(lines, "POST_SITE ")
+    check(allPostSites.sumOf { it.references } <= totalNewRefs) {
+        "POST_SITE references sum to ${allPostSites.sumOf { it.references }}, which exceeds the " +
             "declared POST_TOTAL_NEW_REFS $totalNewRefs — the capture script or its parsing is broken"
+    }
+    val (consumerSites, postSites) = allPostSites.partition { site ->
+        hiddenConsumerFiles.any { site.file.endsWith(it) }
+    }
+    val excludedRefs = consumerSites.sumOf { it.references }
+    val countedNewRefs = totalNewRefs - excludedRefs
+    check(countedNewRefs >= 0) {
+        "Hidden-consumer references ($excludedRefs) exceed POST_TOTAL_NEW_REFS ($totalNewRefs) — the " +
+            "capture script or its parsing is broken"
     }
     val postByKey = postSites.associate { (it.file to it.enclosingDeclaration) to it.references }
 
@@ -185,18 +215,19 @@ fun parseSemanticPostcondition(output: String, gold: SemanticGold): SemanticPost
     }.keys.sorted()
 
     val recall = if (gold.totalReferences == 0) 0.0 else convertedAtGold.toDouble() / gold.totalReferences
-    val precision = if (totalNewRefs == 0) 0.0 else convertedAtGold.toDouble() / totalNewRefs
+    val precision = if (countedNewRefs == 0) 0.0 else convertedAtGold.toDouble() / countedNewRefs
     val f1 = if (recall + precision == 0.0) 0.0 else 2 * recall * precision / (recall + precision)
 
     return SemanticPostconditionResult(
         p1NoAliasAndNewNameDeclared = newNameDeclared && oldNameOnTarget == 0,
         p2AllSitesConverted = missed.isEmpty(),
         p3DecoysUnchanged = overReached.isEmpty(),
-        p4Conserved = totalNewRefs == gold.totalReferences,
+        p4Conserved = countedNewRefs == gold.totalReferences,
         recall = recall,
         precision = precision,
         f1 = f1,
         missedSites = missed,
         overReachedDecoys = overReached,
+        excludedConsumerReferences = excludedRefs,
     )
 }

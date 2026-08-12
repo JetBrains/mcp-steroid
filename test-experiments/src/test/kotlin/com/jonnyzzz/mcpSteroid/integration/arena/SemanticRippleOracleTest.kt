@@ -204,4 +204,64 @@ class SemanticRippleOracleTest {
         assertEquals(listOf("org.keycloak.admin.client.resource.ClientResource"), r.overReachedDecoys)
         assertFalse(r.allPassed)
     }
+
+    /**
+     * The hidden consumer names the new method before it exists, so its reference resolves only after
+     * the rename and cannot be in the gold set. Left in, it reads as one invented reference — which is
+     * exactly how a complete, correct rename scored 446 against a gold of 445 in both arms of build
+     * 1028521545.
+     */
+    private val postWithConsumer = perfectPost
+        .replace(
+            "POST_DECOY org.keycloak.admin.client.resource.ClientResource|343",
+            "POST_SITE tests/base/src/test/java/org/keycloak/tests/admin/Contract.java|Contract#newName|1\n" +
+                "POST_DECOY org.keycloak.admin.client.resource.ClientResource|343",
+        )
+        .replace("POST_TOTAL_NEW_REFS 4", "POST_TOTAL_NEW_REFS 5")
+
+    private val consumerFiles =
+        setOf("tests/base/src/test/java/org/keycloak/tests/admin/Contract.java")
+
+    @Test
+    fun `a hidden-consumer reference is excluded from conservation and precision`() {
+        val r = parseSemanticPostcondition(postWithConsumer, gold(), hiddenConsumerFiles = consumerFiles)
+        assertTrue(r.p4Conserved) {
+            "The consumer's own reference must not count as an invented one: ${r.excludedConsumerReferences}"
+        }
+        assertEquals(1, r.excludedConsumerReferences)
+        assertEquals(1.0, r.precision)
+        assertEquals(1.0, r.recall)
+        assertTrue(r.allPassed)
+    }
+
+    @Test
+    fun `without the exclusion the same perfect rename fails conservation`() {
+        val r = parseSemanticPostcondition(postWithConsumer, gold())
+        assertFalse(r.p4Conserved) {
+            "This is the defect the exclusion fixes; if it passes here the test proves nothing"
+        }
+        assertEquals(0, r.excludedConsumerReferences)
+    }
+
+    @Test
+    fun `the exclusion is matched by suffix, so absolute container paths are covered`() {
+        val absolute = postWithConsumer.replace(
+            "POST_SITE tests/base/",
+            "POST_SITE /home/agent/project-home/tests/base/",
+        )
+        val r = parseSemanticPostcondition(absolute, gold(), hiddenConsumerFiles = consumerFiles)
+        assertEquals(1, r.excludedConsumerReferences)
+        assertTrue(r.p4Conserved)
+    }
+
+    @Test
+    fun `a real missed site still fails even with a consumer reference present`() {
+        val missing = postWithConsumer
+            .lines().filterNot { it.startsWith("POST_SITE b/B.java") }.joinToString("\n")
+            .replace("POST_TOTAL_NEW_REFS 5", "POST_TOTAL_NEW_REFS 4")
+        val r = parseSemanticPostcondition(missing, gold(), hiddenConsumerFiles = consumerFiles)
+        assertFalse(r.p2AllSitesConverted)
+        assertEquals(listOf(GoldSite("b/B.java", "B#three", 1)), r.missedSites)
+        assertEquals(0.75, r.recall)
+    }
 }
