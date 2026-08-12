@@ -42,6 +42,27 @@ class SemanticRippleSpecTest {
     }
 
     @Test
+    fun `every module is selected by artifactId, not by a bare name Maven reads as a path`() {
+        assertEquals(SemanticRippleSpec.compileGateModules.size, SemanticRippleSpec.compileGateSelectors.size)
+        SemanticRippleSpec.compileGateSelectors.forEach { selector ->
+            assertTrue(selector.startsWith(":")) {
+                "'$selector' has no colon, so Maven looks for a directory of that name and answers " +
+                    "'Could not find the selected project in the reactor'"
+            }
+        }
+        assertTrue(SemanticRippleSpec.compileGateSelectors.contains(":keycloak-admin-client-core"))
+    }
+
+    @Test
+    fun `the gate activates the profile that puts the arquillian testsuite in the reactor`() {
+        val args = SemanticRippleSpec.compileGateArgs()
+        assertTrue(args.contains("-P") && args.contains(SemanticRippleSpec.reactorProfile)) {
+            "integration-arquillian-tests-base is behind the '${SemanticRippleSpec.reactorProfile}' " +
+                "profile and is absent from the default reactor: $args"
+        }
+    }
+
+    @Test
     fun `maven invocations never use also-make`() {
         assertFalse(SemanticRippleSpec.compileGateArgs().contains("-am")) {
             "-am walks the upstream graph and OOM-kills the container"

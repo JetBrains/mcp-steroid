@@ -18,10 +18,20 @@ class SemanticRippleCompileGateTest {
 
     @Test
     fun `gate covers every compile-gate module exactly once`() {
-        SemanticRippleSpec.compileGateModules.forEach { module ->
-            assertTrue(script.contains(module)) { "Module $module missing from the gate:\n$script" }
+        SemanticRippleSpec.compileGateSelectors.forEach { selector ->
+            assertTrue(script.contains(selector)) { "Module $selector missing from the gate:\n$script" }
         }
         assertTrue(script.contains("-pl")) { script }
+    }
+
+    @Test
+    fun `gate selects modules by artifactId and enables the testsuite profile`() {
+        assertTrue(script.contains("-pl :")) {
+            "A colon-less -pl token is read as a directory path and selects nothing:\n$script"
+        }
+        assertTrue(script.contains("-P ${SemanticRippleSpec.reactorProfile}")) {
+            "Without the profile the arquillian module is not in the reactor:\n$script"
+        }
     }
 
     @Test

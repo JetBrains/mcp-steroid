@@ -34,7 +34,12 @@ object SemanticRippleSpec {
     /** Project declarations sharing the simple name [oldName], excluding the target itself. */
     const val expectedDecoyDeclarations: Int = 16
 
-    /** The declaring module plus every module holding a reference — complete w.r.t. the ripple. */
+    /**
+     * The declaring module plus every module holding a reference — complete w.r.t. the ripple.
+     *
+     * These are Maven artifactIds, verified against the poms at [baseCommit]. Selecting them needs
+     * [compileGateSelectors], not these strings.
+     */
     val compileGateModules: List<String> = listOf(
         "keycloak-admin-client-core",
         "integration-arquillian-tests-base",
@@ -44,6 +49,36 @@ object SemanticRippleSpec {
         "keycloak-tests-base",
         "keycloak-tests-utils",
     )
+
+    /**
+     * [compileGateModules] in the form Maven's `-pl` actually understands.
+     *
+     * A `-pl` token without a colon is read as a relative DIRECTORY PATH, not as an artifactId, so
+     * the bare names answer `Could not find the selected project in the reactor` and the gate never
+     * runs at all — measured in both arms of build 1028521545, where every reference module was
+     * therefore left unchecked.
+     */
+    val compileGateSelectors: List<String> = compileGateModules.map { ":$it" }
+
+    /**
+     * The profile that puts the `testsuite` module tree into the reactor.
+     *
+     * `integration-arquillian-tests-base` lives under the root pom's `testsuite` profile, which is
+     * NOT active by default, so without this the selector for it fails exactly like a mistyped
+     * artifactId — and the arquillian references, a real part of the ripple, would go ungated.
+     */
+    const val reactorProfile: String = "testsuite"
+
+    /**
+     * The module owning the hidden consumer, as a `-pl` selector for the grading run.
+     *
+     * Keycloak's default reactor cannot be built to completion at all — `keycloak-quarkus-dist`
+     * depends on a `:zip` artifact only the `distribution` profile produces — so a root `mvn test`
+     * stops there and skips every test module behind it. Note the directory (`tests/base`) and the
+     * artifactId disagree, which is why the grading run identifies the module by this selector rather
+     * than by the patch's directory.
+     */
+    const val failToPassModuleSelector: String = ":keycloak-tests-base"
 
     const val projectJdkVersion: String = "21"
 
@@ -64,6 +99,10 @@ object SemanticRippleSpec {
      * references live in test sources; `-pl` without `-am` because the harness prewarm already
      * installed the siblings, and `-am` OOM-kills the container.
      */
-    fun compileGateArgs(): List<String> =
-        listOf("test-compile", "-pl", compileGateModules.joinToString(","), "-DskipTests")
+    fun compileGateArgs(): List<String> = listOf(
+        "test-compile",
+        "-P", reactorProfile,
+        "-pl", compileGateSelectors.joinToString(","),
+        "-DskipTests",
+    )
 }
