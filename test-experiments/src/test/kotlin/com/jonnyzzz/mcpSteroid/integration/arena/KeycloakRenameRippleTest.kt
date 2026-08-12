@@ -113,6 +113,11 @@ class KeycloakRenameRippleTest {
                 "${gold.decoyReferences.size} decoys")
 
             val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
+            // Before the snapshot, never after: the project's own formatter rewrites a patch file that
+            // is not already in its style on the FIRST build anyone runs, and the resulting hash change
+            // was charged to the agent as tampering with the oracle — flagged in build 1028521545's mcp
+            // arm, whose transcript contains nothing but a Read of that file.
+            verifier.normalizeFormattingBeforeSnapshot(SemanticRippleSpec.projectJdkVersion)
             val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
 
             val runner = ArenaTestRunner(container = session.scope, projectGuestDir = projectDir)
@@ -155,7 +160,11 @@ class KeycloakRenameRippleTest {
                         "IDE could not be reached to grade the run — and is not a verdict on the agent."
                 )
             }
-            val grade = parseSemanticPostcondition(postOutput, gold)
+            val grade = parseSemanticPostcondition(
+                postOutput,
+                gold,
+                hiddenConsumerFiles = SemanticRippleCases.hiddenConsumerFiles(),
+            )
 
             // The layer that covers all 445 call sites: a site the agent missed still names a method
             // that no longer exists, so it cannot compile.
@@ -167,6 +176,7 @@ class KeycloakRenameRippleTest {
                 testPatch = testCase.testPatch,
                 preAgentSnapshot = preAgentSnapshot,
                 baseline = FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0),
+                mavenProjectSelector = SemanticRippleSpec.failToPassModuleSelector,
             )
 
             val metrics = collectRunMetrics(
@@ -202,6 +212,7 @@ class KeycloakRenameRippleTest {
             println("[RIPPLE]   precision:       ${"%.4f".format(grade.precision)}")
             println("[RIPPLE]   f1:              ${"%.4f".format(grade.f1)}")
             println("[RIPPLE]   missed sites:    ${grade.missedSites.size}")
+            println("[RIPPLE]   consumer refs excluded from conservation: ${grade.excludedConsumerReferences}")
             println("[RIPPLE]   over-reached:    ${grade.overReachedDecoys}")
             println("[RIPPLE]   compile gate:    ${if (gate.passed) "PASS" else "FAIL (exit ${gate.exitCode})"}")
             println("[RIPPLE]   verified FTP:    ${verification.classesPassed}/${verification.classesTotal}")
