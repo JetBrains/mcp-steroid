@@ -35,6 +35,16 @@ class SemanticRipplePromptContractTest {
     }
 
     @Test
+    fun `both arms forbid ending the turn on a running build`() {
+        both.forEach { p ->
+            assertTrue(p.contains("Never end your turn while a command you started is still running")) {
+                "Both arms of build 1028521545 ended mid-verification on 'I will wait for the " +
+                    "completion notification', so neither run's cost is comparable:\n$p"
+            }
+        }
+    }
+
+    @Test
     fun `neither arm reveals the mechanism`() {
         val forbidden = listOf(
             "steroid_", "mcp-steroid://", "find usages", "findUsages", "Find Usages",
