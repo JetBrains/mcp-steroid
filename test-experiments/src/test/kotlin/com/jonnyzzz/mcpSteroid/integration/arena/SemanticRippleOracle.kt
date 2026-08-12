@@ -64,8 +64,16 @@ data class SemanticPostconditionResult(
  *
  * Requires the `GOLD_END` terminator: without it a truncated or cancelled script would parse as a
  * smaller — or empty — gold set, and every downstream score would be computed against it silently.
+ *
+ * [hiddenConsumerFiles] are excluded for the same reason they are excluded from the post-condition:
+ * the consumer names BOTH the old and the new method by reflection, and IntelliJ resolves
+ * `Class.getMethod("roles")` as a real reference. Counted in, it makes the gold set one larger than
+ * the repository's own — 446 against the pinned 445, which is what the tripwire caught on build
+ * 1028893177 the moment the consumer's missing imports were fixed and its references began to
+ * resolve. The pinned counts describe the repository at the base commit and must stay independent of
+ * what our own overlay adds to it.
  */
-fun parseSemanticGold(output: String): SemanticGold {
+fun parseSemanticGold(output: String, hiddenConsumerFiles: Set<String> = emptySet()): SemanticGold {
     val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     check(lines.any { it == "GOLD_END" }) {
         "Gold capture output has no GOLD_END terminator — the script was truncated or failed:\n$output"
@@ -76,6 +84,7 @@ fun parseSemanticGold(output: String): SemanticGold {
     check(headerParts.size == 3) { "Malformed GOLD_TARGET line: $header" }
 
     val sites = parseSiteLines(lines, "GOLD_SITE ")
+        .filterNot { site -> hiddenConsumerFiles.any { site.file.endsWith(it) } }
     val decoys = parseDecoyLines(lines, "GOLD_DECOY ")
     val newNameDeclarations = (
         lines.firstOrNull { it.startsWith("GOLD_NEWNAME_DECLS ") }

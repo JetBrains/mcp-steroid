@@ -113,7 +113,9 @@ class KeycloakRenameRippleTest {
                 taskId = "semantic-ripple-gold",
                 timeout = 900,
             ).stdout
-            val gold = parseSemanticGold(goldOutput)
+            // The consumer names the old method by reflection too, so without this the gold set is the
+            // repository's 445 plus our own overlay's one — which is what the tripwire caught.
+            val gold = parseSemanticGold(goldOutput, SemanticRippleCases.hiddenConsumerFiles())
             gold.checkTripwires()
             println("[RIPPLE] gold: ${gold.totalReferences} references, ${gold.files} files, " +
                 "${gold.decoyReferences.size} decoys")

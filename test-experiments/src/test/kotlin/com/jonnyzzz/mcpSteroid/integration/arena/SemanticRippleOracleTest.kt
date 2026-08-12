@@ -223,6 +223,21 @@ class SemanticRippleOracleTest {
         setOf("tests/base/src/test/java/org/keycloak/tests/admin/Contract.java")
 
     @Test
+    fun `the consumer's reference to the OLD name is excluded from the gold set too`() {
+        // It reaches the old method by reflection as well, so once its imports resolve it lands in the
+        // gold capture and inflates the pinned repository counts by exactly the overlay's own size.
+        val withConsumer = goldOutput.replace(
+            "GOLD_SITE b/B.java|B#three|1",
+            "GOLD_SITE b/B.java|B#three|1\n" +
+                "GOLD_SITE tests/base/src/test/java/org/keycloak/tests/admin/Contract.java|Contract#old|1",
+        )
+        assertEquals(5, parseSemanticGold(withConsumer).totalReferences)
+        val g = parseSemanticGold(withConsumer, hiddenConsumerFiles = consumerFiles)
+        assertEquals(4, g.totalReferences) { "The repository's own count must not move with our overlay" }
+        assertEquals(2, g.files)
+    }
+
+    @Test
     fun `a hidden-consumer reference is excluded from conservation and precision`() {
         val r = parseSemanticPostcondition(postWithConsumer, gold(), hiddenConsumerFiles = consumerFiles)
         assertTrue(r.p4Conserved) {
