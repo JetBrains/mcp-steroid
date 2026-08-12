@@ -337,6 +337,37 @@ class ArenaVerificationTest {
     }
 
     @Test
+    fun `a scoped run trusts the artifactId, not the directory name`() {
+        // Keycloak's owning module is the directory `tests/base` but the artifactId
+        // `keycloak-tests-base`. The directory heuristic would compare "base" against the reported
+        // project, call the agent's own compile failure an infrastructure fault, and throw instead of
+        // grading it.
+        assertFalse(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = "tests/base",
+                failedMavenProject = "keycloak-tests-base",
+                owningArtifactId = "keycloak-tests-base",
+            ),
+        )
+        assertTrue(
+            verificationNeverRanTests(
+                anyReportFound = false,
+                ftpModuleDirectory = "tests/base",
+                failedMavenProject = "keycloak-quarkus-dist",
+                owningArtifactId = "keycloak-tests-base",
+            ),
+        )
+    }
+
+    @Test
+    fun `the project scope flag is empty unless a selector is given`() {
+        assertEquals("", mavenProjectScopeFlag(null))
+        assertEquals("", mavenProjectScopeFlag(""))
+        assertEquals("-pl :keycloak-tests-base", mavenProjectScopeFlag(":keycloak-tests-base"))
+    }
+
+    @Test
     fun `an unknown owning module cannot prove infrastructure fault`() {
         // Without knowing which module owns the tests, blaming the harness would be a guess.
         assertFalse(

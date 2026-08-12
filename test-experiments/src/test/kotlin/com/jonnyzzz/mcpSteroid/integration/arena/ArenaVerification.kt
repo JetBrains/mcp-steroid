@@ -251,9 +251,21 @@ fun verificationNeverRanTests(
     anyReportFound: Boolean,
     ftpModuleDirectory: String?,
     failedMavenProject: String?,
+    /**
+     * The owning module's Maven artifactId, when the run was scoped to it with `-pl`.
+     *
+     * The directory-name heuristic below cannot be used then: Keycloak's owning module is the
+     * directory `tests/base` but the artifactId `keycloak-tests-base`, so comparing "base" against
+     * the reported project would call every genuine compile failure in that very module an
+     * infrastructure fault and throw instead of grading it. A scoped run also cannot be stopped by
+     * an unrelated module, so the artifactId is both available and authoritative here.
+     */
+    owningArtifactId: String? = null,
 ): Boolean {
     if (anyReportFound) return false
-    if (ftpModuleDirectory == null || failedMavenProject == null) return false
+    if (failedMavenProject == null) return false
+    if (owningArtifactId != null) return owningArtifactId != failedMavenProject
+    if (ftpModuleDirectory == null) return false
     // Single-module project: the tests live in the root project, so whatever failed IS their module.
     // Its directory is "" and can never be matched against an artifactId, so comparing would report
     // every genuine compile failure as an infrastructure fault.
@@ -261,6 +273,22 @@ fun verificationNeverRanTests(
     val owningModule = ftpModuleDirectory.substringAfterLast('/')
     return owningModule != failedMavenProject
 }
+
+/**
+ * The `-pl` flag that limits the grading run to one reactor project, or "" when the whole reactor is
+ * wanted.
+ *
+ * A reactor can be too broken to reach the test module at all, and not because of anything the agent
+ * did: Keycloak's default reactor has `keycloak-quarkus-dist` depending on a `:zip` artifact that
+ * only the `distribution` profile builds, so a root `mvn test` dies there and skips every test module
+ * behind it (build 1028521545, both arms). Scoping to the module that owns the FAIL_TO_PASS classes
+ * grades exactly what the run is about and cannot be stopped by an unrelated module.
+ *
+ * Callers that pass null keep the whole-reactor behaviour byte for byte, which is what every dpaia
+ * case relies on.
+ */
+fun mavenProjectScopeFlag(selector: String?): String =
+    if (selector.isNullOrBlank()) "" else "-pl $selector"
 
 private val JAVAC_RELEASE_UNSUPPORTED = Regex("""release version (\d+) not supported""")
 
@@ -645,6 +673,8 @@ class ArenaVerifier(
         preAgentSnapshot: Map<String, String>,
         baseline: FullSuiteSnapshot? = null,
         retried: Boolean = false,
+        /** Reactor project to grade in isolation, e.g. `:keycloak-tests-base` — see [mavenProjectScopeFlag]. */
+        mavenProjectSelector: String? = null,
     ): ArenaVerificationResult {
         val startMs = System.currentTimeMillis()
 
@@ -666,16 +696,21 @@ class ArenaVerifier(
         cleanSurefireReports()
         // `set -o pipefail` keeps Maven's exit code instead of `tail`'s — without it a Maven that never
         // started was logged as `exit=0`, indistinguishable from a clean run whose tests simply failed.
+        val scope = mavenProjectScopeFlag(mavenProjectSelector)
         val mvn = bash(
             "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand test " +
-                "$testFilter " +
+                "$scope $testFilter " +
                 // 200, not 100: a 43-module reactor summary plus the [ERROR] block must fit, because
                 // the `-rf :<artifactId>` line inside it is what identifies the module that failed.
                 "2>&1 | tail -200",
             timeoutSeconds = 1_200,
             description = "Arena verification: run FAIL_TO_PASS classes",
         )
-        println("[ARENA-VERIFY] $mavenCommand exit=${mvn.exitCode}; filter=$testFilter; tail:\n${mvn.stdout}")
+        println(
+            "[ARENA-VERIFY] $mavenCommand exit=${mvn.exitCode}; " +
+                (if (scope.isEmpty()) "whole reactor" else "scope=$scope") +
+                "; filter=$testFilter; tail:\n${mvn.stdout}"
+        )
 
         val perClass = failToPass.map { entry ->
             val selector = parseFailToPassEntry(entry)
@@ -700,7 +735,10 @@ class ArenaVerifier(
                     "[ARENA-VERIFY] the FAIL_TO_PASS run needs Java $required, not the case's configured " +
                         "$projectJdkVersion — retrying the grading on Java $required"
                 )
-                return verify(failToPass, required, testPatch, preAgentSnapshot, baseline, retried = true)
+                return verify(
+                    failToPass, required, testPatch, preAgentSnapshot, baseline, retried = true,
+                    mavenProjectSelector = mavenProjectSelector,
+                )
             }
         }
 
@@ -710,15 +748,18 @@ class ArenaVerifier(
         val ftpModule = failToPass.firstNotNullOfOrNull { entry ->
             moduleDirectoryForClass(testPatch, parseFailToPassEntry(entry).fqcn)
         }
+        val owningArtifactId = mavenProjectSelector?.removePrefix(":")?.substringAfterLast(':')
         check(
             !verificationNeverRanTests(
                 anyReportFound = perClass.any { it.testsRun > 0 },
                 ftpModuleDirectory = ftpModule,
                 failedMavenProject = failedProject,
+                owningArtifactId = owningArtifactId,
             ),
         ) {
             "Arena verification never executed the FAIL_TO_PASS tests: Maven stopped on project " +
-                "'$failedProject', which is not the module owning them ('${ftpModule.orEmpty()}'), so " +
+                "'$failedProject', which is not the module owning them " +
+                "('${owningArtifactId ?: ftpModule.orEmpty()}'), so " +
                 "every class graded 0 without running. That is a harness/dataset fault, not an agent " +
                 "result — grading it would put a false zero in the comparison. Maven exit=${mvn.exitCode}."
         }
