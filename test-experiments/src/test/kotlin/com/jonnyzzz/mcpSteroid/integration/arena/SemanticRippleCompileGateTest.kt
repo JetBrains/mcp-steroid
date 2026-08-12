@@ -56,6 +56,26 @@ class SemanticRippleCompileGateTest {
     }
 
     @Test
+    fun `the reactor install is whole-reactor, keeps going, and may reach the network`() {
+        val install = buildReactorInstallScript("/work/keycloak")
+        assertFalse(install.contains("-pl")) {
+            "The missing artifacts ARE the upstream closure, so selecting modules defeats the purpose:\n$install"
+        }
+        assertTrue(install.contains("-fae")) {
+            "The distribution modules cannot build here and must not stop the rest:\n$install"
+        }
+        assertFalse(install.contains("mvnw -o")) {
+            "A cold agent has none of the third-party dependencies yet, so offline would fail at once:\n$install"
+        }
+        assertFalse(install.contains("-am")) { "-am stays banned:\n$install" }
+    }
+
+    @Test
+    fun `the gate stays offline so a repository outage cannot read as a missed call site`() {
+        assertTrue(script.contains("mvnw -o")) { script }
+    }
+
+    @Test
     fun `result passes only on a zero exit code`() {
         assertTrue(CompileGateResult(exitCode = 0, tail = "").passed)
         assertFalse(CompileGateResult(exitCode = 1, tail = "BUILD FAILURE").passed)

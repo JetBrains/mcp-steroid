@@ -93,22 +93,30 @@ object SemanticRippleSpec {
         listOf(declaringModuleArtifactId, consumerModuleArtifactId).joinToString(",") { ":$it" }
 
     /**
-     * Maven arguments that reinstate the pristine artifacts of [compileGateModules] in the shared
-     * local repository, run before the agent starts.
+     * Maven arguments that populate the shared local repository from the tree under test, run before
+     * the agent starts.
      *
-     * `~/.m2` is a host bind mount shared by every container of every run, and the arena prompt tells
-     * agents to `install` modules into it. So an arm can start against the PREVIOUS arm's renamed
-     * artifacts: measured after a local mcp run, where the installed `keycloak-admin-client-core`
-     * declared `realmLevelRoles()` and no `roles()`, which makes the pristine tree of the next run
-     * fail to compile with `cannot find symbol: method roles()`. Reinstalling from the tree under test
-     * makes each arm start from the same state whatever ran before it, and makes the prompt's claim
-     * that every module's dependencies are already installed true rather than incidental.
+     * Two problems, one command. First, nothing else installs this reactor: on a cold agent `~/.m2`
+     * holds no `999.0.0-SNAPSHOT` artifact and none can be downloaded, because that version exists
+     * only where it was built — so every `-pl` invocation fails on missing upstream POMs
+     * (`keycloak-core`, `keycloak-common`), including the ones the prompt recommends to the agent.
+     * Second, `~/.m2` is a host bind mount shared by every container of every run and agents are told
+     * to install into it, so an arm can otherwise begin against the PREVIOUS arm's renamed API:
+     * measured locally, where the leftover `keycloak-admin-client-core` declared `realmLevelRoles()`
+     * and no `roles()`, under which a pristine tree does not compile at all.
+     *
+     * Whole reactor rather than `-pl`, because the upstream closure is what is missing and computing
+     * it by hand would be a hand-maintained copy of `-am`. `-fae` because the reactor cannot be built
+     * to completion — the distribution modules need a `:zip` artifact only their own profile produces
+     * — and those failures must not stop the modules this track actually needs. So the exit code of
+     * this command is not evidence of anything; the pre-agent compile gate is what proves the
+     * environment, and it fails the run when it cannot pass.
      */
-    fun pristineInstallArgs(): List<String> = listOf(
+    fun reactorInstallArgs(): List<String> = listOf(
         "install",
         "-P", reactorProfile,
-        "-pl", compileGateSelectors.joinToString(","),
         "-DskipTests",
+        "-fae",
     )
 
     const val projectJdkVersion: String = "21"

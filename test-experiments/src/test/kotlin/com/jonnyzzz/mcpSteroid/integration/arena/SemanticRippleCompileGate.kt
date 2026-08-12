@@ -31,15 +31,18 @@ fun buildCompileGateScript(projectDir: String): String =
     buildMavenScript(projectDir, SemanticRippleSpec.compileGateArgs())
 
 /**
- * The bash script that reinstates the pristine artifacts of the gate modules in the shared local
- * repository — see [SemanticRippleSpec.pristineInstallArgs] for why an arm cannot trust what is
- * already there.
+ * The bash script that populates the shared local repository from the tree under test — see
+ * [SemanticRippleSpec.reactorInstallArgs] for why neither a cold repository nor a warm one can be
+ * trusted.
+ *
+ * Online, unlike the gate: on a cold agent the third-party dependencies of 152 modules are not there
+ * yet, and an offline install would fail on the first of them.
  */
-fun buildPristineInstallScript(projectDir: String): String =
-    buildMavenScript(projectDir, SemanticRippleSpec.pristineInstallArgs())
+fun buildReactorInstallScript(projectDir: String): String =
+    buildMavenScript(projectDir, SemanticRippleSpec.reactorInstallArgs(), offline = false)
 
-private fun buildMavenScript(projectDir: String, args: List<String>): String {
-    val mavenArgs = args.joinToString(" ")
+private fun buildMavenScript(projectDir: String, args: List<String>, offline: Boolean = true): String {
+    val mavenArgs = (if (offline) listOf("-o") else emptyList()).plus(args).joinToString(" ")
     val jdkPrefix = "/usr/lib/jvm/temurin-${SemanticRippleSpec.projectJdkVersion}-jdk-"
     return """
         set -o pipefail
@@ -54,7 +57,7 @@ private fun buildMavenScript(projectDir: String, args: List<String>): String {
           exit 1
         fi
         export JAVA_HOME
-        ./mvnw -o $mavenArgs
+        ./mvnw $mavenArgs
     """.trimIndent()
 }
 
@@ -69,23 +72,34 @@ fun runCompileGate(container: ContainerDriver, projectDir: String): CompileGateR
     runMaven(container, buildCompileGateScript(projectDir), "Semantic-ripple scoped compile gate")
 
 /**
- * Reinstate the pristine artifacts of the gate modules before the agent runs.
+ * Populate the local repository from the tree under test, then prove the environment by running the
+ * gate on that untouched tree.
  *
- * Fails the run when it cannot: an arm whose local repository still holds a previous arm's renamed API
- * measures that leftover, not the agent, and it does so silently — the agent simply finds that the
- * pristine tree it was handed does not compile.
+ * The install is best-effort by construction (see [SemanticRippleSpec.reactorInstallArgs]), so its exit
+ * code is logged and nothing more. The gate is the assertion, and it is a strict one in both
+ * directions: an untouched tree is self-consistent, so a gate that cannot pass here would report a
+ * missed call site for every run whatever the agent did, and grading against it would be meaningless.
+ * Running it before the agent also makes each arm carry its own positive control rather than relying on
+ * one taken on some other machine.
  */
-fun installPristineGateArtifacts(container: ContainerDriver, projectDir: String) {
-    val result = runMaven(
+fun prepareAndProveGateEnvironment(container: ContainerDriver, projectDir: String) {
+    val install = runMaven(
         container,
-        buildPristineInstallScript(projectDir),
-        "Reinstate pristine artifacts of the semantic-ripple modules",
+        buildReactorInstallScript(projectDir),
+        "Install the semantic-ripple reactor into the local repository",
     )
-    check(result.passed) {
-        "Could not reinstate the pristine artifacts of the semantic-ripple modules (exit " +
-            "${result.exitCode}), so this arm would run against whatever an earlier run left in the " +
-            "shared local repository:\n${result.tail}"
+    println(
+        "[RIPPLE] reactor install finished with exit ${install.exitCode} — best-effort by design, the " +
+            "pre-agent gate is what decides"
+    )
+
+    val gate = runCompileGate(container, projectDir)
+    check(gate.passed) {
+        "The compile gate does not pass on the UNTOUCHED tree (exit ${gate.exitCode}), so it cannot " +
+            "distinguish a missed call site from a broken environment and this arm would grade noise. " +
+            "Install exit was ${install.exitCode}.\n${gate.tail}"
     }
+    println("[RIPPLE] pre-agent compile gate PASS — the gate measures the rename, not the environment")
 }
 
 private fun runMaven(container: ContainerDriver, script: String, description: String): CompileGateResult {

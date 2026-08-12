@@ -99,10 +99,11 @@ class KeycloakRenameRippleTest {
 
             val projectDir = session.intellijDriver.getGuestProjectDir()
 
-            // `~/.m2` is shared by every container of every run, and agents are told to install into
-            // it, so this arm can otherwise begin against the PREVIOUS arm's renamed API — under which
-            // the pristine tree it was handed does not even compile.
-            installPristineGateArtifacts(session.scope, projectDir)
+            // Nothing else installs this reactor, and `~/.m2` is shared by every container of every
+            // run, so an arm otherwise begins either against nothing or against the PREVIOUS arm's
+            // renamed API — under which the pristine tree it was handed does not even compile. The gate
+            // run inside this call is the proof, on this machine, that the environment is sound.
+            prepareAndProveGateEnvironment(session.scope, projectDir)
 
             // Gold BEFORE the agent. The IDE runs in both arms — withMcp only controls whether the
             // AGENT may reach it — so the shell arm is measured without being given any access.

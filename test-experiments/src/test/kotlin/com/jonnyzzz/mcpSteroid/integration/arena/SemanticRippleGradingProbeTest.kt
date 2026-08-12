@@ -63,7 +63,9 @@ class SemanticRippleGradingProbeTest {
             )
             val projectDir = session.intellijDriver.getGuestProjectDir()
 
-            installPristineGateArtifacts(session.scope, projectDir)
+            // Installs the reactor and requires the gate to pass on the untouched tree — the same call
+            // every real arm makes, so this probe exercises the production path rather than a copy.
+            prepareAndProveGateEnvironment(session.scope, projectDir)
 
             val gate = runCompileGate(session.scope, projectDir)
             println("[RIPPLE-PROBE] compile gate exit=${gate.exitCode}\n${gate.tail}")
