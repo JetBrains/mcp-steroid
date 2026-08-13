@@ -102,17 +102,24 @@ fun isProjectNotFound(text: String, projectName: String): Boolean =
     text.contains("Project not found: \"$projectName\"")
 
 /**
- * The prefix of the modality-gate failure `ScriptExecutor.requireNonModalOrFail` raises when a
- * non-modal profile meets an elevated-modality EDT. Mirrors the server text, the same documented
- * tool-result coupling as [INDEXING_IN_PROGRESS_MARKER].
+ * The modality-gate failure `ScriptExecutor.requireNonModalOrFail` raises, pinned to the
+ * `smart_non_modal` profile. Mirrors the server text, the same documented tool-result coupling as
+ * [INDEXING_IN_PROGRESS_MARKER].
+ *
+ * The profile is part of the marker on purpose. [TRANSIENT_MODALITY_DETAIL] is the gate's FALLBACK
+ * detail, and the gate also emits it on the `non_modal` path — where no dialog sweep and no
+ * dialog-less wait run at all, so an observed modality there says nothing about a race and may well
+ * be a stuck dialog nobody tried to close. Only under `smart_non_modal` does that detail carry the
+ * information the retry depends on: the sweep ran, the wait ran, and neither found anything.
  */
-const val MODALITY_GATE_MARKER = "requires a non-modal IDE, but "
+const val MODALITY_GATE_MARKER = "modal=smart_non_modal requires a non-modal IDE, but "
 
 /**
  * The gate's variant detail for "modality was there when the gate looked, and there was nothing to
  * wait for when the pre-flight looked" — i.e. modality was entered BETWEEN the two checks. The two
  * other variants the gate can report are deliberately NOT this string: a surviving modal dialog
- * window, and a dialog-less progress that outlived the bounded wait.
+ * window, and a dialog-less progress that outlived the bounded wait. It is the gate's `else` branch,
+ * which is why it must always be read together with [MODALITY_GATE_MARKER].
  */
 const val TRANSIENT_MODALITY_DETAIL = "a modal dialog/progress is present and could not be cleared"
 
@@ -132,19 +139,33 @@ private const val MODALITY_RACE_RETRY_BUDGET_MS = 120_000L
  * `smart_non_modal` pre-flight found no modality to wait for, modality was then entered by a
  * concurrent write-action storm, and the gate's own check observed it milliseconds later?
  *
- * Only that variant is transient. A modal dialog window that survived the sweep, and a dialog-less
- * progress that outlived the bounded wait, are both states the IDE has actually settled INTO — a
- * retry there would hide a real problem (a stuck dialog, a genuinely wedged IDE) behind a silent
- * loop, which is the failure the harness's fail-fast-on-modal rules exist to prevent.
+ * Only that variant is transient. A modal dialog window that survived the sweep, a dialog-less
+ * progress that outlived the bounded wait, and any modality seen on the `non_modal` profile (which
+ * neither sweeps nor waits) are all states no retry should assume out of existence — retrying there
+ * would hide a real problem (a stuck dialog, a genuinely wedged IDE) behind a silent loop, which is
+ * the failure the harness's fail-fast-on-modal rules exist to prevent.
  */
 fun isTransientModalityRace(text: String): Boolean =
     text.contains(MODALITY_GATE_MARKER) && text.contains(TRANSIENT_MODALITY_DETAIL)
 
 /**
+ * Pure: the start of the modality-race window after an attempt that either was ([isRaceAttempt]) or
+ * was not a race.
+ *
+ * The window covers the CURRENT storm, not the whole call. An attempt that is not a race clears it,
+ * because the retries in between are other conditions entirely — an `INDEXING IN PROGRESS` poll can
+ * legitimately run for minutes after the gate passes, and charging that time to a storm that has
+ * since ended would refuse a fresh storm on its very first loss. Total time stays bounded: the
+ * enclosing `waitForValue` budget caps the call no matter how the windows alternate.
+ */
+fun modalityRaceWindowStart(currentStartMs: Long?, isRaceAttempt: Boolean, nowMs: Long): Long? =
+    if (!isRaceAttempt) null else currentStartMs ?: nowMs
+
+/**
  * Pure: should an exec_code that came back with [text] be re-issued, given how long the caller has
- * already been losing the modality race? Bounded by [budgetMs] so an unrecoverable state fails with
- * the ORIGINAL gate error instead of looping — the caller returns the failing result untouched once
- * this says no.
+ * been losing the CURRENT storm's races ([modalityRaceWindowStart])? Bounded by [budgetMs] so an
+ * unrecoverable state fails with the ORIGINAL gate error instead of looping — the caller returns the
+ * failing result untouched once this says no.
  */
 fun shouldRetryModalityRace(
     text: String,
@@ -603,9 +624,11 @@ try {
         // instead of being retried for the whole indexing budget.
         var effectiveProjectName = projectName ?: resolveProjectName()
 
-        // When the modality race was first observed, so its retry budget is measured from the first
-        // loss and not from the start of the call (which may have spent minutes polling indexing).
-        var firstModalityRaceAtMs: Long? = null
+        // Start of the CURRENT storm's race window, or null when the last attempt was not a race —
+        // see [modalityRaceWindowStart]. Measuring from the start of the call would charge the
+        // window for minutes of legitimate indexing polls; never resetting it would charge a fresh
+        // storm for a race that ended long before.
+        var modalityRaceWindowStartMs: Long? = null
 
         // Retry-while-busy, the same way an agent would: just call again. The exception types from the
         // request layer drive the wait, so no try/catch is needed here: a transient TransientMcpRequestException
@@ -615,6 +638,11 @@ try {
         // PROGRESS result → null → call again.
         return waitForValue(INDEXING_POLL_BUDGET_MS, "exec_code '$taskId' to run (IDE busy with import/indexing)") {
             val result = mcpExecuteCodeOnce(code, taskId, reason, timeout, effectiveProjectName, modal)
+            val isRace = result.exitCode != 0 && isTransientModalityRace(result.stdout)
+            // Stamped (or cleared) on EVERY attempt, before the branches: an attempt that is not a
+            // race ends the current storm's window, so the next storm starts its budget fresh.
+            modalityRaceWindowStartMs =
+                modalityRaceWindowStart(modalityRaceWindowStartMs, isRace, System.currentTimeMillis())
             when {
                 isIndexingInProgress(result.stdout) -> null // still indexing → call again
 
@@ -638,12 +666,14 @@ try {
                 // import on a 189-module project) can enter modality between the two. The wait sees
                 // nothing to wait for, the gate sees modality, and no budget can close a race: the
                 // only fix is to ask again for another instant. Bounded, logged, and only for the
-                // transient variant — see [isTransientModalityRace]. On exhaustion the failing
-                // result is returned as-is, so the caller's assertExitCode reports the original
-                // gate error with its screenshot and thread-dump pointers.
-                result.exitCode != 0 && isTransientModalityRace(result.stdout) -> {
-                    val firstAt = firstModalityRaceAtMs ?: System.currentTimeMillis().also { firstModalityRaceAtMs = it }
-                    val elapsed = System.currentTimeMillis() - firstAt
+                // transient variant, and only under the profile that actually swept and waited —
+                // see [isTransientModalityRace]. The budget covers the current storm, not the whole
+                // call. On exhaustion the failing result is returned as-is, so the caller's
+                // assertExitCode reports the original gate error with its screenshot and
+                // thread-dump pointers.
+                isRace -> {
+                    val windowStart = modalityRaceWindowStartMs ?: System.currentTimeMillis()
+                    val elapsed = System.currentTimeMillis() - windowStart
                     if (shouldRetryModalityRace(result.stdout, elapsed)) {
                         println("[MCP] exec_code '$taskId' lost the modality race (IDE entered modality " +
                             "between the pre-flight wait and the gate) — retrying, ${elapsed}ms spent so far")

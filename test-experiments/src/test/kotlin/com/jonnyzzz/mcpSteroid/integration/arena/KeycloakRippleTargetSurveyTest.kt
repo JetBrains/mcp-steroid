@@ -140,7 +140,10 @@ class KeycloakRippleTargetSurveyTest {
         ).stdout
 
         val candidates = parseSurveyCandidates(output).filter { it.kind == "pull-up" }
-        val supers = parsePullUpSuperTypes(output)
+        // Distinct by FQN: an FQN can resolve to two `PsiClass` entries (the same class visible
+        // through two source roots), and counting those twice would overstate how many destinations
+        // the query actually evaluated.
+        val supers = parsePullUpSuperTypes(output).distinctBy { it.fqn }
         println("[SURVEY] pull-up destinations evaluated: ${supers.size}, " +
             "of them at breadth >= $MIN_PULL_UP_BREADTH: ${supers.count { it.breadth >= MIN_PULL_UP_BREADTH }}")
         supers.sortedByDescending { it.breadth }.take(10).forEach {

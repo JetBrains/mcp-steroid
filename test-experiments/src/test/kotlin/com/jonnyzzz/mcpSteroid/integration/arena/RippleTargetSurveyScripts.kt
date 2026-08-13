@@ -93,6 +93,18 @@ object RippleTargetSurveyScripts {
      * 4. **One emit per method, on its widest qualifying supertype.** A method with three qualifying
      *    supertypes used to pay three `ReferencesSearch` calls for one identical reference set.
      *
+     * Two further narrowings are inherited from the shared loop this query grew out of, and they
+     * bound the POOL rather than the ranking — any verdict read off this script is a verdict about
+     * the surveyed pool, not about Keycloak:
+     *
+     * 5. **Only classes whose SIMPLE NAME is shared by at least two project classes are considered**
+     *    (`classes.size < 2 -> continue`). That is the ambiguity axis the other three kinds need,
+     *    where the transformation lands on the type. Pull-up's own ambiguity axis is the METHOD-name
+     *    count, which `qualifiesForPullUp` reads and this filter does not imply — so a uniquely-named
+     *    class holding a widely-ambiguous method is never examined.
+     * 6. **Only DIRECT supertypes** (`candidate.supers`). A method missing from a wide INDIRECT
+     *    ancestor — the grandparent interface — is never evaluated as a pull-up.
+     *
      * Every supertype that was evaluated also prints `SURVEY_PULLUP_SUPER`, breadth included, before
      * the gate applies. That costs one index line and no search, and it is what makes a
      * `NONE QUALIFYING` verdict reportable: the best near-miss on breadth is in the output even

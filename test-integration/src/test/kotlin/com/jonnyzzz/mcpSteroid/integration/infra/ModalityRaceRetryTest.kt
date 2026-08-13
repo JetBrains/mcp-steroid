@@ -1,7 +1,9 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.infra
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -44,6 +46,33 @@ class ModalityRaceRetryTest {
             "(mcp.steroid.execution.dialogless.modal.wait.ms) — the IDE may still be settling; " +
             "retrying later can help. Use modal=unleashed to run anyway."
         assertFalse(isTransientModalityRace(budgetExpired))
+    }
+
+    @Test
+    fun `the same detail on the non_modal profile is NOT retried`() {
+        // The retried detail is the gate's FALLBACK branch, which `non_modal` also reaches — but that
+        // profile runs no dialog sweep and no dialog-less wait, so an observed modality there is not
+        // evidence of a race and may be a stuck dialog nobody ever tried to close.
+        val nonModal = "FAILED: modal=non_modal requires a non-modal IDE, but a modal dialog/progress " +
+            "is present and could not be cleared. Use modal=unleashed to run anyway."
+        assertFalse(isTransientModalityRace(nonModal))
+        assertFalse(shouldRetryModalityRace(nonModal, elapsedSinceFirstRaceMs = 0))
+    }
+
+    @Test
+    fun `the race window covers the current storm, not the whole call`() {
+        // A race stamps the window and later races keep it.
+        val start = modalityRaceWindowStart(currentStartMs = null, isRaceAttempt = true, nowMs = 1_000)
+        assertEquals(1_000L, start)
+        assertEquals(1_000L, modalityRaceWindowStart(start, isRaceAttempt = true, nowMs = 5_000))
+
+        // Any non-race attempt in between — typically an INDEXING IN PROGRESS poll, which can run for
+        // minutes after the gate passes — ends the storm, so a later storm is not charged for it.
+        assertNull(modalityRaceWindowStart(start, isRaceAttempt = false, nowMs = 9_000))
+        assertEquals(
+            400_000L,
+            modalityRaceWindowStart(currentStartMs = null, isRaceAttempt = true, nowMs = 400_000),
+        )
     }
 
     @Test
