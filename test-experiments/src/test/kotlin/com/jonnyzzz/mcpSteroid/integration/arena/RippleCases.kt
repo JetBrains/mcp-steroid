@@ -106,24 +106,34 @@ object RippleCases {
     )
 
     /**
-     * The compile gate here is a deliberate SUPERSET of the six modules PSI measured.
+     * The compile gate here is a SUPERSET of the six modules PSI measured, trimmed to the modules
+     * that actually carry evidence.
      *
      * The six were counted as IntelliJ modules by the survey, which did not print their names, and
      * mapping references back to Maven artifactIds needs the index that produced them. What can be
      * established from the repository alone is stronger than it sounds: a module can only hold a
      * reference to this method if some file in it obtains a `Resource`, and every module that does
      * names `org.keycloak.authorization.model.Resource` somewhere in its sources. The list below is
-     * every Maven module at the base commit holding a source file that both names that type and
-     * contains a `getId(` call — twelve modules, all reachable in the reactor under the
-     * `testsuite` profile, verified against the module lists in the poms. A superset is safe for a
-     * gate: it compiles more than the ripple, never less.
+     * every Maven module at the base commit holding a source file that names that FQN exactly and
+     * contains a `getId(` call, all reachable in the reactor under the `testsuite` profile and
+     * verified against the module lists in the poms. Three modules that a looser substring match had
+     * pulled in are deliberately absent: `keycloak-model-test` names the FQN nowhere at all, and
+     * `keycloak-tests-custom-providers` and `keycloak-authzen-tests-providers` name only
+     * `ResourceServer`, a different type. Each of them was a module whose `test-compile` had to go
+     * green offline on an untouched tree or `prepareAndProveGateEnvironment` voids the arm, bought
+     * with no reference to protect. A superset is safe for a gate — it compiles more than the ripple,
+     * never less — but only where the extra modules are paid for by evidence.
      */
     val changeSignatureWide: RippleCase = RippleCase(
         instanceId = "ripple__keycloak__change-signature-wide",
         target = changeSignatureWideTarget,
         expectedGoldReferences = 104,
         expectedGoldFiles = 49,
-        expectedDecoyDeclarations = 1021,
+        // 1021 declarations share the simple name at the base commit; the three that implement the
+        // target — `ResourceAdapter` (infinispan), `ResourceAdapter` (jpa) and `ResourceWrapper`,
+        // one `getId()` each, no further subtypes and no anonymous implementers — are excluded by
+        // the hierarchy rule in [ChangeSignature], because a correct solution must change them.
+        expectedDecoyDeclarations = 1018,
         compileGateModules = listOf(
             "keycloak-server-spi-private",
             "keycloak-services",
@@ -131,10 +141,7 @@ object RippleCases {
             "keycloak-model-infinispan",
             "keycloak-authz-policy-common",
             "keycloak-authzen-services",
-            "keycloak-authzen-tests-providers",
             "keycloak-tests-base",
-            "keycloak-tests-custom-providers",
-            "keycloak-model-test",
             "integration-arquillian-tests-base",
             "integration-arquillian-testsuite-providers",
         ),

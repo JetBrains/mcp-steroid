@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test
@@ -106,6 +107,51 @@ class RippleCaseRegistryTest {
                     patch.contains("+import org.junit.Test;") ||
                         patch.contains("+import org.junit.jupiter.api.Test;")
                 ) { "${case.instanceId}: the consumer imports no JUnit test annotation" }
+
+                // Absorbed from the pilot's "the consumer imports the types it names". A consumer
+                // outside the target type's package cannot see it without an import, and a consumer
+                // that does not compile fails the gate for every run whatever the agent did — which
+                // is not a grade, it is a broken instrument.
+                val consumerPackage = case.hiddenConsumerFqn.substringBeforeLast('.')
+                val targetPackage = case.target.targetTypeFqn.substringBeforeLast('.')
+                if (consumerPackage != targetPackage) {
+                    assertTrue(patch.contains("+import ${case.target.targetTypeFqn};")) {
+                        "${case.instanceId}: the consumer sits in $consumerPackage and names a type " +
+                            "in $targetPackage, so it must import ${case.target.targetTypeFqn}"
+                    }
+                }
+            }
+        }
+
+    /**
+     * The deleted per-case tests each asserted that the destination differed from the origin in the
+     * terms of their own kind. `destinationDescription != targetDescription` does not reproduce that
+     * — the two strings have structurally different shapes and can never be equal — so each kind
+     * states its own real check here.
+     */
+    @TestFactory
+    fun `every kind's destination really differs from its origin`(): List<DynamicTest> =
+        RippleCases.all.map { case ->
+            DynamicTest.dynamicTest(case.instanceId) {
+                when (val target = case.target) {
+                    is RenameMethod -> assertNotEquals(target.oldName, target.newName) {
+                        "A rename to the same name is not a rename"
+                    }
+                    is RenameType -> {
+                        assertNotEquals(target.oldSimpleName, target.newSimpleName)
+                        assertNotEquals(target.oldFqn, target.newFqn) {
+                            "The renamed type must keep its package but change its simple name"
+                        }
+                    }
+                    is ChangeSignature -> {
+                        assertNotEquals(target.oldArity, target.newArity)
+                        assertEquals(target.oldArity + 1, target.newArity) {
+                            "This kind adds exactly one parameter"
+                        }
+                        assertTrue(target.addedParameterType.isNotBlank()) { case.instanceId }
+                        assertTrue(target.addedParameterName.isNotBlank()) { case.instanceId }
+                    }
+                }
             }
         }
 
@@ -158,9 +204,6 @@ class RippleCaseRegistryTest {
                     "${case.instanceId}: wide means references in at least 3 modules, plus the " +
                         "declaring module"
                 }
-                assertTrue(
-                    case.target.destinationDescription != case.target.targetDescription,
-                ) { case.instanceId }
                 assertTrue(case.target.behaviourPreservationEvidence.isNotBlank()) {
                     "${case.instanceId}: a case whose behaviour preservation is not written down " +
                         "cannot be reviewed"
@@ -250,15 +293,19 @@ class RippleCaseRegistryTest {
         val case = RippleCases.changeSignatureWide
         assertEquals(104, case.expectedGoldReferences)
         assertEquals(49, case.expectedGoldFiles)
-        assertEquals(1021, case.expectedDecoyDeclarations)
+        // 1021 same-named declarations at the base commit, minus the three implementers of the
+        // target, which a correct solution must change and which are therefore not decoys.
+        assertEquals(1018, case.expectedDecoyDeclarations)
         assertEquals(1, RippleCases.changeSignatureWideTarget.newArity)
         assertEquals(0, RippleCases.changeSignatureWideTarget.oldArity)
+        assertEquals(9, case.compileGateModules.size)
     }
 
     @Test
     fun `the change-signature case is the only one contributing an extra predicate`() {
         val arityPost = """
             POST_TOTAL_NEW_REFS 2
+            POST_ARITY_EXPECTED 1
             POST_ARITY_MATCHING 2
             POST_END
         """.trimIndent()

@@ -132,14 +132,14 @@ class SemanticRippleOracleTest {
         """.trimIndent()
         val g = parseSemanticGold(empty)
         assertEquals(0, g.totalReferences)
-        val e = assertThrows(IllegalStateException::class.java) { g.checkTripwires() }
+        val e = assertThrows(IllegalStateException::class.java) { g.checkPilotTripwires() }
         assertTrue(e.message!!.contains("445")) { "Message should state the expected count: ${e.message}" }
     }
 
     @Test
     fun `tripwires reject a pre-existing new name`() {
         val taken = goldOutput.replace("GOLD_NEWNAME_DECLS 0", "GOLD_NEWNAME_DECLS 5")
-        val e = assertThrows(IllegalStateException::class.java) { parseSemanticGold(taken).checkTripwires() }
+        val e = assertThrows(IllegalStateException::class.java) { parseSemanticGold(taken).checkPilotTripwires() }
         assertTrue(e.message!!.contains(SemanticRippleSpec.newName))
     }
 
@@ -296,7 +296,8 @@ class SemanticRippleOracleTest {
             POST_END
         """.trimIndent()
         val r = parseSemanticPostcondition(
-            post, gold(), emptySet(), extraPredicates = mapOf("P5_ARITY" to parseArityPredicate(post),)
+            post, gold(), emptySet(),
+            extraPredicates = mapOf("P5_ARITY" to parseArityPredicate(post, expectedArity = 2)),
         )
         assertTrue(r.p2AllSitesConverted) { "Every gold site is present; only the arity is wrong" }
         assertFalse(r.extraPredicates.getValue("P5_ARITY")) {
@@ -320,6 +321,142 @@ class SemanticRippleOracleTest {
             POST_ARITY_MATCHING 4
             POST_END
         """.trimIndent()
-        assertTrue(parseArityPredicate(post))
+        assertTrue(parseArityPredicate(post, expectedArity = 2))
+    }
+
+    @Test
+    fun `the arity predicate refuses to grade a script that measured another arity`() {
+        val post = """
+            POST_TOTAL_NEW_REFS 4
+            POST_ARITY_EXPECTED 2
+            POST_ARITY_MATCHING 4
+            POST_END
+        """.trimIndent()
+        val e = assertThrows(IllegalStateException::class.java) {
+            parseArityPredicate(post, expectedArity = 3)
+        }
+        assertTrue(e.message!!.contains("POST_ARITY_EXPECTED") || e.message!!.contains("arity 2")) {
+            "The message must say the script and the case registry disagree: ${e.message}"
+        }
+    }
+
+    // --- Fix round 1: the change-signature decoy reading ---
+
+    /**
+     * A change-signature case keys its decoys by declaration and VALUES them by arity, so a no-arg
+     * getter's gold value is 0. Under a `postDecoys[key] ?: 0` lookup, a decoy whose declaration the
+     * agent reshaped — its old key gone, a new key in its place — read as unchanged, and P3 was inert
+     * for the case with the family's strongest lexical ambiguity. Over-reach is a comparison of key
+     * SETS, and this is the test that says so.
+     */
+    private val arityGold = """
+        GOLD_TARGET org.keycloak.authorization.model.Resource|getId/0|getId/1
+        GOLD_SITE a/A.java|A#one|2
+        GOLD_SITE b/B.java|B#three|1
+        GOLD_DECOY org.keycloak.other.Thing#getId()|0
+        GOLD_DECOY org.keycloak.other.Widget#getId()|0
+        GOLD_NEWNAME_DECLS 0
+        GOLD_END
+    """.trimIndent()
+
+    @Test
+    fun `a zero-arity decoy that vanishes fails P3 instead of reading as unchanged`() {
+        val post = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE b/B.java|B#three|1
+            POST_DECOY org.keycloak.other.Thing#getId(boolean)|1
+            POST_DECOY org.keycloak.other.Widget#getId()|0
+            POST_TOTAL_NEW_REFS 3
+            POST_ARITY_EXPECTED 1
+            POST_ARITY_MATCHING 3
+            POST_END
+        """.trimIndent()
+        val r = parseSemanticPostcondition(post, parseSemanticGold(arityGold))
+        assertFalse(r.p3DecoysUnchanged) {
+            "Thing#getId() was given the new parameter; both the retired key and the new one are " +
+                "over-reach"
+        }
+        assertEquals(
+            listOf("org.keycloak.other.Thing#getId()", "org.keycloak.other.Thing#getId(boolean)"),
+            r.overReachedDecoys,
+        )
+        assertFalse(r.allPassed)
+    }
+
+    @Test
+    fun `a solution that updates every implementer passes P3, because implementers are not decoys`() {
+        // The capture and post-condition scripts exclude the target's own override family by
+        // hierarchy, so `ResourceAdapter#getId` appears in NEITHER reading. Java requires those
+        // declarations to take the new parameter and the prompt orders it, so a correct solution
+        // moves them — and must not be charged for it.
+        val post = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE b/B.java|B#three|1
+            POST_DECOY org.keycloak.other.Thing#getId()|0
+            POST_DECOY org.keycloak.other.Widget#getId()|0
+            POST_TOTAL_NEW_REFS 3
+            POST_ARITY_EXPECTED 1
+            POST_ARITY_MATCHING 3
+            POST_END
+        """.trimIndent()
+        val r = parseSemanticPostcondition(
+            post, parseSemanticGold(arityGold),
+            extraPredicates = mapOf("P5_ARITY" to parseArityPredicate(post, expectedArity = 1)),
+        )
+        assertTrue(r.p3DecoysUnchanged) { "${r.overReachedDecoys}" }
+        assertTrue(r.allPassed)
+    }
+
+    @Test
+    fun `an implementer left inside the decoy set would fail a correct solution`() {
+        // The negative control for the exclusion: if the scripts DID emit the implementer as a decoy,
+        // the correct solution above would be graded as over-reach. If this test ever passes P3, the
+        // exclusion has stopped mattering and the one above proves nothing.
+        val goldWithImplementer = arityGold.replace(
+            "GOLD_DECOY org.keycloak.other.Widget#getId()|0",
+            "GOLD_DECOY org.keycloak.other.Widget#getId()|0\n" +
+                "GOLD_DECOY org.keycloak.models.cache.infinispan.authorization.ResourceAdapter#getId()|0",
+        )
+        val post = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE b/B.java|B#three|1
+            POST_DECOY org.keycloak.other.Thing#getId()|0
+            POST_DECOY org.keycloak.other.Widget#getId()|0
+            POST_DECOY org.keycloak.models.cache.infinispan.authorization.ResourceAdapter#getId(boolean)|1
+            POST_TOTAL_NEW_REFS 3
+            POST_ARITY_EXPECTED 1
+            POST_ARITY_MATCHING 3
+            POST_END
+        """.trimIndent()
+        val r = parseSemanticPostcondition(post, parseSemanticGold(goldWithImplementer))
+        assertFalse(r.p3DecoysUnchanged) {
+            "Without the hierarchy exclusion, a correct solution is charged with over-reach"
+        }
+    }
+
+    @Test
+    fun `a same-named declaration that appears from nowhere is over-reach`() {
+        val post = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE b/B.java|B#three|1
+            POST_DECOY org.keycloak.other.Thing#getId()|0
+            POST_DECOY org.keycloak.other.Widget#getId()|0
+            POST_DECOY org.keycloak.other.Widget#getId(boolean)|1
+            POST_TOTAL_NEW_REFS 3
+            POST_END
+        """.trimIndent()
+        val r = parseSemanticPostcondition(post, parseSemanticGold(arityGold))
+        assertFalse(r.p3DecoysUnchanged)
+        assertEquals(listOf("org.keycloak.other.Widget#getId(boolean)"), r.overReachedDecoys) {
+            "An overload added to an unrelated same-named declaration is over-reach"
+        }
     }
 }

@@ -76,7 +76,7 @@ data class SemanticPostconditionResult(
  * compile — but it can equally add an OVERLOAD, which compiles, keeps every call site resolving, and
  * satisfies P1–P4 while performing no signature change at all. This is the predicate that catches it.
  */
-fun parseArityPredicate(output: String): Boolean {
+fun parseArityPredicate(output: String, expectedArity: Int): Boolean {
     val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     check(lines.any { it == "POST_END" }) {
         "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
@@ -85,6 +85,14 @@ fun parseArityPredicate(output: String): Boolean {
         (lines.firstOrNull { it.startsWith(prefix) }
             ?: error("Post-condition output is missing the $prefix field:\n$output"))
             .removePrefix(prefix).trim().toInt()
+    // The script states the arity it measured against; the case states the arity it asked for. A
+    // disagreement means the script and the registry describe different transformations, so the
+    // predicate would be answering a question nobody asked — an instrument fault, not a grade.
+    val reportedExpected = field("POST_ARITY_EXPECTED ")
+    check(reportedExpected == expectedArity) {
+        "The post-condition script measured against arity $reportedExpected but the case asks for " +
+            "$expectedArity; the script and the case registry disagree:\n$output"
+    }
     val total = field("POST_TOTAL_NEW_REFS ")
     return total > 0 && field("POST_ARITY_MATCHING ") == total
 }
@@ -176,12 +184,11 @@ private fun parseDecoyLines(lines: List<String>, prefix: String): Map<String, In
  * measurement. An index failure produces an empty gold set, which would otherwise score as a
  * perfect transformation over nothing.
  *
- * The default is the pilot's case so that the family's oldest unit tests — the regression check on
- * the seam extraction — keep calling this with no argument and still assert against the numbers they
- * were written for. Every run test passes its own case explicitly; grading one case against another's
- * counts is exactly the silent failure this seam was cut to remove.
+ * The case is mandatory. A default reaching for one particular case would compile at any call site
+ * that forgot to pass its own, and grade it against the pilot's 445/79/16 — which is precisely the
+ * silent failure this seam was cut to remove, reintroduced as a convenience.
  */
-fun SemanticGold.checkTripwires(case: RippleCase = RippleCases.renameMethodWide) {
+fun SemanticGold.checkTripwires(case: RippleCase) {
     check(newNameDeclarations == 0) {
         "'${case.target.destinationDescription}' already exists $newNameDeclarations times; the " +
             "destination must be free or the task is ill-posed"
@@ -198,6 +205,13 @@ fun SemanticGold.checkTripwires(case: RippleCase = RippleCases.renameMethodWide)
             "'${case.target.targetDescription}', expected ${case.expectedDecoyDeclarations}"
     }
 }
+
+/**
+ * [checkTripwires] against the pilot's case, for the unit tests that were written against the pilot's
+ * numbers before the family had more than one case. Named rather than defaulted so that no production
+ * call site can reach the pilot's counts by omission.
+ */
+fun SemanticGold.checkPilotTripwires() = checkTripwires(RippleCases.renameMethodWide)
 
 /**
  * Parse the post-agent script's output and grade it against [gold].
@@ -255,9 +269,17 @@ fun parseSemanticPostcondition(
     }
 
     val postDecoys = parseDecoyLines(lines, "POST_DECOY ")
-    val overReached = gold.decoyReferences.filter { (owner, before) ->
-        (postDecoys[owner] ?: 0) != before
-    }.keys.sorted()
+    // Compared as key SETS, not as a lookup with a zero default. A vanished decoy key must be
+    // over-reach on its own terms: under a reading whose VALUE can legitimately be zero — a
+    // change-signature case keys its decoys by declaration and values them by arity, and a no-arg
+    // getter's arity is 0 — a `postDecoys[key] ?: 0` lookup makes "the agent deleted or reshaped
+    // this declaration" indistinguishable from "nothing happened", which silenced P3 for the case
+    // with the family's strongest lexical ambiguity. An APPEARING key is over-reach too: it is a
+    // same-named declaration that did not exist before, which is what an agent creates when it
+    // applies the transformation to the wrong symbol.
+    val overReached = (gold.decoyReferences.keys + postDecoys.keys)
+        .filter { gold.decoyReferences[it] != postDecoys[it] }
+        .sorted()
 
     val recall = if (gold.totalReferences == 0) 0.0 else convertedAtGold.toDouble() / gold.totalReferences
     val precision = if (countedNewRefs == 0) 0.0 else convertedAtGold.toDouble() / countedNewRefs

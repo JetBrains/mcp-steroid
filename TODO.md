@@ -330,12 +330,12 @@
   the per-module guides.
 
 - [ ] **The change-signature ripple case gates a SUPERSET of its reference modules.**
-  `RippleCases.changeSignatureWide.compileGateModules` lists the twelve Maven modules whose sources
-  name `org.keycloak.authorization.model.Resource` and contain a `getId(` call, because the survey
-  measured six IntelliJ modules without printing their names and the mapping back to artifactIds
-  needs the index that produced it. A superset is safe for a gate but pays six extra modules of
-  `test-compile` on every arm, and each extra module is one more way for the pre-agent gate to fail
-  for reasons that have nothing to do with the task. Narrow it the next time a container has the
+  `RippleCases.changeSignatureWide.compileGateModules` lists the nine Maven modules whose sources
+  name `org.keycloak.authorization.model.Resource` exactly and contain a `getId(` call, because the
+  survey measured six IntelliJ modules without printing their names and the mapping back to
+  artifactIds needs the index that produced it. A superset is safe for a gate but pays three extra
+  modules of `test-compile` on every arm, and each extra module is one more way for the pre-agent
+  gate to fail for reasons that have nothing to do with the task. Narrow it the next time a container has the
   project indexed: print `ModuleUtilCore.findModuleForFile` over the gold reference set, map those
   IntelliJ module names to artifactIds, and pin the six.
 - [ ] **`KeycloakChangeSignatureWideRippleTest` has no TeamCity configuration yet.** The family's

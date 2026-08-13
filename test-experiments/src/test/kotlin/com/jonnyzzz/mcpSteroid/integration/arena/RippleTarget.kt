@@ -24,6 +24,15 @@ sealed interface RippleTarget {
     val targetDescription: String
 
     /**
+     * The fully-qualified name of the TYPE the transformation lands on or in.
+     *
+     * A hidden consumer that sits outside this type's package cannot name it without an import, and
+     * a consumer that cannot compile fails the gate for every run whatever the agent did — which is
+     * why `RippleCaseRegistryTest` checks the overlay against this.
+     */
+    val targetTypeFqn: String
+
+    /**
      * Human-readable identity of what the transformation must produce, for failure messages.
      *
      * The tripwire that rejects an already-taken destination names this, so it has to be the thing a
@@ -66,6 +75,7 @@ object RippleOracleScripts {
         import com.intellij.psi.*
         import com.intellij.psi.search.GlobalSearchScope
         import com.intellij.psi.search.PsiShortNamesCache
+        import com.intellij.psi.search.searches.ClassInheritorsSearch
         import com.intellij.psi.search.searches.ReferencesSearch
         import com.intellij.psi.util.PsiTreeUtil
 
@@ -104,6 +114,8 @@ data class RenameMethod(
     override val targetDescription: String get() = "$targetClassFqn#$oldName"
 
     override val destinationDescription: String get() = newName
+
+    override val targetTypeFqn: String get() = targetClassFqn
 
     override fun captureFragment(): String = """
         smartReadAction(project) {
@@ -202,6 +214,8 @@ data class RenameType(
     override val targetDescription: String get() = oldFqn
 
     override val destinationDescription: String get() = newSimpleName
+
+    override val targetTypeFqn: String get() = oldFqn
 
     /** The old simple name, which is what a short-names lookup and the decoy set are keyed by. */
     val oldSimpleName: String get() = oldFqn.substringAfterLast('.')
@@ -308,14 +322,27 @@ data class RenameType(
  * same-named declaration contributes `GOLD_DECOY <owner>#<name>(<parameter types>)|<arity>`, and P3
  * fails if any of those keys disappears or any arity moves.
  *
- * That is not a weakening of P3 for this kind — it is the sharper test. Over-reach means the agent
- * applied THIS transformation to a same-named declaration somewhere else, and for a signature change
- * the transformation lands on the declaration itself: the parameter list is where it shows. Adding a
- * parameter to another `getId`, renaming one, or deleting one all move a key or a value and are all
- * caught. The one shape the arity reading cannot see — a decoy left structurally intact while some
- * caller of it is rewritten — cannot compile unless that decoy's own declaration changed too, so the
- * scoped compile gate covers it. What the change costs is a thousand `ReferencesSearch` calls that
- * would have told us nothing the parameter list does not already say.
+ * That is not a weakening of P3 for this kind — it is the sharper test, but only because
+ * [parseSemanticPostcondition] compares decoy key SETS rather than looking each gold key up with a
+ * zero default. Over-reach means the agent applied THIS transformation to a same-named declaration
+ * somewhere else, and for a signature change the transformation lands on the declaration itself: the
+ * parameter list is where it shows. Adding a parameter to another `getId` retires the key
+ * `X#getId()` and creates `X#getId(boolean)`, and both halves of that are over-reach; renaming or
+ * deleting a decoy retires a key too. Under a lookup with a zero default none of it would register,
+ * because a no-arg getter's arity IS zero and "absent" would read as "unchanged" — which is exactly
+ * how this predicate was inert in its first version. The one shape the arity reading cannot see — a
+ * decoy left structurally intact while some caller of it is rewritten — cannot compile unless that
+ * decoy's own declaration changed too, so the scoped compile gate covers it. What the change costs is
+ * a thousand `ReferencesSearch` calls that would have told us nothing the parameter list does not.
+ *
+ * **The target's own override family is not a decoy set.** Java requires every implementer of the
+ * changed method to take the new parameter, and the prompt orders it, so a CORRECT solution moves
+ * those declarations — which under a key-set comparison would read as over-reach and fail every
+ * correct run. They are excluded by construction: one `ClassInheritorsSearch` over the target's owner
+ * (plus the owners of the methods the target itself overrides) yields the related classes, and their
+ * same-named methods are left out of both readings. Derived from the hierarchy, never listed by name,
+ * so an implementer added upstream cannot silently become a decoy. Declarations whose owner cannot be
+ * qualified — anonymous and local classes — are still tracked, under a file-path key.
  */
 data class ChangeSignature(
     val targetClassFqn: String,
@@ -334,11 +361,13 @@ data class ChangeSignature(
     override val destinationDescription: String get() =
         "$methodName($addedParameterType $addedParameterName)"
 
+    override val targetTypeFqn: String get() = targetClassFqn
+
     /** The arity the method has before the change — the anchor the capture script looks it up by. */
     val oldArity: Int get() = newArity - 1
 
     override fun extraPredicates(output: String): Map<String, Boolean> =
-        mapOf("P5_ARITY" to parseArityPredicate(output))
+        mapOf("P5_ARITY" to parseArityPredicate(output, newArity))
 
     /**
      * The decoy key shared by both scripts: owner (or the file, for a declaration with no qualified
@@ -353,6 +382,18 @@ data class ChangeSignature(
                 ?: ("<anonymous>@" + (m.containingFile?.virtualFile?.path ?: "<unknown>"))
             return owner + "#" + m.name + "(" +
                 m.parameterList.parameters.joinToString(",") { p -> p.type.canonicalText } + ")"
+        }
+
+        fun relatedClasses(owner: PsiClass): Set<PsiClass> {
+            val related = HashSet<PsiClass>()
+            related.add(owner)
+            related.addAll(ClassInheritorsSearch.search(owner, scope, true).findAll())
+            for (m in owner.findMethodsByName("$methodName", false)) {
+                for (s in m.findSuperMethods()) {
+                    s.containingClass?.let { related.add(it) }
+                }
+            }
+            return related
         }
 
         fun printDecoys(prefix: String, decoys: List<PsiMethod>) {
@@ -386,7 +427,10 @@ ${decoyKeyHelper().prependIndent("            ")}
             refs.mapNotNull { siteKey(it) }.groupingBy { it }.eachCount()
                 .toSortedMap().forEach { (key, n) -> println("GOLD_SITE " + key + "|" + n) }
 
-            printDecoys("GOLD_DECOY ", all.filter { it.containingClass?.qualifiedName != "$targetClassFqn" })
+            // Computed ONCE, outside the filter: one inheritor search for the whole decoy set, never
+            // one per candidate.
+            val related = relatedClasses(target.containingClass!!)
+            printDecoys("GOLD_DECOY ", all.filter { m -> m.containingClass?.let { it in related } != true })
 
             // The destination is the NEW SIGNATURE on the target owner, not the name: the name is
             // already taken by the method being changed, so a project-wide name count would report
@@ -425,8 +469,12 @@ ${decoyKeyHelper().prependIndent("            ")}
             refs.mapNotNull { siteKey(it) }.groupingBy { it }.eachCount()
                 .toSortedMap().forEach { (key, n) -> println("POST_SITE " + key + "|" + n) }
 
+            // Same exclusion as the capture, computed the same way from the same owner, so that a
+            // correct solution — which MUST give every implementer the new parameter — moves no
+            // decoy key at all.
+            val related = relatedClasses(owner)
             printDecoys("POST_DECOY ", cache.getMethodsByName("$methodName", scope).toList()
-                .filter { it.containingClass?.qualifiedName != "$targetClassFqn" })
+                .filter { m -> m.containingClass?.let { it in related } != true })
 
             println("POST_TOTAL_NEW_REFS " + refs.size)
             println("POST_ARITY_EXPECTED $newArity")
@@ -466,7 +514,7 @@ ${decoyKeyHelper().prependIndent("            ")}
            no implementation may read its value.
         4. Methods that happen to share the same simple name but are declared on **other types**
            are unrelated and MUST keep their current parameter list. Changing one of them is a
-           defect, and this name is a very common one in this project.
+           defect.
         5. External behaviour must not change. The new parameter is read nowhere, and this type is
            an internal server-side model interface that takes no part in any HTTP contract, so a
            correct change is not observable from outside the code.
