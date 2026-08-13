@@ -58,6 +58,25 @@ data class IntelliJContainerOpts(
     val preloadJdkTable: Boolean = true,
 
     /**
+     * Overrides `mcp.steroid.execution.dialogless.modal.wait.ms` for this container only; `null`
+     * (default) leaves the plugin's own 120 s bound in place.
+     *
+     * Raise it only for a project whose cold start genuinely outruns 120 s. The 2026.2 platform's
+     * freeze-protection elevates modality with NO dialog window while a write-action storm runs
+     * (VFS refresh during cold-start indexing), so the first `execute_code` after project open can
+     * fail the `smart_non_modal` gate with "dialog-less modal progress persisted past the bounded
+     * wait". Raising the bound is the documented remedy for that symptom, and the wait ends the
+     * moment modality clears, so a healthy IDE pays nothing for a larger bound.
+     *
+     * It stays per-container rather than a global default because a long bound is also a long
+     * window in which a genuinely hung IDE looks like a slow one — the repo's 1-minute rule for
+     * Docker tests exists to keep that visible. Note too that it does not cover every variant of
+     * the gate failure: modality entered *between* the gate's wait and its require-non-modal check
+     * is a race that no bound closes.
+     */
+    val dialoglessModalWaitMs: Long? = null,
+
+    /**
      * Hooks invoked just BEFORE the IDE process is launched (after all built-in startup
      * config files are written, including the pre-generated `jdk.table.xml`, and the project
      * files are deployed). Use these to adjust the IDE config dir / project files while no IDE is

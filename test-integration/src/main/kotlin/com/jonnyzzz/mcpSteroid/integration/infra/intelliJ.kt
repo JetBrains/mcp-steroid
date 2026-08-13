@@ -108,6 +108,7 @@ class IntelliJDriver(
     private val disableProjectTrustChecks: Boolean = true,
     private val trustAllProjectPaths: Boolean = true,
     private val preloadJdkTable: Boolean = true,
+    private val dialoglessModalWaitMs: Long? = null,
 ) {
     private val intelliJGuestHomeDir = "/opt/idea"
     // Keep project sources on container-local filesystem (not host-mounted volume)
@@ -325,15 +326,10 @@ class IntelliJDriver(
             appendLine("-Dmcp.steroid.analytics.enabled=false")
             appendLine("-Dmcp.steroid.idea.description.enabled=false")
             appendLine("-Dmcp.steroid.storage.path=$steroidGuestDir")
-            appendLine("# Dialog-less modal progress: 120s (the plugin default) is a desktop-sized budget.")
-            appendLine("# A containerized IDE always cold-starts — the first exec_code after project open")
-            appendLine("# races the VFS-refresh/indexing write-action storm, during which the platform's")
-            appendLine("# freeze-protection elevates modality with NO dialog window to close. On a large")
-            appendLine("# project (Keycloak: 189 modules) that storm outlasts 120s and the smart_non_modal")
-            appendLine("# gate fails with 'dialog-less modal progress persisted past the bounded wait'.")
-            appendLine("# Raising the bound is the documented remedy for exactly this symptom; the wait")
-            appendLine("# still ends the moment modality clears, so a healthy IDE pays nothing for it.")
-            appendLine("-Dmcp.steroid.execution.dialogless.modal.wait.ms=600000")
+            if (dialoglessModalWaitMs != null) {
+                appendLine("# Raised by the test — see IntelliJContainerOpts.dialoglessModalWaitMs.")
+                appendLine("-Dmcp.steroid.execution.dialogless.modal.wait.ms=$dialoglessModalWaitMs")
+            }
 
             appendLine("# Suppress AI promo window (prevents 8-minute startup deadlock in Docker)")
             appendLine("# AIPromoWindowAdvisor fetches a remote URL on first run; in Docker this")

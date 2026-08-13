@@ -43,6 +43,10 @@ class KeycloakRippleTargetSurveyTest {
                 aiMode = AiMode.NONE,
                 mcpConnectionMode = McpConnectionMode.None,
                 mountDockerSocket = false,
+                // Keycloak is the largest project this harness imports (189 modules), and its
+                // cold-start VFS-refresh/indexing storm outruns the plugin's 120s dialog-less
+                // modality bound, failing the smart_non_modal gate before any survey work runs.
+                dialoglessModalWaitMs = 600_000,
             )).waitForProjectReady(
                 timeoutMillis = SemanticRippleSpec.projectReadyTimeoutMs,
                 projectJdkVersion = SemanticRippleSpec.projectJdkVersion,

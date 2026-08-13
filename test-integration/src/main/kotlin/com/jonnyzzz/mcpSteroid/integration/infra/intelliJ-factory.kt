@@ -83,6 +83,7 @@ fun IntelliJContainer.Companion.create(lifetime: CloseableStack, opts: IntelliJC
         disableProjectTrustChecks = disableProjectTrustChecks,
         trustAllProjectPaths = trustAllProjectPaths,
         preloadJdkTable = preloadJdkTable,
+        dialoglessModalWaitMs = dialoglessModalWaitMs,
     )
 
     fun writeSessionInfo(mcpUrl: String?) {
