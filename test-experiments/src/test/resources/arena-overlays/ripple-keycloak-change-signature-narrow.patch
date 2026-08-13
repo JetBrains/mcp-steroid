@@ -1,0 +1,32 @@
+diff --git a/server-spi/src/test/java/org/keycloak/userprofile/ChangeSignatureNarrowContractTest.java b/server-spi/src/test/java/org/keycloak/userprofile/ChangeSignatureNarrowContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/server-spi/src/test/java/org/keycloak/userprofile/ChangeSignatureNarrowContractTest.java
+@@ -0,0 +1,27 @@
++package org.keycloak.userprofile;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Pins the changed signature. The new parameter list must exist and the old one must be gone
++ * entirely — an overload left behind would let every caller keep compiling against a signature the
++ * contract no longer has, which is not a signature change at all.
++ */
++public class ChangeSignatureNarrowContractTest {
++
++    @Test
++    public void newSignatureExists() throws Exception {
++        Assert.assertNotNull(Attributes.class.getMethod("contains", String.class, boolean.class));
++    }
++
++    @Test
++    public void oldSignatureIsGone() {
++        try {
++            Attributes.class.getMethod("contains", String.class);
++            Assert.fail("org.keycloak.userprofile.Attributes still declares contains(String); an overload is not a signature change");
++        } catch (NoSuchMethodException expected) {
++            // the old signature is gone, which is what this test asserts
++        }
++    }
++}

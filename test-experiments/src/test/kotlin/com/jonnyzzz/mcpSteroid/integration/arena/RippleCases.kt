@@ -152,5 +152,96 @@ object RippleCases {
         createdAt = "2026-08-13T00:00:00Z",
     )
 
-    val all: List<RippleCase> = listOf(renameMethodWide, renameTypeWide, changeSignatureWide)
+    /**
+     * The fan-out ablation of [renameTypeWide], read only against that twin: same kind, the same
+     * lexical ambiguity (both collide with exactly three other same-named declarations —
+     * `TestKeyUtils` collides with `org.keycloak.common.util.KeyUtils` among others), and a ripple two
+     * orders of magnitude smaller. A run that separates the arms on the wide member and not on this
+     * one is evidence that fan-out drove the difference, not ambiguity; a run with no separation on
+     * either says nothing about fan-out by itself, because ambiguity was never varied to compare against.
+     *
+     * Name not load-bearing, exactly like the wide twin: zero hits across `*.json *.xml *.properties
+     * *.yaml *.yml`, no reflective naming beyond the `Class.forName` this case's own consumer uses, and
+     * the FQN appears in no non-`.java` file. `TestKeyUtils` is free at the base commit: zero hits
+     * anywhere in the tree.
+     */
+    val renameTypeNarrowTarget: RenameType = RenameType(
+        oldFqn = "org.keycloak.tests.utils.KeyUtils",
+        newSimpleName = "TestKeyUtils",
+        behaviourPreservationEvidence =
+            "The type's name appears in no configuration file, no service descriptor and no " +
+                "reflective lookup at the base commit, so the rename is not externally observable.",
+    )
+
+    val renameTypeNarrow: RippleCase = RippleCase(
+        instanceId = "ripple__keycloak__rename-type-narrow",
+        target = renameTypeNarrowTarget,
+        expectedGoldReferences = 12,
+        expectedGoldFiles = 3,
+        expectedDecoyDeclarations = 3,
+        compileGateModules = listOf("keycloak-tests-utils"),
+        declaringModuleArtifactId = "keycloak-tests-utils",
+        consumerModuleArtifactId = "keycloak-tests-utils",
+        hiddenConsumerFqn = "org.keycloak.tests.utils.RenameTypeNarrowContractTest",
+        patchResource = "arena-overlays/ripple-keycloak-rename-type-narrow.patch",
+        createdAt = "2026-08-13T00:00:00Z",
+    )
+
+    /**
+     * The fan-out ablation of [changeSignatureWide], read only against that twin: same kind, ambiguity
+     * still far above the family's floor of 3, and a ripple confined to a single file where the wide
+     * twin spans 49. A run that separates the arms on the wide member and not on this one is evidence
+     * that fan-out drove the difference, not ambiguity.
+     *
+     * `Attributes` carries the same behaviour-preservation shape as `Resource`: it imports only
+     * `java.util.*`, `java.util.function.*` and `org.keycloak.validate.ValidationError` — no
+     * `jakarta.ws.rs`, no Jackson annotation, and it is not a representation class, so no HTTP contract
+     * can move with its signature. The added parameter is passed as the literal `false` at every call
+     * site and read by no implementer.
+     *
+     * **The decoy count is 18, not the 19 the raw same-simple-name survey reports.** The survey counts
+     * every other `contains` declaration in the project; the actual grading script (like the wide
+     * twin's) excludes the target's own override family, because a correct solution MUST move those
+     * declarations and a key-set comparison would otherwise fail every correct run as over-reach.
+     * `Attributes` has exactly one implementer that declares its own `contains(String)`:
+     * `DefaultAttributes` (`server-spi-private`) — `ServiceAccountAttributes` extends it without
+     * overriding `contains` again, so it contributes no separate declaration to exclude. 19 minus that
+     * one override is 18.
+     *
+     * **The compile gate is two modules, not the one the reference survey reports.** The 11 references
+     * all sit inside `keycloak-server-spi` itself (which is why the survey's module count is 1), but
+     * `DefaultAttributes` — the override a correct solution must also change — lives in
+     * `keycloak-server-spi-private`. Leaving that module out of the gate would let an agent forget the
+     * implementer and still pass: `DefaultAttributes` would silently stop implementing `Attributes`
+     * (an abstract-method error), and a gate that never compiles that module never sees it.
+     */
+    val changeSignatureNarrowTarget: ChangeSignature = ChangeSignature(
+        targetClassFqn = "org.keycloak.userprofile.Attributes",
+        methodName = "contains",
+        addedParameterType = "boolean",
+        addedParameterName = "includeUnmanaged",
+        returnTypeSimpleName = "boolean",
+        newArity = 2,
+        behaviourPreservationEvidence =
+            "The added parameter is passed as the literal false at every call site and read by no " +
+                "implementer, and the declaring interface takes no part in any HTTP contract.",
+    )
+
+    val changeSignatureNarrow: RippleCase = RippleCase(
+        instanceId = "ripple__keycloak__change-signature-narrow",
+        target = changeSignatureNarrowTarget,
+        expectedGoldReferences = 11,
+        expectedGoldFiles = 1,
+        expectedDecoyDeclarations = 18,
+        compileGateModules = listOf("keycloak-server-spi", "keycloak-server-spi-private"),
+        declaringModuleArtifactId = "keycloak-server-spi",
+        consumerModuleArtifactId = "keycloak-server-spi",
+        hiddenConsumerFqn = "org.keycloak.userprofile.ChangeSignatureNarrowContractTest",
+        patchResource = "arena-overlays/ripple-keycloak-change-signature-narrow.patch",
+        createdAt = "2026-08-13T00:00:00Z",
+    )
+
+    val all: List<RippleCase> = listOf(
+        renameMethodWide, renameTypeWide, changeSignatureWide, renameTypeNarrow, changeSignatureNarrow,
+    )
 }

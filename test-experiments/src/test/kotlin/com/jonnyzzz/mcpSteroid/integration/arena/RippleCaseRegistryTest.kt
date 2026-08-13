@@ -194,9 +194,17 @@ class RippleCaseRegistryTest {
         }
     }
 
+    /**
+     * Scoped to the wide cases only — [RippleCases.renameTypeNarrow] and
+     * [RippleCases.changeSignatureNarrow] exist specifically to violate "wide" while holding
+     * everything else about their twin constant, so asserting this over [RippleCases.all] would fail
+     * the very cases built to be the exception.
+     */
+    private val wideCases = listOf(RippleCases.renameMethodWide, RippleCases.renameTypeWide, RippleCases.changeSignatureWide)
+
     @TestFactory
-    fun `every target is wide and its destination differs from its origin`(): List<DynamicTest> =
-        RippleCases.all.map { case ->
+    fun `every wide case's target is wide and its destination differs from its origin`(): List<DynamicTest> =
+        wideCases.map { case ->
             DynamicTest.dynamicTest(case.instanceId) {
                 assertTrue(case.expectedGoldReferences >= 100) { case.instanceId }
                 assertTrue(case.expectedGoldFiles >= 20) { case.instanceId }
@@ -210,6 +218,35 @@ class RippleCaseRegistryTest {
                 }
             }
         }
+
+    @TestFactory
+    fun `every case's behaviour preservation is written down`(): List<DynamicTest> =
+        RippleCases.all.map { case ->
+            DynamicTest.dynamicTest(case.instanceId) {
+                assertTrue(case.target.behaviourPreservationEvidence.isNotBlank()) {
+                    "${case.instanceId}: a case whose behaviour preservation is not written down " +
+                        "cannot be reviewed"
+                }
+            }
+        }
+
+    @Test
+    fun `each narrow case is the fan-out ablation of its wide twin, ambiguity held constant`() {
+        val pairs = listOf(
+            RippleCases.renameTypeWide to RippleCases.renameTypeNarrow,
+            RippleCases.changeSignatureWide to RippleCases.changeSignatureNarrow,
+        )
+        pairs.forEach { (wide, narrow) ->
+            assertTrue(wide.expectedGoldReferences >= 100) { wide.instanceId }
+            assertTrue(narrow.expectedGoldReferences in 5..20) { narrow.instanceId }
+            assertTrue(narrow.expectedGoldFiles <= 3) { narrow.instanceId }
+            assertTrue(narrow.expectedDecoyDeclarations >= 3) {
+                "${narrow.instanceId}: a narrow case without ambiguity varies two axes at once and " +
+                    "cannot isolate fan-out"
+            }
+            assertEquals(wide.target.kindId, narrow.target.kindId)
+        }
+    }
 
     @TestFactory
     fun `every prompt names its target and leaks neither mechanism nor answer`(): List<DynamicTest> =
@@ -301,22 +338,33 @@ class RippleCaseRegistryTest {
         assertEquals(9, case.compileGateModules.size)
     }
 
+    /**
+     * Every case gets its own post-condition text, built with ITS OWN target arity where the kind is
+     * `ChangeSignature` — [parseArityPredicate] throws on a mismatch between the script's measured
+     * arity and the case's expected one, so a single shared string (as the pilot's version of this
+     * test used) throws for [RippleCases.changeSignatureNarrow], whose arity differs from
+     * [RippleCases.changeSignatureWide]'s.
+     */
     @Test
-    fun `the change-signature case is the only one contributing an extra predicate`() {
-        val arityPost = """
-            POST_TOTAL_NEW_REFS 2
-            POST_ARITY_EXPECTED 1
-            POST_ARITY_MATCHING 2
-            POST_END
-        """.trimIndent()
-        assertEquals(
-            listOf(RippleCases.changeSignatureWide.instanceId),
-            RippleCases.all.filter { it.target.extraPredicates(arityPost).isNotEmpty() }
-                .map { it.instanceId },
-        ) { "P1 to P4 are the family contract; a kind adds its own only when it needs one" }
-        assertEquals(
-            setOf("P5_ARITY"),
-            RippleCases.changeSignatureWide.target.extraPredicates(arityPost).keys,
-        )
+    fun `only the change-signature kind contributes an extra predicate`() {
+        RippleCases.all.forEach { case ->
+            val arityPost = """
+                POST_TOTAL_NEW_REFS 2
+                POST_ARITY_EXPECTED ${(case.target as? ChangeSignature)?.newArity ?: 1}
+                POST_ARITY_MATCHING 2
+                POST_END
+            """.trimIndent()
+            val predicates = case.target.extraPredicates(arityPost)
+            if (case.target is ChangeSignature) {
+                assertEquals(setOf("P5_ARITY"), predicates.keys) {
+                    "${case.instanceId}: the change-signature kind must contribute P5_ARITY"
+                }
+            } else {
+                assertTrue(predicates.isEmpty()) {
+                    "${case.instanceId}: P1 to P4 are the family contract; a kind adds its own only " +
+                        "when it needs one"
+                }
+            }
+        }
     }
 }

@@ -1,0 +1,33 @@
+diff --git a/tests/utils/src/test/java/org/keycloak/tests/utils/RenameTypeNarrowContractTest.java b/tests/utils/src/test/java/org/keycloak/tests/utils/RenameTypeNarrowContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/tests/utils/src/test/java/org/keycloak/tests/utils/RenameTypeNarrowContractTest.java
+@@ -0,0 +1,28 @@
++package org.keycloak.tests.utils;
++
++import org.junit.jupiter.api.Test;
++
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.fail;
++
++/**
++ * Pins the renamed type. The new name must exist and the old one must be gone entirely — an alias
++ * left behind would let every caller keep compiling against a name the contract no longer has.
++ */
++public class RenameTypeNarrowContractTest {
++
++    @Test
++    public void newNameExists() throws Exception {
++        assertNotNull(Class.forName("org.keycloak.tests.utils.TestKeyUtils"));
++    }
++
++    @Test
++    public void oldNameIsGone() {
++        try {
++            Class.forName("org.keycloak.tests.utils.KeyUtils");
++            fail("org.keycloak.tests.utils.KeyUtils still resolves; the rename left an alias behind");
++        } catch (ClassNotFoundException expected) {
++            // the old type is gone, which is what this test asserts
++        }
++    }
++}
