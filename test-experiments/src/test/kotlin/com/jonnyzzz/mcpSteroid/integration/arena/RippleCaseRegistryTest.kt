@@ -206,12 +206,51 @@ class RippleCaseRegistryTest {
     }
 
     /**
-     * Scoped to the wide cases only — [RippleCases.renameTypeNarrow] and
-     * [RippleCases.changeSignatureNarrow] exist specifically to violate "wide" while holding
-     * everything else about their twin constant, so asserting this over [RippleCases.all] would fail
-     * the very cases built to be the exception.
+     * Derived from the registry, not a hand-maintained list: a case is "wide" exactly when it meets
+     * the same numeric band [`every wide case's target is wide...`] asserts below. A hardcoded list
+     * here (as this used to be) is a plain `List<RippleCase>` literal, so Kotlin raises no error when
+     * a new kind's wide case is missing from it — the wide-band checks would then silently never run
+     * for that kind. Deriving the membership makes that impossible: every case in [RippleCases.all]
+     * is classified, with no third state to fall into unnoticed.
      */
-    private val wideCases = listOf(RippleCases.renameMethodWide, RippleCases.renameTypeWide, RippleCases.changeSignatureWide)
+    private val wideCases = RippleCases.all.filter {
+        it.expectedGoldReferences >= 100 && it.expectedGoldFiles >= 20 && it.compileGateModules.size >= 4
+    }
+
+    /**
+     * The pilot ([RippleCases.renameMethodWide]) is the family's founding case. It predates the
+     * fan-out-ablation convention and was never given a narrow twin; every kind added after it
+     * (rename-type, change-signature, move-class, ...) comes as a wide/narrow pair by design. This is
+     * the one documented exception the derived checks below must not report as a defect — anything
+     * else with a wide case and no narrow twin, or a narrow case and no wide twin, is a real gap.
+     */
+    private val kindsWithoutAblationTwin = setOf(RippleCases.renameMethodWideTarget.kindId)
+
+    @Test
+    fun `every kind with a wide case has a narrow ablation twin, except the documented pilot exception`() {
+        val byKind = RippleCases.all.groupBy { it.target.kindId }
+        byKind.forEach { (kindId, cases) ->
+            val wide = cases.filter { it in wideCases }
+            val narrow = cases.filterNot { it in wideCases }
+            if (kindId in kindsWithoutAblationTwin) {
+                assertTrue(wide.isNotEmpty() && narrow.isEmpty()) {
+                    "'$kindId' is documented as having no ablation twin (wide-only), but found " +
+                        "wide=$wide narrow=$narrow"
+                }
+            } else {
+                assertTrue(wide.isNotEmpty()) {
+                    "'$kindId' has a narrow case ($narrow) but no wide case — every ablation twin " +
+                        "needs a wide case to be narrow relative to"
+                }
+                assertTrue(narrow.isNotEmpty()) {
+                    "'$kindId' has a wide case (${wide}) but no narrow ablation twin, and is not in " +
+                        "kindsWithoutAblationTwin — either add the twin or document the exception"
+                }
+                assertEquals(1, wide.size) { "'$kindId' has more than one wide case: $wide" }
+                assertEquals(1, narrow.size) { "'$kindId' has more than one narrow case: $narrow" }
+            }
+        }
+    }
 
     @TestFactory
     fun `every wide case's target is wide and its destination differs from its origin`(): List<DynamicTest> =
@@ -243,10 +282,18 @@ class RippleCaseRegistryTest {
 
     @Test
     fun `each narrow case is the fan-out ablation of its wide twin, ambiguity held constant`() {
-        val pairs = listOf(
-            RippleCases.renameTypeWide to RippleCases.renameTypeNarrow,
-            RippleCases.changeSignatureWide to RippleCases.changeSignatureNarrow,
-        )
+        // Paired by target.kindId, derived from the registry rather than hand-listed, so a kind
+        // that ships both a wide and a narrow case is checked here automatically — see
+        // `every kind with a wide case has a narrow ablation twin...` for what happens when a kind is
+        // missing one half of the pair; this test only runs on kinds that already have both.
+        val pairs = RippleCases.all.groupBy { it.target.kindId }
+            .filterKeys { it !in kindsWithoutAblationTwin }
+            .mapNotNull { (_, cases) ->
+                val wide = cases.singleOrNull { it in wideCases }
+                val narrow = cases.singleOrNull { it !in wideCases }
+                if (wide != null && narrow != null) wide to narrow else null
+            }
+        assertTrue(pairs.isNotEmpty()) { "No wide/narrow ablation pair found in the registry at all" }
         pairs.forEach { (wide, narrow) ->
             assertTrue(wide.expectedGoldReferences >= 100) { wide.instanceId }
             assertTrue(narrow.expectedGoldReferences in 5..20) { narrow.instanceId }
@@ -347,6 +394,21 @@ class RippleCaseRegistryTest {
         assertEquals(1, RippleCases.changeSignatureWideTarget.newArity)
         assertEquals(0, RippleCases.changeSignatureWideTarget.oldArity)
         assertEquals(9, case.compileGateModules.size)
+    }
+
+    @Test
+    fun `the move-class case's measured numbers are unchanged`() {
+        val case = RippleCases.moveClassWide
+        assertEquals(145, case.expectedGoldReferences)
+        assertEquals(50, case.expectedGoldFiles)
+        assertEquals(4, case.expectedDecoyDeclarations)
+        assertEquals(4, case.compileGateModules.size)
+        assertEquals(
+            "org.keycloak.models.workflow.resource", RippleCases.moveClassWideTarget.newPackage,
+        )
+        assertEquals(
+            "org.keycloak.models.workflow.resource.ResourceType", RippleCases.moveClassWideTarget.newFqn,
+        ) { "A move-class case must keep the simple name and change only the package" }
     }
 
     /**
