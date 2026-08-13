@@ -1,0 +1,31 @@
+diff --git a/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeContractTest.java b/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeContractTest.java
+@@ -0,0 +1,25 @@
++package org.keycloak.validate;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Pins the renamed type. The new name must exist and the old one must be gone entirely — an alias
++ * left behind would let every caller keep compiling against a name the contract no longer has.
++ */
++public class RenameTypeContractTest {
++
++    @Test
++    public void newNameExists() throws Exception {
++        Assert.assertNotNull(Class.forName("org.keycloak.validate.ValidationRunContext"));
++    }
++
++    @Test
++    public void oldNameIsGone() {
++        try {
++            Class.forName("org.keycloak.validate.ValidationContext");
++            Assert.fail("org.keycloak.validate.ValidationContext still resolves; the rename left an alias behind");
++        } catch (ClassNotFoundException expected) {
++            // the old type is gone, which is what this test asserts
++        }
++    }
++}
