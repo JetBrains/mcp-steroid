@@ -90,4 +90,27 @@ fun SurveyCandidate.qualifiesAsWide(): Boolean =
 fun SurveyCandidate.qualifiesAsNarrow(): Boolean =
     references in 5..20 && files <= 3 && sameNameDeclarations >= MIN_SAME_NAME_DECLARATIONS
 
-fun SurveyCandidate.qualifiesForPullUp(): Boolean = qualifiesAsWide() && hierarchyBreadth >= 8
+/**
+ * The inheritor count a pull-up destination must have. Shared with `RippleTargetSurveyScripts.pullUp`,
+ * which gates a supertype on it BEFORE searching any of its methods: the pre-gate and the verdict must
+ * be the same number, or the script would omit candidates the verdict would have accepted.
+ */
+const val MIN_PULL_UP_BREADTH = 8
+
+fun SurveyCandidate.qualifiesForPullUp(): Boolean =
+    qualifiesAsWide() && hierarchyBreadth >= MIN_PULL_UP_BREADTH
+
+/** One evaluated pull-up destination: a project-source interface supertype and its inheritor count. */
+data class PullUpSuperType(val fqn: String, val breadth: Int)
+
+/**
+ * Parse `SURVEY_PULLUP_SUPER` lines — every supertype the pull-up script evaluated, whether or not it
+ * cleared [MIN_PULL_UP_BREADTH]. This is the evidence behind a `NONE QUALIFYING` verdict: no candidate
+ * below the threshold is ever emitted, so the near-miss on breadth can only be read here.
+ */
+fun parsePullUpSuperTypes(output: String): List<PullUpSuperType> =
+    output.lines().map { it.trim() }.filter { it.startsWith("SURVEY_PULLUP_SUPER ") }.map { line ->
+        val parts = line.removePrefix("SURVEY_PULLUP_SUPER ").split('|')
+        check(parts.size == 2) { "Malformed SURVEY_PULLUP_SUPER line: $line" }
+        PullUpSuperType(fqn = parts[0], breadth = parts[1].toInt())
+    }

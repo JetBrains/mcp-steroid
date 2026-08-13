@@ -80,7 +80,9 @@ fun Test.configureExperimentalTest() {
 
     // Forward exact model-selection / pass-labeling system properties (used by DockerClaudeSession,
     // DockerCodexSession, and arena pass reporting) — these are precise keys, not a prefix family.
-    listOf("claude.model", "codex.model", "arena.pass.label")
+    // `ripple.survey.phases` selects which measurements KeycloakRippleTargetSurveyTest performs, so a
+    // locked slot is not re-measured at the cost of the IDE's whole budget.
+    listOf("claude.model", "codex.model", "arena.pass.label", "ripple.survey.phases")
         .forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
 
     dependsOn(pluginZip, agentOutputFilterDist, devrigPackageDist)

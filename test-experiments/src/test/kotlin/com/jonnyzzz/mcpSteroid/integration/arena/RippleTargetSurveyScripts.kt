@@ -15,8 +15,13 @@ package com.jonnyzzz.mcpSteroid.integration.arena
  *
  * Pull-up is measured on the SUBTYPE, not the interface: a candidate is a method declared on a class
  * that HAS a supertype which does not already declare a matching signature — pulling the method onto
- * a supertype that already has it is a no-op. [breadth] for a pull-up candidate is therefore the
+ * a supertype that already has it is a no-op. Breadth for a pull-up candidate is therefore the
  * inheritor count of that supertype, not of the declaring class.
+ *
+ * **Pull-up is a SEPARATE script ([pullUp]) from the other three kinds ([survey]).** Sharing one
+ * script killed the IDE mid-run twice: the pull-up query multiplies each candidate by its supertypes
+ * and its methods, and it cannot afford to spend the process's budget on kinds that are already
+ * pinned. Two calls also mean the cheap kinds' output survives a pull-up death.
  */
 object RippleTargetSurveyScripts {
 
@@ -26,7 +31,6 @@ object RippleTargetSurveyScripts {
         import com.intellij.psi.*
         import com.intellij.psi.search.GlobalSearchScope
         import com.intellij.psi.search.PsiShortNamesCache
-        import com.intellij.psi.search.searches.ClassInheritorsSearch
         import com.intellij.psi.search.searches.ReferencesSearch
 
         VirtualFileManager.getInstance().asyncRefresh()
@@ -35,7 +39,6 @@ object RippleTargetSurveyScripts {
         smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)
             val cache = PsiShortNamesCache.getInstance(project)
-            val breadthBySuperFqn = HashMap<String, Int>()
 
             fun emit(kind: String, owner: String, name: String, element: PsiElement, breadth: Int, sameName: Int) {
                 val refs = ReferencesSearch.search(element, scope).findAll()
@@ -63,10 +66,89 @@ object RippleTargetSurveyScripts {
                             emit("change-signature", fqn, method.name, method, 0, sameName)
                         }
                     }
-                    // Cheap name-index lookup first, on every candidate: resolving `candidate.supers`
-                    // below is a PSI resolve, not a cache read, and is too costly to pay for on every
-                    // one of the thousands of ambiguous-name candidates. Only candidates that already
-                    // have a name-ambiguous, non-static, non-private method are worth resolving supers for.
+                }
+            }
+            println("SURVEY_END")
+        }
+    """.trimIndent()
+
+    /**
+     * The pull-up query, alone, with the whole process budget to itself.
+     *
+     * Four narrowings, each of them a precondition of the verdict rather than a convenience — the
+     * un-narrowed query killed the IDE mid-script twice (once ~1600 candidates in, once at 396s with
+     * an empty reply):
+     *
+     * 1. **Breadth gates the SUPERTYPE before any of its methods are touched.** `breadth >= 8` is
+     *    already required of every qualifying pull-up candidate ([MIN_PULL_UP_BREADTH], shared with
+     *    [qualifiesForPullUp] so the pre-gate and the verdict cannot disagree), and breadth is a
+     *    property of the supertype alone. So one memoized inheritor search per supertype decides
+     *    whether that supertype is worth a single `findMethodsBySignature` or `ReferencesSearch`.
+     * 2. **Only a supertype that lives in project sources can receive a pulled-up method at all.** A
+     *    method cannot be pulled up into a library or JDK type — there is no source to change — so a
+     *    non-project supertype was never a candidate destination, only a cost.
+     * 3. **Only interfaces.** Every case in this family transforms an interface member, and a pull-up
+     *    onto an abstract class would additionally have to reason about field and constructor state
+     *    the family's behaviour-preservation argument does not cover.
+     * 4. **One emit per method, on its widest qualifying supertype.** A method with three qualifying
+     *    supertypes used to pay three `ReferencesSearch` calls for one identical reference set.
+     *
+     * Every supertype that was evaluated also prints `SURVEY_PULLUP_SUPER`, breadth included, before
+     * the gate applies. That costs one index line and no search, and it is what makes a
+     * `NONE QUALIFYING` verdict reportable: the best near-miss on breadth is in the output even
+     * though no candidate under the threshold is ever emitted.
+     */
+    fun pullUp(): String = """
+        import com.intellij.openapi.module.ModuleUtilCore
+        import com.intellij.openapi.vfs.VirtualFileManager
+        import com.intellij.psi.*
+        import com.intellij.psi.search.GlobalSearchScope
+        import com.intellij.psi.search.PsiShortNamesCache
+        import com.intellij.psi.search.searches.ClassInheritorsSearch
+        import com.intellij.psi.search.searches.ReferencesSearch
+
+        VirtualFileManager.getInstance().asyncRefresh()
+        waitForSmartMode()
+
+        smartReadAction(project) {
+            val scope = GlobalSearchScope.projectScope(project)
+            val cache = PsiShortNamesCache.getInstance(project)
+            val breadthBySuperFqn = HashMap<String, Int>()
+
+            fun emit(kind: String, owner: String, name: String, element: PsiElement, breadth: Int, sameName: Int) {
+                val refs = ReferencesSearch.search(element, scope).findAll()
+                if (refs.isEmpty()) return
+                val files = refs.mapNotNull { it.element.containingFile?.virtualFile?.path }.toSet()
+                val modules = refs.mapNotNull {
+                    it.element.containingFile?.virtualFile?.let { f -> ModuleUtilCore.findModuleForFile(f, project)?.name }
+                }.toSet()
+                println("SURVEY_CANDIDATE " + kind + "|" + owner + "|" + name + "|" +
+                    refs.size + "|" + files.size + "|" + modules.size + "|" + sameName + "|" + breadth)
+            }
+
+            // Breadth of a supertype, memoized, printed once, and only ever computed for a supertype
+            // that is a project-source interface — the two properties that make it a possible
+            // destination in the first place, both readable without a search.
+            fun destinationBreadth(superType: PsiClass): Int? {
+                val superFqn = superType.qualifiedName ?: return null
+                if (superFqn == "java.lang.Object") return null
+                if (!superType.isInterface) return null
+                val superFile = superType.containingFile?.virtualFile ?: return null
+                if (!scope.contains(superFile)) return null
+                breadthBySuperFqn[superFqn]?.let { return it }
+                val breadth = ClassInheritorsSearch.search(superType, scope, true).findAll().size
+                breadthBySuperFqn[superFqn] = breadth
+                println("SURVEY_PULLUP_SUPER " + superFqn + "|" + breadth)
+                return breadth
+            }
+
+            for (simpleName in cache.allClassNames.toList()) {
+                val classes = cache.getClassesByName(simpleName, scope)
+                if (classes.size < 2) continue      // no lexical ambiguity, skip early
+                for (candidate in classes) {
+                    val fqn = candidate.qualifiedName ?: continue
+                    // Cheap name-index lookup first: resolving `candidate.supers` is a PSI resolve,
+                    // not a cache read, and is too costly on every one of thousands of candidates.
                     val ambiguousMethods = candidate.methods.filter { method ->
                         !method.hasModifierProperty(PsiModifier.STATIC) &&
                             !method.hasModifierProperty(PsiModifier.PRIVATE) &&
@@ -74,23 +156,18 @@ object RippleTargetSurveyScripts {
                     }
                     if (ambiguousMethods.isEmpty()) continue
 
-                    for (superType in candidate.supers) {
-                        val superFqn = superType.qualifiedName ?: continue
-                        if (superFqn == "java.lang.Object") continue
-                        for (method in ambiguousMethods) {
-                            if (superType.findMethodsBySignature(method, true).isNotEmpty()) continue
-                            val sameName = cache.getMethodsByName(method.name, scope).size - 1
-                            // Memoized per supertype: breadth is a property of the SUPERTYPE alone, so
-                            // recomputing it per method (and again for every subtype that shares the
-                            // supertype) re-walks the same inheritor set thousands of times. That is
-                            // what exhausted the IDE mid-run — the un-memoized query killed the IDE
-                            // ~1600 candidates in, while the whole survey is ~3400. Same numbers, one
-                            // search per supertype.
-                            val pullUpBreadth = breadthBySuperFqn.getOrPut(superFqn) {
-                                ClassInheritorsSearch.search(superType, scope, true).findAll().size
-                            }
-                            emit("pull-up", fqn, method.name, method, pullUpBreadth, sameName)
-                        }
+                    val destinations = candidate.supers
+                        .mapNotNull { s -> destinationBreadth(s)?.let { b -> s to b } }
+                        .filter { (_, breadth) -> breadth >= $MIN_PULL_UP_BREADTH }
+                        .sortedByDescending { (_, breadth) -> breadth }
+                    if (destinations.isEmpty()) continue
+
+                    for (method in ambiguousMethods) {
+                        val best = destinations.firstOrNull { (superType, _) ->
+                            superType.findMethodsBySignature(method, true).isEmpty()
+                        } ?: continue
+                        emit("pull-up", fqn, method.name, method, best.second,
+                            cache.getMethodsByName(method.name, scope).size - 1)
                     }
                 }
             }

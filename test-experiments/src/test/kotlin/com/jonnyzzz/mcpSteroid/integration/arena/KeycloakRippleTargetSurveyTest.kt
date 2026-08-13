@@ -22,8 +22,35 @@ import java.util.concurrent.TimeUnit
  * No agent, no oracle, no grading — this run only prints. Its output is transcribed into the case
  * registry as pinned constants, and `RippleCaseRegistryTest` later asserts the registry matches what
  * was transcribed.
+ *
+ * **Phases are selectable, and each is its own `execute_code` call.** Once a kind's numbers are
+ * transcribed and locked, re-measuring it buys nothing and costs the IDE's whole budget — which is
+ * how the pull-up query came to die twice sharing a script with three already-pinned kinds. Pass
+ * `-Dripple.survey.phases=<csv>` to run a subset; the default runs everything.
  */
 class KeycloakRippleTargetSurveyTest {
+
+    /** One measurement the survey can perform, selected by [SURVEY_PHASES_PROPERTY]. */
+    enum class SurveyPhase(val id: String) {
+        /** rename-type, change-signature and move-class in one script — SLOTs 1-6, all pinned. */
+        KINDS("kinds"),
+
+        /** The pull-up query alone, with the whole process budget — SLOT 7. */
+        PULL_UP("pull-up"),
+
+        /** Reads the two change-signature cases' pinned decoy counts back out of the index. */
+        DECOYS("decoys"),
+    }
+
+    private fun selectedPhases(): List<SurveyPhase> {
+        val raw = System.getProperty(SURVEY_PHASES_PROPERTY)?.trim()
+        if (raw.isNullOrEmpty()) return SurveyPhase.entries.toList()
+        val ids = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        return ids.map { id ->
+            SurveyPhase.entries.firstOrNull { it.id == id }
+                ?: error("Unknown survey phase '$id'. Known: ${SurveyPhase.entries.joinToString { it.id }}")
+        }
+    }
 
     @Test
     @Timeout(value = 180, unit = TimeUnit.MINUTES)
@@ -57,35 +84,73 @@ class KeycloakRippleTargetSurveyTest {
                 requireCleanCompile = false,
             )
 
-            val output = session.mcpSteroid.mcpExecuteCode(
-                code = RippleTargetSurveyScripts.survey(),
-                reason = "Survey Keycloak for qualifying ripple targets of every transformation kind",
-                taskId = "ripple-target-survey",
-                timeout = 3_600,
-            ).stdout
-
-            val candidates = parseSurveyCandidates(output)
-            assertTrue(candidates.isNotEmpty()) { "The survey found no candidates at all:\n$output" }
-
-            fun report(label: String, qualified: List<SurveyCandidate>) {
-                println("[SURVEY] $label — ${qualified.size} qualifying")
-                qualified.sortedByDescending { it.references }.take(10).forEach {
-                    println("[SURVEY]   ${it.ownerFqn}#${it.name} refs=${it.references} files=${it.files} " +
-                        "modules=${it.modules} sameName=${it.sameNameDeclarations} breadth=${it.hierarchyBreadth}")
+            val phases = selectedPhases()
+            println("[SURVEY] phases: ${phases.joinToString { it.id }}")
+            for (phase in phases) {
+                when (phase) {
+                    SurveyPhase.KINDS -> surveyCheapKinds(session)
+                    SurveyPhase.PULL_UP -> surveyPullUp(session)
+                    SurveyPhase.DECOYS -> verifyPinnedDecoyCounts(session)
                 }
             }
-
-            for (kind in listOf("rename-type", "change-signature", "move-class")) {
-                val ofKind = candidates.filter { it.kind == kind }
-                report("$kind WIDE", ofKind.filter { it.qualifiesAsWide() })
-                report("$kind NARROW", ofKind.filter { it.qualifiesAsNarrow() })
-            }
-            report("pull-up", candidates.filter { it.kind == "pull-up" && it.qualifiesForPullUp() })
-
-            verifyPinnedDecoyCounts(session)
         } finally {
             lifetime.closeAllStacks()
         }
+    }
+
+    private fun report(label: String, qualified: List<SurveyCandidate>) {
+        println("[SURVEY] $label — ${qualified.size} qualifying")
+        qualified.sortedByDescending { it.references }.take(10).forEach {
+            println("[SURVEY]   ${it.ownerFqn}#${it.name} refs=${it.references} files=${it.files} " +
+                "modules=${it.modules} sameName=${it.sameNameDeclarations} breadth=${it.hierarchyBreadth}")
+        }
+    }
+
+    /** rename-type, change-signature and move-class — the three kinds one script can afford together. */
+    private fun surveyCheapKinds(session: IntelliJContainer) {
+        val output = session.mcpSteroid.mcpExecuteCode(
+            code = RippleTargetSurveyScripts.survey(),
+            reason = "Survey Keycloak for qualifying rename-type, change-signature and move-class targets",
+            taskId = "ripple-target-survey",
+            timeout = 3_600,
+        ).stdout
+
+        val candidates = parseSurveyCandidates(output)
+        assertTrue(candidates.isNotEmpty()) { "The survey found no candidates at all:\n$output" }
+        for (kind in listOf("rename-type", "change-signature", "move-class")) {
+            val ofKind = candidates.filter { it.kind == kind }
+            report("$kind WIDE", ofKind.filter { it.qualifiesAsWide() })
+            report("$kind NARROW", ofKind.filter { it.qualifiesAsNarrow() })
+        }
+    }
+
+    /**
+     * The pull-up query on its own call, and the near-miss evidence a `NONE QUALIFYING` verdict needs.
+     *
+     * The script emits no candidate whose destination is below [MIN_PULL_UP_BREADTH] — that gate is
+     * what makes the query survivable — so the breadth near-miss is read from the `SURVEY_PULLUP_SUPER`
+     * lines, which cost one index line per evaluated supertype and no search.
+     */
+    private fun surveyPullUp(session: IntelliJContainer) {
+        val output = session.mcpSteroid.mcpExecuteCode(
+            code = RippleTargetSurveyScripts.pullUp(),
+            reason = "Survey Keycloak for qualifying pull-up targets",
+            taskId = "ripple-pull-up-survey",
+            timeout = 3_600,
+        ).stdout
+
+        val candidates = parseSurveyCandidates(output).filter { it.kind == "pull-up" }
+        val supers = parsePullUpSuperTypes(output)
+        println("[SURVEY] pull-up destinations evaluated: ${supers.size}, " +
+            "of them at breadth >= $MIN_PULL_UP_BREADTH: ${supers.count { it.breadth >= MIN_PULL_UP_BREADTH }}")
+        supers.sortedByDescending { it.breadth }.take(10).forEach {
+            println("[SURVEY]   destination ${it.fqn} breadth=${it.breadth}")
+        }
+        report("pull-up", candidates.filter { it.qualifiesForPullUp() })
+        // Every candidate the script emitted already clears breadth, so a candidate listed here failed
+        // one of the wide thresholds — which one is exactly what a NONE QUALIFYING verdict must name.
+        report("pull-up NEAR-MISS (breadth cleared, wide thresholds not)",
+            candidates.filterNot { it.qualifiesForPullUp() })
     }
 
     /**
@@ -118,5 +183,10 @@ class KeycloakRippleTargetSurveyTest {
             println("[DECOY-VERIFY] ${target.targetDescription}: measured decoys=${found.decoys} " +
                 "(same simple name=${found.sameSimpleName}), pinned=$pin — $verdict")
         }
+    }
+
+    companion object {
+        /** Comma-separated [SurveyPhase.id] values; unset runs every phase. */
+        const val SURVEY_PHASES_PROPERTY = "ripple.survey.phases"
     }
 }

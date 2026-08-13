@@ -56,6 +56,36 @@ class RippleTargetSurveyTest {
     }
 
     @Test
+    fun `evaluated pull-up destinations parse, including the ones below the threshold`() {
+        val supers = parsePullUpSuperTypes("""
+            SURVEY_PULLUP_SUPER org.keycloak.models.UserModel|31
+            SURVEY_PULLUP_SUPER org.keycloak.a.Narrow|2
+            SURVEY_CANDIDATE pull-up|org.keycloak.a.Deep|handle|140|33|6|3|12
+            SURVEY_END
+        """.trimIndent())
+        assertEquals(2, supers.size)
+        assertEquals(31, supers.first().breadth)
+        // The sub-threshold destination must survive parsing: it is the only near-miss evidence there
+        // is, since the script emits no candidate for it.
+        assertEquals(2, supers.last().breadth)
+        assertTrue(supers.last().breadth < MIN_PULL_UP_BREADTH)
+    }
+
+    @Test
+    fun `the pull-up breadth threshold is the one the script gates on`() {
+        // The script interpolates MIN_PULL_UP_BREADTH into its supertype pre-gate. If the two ever
+        // diverged, the survey would silently omit candidates that qualify.
+        assertTrue(RippleTargetSurveyScripts.pullUp().contains("breadth >= $MIN_PULL_UP_BREADTH"))
+    }
+
+    @Test
+    fun `the cheap-kinds script does not carry the pull-up query`() {
+        // Sharing one script is what killed the IDE mid-run; the split is the fix and must stay.
+        assertFalse(RippleTargetSurveyScripts.survey().contains("pull-up"))
+        assertFalse(RippleTargetSurveyScripts.survey().contains("ClassInheritorsSearch"))
+    }
+
+    @Test
     fun `decoy verifications parse the measured count the pins must equal`() {
         val verified = parseDecoyVerifications("""
             DECOY_VERIFY org.keycloak.authorization.model.Resource#getId|1022|1018
