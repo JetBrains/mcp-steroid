@@ -35,6 +35,7 @@ object RippleTargetSurveyScripts {
         smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)
             val cache = PsiShortNamesCache.getInstance(project)
+            val breadthBySuperFqn = HashMap<String, Int>()
 
             fun emit(kind: String, owner: String, name: String, element: PsiElement, breadth: Int, sameName: Int) {
                 val refs = ReferencesSearch.search(element, scope).findAll()
@@ -79,7 +80,15 @@ object RippleTargetSurveyScripts {
                         for (method in ambiguousMethods) {
                             if (superType.findMethodsBySignature(method, true).isNotEmpty()) continue
                             val sameName = cache.getMethodsByName(method.name, scope).size - 1
-                            val pullUpBreadth = ClassInheritorsSearch.search(superType, scope, true).findAll().size
+                            // Memoized per supertype: breadth is a property of the SUPERTYPE alone, so
+                            // recomputing it per method (and again for every subtype that shares the
+                            // supertype) re-walks the same inheritor set thousands of times. That is
+                            // what exhausted the IDE mid-run — the un-memoized query killed the IDE
+                            // ~1600 candidates in, while the whole survey is ~3400. Same numbers, one
+                            // search per supertype.
+                            val pullUpBreadth = breadthBySuperFqn.getOrPut(superFqn) {
+                                ClassInheritorsSearch.search(superType, scope, true).findAll().size
+                            }
                             emit("pull-up", fqn, method.name, method, pullUpBreadth, sameName)
                         }
                     }
