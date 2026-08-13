@@ -316,6 +316,18 @@
   Both #412 AS-lane runs log `JDK: 25.0.2` in idea.log for AI-261.26222.65 (2026.1.3). The
   bytecode-21 gate itself stays valuable (issue #157: older AS + minimum-supported baselines), but
   the KDoc's "AS 2026.1 bundles JBR 21" premise is stale and should be reworded against reality.
+- [ ] **A `--tests '*FooTest*'` glob silently starts a Docker run when a Docker test's class name ENDS
+  WITH the unit test's name.** Gradle's `--tests` patterns match the fully-qualified name, so
+  `*RippleTargetSurveyTest*` selects both `RippleTargetSurveyTest` (pure parser unit tests, ~0.01 s)
+  and `KeycloakRippleTargetSurveyTest` (a full IntelliJ container). A command documented as "the unit
+  tests, seconds, no Docker" then burns ~6 minutes on a container, and the pattern is invisible in the
+  Gradle output until a `[IDE]` line scrolls past — this was mistaken for deliberate re-runs when
+  reading a session's history. Remedy: select the fully-qualified class,
+  `--tests 'com.jonnyzzz.mcpSteroid.integration.arena.RippleTargetSurveyTest'`, whenever a
+  same-suffix Docker sibling exists. The naming convention `<Project><Feature>Test` for the Docker
+  case beside `<Feature>Test` for its unit test makes this collision the default rather than the
+  exception, so it is worth either a naming rule (Docker cases get a distinct suffix) or a note in
+  the per-module guides.
 
 - [ ] **Console mode prints a JSON payload as one minified line (#284)**: `devrig list_projects` (and any
   generated tool whose result is a single JSON text item) emits one long minified blob, because
