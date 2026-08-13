@@ -101,6 +101,57 @@ internal fun isIndexingInProgress(text: String): Boolean = text.contains(INDEXIN
 fun isProjectNotFound(text: String, projectName: String): Boolean =
     text.contains("Project not found: \"$projectName\"")
 
+/**
+ * The prefix of the modality-gate failure `ScriptExecutor.requireNonModalOrFail` raises when a
+ * non-modal profile meets an elevated-modality EDT. Mirrors the server text, the same documented
+ * tool-result coupling as [INDEXING_IN_PROGRESS_MARKER].
+ */
+const val MODALITY_GATE_MARKER = "requires a non-modal IDE, but "
+
+/**
+ * The gate's variant detail for "modality was there when the gate looked, and there was nothing to
+ * wait for when the pre-flight looked" — i.e. modality was entered BETWEEN the two checks. The two
+ * other variants the gate can report are deliberately NOT this string: a surviving modal dialog
+ * window, and a dialog-less progress that outlived the bounded wait.
+ */
+const val TRANSIENT_MODALITY_DETAIL = "a modal dialog/progress is present and could not be cleared"
+
+/**
+ * How long to keep re-issuing an exec_code that lost the modality race. Chosen at the plugin's own
+ * dialog-less modality bound (`mcp.steroid.execution.dialogless.modal.wait.ms`, default 120s): the
+ * race window itself is milliseconds wide, so the budget only has to outlast the burst of write
+ * actions that keeps re-entering modality — a project-open + build-model-import storm. Deliberately
+ * NOT the hour-long [INDEXING_POLL_BUDGET_MS]: an IDE that cannot offer a single non-modal instant
+ * in two minutes is a problem to surface, not to wait out, and every attempt prints a line so the
+ * console never goes quiet while the budget burns.
+ */
+private const val MODALITY_RACE_RETRY_BUDGET_MS = 120_000L
+
+/**
+ * Pure: is this tool-result text the transient modality race — the failure mode where the
+ * `smart_non_modal` pre-flight found no modality to wait for, modality was then entered by a
+ * concurrent write-action storm, and the gate's own check observed it milliseconds later?
+ *
+ * Only that variant is transient. A modal dialog window that survived the sweep, and a dialog-less
+ * progress that outlived the bounded wait, are both states the IDE has actually settled INTO — a
+ * retry there would hide a real problem (a stuck dialog, a genuinely wedged IDE) behind a silent
+ * loop, which is the failure the harness's fail-fast-on-modal rules exist to prevent.
+ */
+fun isTransientModalityRace(text: String): Boolean =
+    text.contains(MODALITY_GATE_MARKER) && text.contains(TRANSIENT_MODALITY_DETAIL)
+
+/**
+ * Pure: should an exec_code that came back with [text] be re-issued, given how long the caller has
+ * already been losing the modality race? Bounded by [budgetMs] so an unrecoverable state fails with
+ * the ORIGINAL gate error instead of looping — the caller returns the failing result untouched once
+ * this says no.
+ */
+fun shouldRetryModalityRace(
+    text: String,
+    elapsedSinceFirstRaceMs: Long,
+    budgetMs: Long = MODALITY_RACE_RETRY_BUDGET_MS,
+): Boolean = isTransientModalityRace(text) && elapsedSinceFirstRaceMs < budgetMs
+
 /** The message the plugin logs (SteroidsMcpServer) when its MCP web server cannot start. */
 internal const val MCP_SERVER_STARTUP_FAILURE_MARKER = "Failed to start MCP server"
 
@@ -552,6 +603,10 @@ try {
         // instead of being retried for the whole indexing budget.
         var effectiveProjectName = projectName ?: resolveProjectName()
 
+        // When the modality race was first observed, so its retry budget is measured from the first
+        // loss and not from the start of the call (which may have spent minutes polling indexing).
+        var firstModalityRaceAtMs: Long? = null
+
         // Retry-while-busy, the same way an agent would: just call again. The exception types from the
         // request layer drive the wait, so no try/catch is needed here: a transient TransientMcpRequestException
         // (IDE too busy to answer, curl killed, exit -1) is a plain exception that waitFor swallows-and-retries,
@@ -576,6 +631,28 @@ try {
                         effectiveProjectName = freshName
                         null // retry with the fresh routing key
                     } else result
+                }
+
+                // The `smart_non_modal` pre-flight checks for modality to wait out, then the gate
+                // requires non-modality — and a write-action storm (project open + build-model
+                // import on a 189-module project) can enter modality between the two. The wait sees
+                // nothing to wait for, the gate sees modality, and no budget can close a race: the
+                // only fix is to ask again for another instant. Bounded, logged, and only for the
+                // transient variant — see [isTransientModalityRace]. On exhaustion the failing
+                // result is returned as-is, so the caller's assertExitCode reports the original
+                // gate error with its screenshot and thread-dump pointers.
+                result.exitCode != 0 && isTransientModalityRace(result.stdout) -> {
+                    val firstAt = firstModalityRaceAtMs ?: System.currentTimeMillis().also { firstModalityRaceAtMs = it }
+                    val elapsed = System.currentTimeMillis() - firstAt
+                    if (shouldRetryModalityRace(result.stdout, elapsed)) {
+                        println("[MCP] exec_code '$taskId' lost the modality race (IDE entered modality " +
+                            "between the pre-flight wait and the gate) — retrying, ${elapsed}ms spent so far")
+                        null
+                    } else {
+                        println("[MCP] exec_code '$taskId' kept losing the modality race for ${elapsed}ms — " +
+                            "giving up and failing with the IDE's own gate error")
+                        result
+                    }
                 }
 
                 else -> result

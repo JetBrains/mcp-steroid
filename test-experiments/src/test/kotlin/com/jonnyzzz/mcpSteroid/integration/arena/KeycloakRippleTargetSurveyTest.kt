@@ -43,9 +43,11 @@ class KeycloakRippleTargetSurveyTest {
                 aiMode = AiMode.NONE,
                 mcpConnectionMode = McpConnectionMode.None,
                 mountDockerSocket = false,
-                // Keycloak is the largest project this harness imports (189 modules), and its
-                // cold-start VFS-refresh/indexing storm outruns the plugin's 120s dialog-less
-                // modality bound, failing the smart_non_modal gate before any survey work runs.
+                // Keycloak is the largest project this harness imports (189 modules) and its
+                // cold-start VFS-refresh/import storm is the longest. The raised bound covers a
+                // dialog-less modal progress that is ALREADY up when a script arrives; the storm's
+                // other shape — modality entered between the pre-flight wait and the gate — is a
+                // race no bound can close, and `mcpExecuteCode` retries that one.
                 dialoglessModalWaitMs = 600_000,
             )).waitForProjectReady(
                 timeoutMillis = SemanticRippleSpec.projectReadyTimeoutMs,
@@ -79,8 +81,42 @@ class KeycloakRippleTargetSurveyTest {
                 report("$kind NARROW", ofKind.filter { it.qualifiesAsNarrow() })
             }
             report("pull-up", candidates.filter { it.kind == "pull-up" && it.qualifiesForPullUp() })
+
+            verifyPinnedDecoyCounts(session)
         } finally {
             lifetime.closeAllStacks()
+        }
+    }
+
+    /**
+     * Read the two change-signature cases' decoy counts back out of the index, in the same container
+     * that just surveyed it.
+     *
+     * Both pins were arrived at by subtracting hand-counted implementers from a grepped total, and a
+     * wrong `expectedDecoyDeclarations` aborts its case before the agent ever runs — so the number
+     * has to come from the same code the capture uses. Reported, never asserted: this class prints
+     * measurements for transcription, and a mismatch is a registry edit, not a broken harness.
+     */
+    private fun verifyPinnedDecoyCounts(session: IntelliJContainer) {
+        val pinned = listOf(
+            RippleCases.changeSignatureWideTarget to RippleCases.changeSignatureWide.expectedDecoyDeclarations,
+            RippleCases.changeSignatureNarrowTarget to RippleCases.changeSignatureNarrow.expectedDecoyDeclarations,
+        )
+        val script = pinned.joinToString("\n") { (target, _) -> target.decoyCountFragment() }
+        val output = session.mcpSteroid.mcpExecuteCode(
+            code = RippleOracleScripts.preamble + "\n" + script,
+            reason = "Verify the pinned change-signature decoy counts against the index",
+            taskId = "ripple-decoy-verify",
+            timeout = 1_800,
+        ).stdout
+
+        val measured = parseDecoyVerifications(output).associateBy { it.targetDescription }
+        for ((target, pin) in pinned) {
+            val found = measured[target.targetDescription]
+                ?: error("No DECOY_VERIFY line for ${target.targetDescription}:\n$output")
+            val verdict = if (found.decoys == pin) "MATCHES" else "MISMATCH — the pin would abort this case"
+            println("[DECOY-VERIFY] ${target.targetDescription}: measured decoys=${found.decoys} " +
+                "(same simple name=${found.sameSimpleName}), pinned=$pin — $verdict")
         }
     }
 }

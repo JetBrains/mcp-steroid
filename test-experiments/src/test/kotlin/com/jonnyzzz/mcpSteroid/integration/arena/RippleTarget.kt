@@ -408,6 +408,39 @@ data class ChangeSignature(
         }
     """.trimIndent()
 
+    /**
+     * Reads back JUST the decoy COUNT this kind's capture would produce, as
+     * `DECOY_VERIFY <fqn>#<name>|<sameSimpleName>|<decoys>`.
+     *
+     * It exists because a pinned `expectedDecoyDeclarations` is a tripwire that aborts its case
+     * before the agent runs, and both change-signature pins were arrived at arithmetically — a
+     * measured same-simple-name total minus implementers counted by hand. That subtraction is
+     * exactly what [decoyKeyHelper]'s `relatedClasses` does from the hierarchy, so this fragment
+     * reuses that code verbatim rather than restating the rule: a verification that re-implements
+     * the rule it verifies can agree with the pin and still be wrong about the capture.
+     */
+    fun decoyCountFragment(): String = """
+        smartReadAction(project) {
+            val scope = GlobalSearchScope.projectScope(project)
+            val cache = PsiShortNamesCache.getInstance(project)
+${decoyKeyHelper().prependIndent("            ")}
+
+            val all = cache.getMethodsByName("$methodName", scope).toList()
+            val target = all.firstOrNull {
+                it.containingClass?.qualifiedName == "$targetClassFqn" &&
+                    it.parameterList.parametersCount == $oldArity
+            } ?: error("Target $targetClassFqn#$methodName with $oldArity parameters not found")
+
+            val related = relatedClasses(target.containingClass!!)
+            val decoys = all.filter { m -> m.containingClass?.let { it in related } != true }
+            println("DECOY_VERIFY $targetClassFqn#$methodName|" + all.size + "|" + decoys.size)
+            for (excluded in all.filter { m -> m.containingClass?.let { it in related } == true }) {
+                println("DECOY_EXCLUDED " + decoyKey(excluded))
+            }
+            println("DECOY_VERIFY_END")
+        }
+    """.trimIndent()
+
     override fun captureFragment(): String = """
         smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)

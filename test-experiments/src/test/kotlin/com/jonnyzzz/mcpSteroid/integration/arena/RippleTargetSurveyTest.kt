@@ -56,6 +56,29 @@ class RippleTargetSurveyTest {
     }
 
     @Test
+    fun `decoy verifications parse the measured count the pins must equal`() {
+        val verified = parseDecoyVerifications("""
+            DECOY_VERIFY org.keycloak.authorization.model.Resource#getId|1022|1018
+            DECOY_EXCLUDED org.keycloak.models.cache.infinispan.authorization.ResourceAdapter#getId()
+            DECOY_VERIFY org.keycloak.userprofile.Attributes#contains|20|18
+            DECOY_VERIFY_END
+        """.trimIndent())
+        assertEquals(2, verified.size)
+        assertEquals("org.keycloak.authorization.model.Resource#getId", verified.first().targetDescription)
+        assertEquals(1022, verified.first().sameSimpleName)
+        assertEquals(1018, verified.first().decoys)
+        assertEquals(18, verified.last().decoys)
+    }
+
+    @Test
+    fun `a truncated decoy verification fails loudly rather than confirming a pin`() {
+        val e = assertThrows(IllegalStateException::class.java) {
+            parseDecoyVerifications("DECOY_VERIFY org.keycloak.userprofile.Attributes#contains|20|18")
+        }
+        assertTrue(e.message!!.contains("DECOY_VERIFY_END")) { "Message must name the terminator: ${e.message}" }
+    }
+
+    @Test
     fun `pull-up requires hierarchy breadth on top of a wide fan-out`() {
         val byName = parseSurveyCandidates(output).associateBy { it.name }
         assertTrue(byName.getValue("handle").qualifiesForPullUp())

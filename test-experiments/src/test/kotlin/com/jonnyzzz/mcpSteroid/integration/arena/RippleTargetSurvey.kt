@@ -46,6 +46,41 @@ fun parseSurveyCandidates(output: String): List<SurveyCandidate> {
     }
 }
 
+/**
+ * A read-back of one change-signature target's decoy count, measured through the index under the very
+ * exclusion rule the capture script applies.
+ *
+ * [sameSimpleName] counts every declaration of the simple name in the project, the target included;
+ * [decoys] is what remains once the target's own override family is excluded, and is therefore the
+ * number a case's `expectedDecoyDeclarations` must equal.
+ */
+data class DecoyVerification(
+    val targetDescription: String,
+    val sameSimpleName: Int,
+    val decoys: Int,
+)
+
+/**
+ * Parse `DECOY_VERIFY` lines. Terminator-checked for the same reason the candidate parser is: a
+ * truncated run would otherwise hand back a plausible-looking count that no complete measurement
+ * stands behind, and the whole point of this read-back is to replace arithmetic with measurement.
+ */
+fun parseDecoyVerifications(output: String): List<DecoyVerification> {
+    val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    check(lines.any { it == "DECOY_VERIFY_END" }) {
+        "Decoy verification output has no DECOY_VERIFY_END terminator — the script was truncated or failed:\n$output"
+    }
+    return lines.filter { it.startsWith("DECOY_VERIFY ") }.map { line ->
+        val parts = line.removePrefix("DECOY_VERIFY ").split('|')
+        check(parts.size == 3) { "Malformed DECOY_VERIFY line: $line" }
+        DecoyVerification(
+            targetDescription = parts[0],
+            sameSimpleName = parts[1].toInt(),
+            decoys = parts[2].toInt(),
+        )
+    }
+}
+
 /** Lexical ambiguity is required of BOTH members of a wide/narrow pair, so the pair varies fan-out alone. */
 private const val MIN_SAME_NAME_DECLARATIONS = 3
 
