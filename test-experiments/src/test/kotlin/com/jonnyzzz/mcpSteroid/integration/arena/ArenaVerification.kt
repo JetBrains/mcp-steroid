@@ -326,6 +326,34 @@ fun failToPassFilePaths(testPatch: String, failToPass: List<String>): Set<String
     }
 }
 
+/**
+ * The lines that differ between two versions of one file, as `-`/`+` markers, bounded.
+ *
+ * A `tampered` verdict voids a run, and until now it was carried by a hash comparison alone: the report
+ * said a FAIL_TO_PASS file changed and nothing about how. Build 1029045444 lost an otherwise perfect mcp
+ * arm to exactly that — no mutating call against the file anywhere in the transcript, so the flag was an
+ * accusation without evidence and the pair could be neither counted nor honestly discarded. A whitespace
+ * rewrite by the project's own formatter and an agent editing an assertion are the same hash change and
+ * completely different findings, so the difference has to be printed.
+ *
+ * Line-set based rather than a real diff: the point is to make the change legible, and a moved line
+ * shown twice is a smaller sin than pulling in a diff library for a diagnostic.
+ */
+fun compactLineDiff(before: String, after: String, maxLines: Int = 40): String {
+    fun meaningfulLines(text: String) = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    if (meaningfulLines(before) == meaningfulLines(after)) {
+        return "no non-whitespace line differs — the change is indentation, blank lines or line endings " +
+            "only, which the project's own formatter produces and an agent editing an assertion does not"
+    }
+    val beforeLines = before.lines()
+    val afterLines = after.lines()
+    val removed = beforeLines.filterNot { it in afterLines.toSet() }
+    val added = afterLines.filterNot { it in beforeLines.toSet() }
+    val body = removed.map { "-$it" } + added.map { "+$it" }
+    return body.take(maxLines).joinToString("\n") +
+        if (body.size > maxLines) "\n… ${body.size - maxLines} more differing line(s)" else ""
+}
+
 /** Paths whose hash differs between [before] and [after]; a file appearing or vanishing counts. */
 fun changedPaths(before: Map<String, String>, after: Map<String, String>): List<String> =
     (before.keys + after.keys).sorted().filter { before[it] != after[it] }
@@ -403,6 +431,21 @@ class ArenaVerifier(
     /** sha256 of every test-patch file, taken BEFORE the agent runs. Path → hash; missing files map to "ABSENT". */
     fun snapshotTestFiles(testPatch: String): Map<String, String> =
         hashTestFiles(extractPatchFilePaths(testPatch))
+
+    /**
+     * Contents of the files that DEFINE the FAIL_TO_PASS classes, taken before the agent, so a later
+     * tamper verdict can show what changed instead of only asserting that something did — see
+     * [compactLineDiff]. Oracle files are a handful of small test sources, so keeping them costs
+     * nothing.
+     */
+    fun snapshotOracleContents(testPatch: String, failToPass: List<String>): Map<String, String> =
+        failToPassFilePaths(testPatch, failToPass).associateWith { path -> readProjectFile(path) }
+
+    private fun readProjectFile(path: String): String = bash(
+        "if [ -f '$projectDir/$path' ]; then cat '$projectDir/$path'; fi",
+        timeoutSeconds = 60,
+        description = "Read $path",
+    ).stdout
 
     /**
      * Let the project's own code formatter rewrite the working tree once, so the pre-agent snapshot
@@ -676,6 +719,8 @@ class ArenaVerifier(
         retried: Boolean = false,
         /** Reactor project to grade in isolation, e.g. `:keycloak-tests-base` — see [mavenProjectScopeFlag]. */
         mavenProjectSelector: String? = null,
+        /** Pre-agent contents from [snapshotOracleContents]; makes a tamper verdict show its evidence. */
+        preAgentOracleContents: Map<String, String> = emptyMap(),
     ): ArenaVerificationResult {
         val startMs = System.currentTimeMillis()
 
@@ -688,6 +733,21 @@ class ArenaVerifier(
                 "[ARENA-VERIFY] test-patch files edited by the agent: " +
                     changed.joinToString { if (it in oraclePaths) "$it (FAIL_TO_PASS ORACLE)" else it }
             )
+        }
+        // A tamper verdict voids the run, so it has to arrive with its evidence attached.
+        changed.filter { it in oraclePaths }.forEach { path ->
+            val before = preAgentOracleContents[path]
+            if (before == null) {
+                System.err.println(
+                    "[ARENA-VERIFY] $path changed, but no pre-agent content was captured for it, so the " +
+                        "verdict cannot be explained. Pass snapshotOracleContents() to verify()."
+                )
+            } else {
+                println(
+                    "[ARENA-VERIFY] what changed in $path (FAIL_TO_PASS ORACLE):\n" +
+                        compactLineDiff(before, readProjectFile(path))
+                )
+            }
         }
 
         val testFilter = filterFlags(failToPass)
@@ -739,6 +799,7 @@ class ArenaVerifier(
                 return verify(
                     failToPass, required, testPatch, preAgentSnapshot, baseline, retried = true,
                     mavenProjectSelector = mavenProjectSelector,
+                    preAgentOracleContents = preAgentOracleContents,
                 )
             }
         }

@@ -370,6 +370,36 @@ class ArenaVerificationTest {
     }
 
     @Test
+    fun `a tamper verdict can name the lines that changed`() {
+        val before = "class A {\n    void one() {}\n}"
+        assertTrue(compactLineDiff(before, "class A {\n    void two() {}\n}").contains("-    void one() {}"))
+        assertTrue(compactLineDiff(before, "class A {\n    void two() {}\n}").contains("+    void two() {}"))
+    }
+
+    @Test
+    fun `a whitespace-only rewrite says so instead of listing every line`() {
+        // The formatter case: this is the difference between "the agent rewrote the oracle" and "the
+        // project's own build reformatted a file", and the two must not read the same in a report.
+        listOf(
+            "a\nb\n" to "a\nb",
+            "class A {\n    void one() {}\n}" to "class A {\n\tvoid one() {}\n}",
+            "class A {\n    void one() {}\n}" to "class A {\n\n    void one() {}\n\n}",
+        ).forEach { (before, after) ->
+            val diff = compactLineDiff(before, after)
+            assertTrue(diff.contains("no non-whitespace line differs")) { "$before -> $after gave:\n$diff" }
+        }
+    }
+
+    @Test
+    fun `the diff is bounded so a rewritten file cannot flood the log`() {
+        val before = (1..200).joinToString("\n") { "old $it" }
+        val after = (1..200).joinToString("\n") { "new $it" }
+        val diff = compactLineDiff(before, after, maxLines = 10)
+        assertEquals(11, diff.lines().size)
+        assertTrue(diff.lines().last().contains("more differing line")) { diff }
+    }
+
+    @Test
     fun `the project scope flag is empty unless a selector is given`() {
         assertEquals("", mavenProjectScopeFlag(null))
         assertEquals("", mavenProjectScopeFlag(""))

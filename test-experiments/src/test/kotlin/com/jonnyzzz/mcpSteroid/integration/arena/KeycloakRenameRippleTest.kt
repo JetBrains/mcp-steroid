@@ -127,6 +127,9 @@ class KeycloakRenameRippleTest {
             // arm, whose transcript contains nothing but a Read of that file.
             verifier.normalizeFormattingBeforeSnapshot(SemanticRippleSpec.projectJdkVersion)
             val preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch)
+            // Kept so a tamper verdict — which voids the arm — can print what actually changed. Build
+            // 1029045444 lost a perfect mcp arm to a hash change no transcript accounted for.
+            val preAgentOracle = verifier.snapshotOracleContents(testCase.testPatch, testCase.failToPass)
 
             val runner = ArenaTestRunner(container = session.scope, projectGuestDir = projectDir)
             val result = runner.runTest(
@@ -185,6 +188,7 @@ class KeycloakRenameRippleTest {
                 preAgentSnapshot = preAgentSnapshot,
                 baseline = FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0),
                 mavenProjectSelector = SemanticRippleSpec.gradingScopeSelector,
+                preAgentOracleContents = preAgentOracle,
             )
 
             val metrics = collectRunMetrics(
