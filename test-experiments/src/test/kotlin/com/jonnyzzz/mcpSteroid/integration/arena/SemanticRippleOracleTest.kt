@@ -459,4 +459,26 @@ class SemanticRippleOracleTest {
             "An overload added to an unrelated same-named declaration is over-reach"
         }
     }
+
+    // --- Move class ---
+
+    @Test
+    fun `a move is complete only when the new FQN resolves and the old one does not`() {
+        fun post(new: Boolean, old: Boolean) = """
+            POST_NEWNAME_DECLARED $new
+            POST_OLDNAME_ON_TARGET ${if (old) 1 else 0}
+            POST_NEW_FQN org.keycloak.b.Moved
+            POST_OLD_FQN org.keycloak.a.Moved
+            POST_NEW_FQN_RESOLVES $new
+            POST_OLD_FQN_RESOLVES $old
+            POST_TOTAL_NEW_REFS 4
+            POST_END
+        """.trimIndent()
+
+        assertTrue(parseFqnMovePredicate(post(new = true, old = false)))
+        assertFalse(parseFqnMovePredicate(post(new = true, old = true))) {
+            "A class left behind at the old FQN is a copy, not a move"
+        }
+        assertFalse(parseFqnMovePredicate(post(new = false, old = true)))
+    }
 }

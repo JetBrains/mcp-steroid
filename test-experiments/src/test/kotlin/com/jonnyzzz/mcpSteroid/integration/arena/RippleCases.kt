@@ -241,7 +241,92 @@ object RippleCases {
         createdAt = "2026-08-13T00:00:00Z",
     )
 
+    /**
+     * `ResourceType`'s simple name IS load-bearing outside code — 39 non-`.java` files: admin-console
+     * theme message bundles whose keys the theme reads at runtime, and imported realm JSON fixtures
+     * whose enum values are matched against it (`git grep -c ResourceType` over `*.json *.xml
+     * *.properties *.yaml *.yml` at the base commit). Renaming it would break lookups no compiler
+     * checks, so `ResourceType` is disqualified as a [RenameType] target — a [MoveClass] changes only
+     * the package, never the simple name or the enum constant names, so every one of those 39 files
+     * stays valid. Its fully-qualified name, separately, appears in NO non-`.java` file — no
+     * `META-INF/services` entry, no Quarkus reflect-config, no persistence XML, no `Class.forName` —
+     * so the move itself is compile-visible only. This asymmetry between a load-bearing simple name
+     * and a non-load-bearing fully-qualified name is the whole justification for this being a MOVE
+     * and never a rename, and it is why [renameTypeWide] and this case are deliberately different
+     * targets even though the two kinds' candidate lists are otherwise identical by construction.
+     *
+     * `resource` is free at the base commit: no `org/keycloak/models/workflow/resource/` directory
+     * exists under `models/workflow` (whose only existing subpackage is `expression`).
+     */
+    val moveClassWideTarget: MoveClass = MoveClass(
+        oldFqn = "org.keycloak.models.workflow.ResourceType",
+        newPackage = "org.keycloak.models.workflow.resource",
+        behaviourPreservationEvidence =
+            "The simple name ResourceType is load-bearing in 39 theme-message and realm-JSON files, " +
+                "which a move leaves untouched because it never changes the simple name; the " +
+                "fully-qualified name that DOES change appears in no non-.java file, so the move " +
+                "itself is not externally observable.",
+    )
+
+    val moveClassWide: RippleCase = RippleCase(
+        instanceId = "ripple__keycloak__move-class-wide",
+        target = moveClassWideTarget,
+        expectedGoldReferences = 145,
+        expectedGoldFiles = 50,
+        expectedDecoyDeclarations = 4,
+        compileGateModules = listOf(
+            "keycloak-server-spi-private",
+            "keycloak-model-jpa",
+            "keycloak-services",
+            "keycloak-tests-base",
+        ),
+        declaringModuleArtifactId = "keycloak-server-spi-private",
+        consumerModuleArtifactId = "keycloak-server-spi-private",
+        hiddenConsumerFqn = "org.keycloak.models.workflow.MoveClassWideContractTest",
+        patchResource = "arena-overlays/ripple-keycloak-move-class-wide.patch",
+        createdAt = "2026-08-13T00:00:00Z",
+    )
+
+    /**
+     * The fan-out ablation of [moveClassWide], read only against that twin: same kind, ambiguity still
+     * above the family's floor of 3 (`sameName=3`), and a ripple confined to 3 files where the wide
+     * twin spans 50.
+     *
+     * Neither `ClientAdapter`'s simple name nor its fully-qualified name is load-bearing: zero hits
+     * across `*.json *.xml *.properties *.yaml *.yml`, no reflective naming, and the fully-qualified
+     * name appears in no non-`.java` file — so unlike its wide twin, this case's target would also
+     * have tolerated a rename; it is a move because the family compares a move kind's wide and narrow
+     * member against each other, the same way the other kinds do. `client` is free at the base commit:
+     * no `org/keycloak/models/cache/infinispan/client/` directory exists.
+     */
+    val moveClassNarrowTarget: MoveClass = MoveClass(
+        oldFqn = "org.keycloak.models.cache.infinispan.ClientAdapter",
+        newPackage = "org.keycloak.models.cache.infinispan.client",
+        behaviourPreservationEvidence =
+            "The type's fully-qualified name appears in no configuration file, no service descriptor " +
+                "and no reflective lookup at the base commit, so the move is not externally observable.",
+    )
+
+    val moveClassNarrow: RippleCase = RippleCase(
+        instanceId = "ripple__keycloak__move-class-narrow",
+        target = moveClassNarrowTarget,
+        expectedGoldReferences = 9,
+        expectedGoldFiles = 3,
+        expectedDecoyDeclarations = 3,
+        compileGateModules = listOf(
+            "keycloak-model-infinispan",
+            "keycloak-tests-base",
+            "integration-arquillian-tests-base",
+        ),
+        declaringModuleArtifactId = "keycloak-model-infinispan",
+        consumerModuleArtifactId = "keycloak-model-infinispan",
+        hiddenConsumerFqn = "org.keycloak.models.cache.infinispan.MoveClassNarrowContractTest",
+        patchResource = "arena-overlays/ripple-keycloak-move-class-narrow.patch",
+        createdAt = "2026-08-13T00:00:00Z",
+    )
+
     val all: List<RippleCase> = listOf(
         renameMethodWide, renameTypeWide, changeSignatureWide, renameTypeNarrow, changeSignatureNarrow,
+        moveClassWide, moveClassNarrow,
     )
 }

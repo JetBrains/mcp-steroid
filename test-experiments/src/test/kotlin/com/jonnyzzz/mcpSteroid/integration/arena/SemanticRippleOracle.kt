@@ -98,6 +98,25 @@ fun parseArityPredicate(output: String, expectedArity: Int): Boolean {
 }
 
 /**
+ * True when the class now resolves at its new fully-qualified name and no longer at the old one.
+ *
+ * Both halves are needed. A class copied to the new package while a forwarding shell stays behind
+ * satisfies every reference-based predicate — the references moved, the counts conserved — and is not
+ * a move at all.
+ */
+fun parseFqnMovePredicate(output: String): Boolean {
+    val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    check(lines.any { it == "POST_END" }) {
+        "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
+    }
+    fun flag(prefix: String): Boolean =
+        (lines.firstOrNull { it.startsWith(prefix) }
+            ?: error("Post-condition output is missing the $prefix field:\n$output"))
+            .removePrefix(prefix).trim().toBooleanStrict()
+    return flag("POST_NEW_FQN_RESOLVES ") && !flag("POST_OLD_FQN_RESOLVES ")
+}
+
+/**
  * Parse the capture script's output.
  *
  * Requires the `GOLD_END` terminator: without it a truncated or cancelled script would parse as a

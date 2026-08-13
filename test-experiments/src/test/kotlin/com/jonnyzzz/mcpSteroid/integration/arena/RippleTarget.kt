@@ -521,3 +521,153 @@ ${decoyKeyHelper().prependIndent("            ")}
         6. The project must compile, test sources included, when you are finished.
     """.trimIndent()
 }
+
+/**
+ * A type keeps its simple name and every one of its member names, and changes its package; the
+ * ripple travels through imports and the file's own `package` declaration.
+ *
+ * **Why this kind exists as a MOVE and never as a rename.** [RenameType] and this kind read the same
+ * candidate list — a class with a simple name, resolvable references, same-named decoys elsewhere —
+ * but they are not interchangeable, because a type's simple name can be load-bearing OUTSIDE the code
+ * that a rename cannot see and a move does not disturb. `ResourceType` (this family's wide case) is
+ * exactly that trap: its simple name appears in 39 non-`.java` files — admin-console theme message
+ * bundles whose keys the theme reads by that name at runtime, and imported realm JSON fixtures whose
+ * enum values are matched against it — so renaming it would break lookups no compiler checks. A move
+ * changes only the package: the simple name and every enum-constant name survive untouched, so all 39
+ * files stay valid. Its fully-qualified name, separately, appears in no non-`.java` file — no
+ * `META-INF/services` entry, no reflect-config, no persistence XML, no `Class.forName` — so the move
+ * itself is compile-visible only. That asymmetry between a load-bearing simple name and a non-load-
+ * bearing fully-qualified name is the whole justification for a fourth kind rather than a third
+ * `RenameType` instance.
+ *
+ * **Why P1 needs both halves, not one.** A class copied to the new package while a forwarding shell
+ * stays behind at the old fully-qualified name satisfies every reference-based predicate: the
+ * references moved, the counts conserved, and P2–P4 all pass. Only checking that the new FQN resolves
+ * cannot tell that apart from a real move — [parseFqnMovePredicate] additionally requires that the
+ * old FQN no longer resolves at all.
+ *
+ * **Decoys read exactly like [RenameType]'s, and need no kind-specific code.** A decoy here is
+ * another declaration sharing the target's simple name in a DIFFERENT package, keyed by its
+ * fully-qualified name and valued by its reference count — the same shape [RenameType] already
+ * reports, which is why P3 needs nothing beyond the family's shared key-set comparison. A decoy KEY
+ * disappearing means that declaration was renamed or deleted; a decoy key appearing from nowhere
+ * means the agent created (or misapplied the move onto) a same-named declaration elsewhere. Unlike
+ * [ChangeSignature], a move has no override family to exclude from the decoy set: the target's simple
+ * name and member names never change, so no supertype or subtype is forced to change alongside it.
+ */
+data class MoveClass(
+    val oldFqn: String,
+    val newPackage: String,
+    override val behaviourPreservationEvidence: String,
+) : RippleTarget {
+
+    override val kindId: String get() = "move-class"
+
+    override val targetDescription: String get() = oldFqn
+
+    override val destinationDescription: String get() = newFqn
+
+    override val targetTypeFqn: String get() = oldFqn
+
+    /** The simple name, which never changes across a move — it is what the decoy set is keyed by. */
+    val simpleName: String get() = oldFqn.substringAfterLast('.')
+
+    /** Where the moved type must land: new package, same simple name. */
+    val newFqn: String get() = "$newPackage.$simpleName"
+
+    override fun extraPredicates(output: String): Map<String, Boolean> =
+        mapOf("P1_MOVED" to parseFqnMovePredicate(output))
+
+    override fun captureFragment(): String = """
+        smartReadAction(project) {
+            val scope = GlobalSearchScope.projectScope(project)
+            val cache = PsiShortNamesCache.getInstance(project)
+            val all = cache.getClassesByName("$simpleName", scope).toList()
+            val target = all.firstOrNull {
+                it.qualifiedName == "$oldFqn"
+            } ?: error("Target $oldFqn not found")
+            check(
+                target.containingFile?.virtualFile
+                    ?.let { ProjectFileIndex.getInstance(project).isInContent(it) } == true
+            ) {
+                "Target is not a project source file (a library class?); the move oracle cannot " +
+                    "validate a class this task does not own"
+            }
+
+            println("GOLD_TARGET $oldFqn|$simpleName|$newPackage")
+
+            val refs = ReferencesSearch.search(target, scope).findAll()
+            refs.mapNotNull { siteKey(it) }.groupingBy { it }.eachCount()
+                .toSortedMap().forEach { (key, n) -> println("GOLD_SITE " + key + "|" + n) }
+
+            for (decoy in all) {
+                if (decoy === target) continue
+                val owner = decoy.qualifiedName ?: continue
+                println("GOLD_DECOY " + owner + "|" + ReferencesSearch.search(decoy, scope).findAll().size)
+            }
+
+            // The destination is a free PACKAGE, not a free name: the simple name is deliberately
+            // reused at the new location, so a project-wide name count would report every move as
+            // already-taken against itself.
+            println("GOLD_NEWNAME_DECLS " +
+                all.count { it.qualifiedName == "$newFqn" })
+            println("GOLD_END")
+        }
+    """.trimIndent()
+
+    override fun postconditionFragment(): String = """
+        smartReadAction(project) {
+            val scope = GlobalSearchScope.projectScope(project)
+            val cache = PsiShortNamesCache.getInstance(project)
+            val facade = JavaPsiFacade.getInstance(project)
+
+            val moved = facade.findClass("$newFqn", scope)
+            val oldStillThere = facade.findClass("$oldFqn", scope) != null
+            println("POST_NEWNAME_DECLARED " + (moved != null))
+            println("POST_OLDNAME_ON_TARGET " + (if (oldStillThere) 1 else 0))
+            println("POST_NEW_FQN $newFqn")
+            println("POST_OLD_FQN $oldFqn")
+            println("POST_NEW_FQN_RESOLVES " + (moved != null))
+            println("POST_OLD_FQN_RESOLVES " + oldStillThere)
+
+            val refs = moved?.let { ReferencesSearch.search(it, scope).findAll() } ?: emptyList()
+            refs.mapNotNull { siteKey(it) }.groupingBy { it }.eachCount()
+                .toSortedMap().forEach { (key, n) -> println("POST_SITE " + key + "|" + n) }
+
+            for (decoy in cache.getClassesByName("$simpleName", scope)) {
+                val decoyOwner = decoy.qualifiedName ?: continue
+                if (decoyOwner == "$oldFqn" || decoyOwner == "$newFqn") continue
+                println("POST_DECOY " + decoyOwner + "|" +
+                    ReferencesSearch.search(decoy, scope).findAll().size)
+            }
+
+            println("POST_TOTAL_NEW_REFS " + refs.size)
+            println("POST_END")
+        }
+    """.trimIndent()
+
+    override fun promptTaskSection(): String = """
+        Move the type
+
+            $oldFqn
+
+        to the package `$newPackage`, so it becomes `$newFqn`, throughout the whole project.
+
+        Requirements:
+
+        1. Keep the simple name `$simpleName` and every member of the type exactly as it is today —
+           only the package changes. Every place that names this type must update its import (or
+           fully-qualified reference) to the new package. When you are done, no reference to this
+           type may still resolve at its old package.
+        2. The type must not survive at its old fully-qualified name in any form — not as a
+           forwarding shell, not as a deprecated subclass, not as a type alias.
+        3. Types that happen to share the same simple name but live in **other packages** are
+           unrelated and MUST keep their current package. Moving or renaming one of them is a defect.
+        4. External behaviour must not change: this type's fully-qualified name appears in no
+           configuration file, no service descriptor and no reflective lookup at the base commit, so
+           a correct move is not observable from outside the code by its fully-qualified name. Its
+           simple name may appear elsewhere and must keep working unchanged, which a move — unlike a
+           rename — guarantees by construction.
+        5. The project must compile, test sources included, when you are finished.
+    """.trimIndent()
+}

@@ -151,6 +151,17 @@ class RippleCaseRegistryTest {
                         assertTrue(target.addedParameterType.isNotBlank()) { case.instanceId }
                         assertTrue(target.addedParameterName.isNotBlank()) { case.instanceId }
                     }
+                    is MoveClass -> {
+                        assertNotEquals(target.oldFqn, target.newFqn) {
+                            "A move to the same fully-qualified name is not a move"
+                        }
+                        assertNotEquals(target.oldFqn.substringBeforeLast('.'), target.newPackage) {
+                            "A move to the same package is not a move"
+                        }
+                        assertEquals(target.simpleName, target.newFqn.substringAfterLast('.')) {
+                            "This kind keeps the simple name and changes only the package"
+                        }
+                    }
                 }
             }
         }
@@ -346,23 +357,38 @@ class RippleCaseRegistryTest {
      * [RippleCases.changeSignatureWide]'s.
      */
     @Test
-    fun `only the change-signature kind contributes an extra predicate`() {
+    fun `only change-signature and move-class kinds contribute an extra predicate`() {
         RippleCases.all.forEach { case ->
-            val arityPost = """
-                POST_TOTAL_NEW_REFS 2
-                POST_ARITY_EXPECTED ${(case.target as? ChangeSignature)?.newArity ?: 1}
-                POST_ARITY_MATCHING 2
-                POST_END
-            """.trimIndent()
-            val predicates = case.target.extraPredicates(arityPost)
-            if (case.target is ChangeSignature) {
-                assertEquals(setOf("P5_ARITY"), predicates.keys) {
-                    "${case.instanceId}: the change-signature kind must contribute P5_ARITY"
+            when (val target = case.target) {
+                is ChangeSignature -> {
+                    val arityPost = """
+                        POST_TOTAL_NEW_REFS 2
+                        POST_ARITY_EXPECTED ${target.newArity}
+                        POST_ARITY_MATCHING 2
+                        POST_END
+                    """.trimIndent()
+                    val predicates = target.extraPredicates(arityPost)
+                    assertEquals(setOf("P5_ARITY"), predicates.keys) {
+                        "${case.instanceId}: the change-signature kind must contribute P5_ARITY"
+                    }
                 }
-            } else {
-                assertTrue(predicates.isEmpty()) {
-                    "${case.instanceId}: P1 to P4 are the family contract; a kind adds its own only " +
-                        "when it needs one"
+                is MoveClass -> {
+                    val movePost = """
+                        POST_NEW_FQN_RESOLVES true
+                        POST_OLD_FQN_RESOLVES false
+                        POST_END
+                    """.trimIndent()
+                    val predicates = target.extraPredicates(movePost)
+                    assertEquals(setOf("P1_MOVED"), predicates.keys) {
+                        "${case.instanceId}: the move-class kind must contribute P1_MOVED"
+                    }
+                }
+                is RenameMethod, is RenameType -> {
+                    val predicates = target.extraPredicates("POST_END")
+                    assertTrue(predicates.isEmpty()) {
+                        "${case.instanceId}: P1 to P4 are the family contract; a kind adds its own only " +
+                            "when it needs one"
+                    }
                 }
             }
         }

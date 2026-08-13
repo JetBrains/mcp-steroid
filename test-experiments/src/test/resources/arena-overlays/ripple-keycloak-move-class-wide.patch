@@ -1,0 +1,35 @@
+diff --git a/server-spi-private/src/test/java/org/keycloak/models/workflow/MoveClassWideContractTest.java b/server-spi-private/src/test/java/org/keycloak/models/workflow/MoveClassWideContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/server-spi-private/src/test/java/org/keycloak/models/workflow/MoveClassWideContractTest.java
+@@ -0,0 +1,30 @@
++package org.keycloak.models.workflow;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Pins the moved type. The new fully-qualified name must resolve and the old one must be gone
++ * entirely: a class copied to the new package while a forwarding shell stays behind at the old
++ * location would let every caller keep resolving a name the contract no longer has, which is not a
++ * move at all. Reached by reflection and by string literal, never by import, because the type's own
++ * fully-qualified name changes across this test's before and after and an import of either name
++ * would fail to compile on the other side.
++ */
++public class MoveClassWideContractTest {
++
++    @Test
++    public void newFqnResolves() throws Exception {
++        Assert.assertNotNull(Class.forName("org.keycloak.models.workflow.resource.ResourceType"));
++    }
++
++    @Test
++    public void oldFqnIsGone() {
++        try {
++            Class.forName("org.keycloak.models.workflow.ResourceType");
++            Assert.fail("org.keycloak.models.workflow.ResourceType still resolves; the move left a copy behind");
++        } catch (ClassNotFoundException expected) {
++            // the old fully-qualified name is gone, which is what this test asserts
++        }
++    }
++}
