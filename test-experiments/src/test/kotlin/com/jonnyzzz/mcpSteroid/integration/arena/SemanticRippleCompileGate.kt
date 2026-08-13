@@ -14,21 +14,24 @@ data class CompileGateResult(
 }
 
 /**
- * The bash script for the scoped compile gate, kept pure so its shape is unit-tested.
+ * The bash script for [case]'s scoped compile gate, kept pure so its shape is unit-tested.
  *
- * For a behaviour-preserving rename, compilation is a COMPLETE invariant over the ripple rather than
- * an approximation: a call site the agent missed still names a method that no longer exists, which
- * is a compile error. Scoping to the declaring module plus every module holding a reference is
- * therefore complete — no reference exists outside that set.
+ * For a behaviour-preserving transformation, compilation is a COMPLETE invariant over the ripple
+ * rather than an approximation: a call site the agent missed still names a declaration that no longer
+ * exists in that form, which is a compile error. Scoping to the declaring module plus every module
+ * holding a reference is therefore complete — no reference exists outside that set.
  *
- * `test-compile` rather than `compile` because every reference is in test sources. `-pl` without
- * `-am` because the harness prewarm already installed the siblings, and `-am` OOM-kills the
- * container.
+ * `test-compile` rather than `compile` because references live in test sources. `-pl` without `-am`
+ * because the harness prewarm already installed the siblings, and `-am` OOM-kills the container.
+ *
+ * Takes the case rather than reading one by name, which is what made the family's second case grow a
+ * duplicate of this whole file: a by-name gate silently graded a type rename against the pilot's
+ * method-rename modules.
  */
-fun buildCompileGateScript(projectDir: String): String =
-    // Single source of truth for the goal and the module list — SemanticRippleSpec.compileGateArgs()
-    // is what SemanticRippleSpecTest asserts against, so the script cannot drift from it.
-    buildMavenScript(projectDir, SemanticRippleSpec.compileGateArgs())
+fun buildCompileGateScript(case: RippleCase, projectDir: String): String =
+    // Single source of truth for the goal and the module list — RippleCase.compileGateArgs() is what
+    // RippleCaseRegistryTest asserts against, so the script cannot drift from it.
+    buildMavenScript(projectDir, case.compileGateArgs())
 
 /**
  * The bash script that populates the shared local repository from the tree under test — see
@@ -68,8 +71,12 @@ private fun buildMavenScript(projectDir: String, args: List<String>, offline: Bo
  * environment. Offline (`-o`) because the prewarm already populated `~/.m2`: a gate that reaches the
  * network could fail on a repository outage and read as a missed call site.
  */
-fun runCompileGate(container: ContainerDriver, projectDir: String): CompileGateResult =
-    runMaven(container, buildCompileGateScript(projectDir), "Semantic-ripple scoped compile gate")
+fun runCompileGate(container: ContainerDriver, case: RippleCase, projectDir: String): CompileGateResult =
+    runMaven(
+        container,
+        buildCompileGateScript(case, projectDir),
+        "Semantic-ripple scoped compile gate for ${case.instanceId}",
+    )
 
 /**
  * Populate the local repository from the tree under test, then prove the environment by running the
@@ -82,7 +89,7 @@ fun runCompileGate(container: ContainerDriver, projectDir: String): CompileGateR
  * Running it before the agent also makes each arm carry its own positive control rather than relying on
  * one taken on some other machine.
  */
-fun prepareAndProveGateEnvironment(container: ContainerDriver, projectDir: String) {
+fun prepareAndProveGateEnvironment(container: ContainerDriver, case: RippleCase, projectDir: String) {
     val install = runMaven(
         container,
         buildReactorInstallScript(projectDir),
@@ -93,13 +100,13 @@ fun prepareAndProveGateEnvironment(container: ContainerDriver, projectDir: Strin
             "pre-agent gate is what decides"
     )
 
-    val gate = runCompileGate(container, projectDir)
+    val gate = runCompileGate(container, case, projectDir)
     check(gate.passed) {
         "The compile gate does not pass on the UNTOUCHED tree (exit ${gate.exitCode}), so it cannot " +
             "distinguish a missed call site from a broken environment and this arm would grade noise. " +
             "Install exit was ${install.exitCode}.\n${gate.tail}"
     }
-    println("[RIPPLE] pre-agent compile gate PASS — the gate measures the rename, not the environment")
+    println("[RIPPLE] pre-agent compile gate PASS — the gate measures the change, not the environment")
 }
 
 private fun runMaven(container: ContainerDriver, script: String, description: String): CompileGateResult {

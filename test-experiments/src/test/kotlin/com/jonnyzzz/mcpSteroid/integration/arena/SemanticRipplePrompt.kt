@@ -2,14 +2,18 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 /**
- * The task brief for the semantic-ripple pilot.
+ * The task brief for one case of the keycloak-semantic-ripple family.
  *
  * Deliberately states the declaration exactly — the benchmark does not test guessing the starting
- * point, it tests finding the whole ripple — while revealing nothing about how to find the call
- * sites. `SemanticRipplePromptContractTest` pins both halves of that: the required content, and the
- * absence of every mechanism hint and of the answer itself (no decoy names, no counts, no file list).
+ * point, it tests finding the whole ripple — while revealing nothing about how to find the reference
+ * sites. `SemanticRipplePromptContractTest` and `RippleCaseRegistryTest` pin both halves of that: the
+ * required content, and the absence of every mechanism hint and of the answer itself (no decoy names,
+ * no counts, no file list).
+ *
+ * Only the `## Task` section belongs to the kind; every other paragraph is the same in all cases,
+ * which is what makes two arms of two different cases comparable at all.
  */
-fun buildSemanticRipplePrompt(projectDir: String, withMcp: Boolean): String = buildString {
+fun buildRipplePrompt(case: RippleCase, projectDir: String, withMcp: Boolean): String = buildString {
     val jdkPrefix = "/usr/lib/jvm/temurin-${SemanticRippleSpec.projectJdkVersion}-jdk-"
 
     appendLine("You are working on a large multi-module Java project located at: `$projectDir`")
@@ -20,24 +24,7 @@ fun buildSemanticRipplePrompt(projectDir: String, withMcp: Boolean): String = bu
     appendLine()
     appendLine("## Task")
     appendLine()
-    appendLine("Rename the method")
-    appendLine()
-    appendLine("    ${SemanticRippleSpec.targetReturnTypeSimpleName} ${SemanticRippleSpec.oldName}()")
-    appendLine()
-    appendLine("declared on the interface `${SemanticRippleSpec.targetClassFqn}`")
-    appendLine("to `${SemanticRippleSpec.newName}`, throughout the whole project.")
-    appendLine()
-    appendLine("Requirements:")
-    appendLine()
-    appendLine("1. Every place that calls this method must call it by its new name. When you are done, no")
-    appendLine("   caller of this declaration may still use the old name.")
-    appendLine("2. The old name must not survive on that interface in any form — not as a second method,")
-    appendLine("   not as a deprecated forwarder, not as a default method.")
-    appendLine("3. Methods that happen to share the same simple name but are declared on **other types**")
-    appendLine("   are unrelated and MUST keep their current name. Changing one of them is a defect.")
-    appendLine("4. External behaviour must not change. The HTTP contract of this endpoint is defined by")
-    appendLine("   its annotation, not by the Java method name, so a correct rename leaves it untouched.")
-    appendLine("5. The project must compile, test sources included, when you are finished.")
+    appendLine(case.target.promptTaskSection())
     appendLine()
     appendLine("## Environment Facts")
     appendLine()
@@ -71,3 +58,14 @@ fun buildSemanticRipplePrompt(projectDir: String, withMcp: Boolean): String = bu
     appendLine()
     appendLine("If you could not complete the task, end with `ARENA_FIX_APPLIED: no` and one line saying why.")
 }
+
+/**
+ * The pilot's prompt, kept as a one-line delegate.
+ *
+ * It exists so `SemanticRipplePromptContractTest` — written before the family had a seam — keeps
+ * compiling and passing unedited. That test is the regression check on the extraction: if the shared
+ * scaffolding drifted by a single line while the `## Task` section moved into [RippleTarget], it is
+ * what says so.
+ */
+fun buildSemanticRipplePrompt(projectDir: String, withMcp: Boolean): String =
+    buildRipplePrompt(RippleCases.renameMethodWide, projectDir, withMcp)

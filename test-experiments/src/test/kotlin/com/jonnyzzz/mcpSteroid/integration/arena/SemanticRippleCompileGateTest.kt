@@ -7,7 +7,8 @@ import org.junit.jupiter.api.Test
 
 class SemanticRippleCompileGateTest {
 
-    private val script = buildCompileGateScript("/work/keycloak")
+    private val case = RippleCases.renameMethodWide
+    private val script = buildCompileGateScript(case, "/work/keycloak")
 
     @Test
     fun `gate compiles test sources, not just main`() {
@@ -18,7 +19,7 @@ class SemanticRippleCompileGateTest {
 
     @Test
     fun `gate covers every compile-gate module exactly once`() {
-        SemanticRippleSpec.compileGateSelectors.forEach { selector ->
+        case.compileGateSelectors().forEach { selector ->
             assertTrue(script.contains(selector)) { "Module $selector missing from the gate:\n$script" }
         }
         assertTrue(script.contains("-pl")) { script }

@@ -329,6 +329,19 @@
   exception, so it is worth either a naming rule (Docker cases get a distinct suffix) or a note in
   the per-module guides.
 
+- [ ] **The change-signature ripple case gates a SUPERSET of its reference modules.**
+  `RippleCases.changeSignatureWide.compileGateModules` lists the twelve Maven modules whose sources
+  name `org.keycloak.authorization.model.Resource` and contain a `getId(` call, because the survey
+  measured six IntelliJ modules without printing their names and the mapping back to artifactIds
+  needs the index that produced it. A superset is safe for a gate but pays six extra modules of
+  `test-compile` on every arm, and each extra module is one more way for the pre-agent gate to fail
+  for reasons that have nothing to do with the task. Narrow it the next time a container has the
+  project indexed: print `ModuleUtilCore.findModuleForFile` over the gold reference set, map those
+  IntelliJ module names to artifactIds, and pin the six.
+- [ ] **`KeycloakChangeSignatureWideRippleTest` has no TeamCity configuration yet.** The family's
+  other two cases each have per-agent configs matching `-PtestFilter=*<Class>.<agent>*`; the third
+  case needs the same in `~/Work/mcp-steroid-teamcity` before it runs anywhere.
+
 - [ ] **Console mode prints a JSON payload as one minified line (#284)**: `devrig list_projects` (and any
   generated tool whose result is a single JSON text item) emits one long minified blob, because
   `Presentation.Console.render` prints a text content item verbatim. The fix does NOT need a per-tool

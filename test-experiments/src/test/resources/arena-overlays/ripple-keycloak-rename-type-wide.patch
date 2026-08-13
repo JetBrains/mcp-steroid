@@ -2,7 +2,7 @@ diff --git a/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeCo
 new file mode 100644
 --- /dev/null
 +++ b/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeContractTest.java
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +package org.keycloak.validate;
 +
 +import org.junit.Assert;

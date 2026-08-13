@@ -54,9 +54,39 @@ data class SemanticPostconditionResult(
      * therefore excluded from [p4Conserved] and [precision] — see [parseSemanticPostcondition].
      */
     val excludedConsumerReferences: Int = 0,
+    /**
+     * Kind-specific predicates contributed by the [RippleTarget] variant — arity for a signature
+     * change, FQN movement for a move, supertype ownership for a pull-up. Kept as a map rather than
+     * as more boolean fields because P1–P4 are the family's shared contract and each kind adds at
+     * most one or two of its own; a field per kind would make every case carry every other kind's
+     * vocabulary.
+     */
+    val extraPredicates: Map<String, Boolean> = emptyMap(),
 ) {
     val allPassed: Boolean
-        get() = p1NoAliasAndNewNameDeclared && p2AllSitesConverted && p3DecoysUnchanged && p4Conserved
+        get() = p1NoAliasAndNewNameDeclared && p2AllSitesConverted && p3DecoysUnchanged &&
+            p4Conserved && extraPredicates.values.all { it }
+}
+
+/**
+ * True when every resolved call site carries the new arity.
+ *
+ * Presence of the renamed declaration is not enough for a signature change: an agent can add the
+ * parameter to the declaration and leave callers passing the old argument list, which fails to
+ * compile — but it can equally add an OVERLOAD, which compiles, keeps every call site resolving, and
+ * satisfies P1–P4 while performing no signature change at all. This is the predicate that catches it.
+ */
+fun parseArityPredicate(output: String): Boolean {
+    val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    check(lines.any { it == "POST_END" }) {
+        "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
+    }
+    fun field(prefix: String): Int =
+        (lines.firstOrNull { it.startsWith(prefix) }
+            ?: error("Post-condition output is missing the $prefix field:\n$output"))
+            .removePrefix(prefix).trim().toInt()
+    val total = field("POST_TOTAL_NEW_REFS ")
+    return total > 0 && field("POST_ARITY_MATCHING ") == total
 }
 
 /**
@@ -142,25 +172,30 @@ private fun parseDecoyLines(lines: List<String>, prefix: String): Map<String, In
 }
 
 /**
- * Fail the run before the agent starts when the captured world does not match the pinned
+ * Fail the run before the agent starts when the captured world does not match [case]'s pinned
  * measurement. An index failure produces an empty gold set, which would otherwise score as a
- * perfect rename over nothing.
+ * perfect transformation over nothing.
+ *
+ * The default is the pilot's case so that the family's oldest unit tests — the regression check on
+ * the seam extraction — keep calling this with no argument and still assert against the numbers they
+ * were written for. Every run test passes its own case explicitly; grading one case against another's
+ * counts is exactly the silent failure this seam was cut to remove.
  */
-fun SemanticGold.checkTripwires() {
+fun SemanticGold.checkTripwires(case: RippleCase = RippleCases.renameMethodWide) {
     check(newNameDeclarations == 0) {
-        "'${SemanticRippleSpec.newName}' is already declared $newNameDeclarations times; the rename " +
-            "target name must be free or the task is ill-posed"
+        "'${case.target.destinationDescription}' already exists $newNameDeclarations times; the " +
+            "destination must be free or the task is ill-posed"
     }
-    check(totalReferences == SemanticRippleSpec.expectedGoldReferences) {
-        "Gold reference count is $totalReferences, expected ${SemanticRippleSpec.expectedGoldReferences} " +
+    check(totalReferences == case.expectedGoldReferences) {
+        "Gold reference count is $totalReferences, expected ${case.expectedGoldReferences} " +
             "at ${SemanticRippleSpec.baseCommit}. Either the commit moved or the index is incomplete."
     }
-    check(files == SemanticRippleSpec.expectedGoldFiles) {
-        "Gold spans $files files, expected ${SemanticRippleSpec.expectedGoldFiles}"
+    check(files == case.expectedGoldFiles) {
+        "Gold spans $files files, expected ${case.expectedGoldFiles}"
     }
-    check(decoyReferences.size == SemanticRippleSpec.expectedDecoyDeclarations) {
-        "Found ${decoyReferences.size} decoy declarations named '${SemanticRippleSpec.oldName}', " +
-            "expected ${SemanticRippleSpec.expectedDecoyDeclarations}"
+    check(decoyReferences.size == case.expectedDecoyDeclarations) {
+        "Found ${decoyReferences.size} decoy declarations sharing the simple name of " +
+            "'${case.target.targetDescription}', expected ${case.expectedDecoyDeclarations}"
     }
 }
 
@@ -181,6 +216,7 @@ fun parseSemanticPostcondition(
     output: String,
     gold: SemanticGold,
     hiddenConsumerFiles: Set<String> = emptySet(),
+    extraPredicates: Map<String, Boolean> = emptyMap(),
 ): SemanticPostconditionResult {
     val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     check(lines.any { it == "POST_END" }) {
@@ -238,5 +274,6 @@ fun parseSemanticPostcondition(
         missedSites = missed,
         overReachedDecoys = overReached,
         excludedConsumerReferences = excludedRefs,
+        extraPredicates = extraPredicates,
     )
 }

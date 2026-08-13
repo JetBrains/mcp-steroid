@@ -38,7 +38,8 @@ class SemanticRippleGradingProbeTest {
     @Test
     @Timeout(value = 150, unit = TimeUnit.MINUTES)
     fun `the compile gate and the scoped grading run both execute on the patched tree`() {
-        val testCase = SemanticRippleCases.pilotCase()
+        val rippleCase = RippleCases.renameMethodWide
+        val testCase = rippleCase.dpaiaCase()
         val lifetime = CloseableStackHost()
         try {
             val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
@@ -65,9 +66,9 @@ class SemanticRippleGradingProbeTest {
 
             // Installs the reactor and requires the gate to pass on the untouched tree — the same call
             // every real arm makes, so this probe exercises the production path rather than a copy.
-            prepareAndProveGateEnvironment(session.scope, projectDir)
+            prepareAndProveGateEnvironment(session.scope, rippleCase, projectDir)
 
-            val gate = runCompileGate(session.scope, projectDir)
+            val gate = runCompileGate(session.scope, rippleCase, projectDir)
             println("[RIPPLE-PROBE] compile gate exit=${gate.exitCode}\n${gate.tail}")
             assertFalse(gate.tail.contains("Could not find the selected project in the reactor")) {
                 "The gate's -pl selectors do not resolve, so it graded nothing:\n${gate.tail}"
@@ -84,7 +85,7 @@ class SemanticRippleGradingProbeTest {
                 projectJdkVersion = SemanticRippleSpec.projectJdkVersion,
                 testPatch = testCase.testPatch,
                 preAgentSnapshot = verifier.snapshotTestFiles(testCase.testPatch),
-                mavenProjectSelector = SemanticRippleSpec.gradingScopeSelector,
+                mavenProjectSelector = rippleCase.gradingScopeSelector(),
             )
 
             // The consumer must be REACHED and fail on its own terms. `verify` throws rather than

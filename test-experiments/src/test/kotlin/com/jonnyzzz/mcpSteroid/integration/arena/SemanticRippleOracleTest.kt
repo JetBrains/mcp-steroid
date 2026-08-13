@@ -279,4 +279,47 @@ class SemanticRippleOracleTest {
         assertEquals(listOf(GoldSite("b/B.java", "B#three", 1)), r.missedSites)
         assertEquals(0.75, r.recall)
     }
+
+    @Test
+    fun `change-signature arity is a separate predicate and can fail on its own`() {
+        val post = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE a/A.java|A#two|1
+            POST_SITE b/B.java|B#three|1
+            POST_DECOY org.keycloak.admin.client.resource.ClientResource|343
+            POST_DECOY org.keycloak.admin.client.resource.UserResource|401
+            POST_TOTAL_NEW_REFS 4
+            POST_ARITY_EXPECTED 2
+            POST_ARITY_MATCHING 3
+            POST_END
+        """.trimIndent()
+        val r = parseSemanticPostcondition(
+            post, gold(), emptySet(), extraPredicates = mapOf("P5_ARITY" to parseArityPredicate(post),)
+        )
+        assertTrue(r.p2AllSitesConverted) { "Every gold site is present; only the arity is wrong" }
+        assertFalse(r.extraPredicates.getValue("P5_ARITY")) {
+            "3 of 4 call sites carry the new arity, so the signature change is incomplete"
+        }
+        assertFalse(r.allPassed)
+    }
+
+    @Test
+    fun `arity predicate passes when every call site carries the new arity`() {
+        val post = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE a/A.java|A#two|1
+            POST_SITE b/B.java|B#three|1
+            POST_DECOY org.keycloak.admin.client.resource.ClientResource|343
+            POST_DECOY org.keycloak.admin.client.resource.UserResource|401
+            POST_TOTAL_NEW_REFS 4
+            POST_ARITY_EXPECTED 2
+            POST_ARITY_MATCHING 4
+            POST_END
+        """.trimIndent()
+        assertTrue(parseArityPredicate(post))
+    }
 }

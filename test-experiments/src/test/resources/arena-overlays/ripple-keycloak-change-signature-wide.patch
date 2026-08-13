@@ -1,0 +1,32 @@
+diff --git a/server-spi-private/src/test/java/org/keycloak/authorization/model/ChangeSignatureContractTest.java b/server-spi-private/src/test/java/org/keycloak/authorization/model/ChangeSignatureContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/server-spi-private/src/test/java/org/keycloak/authorization/model/ChangeSignatureContractTest.java
+@@ -0,0 +1,27 @@
++package org.keycloak.authorization.model;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Pins the changed signature. The new parameter list must exist and the old one must be gone
++ * entirely — an overload left behind would let every caller keep compiling against a signature the
++ * contract no longer has, which is not a signature change at all.
++ */
++public class ChangeSignatureContractTest {
++
++    @Test
++    public void newSignatureExists() throws Exception {
++        Assert.assertNotNull(Resource.class.getMethod("getId", boolean.class));
++    }
++
++    @Test
++    public void oldSignatureIsGone() {
++        try {
++            Resource.class.getMethod("getId");
++            Assert.fail("org.keycloak.authorization.model.Resource still declares getId(); an overload is not a signature change");
++        } catch (NoSuchMethodException expected) {
++            // the old signature is gone, which is what this test asserts
++        }
++    }
++}
