@@ -127,10 +127,38 @@ fun retargetTypeSiteKey(site: GoldSite, oldFqn: String, newFqn: String): Pair<St
     val mappedDeclaration = when {
         declaration == oldFqn -> newFqn
         declaration.startsWith("$oldFqn#") || declaration.startsWith("$oldFqn.") ->
-            newFqn + declaration.substring(oldFqn.length)
+            retargetConstructorMember(newFqn + declaration.substring(oldFqn.length), oldFqn, newFqn)
         else -> declaration
     }
     return file to mappedDeclaration
+}
+
+/**
+ * Renames the MEMBER half of an already-owner-mapped key when that member is the type's constructor.
+ *
+ * The enclosing-declaration key is `<fqn>#<member>`, and a constructor's member name IS the type's
+ * simple name — so a type rename renames it too, while mapping the owner half alone yields
+ * `…ValidationRunContext#ValidationContext`, a key no post reading can ever hold. That cost the wide
+ * rename-type case three references inside its constructor in EVERY arm, printing an identical missed
+ * key in the mcp and agentless arms of builds 1031227794 and 1031227798 with conservation intact — an
+ * oracle artifact, not an agent miss.
+ *
+ * Exact equality, never `contains` or `startsWith`: `validationContextOf` and `ValidationContextHelper`
+ * embed the old simple name and are ordinary members that keep their names. The owner must also be the
+ * renamed type ITSELF, so a nested type's own constructor (`New.Builder#Builder`) is left alone —
+ * renaming the outer type does not rename `Builder`.
+ *
+ * A move-class mapping passes through untouched by construction: a move keeps the simple name, so the
+ * old and new simple names are equal and the rewrite is the identity.
+ */
+private fun retargetConstructorMember(mapped: String, oldFqn: String, newFqn: String): String {
+    val owner = mapped.substringBefore('#')
+    val member = mapped.substringAfter('#', "")
+    return if (owner == newFqn && member == oldFqn.substringAfterLast('.')) {
+        "$newFqn#${newFqn.substringAfterLast('.')}"
+    } else {
+        mapped
+    }
 }
 
 /**

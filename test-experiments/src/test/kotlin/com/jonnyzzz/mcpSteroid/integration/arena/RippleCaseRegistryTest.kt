@@ -134,41 +134,47 @@ class RippleCaseRegistryTest {
      * carelessness. It is also self-inflicted twice over, since [RippleNameEscapeRule] disqualifies a
      * TARGET whose name is addressable as a string while our own overlay introduced exactly that.
      *
-     * Both halves are asserted, because either alone is trivially satisfiable: the token must not
-     * appear contiguously anywhere in the patch (a search does not care whether the hit is in code,
-     * in a comment or in a message), and it MUST appear once the literal fragments are joined, so a
-     * consumer cannot pass by dropping the assertion that makes it a positive control.
-     *
-     * Contiguous substring rather than a word boundary on purpose: `TestKeyUtils` contains `KeyUtils`
-     * and a search for the old name lands on it just the same.
+     * The rule, and the counterexample that shaped it, are on [RippleConsumerIdentityRule]; the two
+     * fixture tests below are what prove this factory rejects a consumer that only LOOKS wired up.
      */
     @TestFactory
     fun `no consumer spells its case's old identity where a text search would find it`():
         List<DynamicTest> = RippleCases.all.map { case ->
         DynamicTest.dynamicTest(case.instanceId) {
-            val tokens = case.target.oldIdentitySearchTokens
-            assertTrue(tokens.isNotEmpty()) {
+            assertTrue(case.target.oldIdentitySearchTokens.isNotEmpty()) {
                 "${case.instanceId}: the kind names no search token, so this guard would pass vacuously"
             }
-            val patch = case.testPatch()
-            val joined = case.testPatchWithLiteralFragmentsJoined()
-            tokens.forEach { token ->
-                val hits = patch.lines().withIndex()
-                    .filter { it.value.contains(token) }
-                    .map { "line ${it.index + 1}: ${it.value.trim()}" }
-                assertTrue(hits.isEmpty()) {
-                    "${case.instanceId}: the hidden consumer spells '$token' contiguously, so an agent " +
-                        "told that no use of the old identity may survive finds this file by text " +
-                        "search and edits it — which voids the arm as tampering. Assemble the name " +
-                        "from fragments instead:\n" + hits.joinToString("\n")
-                }
-                assertTrue(joined.contains(token)) {
-                    "${case.instanceId}: with its string fragments joined the consumer still does not " +
-                        "name '$token', so it no longer pins the old identity at all and has stopped " +
-                        "being a positive control against a compatibility alias"
-                }
+            val findings = case.consumerIdentityFindings()
+            assertTrue(findings.isEmpty()) {
+                "${case.instanceId}: the hidden consumer is not well-formed:\n" +
+                    findings.joinToString("\n") + "\n" + RippleConsumerIdentityRule.remedy
             }
         }
+    }
+
+    /**
+     * The bypass a review found in this guard's first version, kept as a fixture so it cannot return.
+     *
+     * That version asked only that the token appear once the string fragments were joined, which the
+     * fragments alone satisfy — a consumer could keep a DEAD helper, assert `true`, and pass while
+     * proving nothing at all. It would report the same verdict whether or not a compatibility alias
+     * was left behind, which is the one thing the consumer exists to catch.
+     */
+    @Test
+    fun `a consumer whose assembled name is never looked up is rejected`() {
+        val findings = RippleConsumerIdentityRule.findings(DEAD_HELPER_CONSUMER, "KeyUtils")
+        assertTrue(findings.any { it.contains("no runtime lookup") }) {
+            "The guard accepted a consumer that assembles the old name and never uses it: $findings"
+        }
+    }
+
+    /**
+     * The same fixture with its helper wired into the lookup it exists for, so the test above fails
+     * for the reason it names rather than because the fixture is malformed in some other way.
+     */
+    @Test
+    fun `the same consumer passes once the assembled name reaches a lookup`() {
+        assertEquals(emptyList<String>(), RippleConsumerIdentityRule.findings(LIVE_HELPER_CONSUMER, "KeyUtils"))
     }
 
     /**
@@ -628,6 +634,71 @@ class RippleCaseRegistryTest {
         }
     }
 
+    /**
+     * The residual missed site of the wide rename-type case, as a fixture, with the key that found it.
+     *
+     * Round 2 printed it — `rippleFailedPredicateDetail` is what made it readable — identically in
+     * BOTH arms of builds 1031227794 and 1031227798, mcp and agentless alike, at recall 0.9814 with P4
+     * conserved and the compile gate passing:
+     *
+     * ```
+     * .../server-spi/src/main/java/org/keycloak/validate/ValidationContext.java|org.keycloak.validate.ValidationContext#ValidationContext|3
+     * ```
+     *
+     * It is the type's CONSTRUCTOR. The enclosing-declaration key is `<fqn>#<member>` and a
+     * constructor's member name IS the type's simple name, so it renames along with the type — while
+     * the mapping rewrote only the owner half and produced `…ValidationRunContext#ValidationContext`,
+     * which matches no post key. Three references inside the constructor missed in every arm. An
+     * identical key in both arms, with conservation intact, is what makes it an oracle artifact rather
+     * than an agent miss.
+     */
+    @Test
+    fun `the renamed type's constructor renames with the type`() {
+        val old = "org.keycloak.validate.ValidationContext"
+        val new = "org.keycloak.validate.ValidationRunContext"
+        val dir = "/home/agent/project-home/server-spi/src/main/java/org/keycloak/validate"
+        assertEquals(
+            "$dir/ValidationRunContext.java" to "$new#ValidationRunContext",
+            retargetTypeSiteKey(GoldSite("$dir/ValidationContext.java", "$old#ValidationContext", 3), old, new),
+        )
+    }
+
+    /**
+     * The other half of the constructor rule: only a member that IS the old simple name is a
+     * constructor, so only exact equality may rewrite it.
+     *
+     * A method whose name merely embeds the old simple name, a nested type that does, and a nested
+     * type's OWN constructor all keep their names — the last one because renaming the outer type does
+     * not rename `Builder`. A move-class mapping is unaffected by construction: a move keeps the simple
+     * name, so old and new agree and the rewrite is the identity.
+     */
+    @Test
+    fun `a member that merely embeds the old simple name is not a constructor`() {
+        val old = "org.keycloak.validate.ValidationContext"
+        val new = "org.keycloak.validate.ValidationRunContext"
+        val dir = "/p/org/keycloak/validate"
+        fun key(declaration: String) =
+            retargetTypeSiteKey(GoldSite("$dir/ValidationContext.java", declaration, 1), old, new).second
+
+        assertEquals("$new#validationContextOf", key("$old#validationContextOf"))
+        assertEquals("$new#newValidationContext", key("$old#newValidationContext"))
+        assertEquals("$new.ValidationContextHelper#of", key("$old.ValidationContextHelper#of"))
+        assertEquals("$new.Builder#Builder", key("$old.Builder#Builder")) {
+            "Renaming the outer type does not rename a nested type's constructor"
+        }
+
+        // A move keeps the simple name, so the constructor branch is the identity there.
+        val movedOld = "org.keycloak.models.workflow.ResourceType"
+        val movedNew = "org.keycloak.models.workflow.resource.ResourceType"
+        assertEquals(
+            "$movedNew#ResourceType",
+            retargetTypeSiteKey(
+                GoldSite("/p/org/keycloak/models/workflow/ResourceType.java", "$movedOld#ResourceType", 1),
+                movedOld, movedNew,
+            ).second,
+        )
+    }
+
     @Test
     fun `the type-level remapping is exact and touches nothing it was not asked to touch`() {
         val old = "org.keycloak.validate.ValidationContext"
@@ -699,3 +770,34 @@ class RippleCaseRegistryTest {
         )
     }
 }
+
+/**
+ * The review's counterexample: the fragments are there, nothing calls them, the assertion is inert.
+ */
+private val DEAD_HELPER_CONSUMER = """
+    +public class RenameTypeNarrowContractTest {
+    +    private static String oldFqn() { return "org.keycloak.tests.utils." + "Key" + "Utils"; }
+    +
+    +    @Test
+    +    public void oldNameIsGone() {
+    +        assertTrue(true);
+    +    }
+    +}
+""".trimIndent()
+
+/** [DEAD_HELPER_CONSUMER] with the one line that makes it a positive control again. */
+private val LIVE_HELPER_CONSUMER = """
+    +public class RenameTypeNarrowContractTest {
+    +    private static String oldFqn() { return "org.keycloak.tests.utils." + "Key" + "Utils"; }
+    +
+    +    @Test
+    +    public void oldNameIsGone() {
+    +        try {
+    +            Class.forName(oldFqn());
+    +            fail(oldFqn() + " still resolves; the rename left an alias behind");
+    +        } catch (ClassNotFoundException expected) {
+    +            // the old type is gone, which is what this test asserts
+    +        }
+    +    }
+    +}
+""".trimIndent()

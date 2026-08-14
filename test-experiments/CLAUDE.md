@@ -220,9 +220,14 @@ and that check is not optional:
   always: it voids the careful arms and keeps the careless ones. Assemble the name from fragments on
   one line (`"get" + "UserSession"`), and say in the consumer's KDoc why, or someone will join it back
   up. `RippleTarget.oldIdentitySearchTokens` names the banned token per kind and
-  `RippleCaseRegistryTest` enforces both halves: the token must not appear contiguously, and it MUST
-  appear once the fragments are joined, so a consumer cannot pass by dropping the assertion that makes
-  it a positive control. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
+  `RippleCaseRegistryTest` enforces both halves of `RippleConsumerIdentityRule`: the token must not
+  appear contiguously anywhere in the patch, and — with the fragments joined and the constant helpers
+  inlined — it must appear on a line that also performs a reflective lookup (`Class.forName(`,
+  `getMethod(`, …). The second half is scoped to the LOOKUP, not to the file, because a dead helper
+  plus `assertTrue(true)` satisfies "the name is in there somewhere" while proving nothing; that
+  counterexample is a fixture in the same test. Assertion wrappers deliberately do not qualify — every
+  consumer also puts its assembled name in a failure MESSAGE, and a message proves nothing about what
+  was looked up. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
 - This is not hypothetical. The family's founding case renamed `RealmResource.roles()` believing the
   `@Path("roles")` annotation carried the contract. Two `AdminEventPaths` files name the method as a
   string, so the rename yields `RESTEASY003645` at runtime — while the oracle graded an arm as a
