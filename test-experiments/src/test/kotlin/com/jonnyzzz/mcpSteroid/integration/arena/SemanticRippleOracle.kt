@@ -111,6 +111,29 @@ data class SemanticPostconditionResult(
      */
     val excludedImportReferences: Int = 0,
     /**
+     * [excludedImportReferences] minus the gold reading's own import references: how many import
+     * statements naming the target the run added (positive) or removed (negative).
+     *
+     * Reported for every kind, because excluding imports from conservation would otherwise make a
+     * spurious import free — an `import` of the transformed type sprayed into a file that never uses it
+     * costs no precision, no conservation, and passes the compile gate, since an unused import compiles.
+     * Before the exclusion that reference inflated the post total and broke P4; the delta is what keeps
+     * it visible now. See [p6ImportCountUnchanged] for the kinds where it is also asserted.
+     */
+    val importReferenceDelta: Int = 0,
+    /**
+     * P6, where the kind admits it: the run added and removed no import statement naming the target.
+     *
+     * `null` means the predicate does not apply, and applicability is a property of the kind, not of
+     * the run. A move and a type rename legitimately change the import count — a move ADDS one wherever
+     * the class was named from its own old package, a rename rewrites existing ones — so for those
+     * kinds [importReferenceDelta] is reported and nothing is asserted from it. A method rename and a
+     * signature change cannot: their target is a method, so the only import that can reference it at
+     * all is an `import static`, and a behaviour-preserving change to the method neither creates nor
+     * destroys one. There the delta must be zero, and a non-zero one is over-reach.
+     */
+    val p6ImportCountUnchanged: Boolean? = null,
+    /**
      * Kind-specific predicates contributed by the [RippleTarget] variant — arity for a signature
      * change, FQN movement for a move, supertype ownership for a pull-up. Kept as a map rather than
      * as more boolean fields because P1–P4 are the family's shared contract and each kind adds at
@@ -121,7 +144,7 @@ data class SemanticPostconditionResult(
 ) {
     val allPassed: Boolean
         get() = p1NoAliasAndNewNameDeclared && p2AllSitesConverted && p3DecoysUnchanged &&
-            p4Conserved && extraPredicates.values.all { it }
+            p4Conserved && (p6ImportCountUnchanged ?: true) && extraPredicates.values.all { it }
 }
 
 /**
@@ -311,6 +334,12 @@ fun SemanticGold.checkPilotTripwires() = checkTripwires(RippleCases.renameMethod
  * arms being the signature of an oracle artifact rather than of agent behaviour. The mapping comes from
  * the [RippleTarget] variant, which knows the transformation it asked for; see
  * [retargetTypeSiteKey].
+ *
+ * [importCountIsInvariant] comes from [RippleTarget.importCountIsInvariant] and decides whether the
+ * import-count delta is asserted (P6) or merely reported — see
+ * [SemanticPostconditionResult.p6ImportCountUnchanged]. It exists because dropping imports from
+ * conservation would otherwise make a SPURIOUS import cost nothing at all: it fails no predicate here,
+ * and an unused import compiles, so the gate cannot see it either.
  */
 fun parseSemanticPostcondition(
     output: String,
@@ -318,6 +347,7 @@ fun parseSemanticPostcondition(
     hiddenConsumerFiles: Set<String> = emptySet(),
     extraPredicates: Map<String, Boolean> = emptyMap(),
     expectedPostKey: (GoldSite) -> Pair<String, String> = { it.file to it.enclosingDeclaration },
+    importCountIsInvariant: Boolean = false,
 ): SemanticPostconditionResult {
     val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     check(lines.any { it == "POST_END" }) {
@@ -387,6 +417,9 @@ fun parseSemanticPostcondition(
         overReachedDecoys = overReached,
         excludedConsumerReferences = excludedRefs,
         excludedImportReferences = excludedImportRefs,
+        importReferenceDelta = excludedImportRefs - gold.importReferences,
+        p6ImportCountUnchanged =
+            if (importCountIsInvariant) excludedImportRefs == gold.importReferences else null,
         extraPredicates = extraPredicates,
     )
 }

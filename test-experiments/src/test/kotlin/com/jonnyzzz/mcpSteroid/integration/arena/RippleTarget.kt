@@ -43,6 +43,19 @@ sealed interface RippleTarget {
     /** What makes the transformation structurally behaviour-preserving, stated for the reader. */
     val behaviourPreservationEvidence: String
 
+    /**
+     * True when a CORRECT run of this kind cannot change how many import statements reference the
+     * target, so the oracle may assert that the count did not move.
+     *
+     * Not defaulted: since imports are excluded from conservation, an unasserted import count is a hole
+     * — a spurious `import` of the transformed symbol costs no precision, no conservation, and compiles,
+     * so nothing else in the family would see it. A new kind must therefore decide this rather than
+     * inherit an answer. `false` is the honest answer for a kind whose correct solutions really do move
+     * imports (a move ADDS one wherever the type was named from its own old package; a type rename
+     * rewrites the existing ones), and there the delta is reported instead of asserted.
+     */
+    val importCountIsInvariant: Boolean
+
     /** Emits GOLD_TARGET, GOLD_SITE, GOLD_DECOY and GOLD_NEWNAME_DECLS for this target. */
     fun captureFragment(): String
 
@@ -168,6 +181,14 @@ data class RenameMethod(
 
     override val kindId: String get() = "rename-method"
 
+    /**
+     * A method rename cannot move an import: the only import that can reference a METHOD at all is an
+     * `import static`, and renaming the method neither creates nor destroys one — a correct run rewrites
+     * the name inside an existing static import, which leaves the reference count where it was. So a
+     * moved count here means the run touched imports it had no business touching.
+     */
+    override val importCountIsInvariant: Boolean get() = true
+
     override val targetDescription: String get() = "$targetClassFqn#$oldName"
 
     override val destinationDescription: String get() = newName
@@ -267,6 +288,14 @@ data class RenameType(
 ) : RippleTarget {
 
     override val kindId: String get() = "rename-type"
+
+    /**
+     * A correct rename rewrites every import of the old simple name to the new one, so the COUNT is
+     * expected to hold — but an agent may also legitimately convert an import into a fully-qualified
+     * reference, or drop one that a same-package usage no longer needs, and neither is a defect. The
+     * delta is reported rather than asserted.
+     */
+    override val importCountIsInvariant: Boolean get() = false
 
     override val targetDescription: String get() = oldFqn
 
@@ -420,6 +449,12 @@ data class ChangeSignature(
 ) : RippleTarget {
 
     override val kindId: String get() = "change-signature"
+
+    /**
+     * A signature change moves no import for the same reason a method rename does not: only an
+     * `import static` can reference a method, and adding a parameter neither creates nor destroys one.
+     */
+    override val importCountIsInvariant: Boolean get() = true
 
     override val targetDescription: String get() = "$targetClassFqn#$methodName"
 
@@ -660,6 +695,12 @@ data class MoveClass(
 ) : RippleTarget {
 
     override val kindId: String get() = "move-class"
+
+    /**
+     * A correct move MUST add an import wherever the type was named from its own old package, which is
+     * the whole reason imports are excluded from conservation. The delta is reported, never asserted.
+     */
+    override val importCountIsInvariant: Boolean get() = false
 
     override val targetDescription: String get() = oldFqn
 

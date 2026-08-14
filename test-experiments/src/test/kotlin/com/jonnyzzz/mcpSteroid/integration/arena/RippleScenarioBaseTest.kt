@@ -173,6 +173,7 @@ abstract class RippleScenarioBaseTest {
                 hiddenConsumerFiles = rippleCase.hiddenConsumerFiles(),
                 extraPredicates = rippleCase.target.extraPredicates(postOutput),
                 expectedPostKey = rippleCase.target::expectedPostKey,
+                importCountIsInvariant = rippleCase.target.importCountIsInvariant,
             )
 
             // The layer that covers every call site: a site the agent missed still names a declaration
@@ -218,6 +219,8 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE]   P2 all sites:    ${grade.p2AllSitesConverted}")
             println("[RIPPLE]   P3 decoys kept:  ${grade.p3DecoysUnchanged}")
             println("[RIPPLE]   P4 conserved:    ${grade.p4Conserved}")
+            println("[RIPPLE]   P6 imports kept: " + (grade.p6ImportCountUnchanged?.toString()
+                ?: "n/a for this kind (delta ${grade.importReferenceDelta} is expected to move)"))
             grade.extraPredicates.toSortedMap().forEach { (id, passed) ->
                 println("[RIPPLE]   $id: $passed")
             }
@@ -226,7 +229,9 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE]   f1:              ${"%.4f".format(grade.f1)}")
             println("[RIPPLE]   missed sites:    ${grade.missedSites.size}")
             println("[RIPPLE]   consumer refs excluded from conservation: ${grade.excludedConsumerReferences}")
-            println("[RIPPLE]   import refs excluded from conservation:   ${grade.excludedImportReferences}")
+            println("[RIPPLE]   import refs excluded from conservation:   " +
+                "${grade.excludedImportReferences} (gold held ${gold.importReferences}, " +
+                "delta ${grade.importReferenceDelta})")
             println("[RIPPLE]   over-reached:    ${grade.overReachedDecoys}")
             println("[RIPPLE]   compile gate:    ${if (gate.passed) "PASS" else "FAIL (exit ${gate.exitCode})"}")
             println("[RIPPLE]   verified FTP:    ${verification.classesPassed}/${verification.classesTotal}")

@@ -496,6 +496,27 @@ class RippleCaseRegistryTest {
         }
     }
 
+    /**
+     * P6 exists because imports are excluded from conservation, which would otherwise make a spurious
+     * `import` of the transformed symbol free of charge. Whether it can be ASSERTED is a property of the
+     * kind: a method-level transformation cannot move an import count (only an `import static` can
+     * reference a method at all, and neither a rename nor an added parameter creates or destroys one),
+     * while a move must add imports and a type rename may legitimately trade one for a qualified name.
+     */
+    @Test
+    fun `the import count is asserted for the method-level kinds and only reported for the type-level ones`() {
+        RippleCases.all.forEach { case ->
+            val expected = when (case.target) {
+                is RenameMethod, is ChangeSignature -> true
+                is RenameType, is MoveClass -> false
+            }
+            assertEquals(expected, case.target.importCountIsInvariant) {
+                "${case.instanceId}: '${case.target.kindId}' must ${if (expected) "assert" else "report"}" +
+                    " its import-count delta"
+            }
+        }
+    }
+
     @Test
     fun `the type-level remapping is exact and touches nothing it was not asked to touch`() {
         val old = "org.keycloak.validate.ValidationContext"

@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -489,10 +490,12 @@ class SemanticRippleOracleTest {
     private val moveOldDir = "/work/keycloak/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan"
 
     /**
-     * The measured shape of the move-class NARROW case: 9 gold references over 3 files, two of them
-     * already imports (the two files outside the moved class's package), the rest usages.
-     * `RealmCacheSession` sits in the moved class's OWN package, so at the base commit it names the
-     * class with no import at all — which is the file that must gain one.
+     * The move-class NARROW case, modelled on its measurement: the 9 gold references over 3 files and
+     * the 10-against-9 post total are measured, the import-versus-usage SPLIT inside them (2 imports, 7
+     * usages) is a reconstruction — the pre-fix instrument could not tell an import from any other
+     * file-level reference, so no measurement of that split exists. It is chosen to be consistent with
+     * the case: `RealmCacheSession` sits in the moved class's OWN package, so at the base commit it names
+     * the class with no import, and it is the file that must gain one.
      */
     private val moveGold = """
         GOLD_TARGET ${moveTarget.oldFqn}|${moveTarget.simpleName}|${moveTarget.newPackage}
@@ -599,15 +602,92 @@ class SemanticRippleOracleTest {
         assertEquals(1.0, r.recall) { "Every gold usage is still converted" }
     }
 
+    @Test
+    fun `the move's legitimate import growth is reported, never asserted`() {
+        val r = parseSemanticPostcondition(
+            perfectMovePost, parseSemanticGold(moveGold),
+            expectedPostKey = moveTarget::expectedPostKey,
+            importCountIsInvariant = moveTarget.importCountIsInvariant,
+        )
+        assertEquals(1, r.importReferenceDelta) {
+            "One import more than the gold held: the file that named the class from its own old package"
+        }
+        assertNull(r.p6ImportCountUnchanged) {
+            "A move MUST add imports, so asserting the count would fail every correct run"
+        }
+        assertTrue(r.allPassed)
+    }
+
+    /**
+     * The hole the import exclusion would leave open if nothing consumed the delta: an agent that sprays
+     * `import <new name>;` into files that never use it pays no precision and no conservation — the
+     * references are excluded — and an unused import compiles, so the scoped gate cannot see it either.
+     * Before the exclusion those references inflated the post total and broke P4. P6 is what replaces
+     * that accidental coverage, for the kinds whose correct runs cannot move the count.
+     */
+    private val postWithSprayedImports = perfectPost
+        .replace(
+            "POST_TOTAL_NEW_REFS 4",
+            "POST_SITE x/X.java|<import>|1\n" +
+                "POST_SITE y/Y.java|<import>|1\n" +
+                "POST_SITE z/Z.java|<import>|1\n" +
+                "POST_TOTAL_NEW_REFS 7",
+        )
+
+    @Test
+    fun `spraying unnecessary imports is over-reach where the import count cannot legitimately move`() {
+        val r = parseSemanticPostcondition(
+            postWithSprayedImports, gold(),
+            importCountIsInvariant = RippleCases.renameMethodWideTarget.importCountIsInvariant,
+        )
+        // The point of the test: everything else still reads as a perfect rename, which is exactly why
+        // the delta had to be consumed by something.
+        assertTrue(r.p4Conserved)
+        assertEquals(1.0, r.precision)
+        assertEquals(1.0, r.recall)
+        assertEquals(3, r.importReferenceDelta)
+        assertEquals(false, r.p6ImportCountUnchanged) {
+            "Only an import static can reference a method, and a rename neither creates nor destroys one"
+        }
+        assertFalse(r.allPassed) { "A sprayed import must cost the run its SUCCESS" }
+    }
+
+    @Test
+    fun `a static import present in both readings leaves P6 true`() {
+        val goldWithStaticImport = goldOutput.replace(
+            "GOLD_SITE b/B.java|B#three|1",
+            "GOLD_SITE b/B.java|B#three|1\nGOLD_SITE b/B.java|<import>|1",
+        )
+        val postWithStaticImport = perfectPost.replace(
+            "POST_SITE b/B.java|B#three|1",
+            "POST_SITE b/B.java|B#three|1\nPOST_SITE b/B.java|<import>|1",
+        ).replace("POST_TOTAL_NEW_REFS 4", "POST_TOTAL_NEW_REFS 5")
+        val g = parseSemanticGold(goldWithStaticImport)
+        assertEquals(5, g.totalReferences)
+        assertEquals(4, g.countedReferences) { "The static import cancels between the two readings" }
+        val r = parseSemanticPostcondition(
+            postWithStaticImport, g,
+            importCountIsInvariant = RippleCases.renameMethodWideTarget.importCountIsInvariant,
+        )
+        assertEquals(0, r.importReferenceDelta)
+        assertEquals(true, r.p6ImportCountUnchanged)
+        assertEquals(1.0, r.recall)
+        assertEquals(1.0, r.precision)
+        assertTrue(r.allPassed)
+    }
+
     private val renameTypeTarget = RippleCases.renameTypeWideTarget
 
     private val renameTypeDir = "/work/keycloak/server-spi/src/main/java/org/keycloak/validate"
 
     /**
-     * The measured shape of the rename-type WIDE case: 198 gold references, FOUR of them keys that name
-     * the target's own file and the target itself — the four that went missing when the gold key was
-     * compared unmapped, giving both arms exactly 194 of 198. One of them sits in a nested class, so the
-     * mapping is exercised on `Old.Nested#member` as well as on `Old` and `Old#member`.
+     * The rename-type WIDE case, modelled on its measurement: the 198 gold references and the FOUR keys
+     * that name the target's own file and the target itself are measured — those four are what went
+     * missing when the gold key was compared unmapped, giving both arms exactly 194 of 198. The
+     * DISTRIBUTION of the other 194 over two files is modelled, not measured: the case spans 41 files,
+     * and reproducing all of them would add no coverage to a key comparison. One of the four sits in a
+     * nested class, so the mapping is exercised on `Old.Nested#member` as well as on `Old` and
+     * `Old#member`.
      */
     private val renameTypeGold = """
         GOLD_TARGET ${renameTypeTarget.oldFqn}|ValidationContext|ValidationRunContext
