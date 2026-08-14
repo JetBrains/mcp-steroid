@@ -2,7 +2,7 @@ diff --git a/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeCo
 new file mode 100644
 --- /dev/null
 +++ b/server-spi-private/src/test/java/org/keycloak/validate/RenameTypeContractTest.java
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,40 @@
 +package org.keycloak.validate;
 +
 +import org.junit.Assert;
@@ -14,6 +14,20 @@ new file mode 100644
 + */
 +public class RenameTypeContractTest {
 +
++    /**
++     * The pre-rename fully-qualified name, assembled from fragments and never written as one literal.
++     *
++     * The task tells the agent that no use of the old name may survive, so a thorough agent starts
++     * by text-searching the tree for it. This file is added by the harness, the agent is never told
++     * it exists, and editing it voids the whole run as tampering — so an old name spelled out here
++     * would turn diligence into a disqualification, which is exactly what voided the claude+mcp arm
++     * of build 1031230755. Reflection resolves an assembled string exactly as it resolves a single
++     * literal, so nothing this test proves is weakened. Do not join these fragments back together.
++     */
++    private static String oldFqn() {
++        return "org.keycloak.validate." + "Validation" + "Context";
++    }
++
 +    @Test
 +    public void newNameExists() throws Exception {
 +        Assert.assertNotNull(Class.forName("org.keycloak.validate.ValidationRunContext"));
@@ -22,8 +36,8 @@ new file mode 100644
 +    @Test
 +    public void oldNameIsGone() {
 +        try {
-+            Class.forName("org.keycloak.validate.ValidationContext");
-+            Assert.fail("org.keycloak.validate.ValidationContext still resolves; the rename left an alias behind");
++            Class.forName(oldFqn());
++            Assert.fail(oldFqn() + " still resolves; the rename left an alias behind");
 +        } catch (ClassNotFoundException expected) {
 +            // the old type is gone, which is what this test asserts
 +        }

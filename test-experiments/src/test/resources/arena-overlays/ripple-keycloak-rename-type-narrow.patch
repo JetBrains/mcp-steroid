@@ -2,7 +2,7 @@ diff --git a/tests/utils/src/test/java/org/keycloak/tests/utils/RenameTypeNarrow
 new file mode 100644
 --- /dev/null
 +++ b/tests/utils/src/test/java/org/keycloak/tests/utils/RenameTypeNarrowContractTest.java
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,50 @@
 +package org.keycloak.tests.utils;
 +
 +import org.junit.jupiter.api.Test;
@@ -16,16 +16,38 @@ new file mode 100644
 + */
 +public class RenameTypeNarrowContractTest {
 +
++    /**
++     * The pre-rename fully-qualified name, assembled from fragments and never written as one literal.
++     *
++     * The task tells the agent that no use of the old name may survive, so a thorough agent starts
++     * by text-searching the tree for it. This file is added by the harness, the agent is never told
++     * it exists, and editing it voids the whole run as tampering — so an old name spelled out here
++     * would turn diligence into a disqualification, which is exactly what voided the claude+mcp arm
++     * of build 1031230755. Reflection resolves an assembled string exactly as it resolves a single
++     * literal, so nothing this test proves is weakened. Do not join these fragments back together.
++     */
++    private static String oldFqn() {
++        return "org.keycloak.tests.utils." + "Key" + "Utils";
++    }
++
++    /**
++     * The post-rename name, assembled for the same reason: the new simple name CONTAINS the old one,
++     * so a search for the old name lands on this line too if it is written out.
++     */
++    private static String newFqn() {
++        return "org.keycloak.tests.utils.Test" + "Key" + "Utils";
++    }
++
 +    @Test
 +    public void newNameExists() throws Exception {
-+        assertNotNull(Class.forName("org.keycloak.tests.utils.TestKeyUtils"));
++        assertNotNull(Class.forName(newFqn()));
 +    }
 +
 +    @Test
 +    public void oldNameIsGone() {
 +        try {
-+            Class.forName("org.keycloak.tests.utils.KeyUtils");
-+            fail("org.keycloak.tests.utils.KeyUtils still resolves; the rename left an alias behind");
++            Class.forName(oldFqn());
++            fail(oldFqn() + " still resolves; the rename left an alias behind");
 +        } catch (ClassNotFoundException expected) {
 +            // the old type is gone, which is what this test asserts
 +        }

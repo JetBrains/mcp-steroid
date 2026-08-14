@@ -124,6 +124,54 @@ class RippleCaseRegistryTest {
         }
 
     /**
+     * The guard the family did not have when build 1031230755 voided its claude+mcp arm.
+     *
+     * The prompt orders that no use of the old identity may survive. A thorough agent text-searches
+     * for it, and the hidden consumer — a file it is never told about, and whose modification voids
+     * the arm as tampering — spelled `getUserSession` as a plain literal, so the search found it and
+     * the agent did what it had been told. The void is intermittent by construction: it fires on the
+     * arms that searched and spares the ones that did not, which biases the surviving sample towards
+     * carelessness. It is also self-inflicted twice over, since [RippleNameEscapeRule] disqualifies a
+     * TARGET whose name is addressable as a string while our own overlay introduced exactly that.
+     *
+     * Both halves are asserted, because either alone is trivially satisfiable: the token must not
+     * appear contiguously anywhere in the patch (a search does not care whether the hit is in code,
+     * in a comment or in a message), and it MUST appear once the literal fragments are joined, so a
+     * consumer cannot pass by dropping the assertion that makes it a positive control.
+     *
+     * Contiguous substring rather than a word boundary on purpose: `TestKeyUtils` contains `KeyUtils`
+     * and a search for the old name lands on it just the same.
+     */
+    @TestFactory
+    fun `no consumer spells its case's old identity where a text search would find it`():
+        List<DynamicTest> = RippleCases.all.map { case ->
+        DynamicTest.dynamicTest(case.instanceId) {
+            val tokens = case.target.oldIdentitySearchTokens
+            assertTrue(tokens.isNotEmpty()) {
+                "${case.instanceId}: the kind names no search token, so this guard would pass vacuously"
+            }
+            val patch = case.testPatch()
+            val joined = case.testPatchWithLiteralFragmentsJoined()
+            tokens.forEach { token ->
+                val hits = patch.lines().withIndex()
+                    .filter { it.value.contains(token) }
+                    .map { "line ${it.index + 1}: ${it.value.trim()}" }
+                assertTrue(hits.isEmpty()) {
+                    "${case.instanceId}: the hidden consumer spells '$token' contiguously, so an agent " +
+                        "told that no use of the old identity may survive finds this file by text " +
+                        "search and edits it — which voids the arm as tampering. Assemble the name " +
+                        "from fragments instead:\n" + hits.joinToString("\n")
+                }
+                assertTrue(joined.contains(token)) {
+                    "${case.instanceId}: with its string fragments joined the consumer still does not " +
+                        "name '$token', so it no longer pins the old identity at all and has stopped " +
+                        "being a positive control against a compatibility alias"
+                }
+            }
+        }
+    }
+
+    /**
      * The deleted per-case tests each asserted that the destination differed from the origin in the
      * terms of their own kind. `destinationDescription != targetDescription` does not reproduce that
      * — the two strings have structurally different shapes and can never be equal — so each kind

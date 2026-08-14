@@ -93,6 +93,18 @@ data class RippleCase(
     fun hiddenConsumerFiles(): Set<String> = extractPatchFilePaths(testPatch())
 
     /**
+     * The consumer's text as it would read if every `"a" + "b"` had been written as one literal.
+     *
+     * The consumers deliberately assemble the names they reflect on out of fragments, so that no text
+     * search for the pre-transformation identity can reach a file whose modification voids the arm —
+     * see [RippleTarget.oldIdentitySearchTokens]. That hiding is only half a contract: a consumer
+     * that simply DROPPED its old-identity assertion would satisfy it too, and would stop being a
+     * positive control. Joining the fragments back is how `RippleCaseRegistryTest` asserts the other
+     * half — the old identity must still be named here, only never contiguously.
+     */
+    fun testPatchWithLiteralFragmentsJoined(): String = joinJavaLiteralFragments(testPatch())
+
+    /**
      * `passToPass` is empty on purpose: regression evidence for this task is the scoped compile gate,
      * not a list of tests, because a whole-suite baseline is not viable on a project this size.
      */
@@ -124,3 +136,14 @@ data class RippleCase(
             .substringBefore("## Environment Facts")
             .trim()
 }
+
+/**
+ * Joins adjacent Java string-literal fragments: `"a" + "b"` becomes `"ab"`.
+ *
+ * Only a `+` between two literals ON ONE LINE is joined, which is the shape the family's consumers
+ * use. A concatenation split across lines is deliberately NOT joined: a patch body carries a leading
+ * `+` on every line, so a multi-line concat cannot be recognised without guessing, and a consumer
+ * written that way must fail the guard rather than pass it by accident.
+ */
+fun joinJavaLiteralFragments(text: String): String =
+    text.lines().joinToString("\n") { line -> line.replace(Regex("""" *\+ *""""), "") }

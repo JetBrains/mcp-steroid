@@ -2,7 +2,7 @@ diff --git a/server-spi-private/src/test/java/org/keycloak/authorization/model/C
 new file mode 100644
 --- /dev/null
 +++ b/server-spi-private/src/test/java/org/keycloak/authorization/model/ChangeSignatureContractTest.java
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,42 @@
 +package org.keycloak.authorization.model;
 +
 +import org.junit.Assert;
@@ -15,16 +15,31 @@ new file mode 100644
 + */
 +public class ChangeSignatureContractTest {
 +
++    /**
++     * The pre-change method name, assembled from fragments and never written as one literal.
++     *
++     * The task tells the agent that no use of the old signature may survive, so a thorough agent starts
++     * by text-searching the tree for it. This file is added by the harness, the agent is never told
++     * it exists, and editing it voids the whole run as tampering — so an old signature spelled out here
++     * would turn diligence into a disqualification, which is exactly what voided the claude+mcp arm
++     * of build 1031230755. Reflection resolves an assembled string exactly as it resolves a single
++     * literal, so nothing this test proves is weakened. Do not join these fragments back together.
++     */
++    private static String memberName() {
++        return "get" + "Id";
++    }
++
 +    @Test
 +    public void newSignatureExists() throws Exception {
-+        Assert.assertNotNull(Resource.class.getMethod("getId", boolean.class));
++        Assert.assertNotNull(Resource.class.getMethod(memberName(), boolean.class));
 +    }
 +
 +    @Test
 +    public void oldSignatureIsGone() {
 +        try {
-+            Resource.class.getMethod("getId");
-+            Assert.fail("org.keycloak.authorization.model.Resource still declares getId(); an overload is not a signature change");
++            Resource.class.getMethod(memberName());
++            Assert.fail("org.keycloak.authorization.model.Resource still declares " + memberName()
++                    + "(); an overload is not a signature change");
 +        } catch (NoSuchMethodException expected) {
 +            // the old signature is gone, which is what this test asserts
 +        }

@@ -44,6 +44,22 @@ sealed interface RippleTarget {
     val behaviourPreservationEvidence: String
 
     /**
+     * The strings a text search for the target's PRE-transformation identity would use.
+     *
+     * Every kind's prompt orders that no use of the old identity may survive, and a thorough agent
+     * satisfies that by grepping the tree for it. The hidden consumer is a file the agent is never
+     * told about and whose modification VOIDS the arm, so anything in it that such a grep finds is a
+     * trap of the harness' own making: the agent edits it for exactly the reason the task gave, and
+     * the run is thrown away as tampering. That is what voided the claude+mcp arm of build
+     * 1031230755, where the consumer spelled `getUserSession` as a plain literal.
+     *
+     * These are the tokens `RippleCaseRegistryTest` forbids the overlay to spell contiguously. One
+     * token per kind is enough when the others contain it: a type's old FQN contains its old simple
+     * name, so banning the simple name bans both spellings.
+     */
+    val oldIdentitySearchTokens: List<String>
+
+    /**
      * True when a CORRECT run of this kind cannot change how many import statements reference the
      * target, so the oracle may assert that the count did not move.
      *
@@ -202,6 +218,9 @@ data class RenameMethod(
     override val importCountIsInvariant: Boolean get() = true
 
     override val targetDescription: String get() = "$targetClassFqn#$oldName"
+
+    /** The method's own name; the owning type keeps its name and stays legitimately spellable. */
+    override val oldIdentitySearchTokens: List<String> get() = listOf(oldName)
 
     override val destinationDescription: String get() = newName
 
@@ -392,6 +411,12 @@ data class RenameType(
 
     override val targetDescription: String get() = oldFqn
 
+    /**
+     * The old SIMPLE name, not the old FQN: the FQN contains it, so banning the simple name bans the
+     * qualified spelling too, and an agent renaming a type greps for the simple name first.
+     */
+    override val oldIdentitySearchTokens: List<String> get() = listOf(oldSimpleName)
+
     override val destinationDescription: String get() = newSimpleName
 
     override val targetTypeFqn: String get() = oldFqn
@@ -550,6 +575,17 @@ data class ChangeSignature(
     override val importCountIsInvariant: Boolean get() = true
 
     override val targetDescription: String get() = "$targetClassFqn#$methodName"
+
+    /**
+     * The method name — which this kind does NOT change, so the ban covers the new identity as well.
+     *
+     * That is not over-reach. The old identity is the name at the old arity, and no text search can
+     * separate the two spellings because they are the same string; an agent updating call sites greps
+     * that one name, and a reflective lookup of the OLD parameter list sitting in the overlay is
+     * precisely what it would "fix". The consumer therefore assembles the name for both of its
+     * assertions.
+     */
+    override val oldIdentitySearchTokens: List<String> get() = listOf(methodName)
 
     override val destinationDescription: String get() =
         "$methodName($addedParameterType $addedParameterName)"
@@ -796,6 +832,13 @@ data class MoveClass(
     override val importCountIsInvariant: Boolean get() = false
 
     override val targetDescription: String get() = oldFqn
+
+    /**
+     * The old FQN, and only that: a move leaves the simple name untouched, so the simple name is a
+     * legitimate spelling on both sides of the transformation and banning it would ban the consumer
+     * from naming the type at all. What a move retires is the qualified name.
+     */
+    override val oldIdentitySearchTokens: List<String> get() = listOf(oldFqn)
 
     override val destinationDescription: String get() = newFqn
 

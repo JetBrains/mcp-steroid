@@ -213,6 +213,16 @@ and that check is not optional:
   (`SURVEY_MODULE_NAMES` and `SURVEY_OVERRIDE_MODULES`); `renameMethodGateModules` is the union rule in
   code. The type-level kinds do not need this — a rename-type or move-class changes no member
   signature, so nothing is forced to change in a subtype, and every affected file names the type.
+- **A new case's hidden consumer must never spell the target's OLD identity contiguously.** The prompt
+  orders that no use of the old identity survive, so a thorough agent greps for it; the consumer is a
+  file the agent is never told about and whose modification voids the arm as tampering, so a plainly
+  written old name turns diligence into a disqualification — intermittently, which is worse than
+  always: it voids the careful arms and keeps the careless ones. Assemble the name from fragments on
+  one line (`"get" + "UserSession"`), and say in the consumer's KDoc why, or someone will join it back
+  up. `RippleTarget.oldIdentitySearchTokens` names the banned token per kind and
+  `RippleCaseRegistryTest` enforces both halves: the token must not appear contiguously, and it MUST
+  appear once the fragments are joined, so a consumer cannot pass by dropping the assertion that makes
+  it a positive control. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
 - This is not hypothetical. The family's founding case renamed `RealmResource.roles()` believing the
   `@Path("roles")` annotation carried the contract. Two `AdminEventPaths` files name the method as a
   string, so the rename yields `RESTEASY003645` at runtime — while the oracle graded an arm as a

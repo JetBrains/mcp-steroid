@@ -2,7 +2,7 @@ diff --git a/model/infinispan/src/test/java/org/keycloak/models/cache/infinispan
 new file mode 100644
 --- /dev/null
 +++ b/model/infinispan/src/test/java/org/keycloak/models/cache/infinispan/MoveClassNarrowContractTest.java
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,44 @@
 +package org.keycloak.models.cache.infinispan;
 +
 +import org.junit.Assert;
@@ -18,6 +18,20 @@ new file mode 100644
 + */
 +public class MoveClassNarrowContractTest {
 +
++    /**
++     * The pre-move fully-qualified name, assembled from fragments and never written as one literal.
++     *
++     * The task tells the agent that no use of the old fully-qualified name may survive, so a thorough agent starts
++     * by text-searching the tree for it. This file is added by the harness, the agent is never told
++     * it exists, and editing it voids the whole run as tampering — so an old fully-qualified name spelled out here
++     * would turn diligence into a disqualification, which is exactly what voided the claude+mcp arm
++     * of build 1031230755. Reflection resolves an assembled string exactly as it resolves a single
++     * literal, so nothing this test proves is weakened. Do not join these fragments back together.
++     */
++    private static String oldFqn() {
++        return "org.keycloak.models.cache.infinispan" + ".ClientAdapter";
++    }
++
 +    @Test
 +    public void newFqnResolves() throws Exception {
 +        Assert.assertNotNull(Class.forName("org.keycloak.models.cache.infinispan.client.ClientAdapter"));
@@ -26,8 +40,8 @@ new file mode 100644
 +    @Test
 +    public void oldFqnIsGone() {
 +        try {
-+            Class.forName("org.keycloak.models.cache.infinispan.ClientAdapter");
-+            Assert.fail("org.keycloak.models.cache.infinispan.ClientAdapter still resolves; the move left a copy behind");
++            Class.forName(oldFqn());
++            Assert.fail(oldFqn() + " still resolves; the move left a copy behind");
 +        } catch (ClassNotFoundException expected) {
 +            // the old fully-qualified name is gone, which is what this test asserts
 +        }
