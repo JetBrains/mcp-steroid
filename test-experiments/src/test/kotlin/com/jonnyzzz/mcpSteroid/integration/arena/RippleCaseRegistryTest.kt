@@ -369,8 +369,12 @@ class RippleCaseRegistryTest {
         assertEquals(121, pilot.expectedGoldReferences)
         assertEquals(42, pilot.expectedGoldFiles)
         assertEquals(15, pilot.expectedDecoyDeclarations)
-        assertEquals(8, pilot.compileGateModules.size)
+        assertEquals(9, pilot.compileGateModules.size)
         assertTrue(pilot.compileGateSelectors().contains(":keycloak-server-spi"))
+        assertTrue(pilot.compileGateSelectors().contains(":keycloak-model-infinispan")) {
+            "The three overriding implementations live there and nothing calls the method in that " +
+                "module, so only the gate can see them left behind"
+        }
         assertEquals("org.keycloak.models.UserSessionProvider", RippleCases.renameMethodWideTarget.targetClassFqn)
         assertEquals("getUserSession", RippleCases.renameMethodWideTarget.oldName)
         assertEquals("lookupUserSession", RippleCases.renameMethodWideTarget.newName)
@@ -378,6 +382,36 @@ class RippleCaseRegistryTest {
             "UserSessionModel getUserSession(RealmModel realm, String id)",
             RippleCases.renameMethodWideTarget.declarationSignature,
         ) { "The prompt states the declaration exactly, parameters included" }
+    }
+
+    /**
+     * The gate of a rename-method case is the UNION of two measured populations plus the declaring
+     * module, and this pins it for the pilot from the two lists the survey printed.
+     *
+     * A gate derived from reference modules alone is not merely incomplete, it is silently wrong for
+     * this kind: an arm that renames the interface and every one of the 121 call sites but leaves the
+     * three implementations in `keycloak-model-infinispan` alone scores P1 to P4 true at recall 1.0
+     * and precision 1.0 with a green hidden consumer, because an override is not a reference, the
+     * override family is excluded from the decoys by design, and the alias check looks only at the
+     * interface. Nothing but the compile gate can see it, and only if that module is in the gate.
+     */
+    @Test
+    fun `the pilot's gate is the union of its reference modules, its overrides and its declaring module`() {
+        // Both lists as the survey printed them for org.keycloak.models.UserSessionProvider#getUserSession.
+        val referenceModules = listOf(
+            "integration-arquillian-tests-base", "keycloak-model-test", "keycloak-server-spi-private",
+            "keycloak-services", "keycloak-tests-base", "keycloak-tests-utils-shared",
+            "keycloak-testsuite-utils",
+        )
+        val overrideModules = listOf("keycloak-model-infinispan")
+        val pilot = RippleCases.renameMethodWide
+        assertEquals(
+            renameMethodGateModules(referenceModules, overrideModules, pilot.declaringModuleArtifactId),
+            pilot.compileGateModules.sorted(),
+        )
+        assertTrue(referenceModules.none { it in overrideModules }) {
+            "The fixture only proves the union matters while the override module holds no call site"
+        }
     }
 
     /**
@@ -390,8 +424,8 @@ class RippleCaseRegistryTest {
         RippleCases.all.mapNotNull { it.target as? RenameMethod }.forEach { target ->
             assertFalse(target.targetClassFqn.startsWith("org.keycloak.admin.client.resource.")) {
                 "${target.targetDescription}: every method of that package is a JAX-RS resource " +
-                    "method, and 289 call sites in Keycloak address such methods by name through " +
-                    "UriBuilder.path(X.class, \"name\") — see RippleNameEscapeRule"
+                    "method, and several hundred call sites in Keycloak address such methods by name " +
+                    "through UriBuilder.path(X.class, \"name\") — see RippleNameEscapeRule"
             }
             assertTrue(target.behaviourPreservationEvidence.contains("string literal")) {
                 "${target.targetDescription}: a rename's behaviour-preservation evidence must state " +

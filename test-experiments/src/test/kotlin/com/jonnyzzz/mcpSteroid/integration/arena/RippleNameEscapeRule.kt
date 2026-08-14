@@ -61,9 +61,12 @@ enum class LiteralNameLookupKind {
  *    rename-method candidate through the string index, and excludes any JAX-RS-annotated method from
  *    the rename-method kind outright — an annotated method is exactly the population
  *    `path(X.class, "name")` can address.
- * 2. `RenameMethod.captureFragment` re-measures it inside the arm and refuses to produce a gold set
- *    when the count is not zero, so an ill-posed case aborts before the agent runs rather than being
- *    graded.
+ * 2. `RenameMethod.captureFragment` re-measures it inside the arm and REPORTS every file holding such
+ *    a literal as `GOLD_STRING_LITERAL_NAME`; `SemanticGold.checkTripwires` is what REFUSES to grade,
+ *    and it checks this first, before the count tripwires, because it is the only one about whether
+ *    the case is well-posed rather than about whether the measurement still matches. The split is
+ *    deliberate: the script reports per file and the Kotlin side judges, because only the case knows
+ *    which files are its own overlay — the hidden consumer names the method reflectively on purpose.
  * 3. [gitGrepCommands] states the offline confirmation a case author runs against the bare repository
  *    at the pinned commit, and [lookupsNaming] is that confirmation as code.
  */

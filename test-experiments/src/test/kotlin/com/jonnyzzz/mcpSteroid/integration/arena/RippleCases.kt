@@ -54,9 +54,25 @@ object RippleCases {
     )
 
     /**
-     * The compile gate is the seven modules PSI measured as holding references, plus the declaring
-     * module — which holds none of its own, so without it the interface whose declaration changes
-     * would never be compiled at all.
+     * The compile gate is the union of three populations, and a rename-method case needs all three.
+     *
+     * The seven modules PSI measured as holding REFERENCES; the DECLARING module, which holds no
+     * reference of its own, so without it the interface whose declaration changes would never be
+     * compiled at all; and the modules holding OVERRIDING IMPLEMENTATIONS —
+     * `keycloak-model-infinispan`, where `InfinispanUserSessionProvider`,
+     * `PersistentUserSessionProvider` and `remote/RemoteUserSessionProvider` each declare
+     * `getUserSession(RealmModel, String)` and nothing calls it.
+     *
+     * **That third population is invisible to every other layer of the oracle.** An override is not a
+     * reference, so `ReferencesSearch` never reports it and it is not a gold site; it IS in the
+     * target's own override family, which the decoy set deliberately excludes because a correct
+     * solution must move it; and `POST_OLDNAME_ON_TARGET` inspects the interface alone. So an arm
+     * that renames the interface and all 121 call sites but leaves the three implementations behind
+     * scores P1 to P4 true at recall 1.0 and precision 1.0 over a tree where
+     * `keycloak-model-infinispan` does not compile — `@Override` on a method that overrides nothing,
+     * plus an unimplemented abstract `lookupUserSession`. The prompt tells the agent to compile one
+     * module at a time, so it is a state an arm can reach without ever seeing the error. Only the
+     * gate covers it, and only if that module is in the gate.
      */
     val renameMethodWide: RippleCase = RippleCase(
         instanceId = "ripple__keycloak__rename-method-wide",
@@ -75,6 +91,8 @@ object RippleCases {
             "keycloak-testsuite-utils",
             "keycloak-tests-base",
             "keycloak-tests-utils-shared",
+            // Holds the three overriding implementations and not one call site.
+            "keycloak-model-infinispan",
         ),
         declaringModuleArtifactId = "keycloak-server-spi",
         consumerModuleArtifactId = "keycloak-server-spi",

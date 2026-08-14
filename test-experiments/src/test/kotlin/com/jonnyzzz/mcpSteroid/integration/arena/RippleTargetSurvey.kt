@@ -58,15 +58,56 @@ fun parseSurveyCandidates(output: String): List<SurveyCandidate> {
 data class CandidateModules(val ownerFqn: String, val name: String, val modules: List<String>)
 
 fun parseCandidateModules(output: String): List<CandidateModules> =
-    output.lines().map { it.trim() }.filter { it.startsWith("SURVEY_MODULE_NAMES ") }.map { line ->
-        val parts = line.removePrefix("SURVEY_MODULE_NAMES ").split('|')
-        check(parts.size == 3) { "Malformed SURVEY_MODULE_NAMES line: $line" }
+    parseModuleLines(output, "SURVEY_MODULE_NAMES ")
+
+/**
+ * The modules holding declarations that OVERRIDE a rename-method candidate.
+ *
+ * A second population, and a compile gate built from [parseCandidateModules] alone misses it: an
+ * override is not a reference, so a module can hold three implementations of the target and appear in
+ * no reference line at all. See [renameMethodGateModules] for what the two are worth together.
+ */
+fun parseOverrideModules(output: String): List<CandidateModules> =
+    parseModuleLines(output, "SURVEY_OVERRIDE_MODULES ")
+
+private fun parseModuleLines(output: String, prefix: String): List<CandidateModules> =
+    output.lines().map { it.trim() }.filter { it.startsWith(prefix) }.map { line ->
+        val parts = line.removePrefix(prefix).split('|')
+        check(parts.size == 3) { "Malformed $prefix line: $line" }
         CandidateModules(
             ownerFqn = parts[0],
             name = parts[1],
             modules = parts[2].split(',').map { it.trim() }.filter { it.isNotEmpty() },
         )
     }
+
+/**
+ * The compile gate of a **rename-method** case: reference modules ∪ override-family modules ∪ the
+ * declaring module.
+ *
+ * **Why the union, and why only for this kind.** A rename changes a DECLARATION, and every
+ * declaration that overrides it must change with it or the subtype stops compiling — `@Override` on a
+ * method that overrides nothing, plus an unimplemented abstract member. Those overrides are invisible
+ * everywhere else in the oracle: `ReferencesSearch` does not report a declaration, so they are not
+ * gold sites; they are inside the target's own override family, which the decoy set excludes on
+ * purpose because a correct solution must move them; and the post-condition's alias check inspects
+ * the target interface alone. The compile gate is the ONLY layer that sees them, and a gate built
+ * from reference modules alone does not compile the module they live in. The retargeted pilot is
+ * exactly that shape: `keycloak-model-infinispan` holds three implementations of
+ * `UserSessionProvider#getUserSession` and not one call site.
+ *
+ * **The type-level kinds do not need this.** A rename-type or a move-class changes no member
+ * signature, so no subtype is forced to change and no implementation can be left behind; for those
+ * kinds every affected file names the type, which makes it a reference, which puts its module in the
+ * reference set. `ChangeSignature` DOES have the same override population and states it in its own
+ * documentation — its wide case already lists `keycloak-model-jpa` and `keycloak-model-infinispan`
+ * for that reason.
+ */
+fun renameMethodGateModules(
+    referenceModules: Collection<String>,
+    overrideModules: Collection<String>,
+    declaringModule: String,
+): List<String> = (referenceModules + overrideModules + declaringModule).distinct().sorted()
 
 /**
  * How many Java string literals in the project spell a candidate's name exactly — the measurement
@@ -150,7 +191,7 @@ const val MAX_SAME_NAME_DECLARATIONS = 200
  * [RippleNameEscapeRule] before choosing any target whose NAME the transformation changes.
  */
 fun SurveyCandidate.qualifiesAsWide(): Boolean =
-    references >= MIN_WIDE_REFERENCES && files >= 20 && modules >= 3 &&
+    references >= MIN_WIDE_REFERENCES && files >= MIN_WIDE_FILES && modules >= 3 &&
         sameNameDeclarations >= MIN_SAME_NAME_DECLARATIONS
 
 fun SurveyCandidate.qualifiesAsNarrow(): Boolean =

@@ -144,6 +144,46 @@ class RippleTargetSurveyTest {
     }
 
     @Test
+    fun `the modules holding overrides are surveyed as their own population`() {
+        // An override is not a reference, so a module can hold three implementations of the target
+        // and appear in no SURVEY_MODULE_NAMES line at all — which is exactly the retargeted pilot.
+        val output = """
+            SURVEY_MODULE_NAMES org.keycloak.models.UserSessionProvider|getUserSession|keycloak-services,keycloak-tests-base
+            SURVEY_OVERRIDES org.keycloak.models.UserSessionProvider|getUserSession|3
+            SURVEY_OVERRIDE_MODULES org.keycloak.models.UserSessionProvider|getUserSession|keycloak-model-infinispan
+            SURVEY_END
+        """.trimIndent()
+        val overrides = parseOverrideModules(output).single()
+        assertEquals(listOf("keycloak-model-infinispan"), overrides.modules)
+        assertEquals("getUserSession", overrides.name)
+        assertTrue(parseCandidateModules(output).single().modules.none { it == "keycloak-model-infinispan" }) {
+            "The fixture is only meaningful if the override module is absent from the reference set"
+        }
+    }
+
+    @Test
+    fun `a rename-method gate is the union of references, overrides and the declaring module`() {
+        val gate = renameMethodGateModules(
+            referenceModules = listOf("keycloak-services", "keycloak-tests-base", "keycloak-services"),
+            overrideModules = listOf("keycloak-model-infinispan"),
+            declaringModule = "keycloak-server-spi",
+        )
+        assertEquals(
+            listOf("keycloak-model-infinispan", "keycloak-server-spi", "keycloak-services", "keycloak-tests-base"),
+            gate,
+        )
+        assertEquals(gate.distinct().size, gate.size) { "A repeated -pl selector is a Maven error" }
+    }
+
+    @Test
+    fun `the rename-method script prints the override modules, not only how many there are`() {
+        val script = RippleTargetSurveyScripts.renameMethod()
+        assertTrue(script.contains("SURVEY_OVERRIDE_MODULES")) {
+            "A count cannot be turned into a compile gate: $script"
+        }
+    }
+
+    @Test
     fun `the string-literal read-back is parsed, and a non-zero count is what disqualifies a target`() {
         val literals = parseLiteralNameOccurrences("""
             SURVEY_STRING_LITERAL_NAMES org.keycloak.admin.client.resource.RealmResource|roles|2

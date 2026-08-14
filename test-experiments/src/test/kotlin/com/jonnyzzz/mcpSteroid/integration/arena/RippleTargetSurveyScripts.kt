@@ -233,10 +233,20 @@ object RippleTargetSurveyScripts {
                     val related = HashSet<PsiClass>()
                     related.add(owner)
                     related.addAll(ClassInheritorsSearch.search(owner, scope, true).findAll())
-                    val overrides = declarations.count { d ->
+                    val overridingDeclarations = declarations.filter { d ->
                         d !== method && d.containingClass?.let { it in related } == true
                     }
-                    println("SURVEY_OVERRIDES " + fqn + "|" + methodName + "|" + overrides)
+                    println("SURVEY_OVERRIDES " + fqn + "|" + methodName + "|" + overridingDeclarations.size)
+                    // The MODULES those overrides live in, which a rename-method gate must cover on
+                    // top of the reference modules — an override is not a reference, so a module can
+                    // hold three of them and appear in no line above. Printed as names for the same
+                    // reason SURVEY_MODULE_NAMES is: a case pins Maven artifactIds, and only the index
+                    // that found the declaration can map one back.
+                    val overrideModules = overridingDeclarations.mapNotNull { d ->
+                        d.containingFile?.virtualFile?.let { f -> ModuleUtilCore.findModuleForFile(f, project)?.name }
+                    }.toSet()
+                    println("SURVEY_OVERRIDE_MODULES " + fqn + "|" + methodName + "|" +
+                        overrideModules.sorted().joinToString(","))
                 }
             }
             println("SURVEY_END")

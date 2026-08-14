@@ -2,7 +2,7 @@ diff --git a/server-spi/src/test/java/org/keycloak/models/RenameMethodWideContra
 new file mode 100644
 --- /dev/null
 +++ b/server-spi/src/test/java/org/keycloak/models/RenameMethodWideContractTest.java
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,31 @@
 +package org.keycloak.models;
 +
 +import org.junit.Assert;
@@ -28,11 +28,9 @@ new file mode 100644
 +
 +    @Test
 +    public void oldNameIsGone() {
-+        try {
-+            UserSessionProvider.class.getMethod("getUserSession", RealmModel.class, String.class);
-+            Assert.fail("org.keycloak.models.UserSessionProvider still declares getUserSession(RealmModel, String); the rename left a compatibility alias");
-+        } catch (NoSuchMethodException expected) {
-+            // the old name is gone, which is what this test asserts
-+        }
++        Assert.assertThrows(
++                "org.keycloak.models.UserSessionProvider still declares getUserSession(RealmModel, String); the rename left a compatibility alias",
++                NoSuchMethodException.class,
++                () -> UserSessionProvider.class.getMethod("getUserSession", RealmModel.class, String.class));
 +    }
 +}

@@ -198,20 +198,40 @@ and that check is not optional:
   `test-experiments/build/repo-cache/keycloak/keycloak.git`).
 - **Never make a JAX-RS resource method a rename-method target.** `UriBuilder.path(X.class, "name")`
   and `UriBuilder.fromMethod(X.class, "name")` resolve a method BY NAME through its `@Path`
-  annotation; there are 289 such call sites in Keycloak. The survey refuses these candidates and
+  annotation; there are several hundred such call sites in Keycloak (`git grep -oE
+  'path\([A-Za-z0-9_]+\.class,[ ]*"[A-Za-z0-9_]+"'` counts 289 at the base commit, and a differently
+  anchored pattern counts 267 — the order of magnitude is the point, not the digit). The survey
+  refuses these candidates and
   prints `SURVEY_JAXRS_EXCLUDED`; `RenameMethod`'s capture fragment refuses them again inside the arm.
+- **A rename-method gate is reference modules ∪ override-family modules ∪ the declaring module.** An
+  override is not a reference: `ReferencesSearch` never reports a declaration, the override family is
+  deliberately excluded from the decoy set (a correct solution must move it), and the post-condition's
+  alias check inspects the target interface alone — so the compile gate is the ONLY layer that sees an
+  implementation left behind, and it cannot see one in a module it does not compile. The retargeted
+  pilot is exactly that shape: `keycloak-model-infinispan` holds three implementations of
+  `UserSessionProvider#getUserSession` and not one call site. The survey prints both populations
+  (`SURVEY_MODULE_NAMES` and `SURVEY_OVERRIDE_MODULES`); `renameMethodGateModules` is the union rule in
+  code. The type-level kinds do not need this — a rename-type or move-class changes no member
+  signature, so nothing is forced to change in a subtype, and every affected file names the type.
 - This is not hypothetical. The family's founding case renamed `RealmResource.roles()` believing the
   `@Path("roles")` annotation carried the contract. Two `AdminEventPaths` files name the method as a
   string, so the rename yields `RESTEASY003645` at runtime — while the oracle graded an arm as a
   perfect rename (P1–P4, recall 1.0, precision 1.0, compile gate PASS).
 
-**The prompt the agent receives is not `buildRipplePrompt` by default.** `RippleScenarioBaseTest`
-goes through `ArenaTestRunner.runTest`, which wraps the case's `problemStatement` in the dpaia
-track's scaffolding. `SemanticRippleSpec.sendsRipplePromptDirectly` is the one line that switches the
-family onto its own prompt; it is `false` because that is what the measured rounds used, and flipping
-it makes those rounds incomparable, so flip it for a whole round or not at all. `rippleAgentPrompt`
-is the single function that answers "what is sent", and `SemanticRipplePromptWiringTest` pins both
-settings.
+**The prompt the agent receives is `buildRipplePrompt`, and one function builds it.**
+`RippleScenarioBaseTest.promptFor(projectDir, withMcp)` is that function; `runArm` passes it to
+`ArenaTestRunner.runTest` as `promptBuilder`, and `SemanticRipplePromptWiringTest` asserts on the
+string that path produces — not on a builder's output. Assert there, or you are testing a string
+nobody sends: until this seam existed, `runTest` could only build the dpaia brief, so it wrapped the
+case's `problemStatement` in scaffolding that opened "You are working on a Java Spring project",
+printed the FAIL_TO_PASS class and the whole test patch (the hidden consumer, which names the
+answer), and ordered a reactor-wide test run Keycloak cannot complete — while the reviewed ripple
+prompt sat unused. Dpaia cases are unaffected: `promptBuilder` defaults to `buildPrompt`.
+
+One consequence to know when adding a case: this family passes `enforceFirstCallProjectMarker = false`,
+because that #251 guard checks for a `base:` line printed only by a first-call recipe the dpaia brief
+mandates, and a mechanism-pure prompt cannot ask for it. IDE use is proven by `usedMcpSteroid`
+instead; see the parameter's KDoc for what makes driving the wrong project impossible.
 
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 
