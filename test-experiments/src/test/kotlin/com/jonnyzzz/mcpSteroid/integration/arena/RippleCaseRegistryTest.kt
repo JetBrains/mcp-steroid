@@ -357,17 +357,46 @@ class RippleCaseRegistryTest {
         }
     }
 
+    /**
+     * The retargeted pilot. The original target — `RealmResource.roles()` — was withdrawn because two
+     * `AdminEventPaths` files address it by name through `UriBuilder.path(RealmResource.class,
+     * "roles")`, which no compiler and no reference search can see; see [RippleNameEscapeRule] and
+     * [RippleCases.renameMethodWideTarget].
+     */
     @Test
     fun `the pilot's measured numbers and its destination name are unchanged`() {
         val pilot = RippleCases.renameMethodWide
-        assertEquals(445, pilot.expectedGoldReferences)
-        assertEquals(79, pilot.expectedGoldFiles)
-        assertEquals(16, pilot.expectedDecoyDeclarations)
-        assertEquals(7, pilot.compileGateModules.size)
-        assertTrue(pilot.compileGateSelectors().contains(":keycloak-admin-client-core"))
-        assertEquals("realmLevelRoles", RippleCases.renameMethodWideTarget.newName)
-        assertFalse(RippleCases.renameMethodWideTarget.newName == "realmRoles") {
-            "realmRoles is already declared 5 times in Keycloak and must not be the destination name"
+        assertEquals(121, pilot.expectedGoldReferences)
+        assertEquals(42, pilot.expectedGoldFiles)
+        assertEquals(15, pilot.expectedDecoyDeclarations)
+        assertEquals(8, pilot.compileGateModules.size)
+        assertTrue(pilot.compileGateSelectors().contains(":keycloak-server-spi"))
+        assertEquals("org.keycloak.models.UserSessionProvider", RippleCases.renameMethodWideTarget.targetClassFqn)
+        assertEquals("getUserSession", RippleCases.renameMethodWideTarget.oldName)
+        assertEquals("lookupUserSession", RippleCases.renameMethodWideTarget.newName)
+        assertEquals(
+            "UserSessionModel getUserSession(RealmModel realm, String id)",
+            RippleCases.renameMethodWideTarget.declarationSignature,
+        ) { "The prompt states the declaration exactly, parameters included" }
+    }
+
+    /**
+     * The rule the retarget exists to enforce, asserted over the whole family rather than over the
+     * one case that broke it: no case may transform a name that a JAX-RS resource method carries,
+     * because `UriBuilder.path(Class, String)` addresses such a method BY NAME.
+     */
+    @Test
+    fun `no rename-method case targets a name that a JAX-RS idiom can address`() {
+        RippleCases.all.mapNotNull { it.target as? RenameMethod }.forEach { target ->
+            assertFalse(target.targetClassFqn.startsWith("org.keycloak.admin.client.resource.")) {
+                "${target.targetDescription}: every method of that package is a JAX-RS resource " +
+                    "method, and 289 call sites in Keycloak address such methods by name through " +
+                    "UriBuilder.path(X.class, \"name\") — see RippleNameEscapeRule"
+            }
+            assertTrue(target.behaviourPreservationEvidence.contains("string literal")) {
+                "${target.targetDescription}: a rename's behaviour-preservation evidence must state " +
+                    "what was checked about string literals naming the method"
+            }
         }
     }
 
@@ -547,6 +576,44 @@ class RippleCaseRegistryTest {
         assertEquals(
             "/p/org/keycloak/other/ValidationContext.java" to "org.keycloak.other.ValidationContext",
             key("/p/org/keycloak/other/ValidationContext.java", "org.keycloak.other.ValidationContext"),
+        )
+    }
+
+    /**
+     * The remaining shapes a reference inside the RENAMED FILE can carry, all of which move with the
+     * file and none of which carries the old fully-qualified name in its declaration key.
+     *
+     * Build 1031008889 measured the wide rename-type case at recall 0.9814 with exactly one missed
+     * site — down from four before the remapping existed — and printed no key for it, which is what
+     * `rippleFailedPredicateDetail` now fixes. These are the shapes that had to be ruled out before
+     * that one site could be read as anything other than an artifact: a reference inside an anonymous
+     * or local class (whose owner has no qualified name, so the capture keys it `?#method`), a
+     * file-level reference with no named parent at all, and a member of a nested type of a nested
+     * type. Each maps by the FILE half alone, and each is matched exactly.
+     */
+    @Test
+    fun `every reference shape inside the renamed file keeps its identity through the remapping`() {
+        val old = "org.keycloak.validate.ValidationContext"
+        val new = "org.keycloak.validate.ValidationRunContext"
+        val dir = "/p/org/keycloak/validate"
+        fun key(declaration: String) =
+            retargetTypeSiteKey(GoldSite("$dir/ValidationContext.java", declaration, 1), old, new)
+
+        // Anonymous or local class: `PsiClass.qualifiedName` is null there, and the capture script
+        // writes "?" for the owner. The declaration is not the old FQN and must not be rewritten.
+        assertEquals("$dir/ValidationRunContext.java" to "?#validate", key("?#validate"))
+        // No enclosing method and no enclosing class — the capture's last resort.
+        assertEquals("$dir/ValidationRunContext.java" to "<file>", key("<file>"))
+        // A member of a nested type of a nested type, which the dotted branch must compose through.
+        assertEquals(
+            "$dir/ValidationRunContext.java" to "$new.Builder.Step#apply",
+            key("$old.Builder.Step#apply"),
+        )
+        // A second top-level type living in the renamed type's file moves with the file and keeps
+        // its own name.
+        assertEquals(
+            "$dir/ValidationRunContext.java" to "org.keycloak.validate.ValidationContextHelper",
+            key("org.keycloak.validate.ValidationContextHelper"),
         )
     }
 }

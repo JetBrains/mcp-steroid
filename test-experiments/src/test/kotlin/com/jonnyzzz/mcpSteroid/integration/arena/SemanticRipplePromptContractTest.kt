@@ -11,12 +11,15 @@ class SemanticRipplePromptContractTest {
     private val nonePrompt = buildSemanticRipplePrompt("/work/keycloak", withMcp = false)
     private val both = listOf(mcpPrompt, nonePrompt)
 
+    /** Read from the registry, not restated: the pilot's target moved when its premise was falsified. */
+    private val target = RippleCases.renameMethodWideTarget
+
     @Test
     fun `both arms name the declaration exactly`() {
         both.forEach { p ->
-            assertTrue(p.contains("org.keycloak.admin.client.resource.RealmResource")) { p }
-            assertTrue(p.contains("roles()")) { p }
-            assertTrue(p.contains("realmLevelRoles")) { p }
+            assertTrue(p.contains(target.targetClassFqn)) { p }
+            assertTrue(p.contains(target.declarationSignature)) { p }
+            assertTrue(p.contains(target.newName)) { p }
         }
     }
 
@@ -65,7 +68,7 @@ class SemanticRipplePromptContractTest {
             assertFalse(p.contains("ClientResource")) {
                 "Naming a decoy tells the agent which matches to skip:\n$p"
             }
-            assertFalse(p.contains("445")) {
+            assertFalse(p.contains("${RippleCases.renameMethodWide.expectedGoldReferences}")) {
                 "Stating the reference count tells the agent when to stop searching:\n$p"
             }
             assertFalse(p.contains(".java")) {

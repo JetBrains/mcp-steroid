@@ -13,40 +13,74 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 object RippleCases {
 
     /**
-     * The target's `@Path("roles")` annotation is what defines the HTTP contract, so the Java method
-     * name is free to change; `realmLevelRoles` is deliberately not `realmRoles`, which is already
-     * declared five times in the project.
+     * **This case was retargeted; the original was ill-posed.** It renamed
+     * `org.keycloak.admin.client.resource.RealmResource.roles()` on the recorded premise that the
+     * method's `@Path("roles")` annotation carried the HTTP contract, so the Java name was free. Two
+     * files call `UriBuilder.fromUri("").path(RealmResource.class, "roles")` —
+     * `tests/utils/.../AdminEventPaths.java:218` and
+     * `testsuite/integration-arquillian/tests/base/.../AdminEventPaths.java:217` — and RESTEasy
+     * resolves that second argument as a METHOD NAME, answering
+     * `RESTEASY003645: No public @Path annotated method for ...RealmResource.roles` after the rename.
+     * No compiler and no reference search sees a string literal, so a live round graded an arm as a
+     * perfect rename — P1 to P4 true, recall 1.0, precision 1.0, no missed sites, compile gate PASS,
+     * hidden consumer green — over broken runtime behaviour. See [RippleNameEscapeRule].
+     *
+     * **Why THIS target instead.** `UserSessionProvider` is a server-SPI provider interface and
+     * `getUserSession(RealmModel, String)` is a plain lookup on it: no `jakarta.ws.rs` annotation, so
+     * `UriBuilder.path(Class, String)` cannot address it; the string `"getUserSession"` occurs in no
+     * Java literal (measured through the string index by the survey: 0) and the word occurs in no
+     * non-`.java` file at all at the base commit — no theme message, no realm JSON, no
+     * `META-INF/services` entry, and none of the GraalJS scripts under `testsuite` that call model
+     * methods by name at runtime (which is what disqualified `ClientModel#getClientId` and
+     * `CommonClientSessionModel#getClient`). It is not reachable by name-derived reflection either:
+     * the tree's only `Class.getMethods()` enumeration keyed by property name is
+     * `ProtocolMapperUtils`, and it enumerates `UserModel` (which is what disqualified every
+     * `UserModel` getter, `getUsername` and `getEmail` included). The name is declared exactly once on
+     * the interface, so the transformation has a single unambiguous target, and the method overrides
+     * nothing, so it is the root of its own ripple.
+     *
+     * `lookupUserSession` is free at the base commit: zero occurrences anywhere in the tree.
      */
     val renameMethodWideTarget: RenameMethod = RenameMethod(
-        targetClassFqn = "org.keycloak.admin.client.resource.RealmResource",
-        oldName = "roles",
-        newName = "realmLevelRoles",
-        returnTypeSimpleName = "RolesResource",
+        targetClassFqn = "org.keycloak.models.UserSessionProvider",
+        oldName = "getUserSession",
+        newName = "lookupUserSession",
+        returnTypeSimpleName = "UserSessionModel",
+        parameterList = "RealmModel realm, String id",
         behaviourPreservationEvidence =
-            "The target carries @Path(\"roles\"), so the HTTP contract is defined by the annotation " +
-                "and cannot change with the Java method name.",
+            "The target carries no JAX-RS annotation and its name appears in no string literal, no " +
+                "configuration file, no runtime script and no name-derived reflective lookup at the " +
+                "base commit, so a correct rename is not observable from outside the code.",
     )
 
+    /**
+     * The compile gate is the seven modules PSI measured as holding references, plus the declaring
+     * module — which holds none of its own, so without it the interface whose declaration changes
+     * would never be compiled at all.
+     */
     val renameMethodWide: RippleCase = RippleCase(
-        instanceId = "ripple__keycloak__realm-roles-rename",
+        instanceId = "ripple__keycloak__rename-method-wide",
         target = renameMethodWideTarget,
-        expectedGoldReferences = 445,
-        expectedGoldFiles = 79,
-        expectedDecoyDeclarations = 16,
+        expectedGoldReferences = 121,
+        expectedGoldFiles = 42,
+        // 21 declarations share the simple name at the base commit; the 6 inside the target's own
+        // override family are excluded, because a correct solution MUST rename those too.
+        expectedDecoyDeclarations = 15,
         compileGateModules = listOf(
-            "keycloak-admin-client-core",
+            "keycloak-server-spi",
+            "keycloak-server-spi-private",
+            "keycloak-services",
+            "keycloak-model-test",
             "integration-arquillian-tests-base",
-            "keycloak-admin-v2-tests",
-            "keycloak-authzen-tests-base",
-            "keycloak-test-framework-tests",
+            "keycloak-testsuite-utils",
             "keycloak-tests-base",
-            "keycloak-tests-utils",
+            "keycloak-tests-utils-shared",
         ),
-        declaringModuleArtifactId = "keycloak-admin-client-core",
-        consumerModuleArtifactId = "keycloak-tests-base",
-        hiddenConsumerFqn = "org.keycloak.tests.admin.RealmResourceRenameContractTest",
-        patchResource = "arena-overlays/semantic-ripple-keycloak-roles.patch",
-        createdAt = "2026-08-11T00:00:00Z",
+        declaringModuleArtifactId = "keycloak-server-spi",
+        consumerModuleArtifactId = "keycloak-server-spi",
+        hiddenConsumerFqn = "org.keycloak.models.RenameMethodWideContractTest",
+        patchResource = "arena-overlays/ripple-keycloak-rename-method-wide.patch",
+        createdAt = "2026-08-14T00:00:00Z",
     )
 
     /**

@@ -176,10 +176,22 @@ data class RenameMethod(
     val oldName: String,
     val newName: String,
     val returnTypeSimpleName: String,
+    /**
+     * The declared parameters, `"Type name, Type name"`, empty for a no-arg method.
+     *
+     * Stated because the prompt names the declaration EXACTLY — the benchmark does not test guessing
+     * the starting point — and the pilot's original target happened to be no-arg, so the prompt used
+     * to render `()` unconditionally. Against a method with parameters that prints a signature that
+     * does not exist, which is a different task from the one the oracle grades.
+     */
+    val parameterList: String = "",
     override val behaviourPreservationEvidence: String,
 ) : RippleTarget {
 
     override val kindId: String get() = "rename-method"
+
+    /** The declaration as the prompt states it, and as a reader would search the tree for it. */
+    val declarationSignature: String get() = "$returnTypeSimpleName $oldName($parameterList)"
 
     /**
      * A method rename cannot move an import: the only import that can reference a METHOD at all is an
@@ -195,17 +207,96 @@ data class RenameMethod(
 
     override val targetTypeFqn: String get() = targetClassFqn
 
+    /**
+     * The decoy key and the target's own override family, shared by both scripts.
+     *
+     * **A decoy is keyed by its full signature, not by its owner alone.** Two overloads of the same
+     * name in one class share an owner, and the gold parser rejects a repeated key rather than
+     * guessing which observation to keep — so an owner-keyed reading aborts the run for any target
+     * whose name is overloaded anywhere in the project. The trailing ordinal only ever fires for
+     * anonymous or local classes in one file, which have no qualified owner to key by.
+     *
+     * **The target's own override family is not a decoy set**, for the reason [ChangeSignature] gives
+     * at greater length: a correct rename MUST move every implementation of the renamed method, and
+     * under a key-set comparison that would read as over-reach and fail every correct run. The family
+     * is derived from the hierarchy — the owner plus its inheritors — never listed by name, so an
+     * implementer added upstream cannot silently become a decoy. The target itself is required to be
+     * the ROOT declaration (it overrides nothing), so the family is complete downwards from its owner.
+     */
+    private fun decoyKeyHelper(): String = """
+        fun decoyKey(m: PsiMethod): String {
+            val owner = m.containingClass?.qualifiedName
+                ?: ("<anonymous>@" + (m.containingFile?.virtualFile?.path ?: "<unknown>"))
+            return owner + "#" + m.name + "(" +
+                m.parameterList.parameters.joinToString(",") { p -> p.type.canonicalText } + ")"
+        }
+
+        fun printDecoys(prefix: String, decoys: List<PsiMethod>) {
+            val seen = HashMap<String, Int>()
+            for (decoy in decoys.sortedBy { it.textOffset }) {
+                val base = decoyKey(decoy)
+                val n = seen[base] ?: 0
+                seen[base] = n + 1
+                val key = if (n == 0) base else base + "#" + n
+                println(prefix + key + "|" + ReferencesSearch.search(decoy, scope).findAll().size)
+            }
+        }
+
+        fun overrideFamily(owner: PsiClass): Set<PsiClass> {
+            val related = HashSet<PsiClass>()
+            related.add(owner)
+            related.addAll(ClassInheritorsSearch.search(owner, scope, true).findAll())
+            return related
+        }
+    """.trimIndent()
+
     override fun captureFragment(): String = """
         smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)
             val cache = PsiShortNamesCache.getInstance(project)
+${decoyKeyHelper().prependIndent("            ")}
+
             val all = cache.getMethodsByName("$oldName", scope).toList()
             val target = all.firstOrNull {
                 it.containingClass?.qualifiedName == "$targetClassFqn"
             } ?: error("Target $targetClassFqn#$oldName not found")
             check(target.containingClass?.isInterface == true) { "Target owner is not an interface" }
-            check(target.annotations.any { it.text.contains("Path") }) {
-                "Target has no @Path annotation; the rename would not be behaviour-preserving"
+            // The root of its own ripple: a method that already overrides a supertype's is not the
+            // declaration this case names, and renaming it alone would not compile.
+            check(target.findSuperMethods().isEmpty()) {
+                "Target overrides a supertype method, so it is not the root declaration of its ripple"
+            }
+            val related = overrideFamily(target.containingClass!!)
+            // A JAX-RS resource method is addressable BY NAME through `UriBuilder.path(X.class,
+            // "name")`, which resolves the annotation rather than the symbol, so its Java name is
+            // part of the contract. The pilot used to REQUIRE this annotation as its
+            // behaviour-preservation evidence; that premise was false and cost a graded round.
+            check(target.annotations.none { a ->
+                val q = a.qualifiedName ?: ""
+                q.startsWith("jakarta.ws.rs") || q.startsWith("javax.ws.rs")
+            }) {
+                "Target is a JAX-RS resource method, so its Java name is addressable from " +
+                    "UriBuilder.path(Class, String) and the rename would not be behaviour-preserving"
+            }
+            // The general form of the same rule: a name that appears as a string literal anywhere is
+            // renamed by no compiler and found by no reference search, so a run that leaves the
+            // literal behind grades as perfect and is broken at runtime. Reported per FILE and
+            // judged in Kotlin, because the hidden consumer names the method by reflection on
+            // purpose and only the case knows which files are its own overlay.
+            val literalFiles = HashMap<String, Int>()
+            com.intellij.psi.search.PsiSearchHelper.getInstance(project).processElementsWithWord(
+                { element, _ ->
+                    if (element is PsiLiteralExpression && element.value == "$oldName") {
+                        val path = element.containingFile?.virtualFile?.path ?: "<unknown>"
+                        literalFiles[path] = (literalFiles[path] ?: 0) + 1
+                    }
+                    true
+                },
+                scope, "$oldName",
+                com.intellij.psi.search.UsageSearchContext.IN_STRINGS, true,
+            )
+            literalFiles.toSortedMap().forEach { (path, n) ->
+                println("GOLD_STRING_LITERAL_NAME " + path + "|" + n)
             }
 
             println("GOLD_TARGET $targetClassFqn|$oldName|$newName")
@@ -214,11 +305,9 @@ data class RenameMethod(
             refs.mapNotNull { siteKey(it) }.groupingBy { it }.eachCount()
                 .toSortedMap().forEach { (key, n) -> println("GOLD_SITE " + key + "|" + n) }
 
-            for (decoy in all) {
-                if (decoy === target) continue
-                val owner = decoy.containingClass?.qualifiedName ?: continue
-                println("GOLD_DECOY " + owner + "|" + ReferencesSearch.search(decoy, scope).findAll().size)
-            }
+            printDecoys("GOLD_DECOY ", all.filter { m ->
+                m !== target && m.containingClass?.let { it in related } != true
+            })
 
             println("GOLD_NEWNAME_DECLS " +
                 (cache.getMethodsByName("$newName", scope).size +
@@ -231,6 +320,8 @@ data class RenameMethod(
         smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)
             val cache = PsiShortNamesCache.getInstance(project)
+${decoyKeyHelper().prependIndent("            ")}
+
             val owner = JavaPsiFacade.getInstance(project)
                 .findClass("$targetClassFqn", scope)
                 ?: error("$targetClassFqn no longer exists")
@@ -246,12 +337,12 @@ data class RenameMethod(
             refs.mapNotNull { siteKey(it) }.groupingBy { it }.eachCount()
                 .toSortedMap().forEach { (key, n) -> println("POST_SITE " + key + "|" + n) }
 
-            for (decoy in cache.getMethodsByName("$oldName", scope)) {
-                val decoyOwner = decoy.containingClass?.qualifiedName ?: continue
-                if (decoyOwner == "$targetClassFqn") continue
-                println("POST_DECOY " + decoyOwner + "|" +
-                    ReferencesSearch.search(decoy, scope).findAll().size)
-            }
+            // The same exclusion the capture applies, computed the same way from the same owner: a
+            // correct rename MUST move every implementation, so the override family is not a decoy
+            // set and its disappearance from the old name is not over-reach.
+            val related = overrideFamily(owner)
+            printDecoys("POST_DECOY ", cache.getMethodsByName("$oldName", scope).toList()
+                .filter { m -> m.containingClass?.let { it in related } != true })
 
             println("POST_TOTAL_NEW_REFS " + refs.size)
             println("POST_END")
@@ -261,7 +352,7 @@ data class RenameMethod(
     override fun promptTaskSection(): String = """
         Rename the method
 
-            $returnTypeSimpleName $oldName()
+            $declarationSignature
 
         declared on the interface `$targetClassFqn`
         to `$newName`, throughout the whole project.
@@ -272,10 +363,12 @@ data class RenameMethod(
            caller of this declaration may still use the old name.
         2. The old name must not survive on that interface in any form — not as a second method,
            not as a deprecated forwarder, not as a default method.
-        3. Methods that happen to share the same simple name but are declared on **other types**
+        3. Every implementation of this method must take the new name too, and keep its body as it
+           is. Methods that happen to share the same simple name but are declared on **other types**
            are unrelated and MUST keep their current name. Changing one of them is a defect.
-        4. External behaviour must not change. The HTTP contract of this endpoint is defined by
-           its annotation, not by the Java method name, so a correct rename leaves it untouched.
+        4. External behaviour must not change. This declaration takes no part in any HTTP contract,
+           and its name appears in no configuration file, no service descriptor, no reflective
+           lookup and no string literal, so a correct rename is not observable from outside the code.
         5. The project must compile, test sources included, when you are finished.
     """.trimIndent()
 }

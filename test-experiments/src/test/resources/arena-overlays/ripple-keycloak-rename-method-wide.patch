@@ -1,0 +1,38 @@
+diff --git a/server-spi/src/test/java/org/keycloak/models/RenameMethodWideContractTest.java b/server-spi/src/test/java/org/keycloak/models/RenameMethodWideContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/server-spi/src/test/java/org/keycloak/models/RenameMethodWideContractTest.java
+@@ -0,0 +1,33 @@
++package org.keycloak.models;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Pins the renamed user-session lookup on {@link UserSessionProvider}.
++ *
++ * The new name must be present with the same signature and return type, and the old name must be
++ * gone entirely — keeping it as a deprecated forwarder would leave every caller compiling against a
++ * name the contract this test defines no longer has.
++ */
++public class RenameMethodWideContractTest {
++
++    @Test
++    public void newNameIsDeclaredAndReturnsUserSessionModel() throws Exception {
++        Assert.assertEquals(
++                UserSessionModel.class,
++                UserSessionProvider.class
++                        .getMethod("lookupUserSession", RealmModel.class, String.class)
++                        .getReturnType());
++    }
++
++    @Test
++    public void oldNameIsGone() {
++        try {
++            UserSessionProvider.class.getMethod("getUserSession", RealmModel.class, String.class);
++            Assert.fail("org.keycloak.models.UserSessionProvider still declares getUserSession(RealmModel, String); the rename left a compatibility alias");
++        } catch (NoSuchMethodException expected) {
++            // the old name is gone, which is what this test asserts
++        }
++    }
++}
