@@ -371,8 +371,28 @@ class ArenaTestRunner(
      *                      because [buildPrompt] MANDATES a first-call recipe that prints it, so it is
      *                      a compliance check on THIS prompt's instruction and must be off for a track
      *                      that sends another one. A mechanism-pure prompt cannot ask for it without
-     *                      naming the tool it is testing whether the agent finds; the ripple family
-     *                      proves IDE use through `ArenaEvaluation.usedMcpSteroid` instead.
+     *                      naming the tool it is testing whether the agent finds.
+     *
+     *                      **What still makes "the mcp arm drove another project" impossible when this
+     *                      is off**, since that would measure nothing at all:
+     *
+     *                      1. **There is only one project to drive.** A container deploys exactly one
+     *                      project, at the single `projectGuestDir` of its `IntelliJContainer`, and
+     *                      `waitForProjectReady` opens that one. The same path is what
+     *                      `getGuestProjectDir()` returns, what is passed here as
+     *                      `predeployedProjectDir`, and what the agent is given in its prompt. A
+     *                      second project would have to be cloned and opened by the agent itself.
+     *                      2. **The grade is not read from the agent.** `RippleScenarioBaseTest`
+     *                      captures the gold set through this container's IDE BEFORE the agent and
+     *                      reads the post-condition through the same IDE afterwards, then runs the
+     *                      compile gate and the FAIL_TO_PASS verification against `projectDir`. An
+     *                      agent that transformed something else scores zero recall on the project
+     *                      under test — the reading cannot be moved by driving another one.
+     *                      3. **`usedMcpSteroid` is still asserted** by that base test for every mcp
+     *                      arm, and the runner still fails a run with no successful execute_code
+     *                      result and still enforces the #251 project-RESOLUTION status. What is
+     *                      dropped is only the check that the FIRST call printed a marker this
+     *                      family's prompt never asks for.
      */
     fun runTest(
         testCase: DpaiaTestCase,
