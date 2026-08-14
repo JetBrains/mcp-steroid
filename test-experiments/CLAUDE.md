@@ -181,6 +181,38 @@ jb tc native run start mcp_steroid_IntegrationTests_DpaiaArena_Petclinic36_Codex
 jb tc native run log -f <run-id>
 ```
 
+## Keycloak semantic-ripple family — choosing a target
+
+The cases live in `RippleCases`; targets are chosen by measuring Keycloak with
+`KeycloakRippleTargetSurveyTest` (agentless — `AiMode.NONE`, no MCP, safe to run locally, one at a
+time) and transcribing its output into the registry, where `RippleCaseRegistryTest` pins it.
+
+**A qualifying fan-out is not a qualifying target.** The survey measures reach — references, files,
+modules, same-name declarations. It cannot measure whether the transformation preserves behaviour,
+and that check is not optional:
+
+- **Before pinning any case whose transformation changes a NAME, prove that no string literal in the
+  tree spells that name**, at the pinned commit. Not "no non-`.java` file", not "no `Class.forName`"
+  — no string literal. `RippleNameEscapeRule` is the rule as code (`lookupsNaming` scans a file,
+  `gitGrepCommands` prints the offline confirmation against the bare repository under
+  `test-experiments/build/repo-cache/keycloak/keycloak.git`).
+- **Never make a JAX-RS resource method a rename-method target.** `UriBuilder.path(X.class, "name")`
+  and `UriBuilder.fromMethod(X.class, "name")` resolve a method BY NAME through its `@Path`
+  annotation; there are 289 such call sites in Keycloak. The survey refuses these candidates and
+  prints `SURVEY_JAXRS_EXCLUDED`; `RenameMethod`'s capture fragment refuses them again inside the arm.
+- This is not hypothetical. The family's founding case renamed `RealmResource.roles()` believing the
+  `@Path("roles")` annotation carried the contract. Two `AdminEventPaths` files name the method as a
+  string, so the rename yields `RESTEASY003645` at runtime — while the oracle graded an arm as a
+  perfect rename (P1–P4, recall 1.0, precision 1.0, compile gate PASS).
+
+**The prompt the agent receives is not `buildRipplePrompt` by default.** `RippleScenarioBaseTest`
+goes through `ArenaTestRunner.runTest`, which wraps the case's `problemStatement` in the dpaia
+track's scaffolding. `SemanticRippleSpec.sendsRipplePromptDirectly` is the one line that switches the
+family onto its own prompt; it is `false` because that is what the measured rounds used, and flipping
+it makes those rounds incomparable, so flip it for a whole round or not at all. `rippleAgentPrompt`
+is the single function that answers "what is sent", and `SemanticRipplePromptWiringTest` pins both
+settings.
+
 ## IMPROVEMENTS.md harness — agent self-feedback for prompt tuning
 
 Pattern used by `FindDuplicatesPromptTest` (issue #33; lives in `:test-integration`). Reusable in any

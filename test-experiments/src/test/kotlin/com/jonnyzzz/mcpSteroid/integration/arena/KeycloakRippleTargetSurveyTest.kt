@@ -38,8 +38,20 @@ class KeycloakRippleTargetSurveyTest {
         /** The pull-up query alone, with the whole process budget — SLOT 7. */
         PULL_UP("pull-up"),
 
+        /**
+         * rename-method over the pool [KINDS] cannot reach — methods of uniquely-named interfaces.
+         * This is where the retargeted pilot comes from; see [RippleTargetSurveyScripts.renameMethod].
+         */
+        RENAME_METHOD("rename-method"),
+
         /** Reads the two change-signature cases' pinned decoy counts back out of the index. */
         DECOYS("decoys"),
+
+        /**
+         * Runs the retargeted pilot's own CAPTURE script and its tripwires — the exact code an arm
+         * runs before the agent starts. See [verifyPilotPins].
+         */
+        PINS("pins"),
     }
 
     private fun selectedPhases(): List<SurveyPhase> {
@@ -90,6 +102,8 @@ class KeycloakRippleTargetSurveyTest {
                 when (phase) {
                     SurveyPhase.KINDS -> surveyCheapKinds(session)
                     SurveyPhase.PULL_UP -> surveyPullUp(session)
+                    SurveyPhase.RENAME_METHOD -> surveyRenameMethod(session)
+                    SurveyPhase.PINS -> verifyPilotPins(session)
                     SurveyPhase.DECOYS -> verifyPinnedDecoyCounts(session)
                 }
             }
@@ -106,21 +120,137 @@ class KeycloakRippleTargetSurveyTest {
         }
     }
 
-    /** rename-type, change-signature and move-class — the three kinds one script can afford together. */
+    /** The four kinds one script can afford together — everything except pull-up. */
     private fun surveyCheapKinds(session: IntelliJContainer) {
         val output = session.mcpSteroid.mcpExecuteCode(
             code = RippleTargetSurveyScripts.survey(),
-            reason = "Survey Keycloak for qualifying rename-type, change-signature and move-class targets",
+            reason = "Survey Keycloak for qualifying rename-method, rename-type, change-signature and move-class targets",
             taskId = "ripple-target-survey",
             timeout = 3_600,
         ).stdout
 
         val candidates = parseSurveyCandidates(output)
         assertTrue(candidates.isNotEmpty()) { "The survey found no candidates at all:\n$output" }
-        for (kind in listOf("rename-type", "change-signature", "move-class")) {
+        for (kind in listOf("rename-method", "rename-type", "change-signature", "move-class")) {
             val ofKind = candidates.filter { it.kind == kind }
             report("$kind WIDE", ofKind.filter { it.qualifiesAsWide() })
             report("$kind NARROW", ofKind.filter { it.qualifiesAsNarrow() })
+        }
+        reportRenameMethodEvidence(candidates, output)
+    }
+
+    /**
+     * Everything a rename-method case needs beyond the candidate line, printed for the ones that
+     * qualify as wide: the modules a compile gate would have to cover, and the string-literal count
+     * that decides whether the rename is behaviour-preserving at all.
+     *
+     * The literal count is the reason this report exists. A candidate with a non-zero count is
+     * disqualified however good its fan-out is — see [RippleNameEscapeRule] — and the pilot's own
+     * target is the worked example of what happens when nobody looks.
+     */
+    private fun reportRenameMethodEvidence(candidates: List<SurveyCandidate>, output: String) {
+        val modules = parseCandidateModules(output).associateBy { it.ownerFqn to it.name }
+        val literals = parseLiteralNameOccurrences(output).associateBy { it.ownerFqn to it.name }
+        val wide = candidates.filter { it.kind == "rename-method" && it.qualifiesAsWide() }
+        println("[SURVEY] rename-method WIDE evidence — ${wide.size} candidates")
+        wide.sortedByDescending { it.references }.forEach { candidate ->
+            val key = candidate.ownerFqn to candidate.name
+            val literalCount = literals[key]?.occurrences
+            val verdict = when (literalCount) {
+                null -> "NO LITERAL READING — do not pin"
+                0 -> "no string literal names it"
+                else -> "DISQUALIFIED: $literalCount string literals name it"
+            }
+            println("[SURVEY]   ${candidate.ownerFqn}#${candidate.name} refs=${candidate.references} " +
+                "files=${candidate.files} modules=${candidate.modules} " +
+                "sameName=${candidate.sameNameDeclarations} — $verdict")
+            println("[SURVEY]     modules: ${modules[key]?.modules?.joinToString(", ") ?: "not printed"}")
+        }
+        val jaxRs = output.lines().map { it.trim() }.filter { it.startsWith("SURVEY_JAXRS_EXCLUDED ") }
+        println("[SURVEY] rename-method candidates excluded as JAX-RS resource methods: ${jaxRs.size}")
+        jaxRs.take(20).forEach { println("[SURVEY]   $it") }
+    }
+
+    /**
+     * Runs the retargeted pilot's CAPTURE script and its tripwires against the tree.
+     *
+     * The other cases were pinned from survey lines alone. That is how an ill-posed case got pinned:
+     * the survey answers reach, and the capture answers whether the case can be graded at all — it is
+     * the capture that refuses a JAX-RS target and that reports every string literal naming the
+     * method. Running it here, agentless, costs one script and replaces "the arithmetic agrees" with
+     * "the code that grades the arm agrees".
+     *
+     * The overlay is deliberately absent from this container, and the pins are unaffected by that:
+     * they describe the repository at the base commit, and `parseSemanticGold` excludes the hidden
+     * consumer's own files precisely so they keep doing so.
+     */
+    private fun verifyPilotPins(session: IntelliJContainer) {
+        val case = RippleCases.renameMethodWide
+        val output = session.mcpSteroid.mcpExecuteCode(
+            code = RippleOracleScripts.capture(case),
+            reason = "Verify the retargeted pilot's pinned gold measurement against the index",
+            taskId = "ripple-pin-verify",
+            timeout = 1_800,
+        ).stdout
+
+        val gold = parseSemanticGold(output, case.hiddenConsumerFiles())
+        println("[PIN-VERIFY] ${case.target.targetDescription}: measured ${gold.totalReferences} " +
+            "references over ${gold.files} files, ${gold.decoyReferences.size} decoys, " +
+            "${gold.newNameDeclarations} declarations of '${case.target.destinationDescription}', " +
+            "${gold.literalNameSites.size} files with a string literal naming it")
+        println("[PIN-VERIFY] pinned: ${case.expectedGoldReferences} references, " +
+            "${case.expectedGoldFiles} files, ${case.expectedDecoyDeclarations} decoys")
+        // Asserted, unlike the reporting phases: these are the tripwires that would abort every arm.
+        gold.checkTripwires(case)
+        println("[PIN-VERIFY] tripwires PASS — the case can be graded")
+    }
+
+    /**
+     * The rename-method query on its own call, and the full evidence for every candidate it emits.
+     *
+     * Every line printed here is a line a case would pin, so it prints all of them rather than a top
+     * ten: the pool is small by construction (the script emits nothing below the wide fan-out floor)
+     * and a candidate omitted from the report is a candidate nobody can choose.
+     */
+    private fun surveyRenameMethod(session: IntelliJContainer) {
+        val output = session.mcpSteroid.mcpExecuteCode(
+            code = RippleTargetSurveyScripts.renameMethod(),
+            reason = "Survey Keycloak for qualifying rename-method targets outside the ambiguous-owner pool",
+            taskId = "ripple-rename-method-survey",
+            timeout = 3_600,
+        ).stdout
+
+        val candidates = parseSurveyCandidates(output).filter { it.kind == "rename-method" }
+        val modules = parseCandidateModules(output).associateBy { it.ownerFqn to it.name }
+        val literals = parseLiteralNameOccurrences(output).associateBy { it.ownerFqn to it.name }
+        val overrides = output.lines().map { it.trim() }
+            .filter { it.startsWith("SURVEY_OVERRIDES ") }
+            .associate { line ->
+                val parts = line.removePrefix("SURVEY_OVERRIDES ").split('|')
+                (parts[0] to parts[1]) to parts[2].toInt()
+            }
+        val jaxRs = output.lines().map { it.trim() }
+            .filter { it.startsWith("SURVEY_JAXRS_EXCLUDED ") }
+            .map { it.removePrefix("SURVEY_JAXRS_EXCLUDED ").replace('|', '#') }
+            .toSet()
+
+        println("[SURVEY] rename-method (wide pool) — ${candidates.size} candidates")
+        candidates.sortedByDescending { it.references }.forEach { candidate ->
+            val key = candidate.ownerFqn to candidate.name
+            val literalCount = literals[key]?.occurrences
+            val verdict = when {
+                "${candidate.ownerFqn}#${candidate.name}" in jaxRs ->
+                    "DISQUALIFIED: JAX-RS resource method, addressable by name"
+                literalCount == null -> "NO LITERAL READING — do not pin"
+                literalCount > 0 -> "DISQUALIFIED: $literalCount string literals name it"
+                !candidate.qualifiesAsWide() -> "does not clear the wide thresholds"
+                else -> "ELIGIBLE"
+            }
+            println("[SURVEY]   ${candidate.ownerFqn}#${candidate.name} refs=${candidate.references} " +
+                "files=${candidate.files} modules=${candidate.modules} " +
+                "sameName=${candidate.sameNameDeclarations} " +
+                "overrides=${overrides[key] ?: "?"} — $verdict")
+            println("[SURVEY]     modules: ${modules[key]?.modules?.joinToString(", ") ?: "not printed"}")
         }
     }
 

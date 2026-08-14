@@ -134,7 +134,104 @@ class SemanticRippleOracleTest {
         val g = parseSemanticGold(empty)
         assertEquals(0, g.totalReferences)
         val e = assertThrows(IllegalStateException::class.java) { g.checkPilotTripwires() }
-        assertTrue(e.message!!.contains("445")) { "Message should state the expected count: ${e.message}" }
+        assertTrue(e.message!!.contains("${RippleCases.renameMethodWide.expectedGoldReferences}")) {
+            "Message should state the expected count: ${e.message}"
+        }
+    }
+
+    /**
+     * The defect the pilot was retargeted for. `path(RealmResource.class, "roles")` in two
+     * `AdminEventPaths` files names the method as a STRING: no compiler error, no reference-search
+     * hit, and an arm graded P1–P4 true at recall 1.0 and precision 1.0 over runtime breakage. The
+     * capture now reports every file holding such a literal and the tripwire refuses to grade.
+     */
+    @Test
+    fun `a name spelled by a string literal in the repository aborts the case before it is graded`() {
+        val withLiteral = goldOutput.replace(
+            "GOLD_NEWNAME_DECLS 0",
+            "GOLD_STRING_LITERAL_NAME /work/keycloak/tests/utils/src/main/java/org/keycloak/tests/utils/admin/AdminEventPaths.java|1\n" +
+                "GOLD_NEWNAME_DECLS 0",
+        )
+        val g = parseSemanticGold(withLiteral)
+        assertEquals(1, g.literalNameSites.size)
+        val e = assertThrows(IllegalStateException::class.java) { g.checkPilotTripwires() }
+        assertTrue(e.message!!.contains("string literal")) { "${e.message}" }
+        assertTrue(e.message!!.contains("AdminEventPaths")) { "${e.message}" }
+    }
+
+    @Test
+    fun `the hidden consumer's own reflective naming is not held against the case`() {
+        // The consumer calls getMethod("<old name>") on purpose — that is how it proves the old name
+        // is gone. Charging it would abort every arm of every rename-method case.
+        val consumer = "tests/base/src/test/java/org/keycloak/tests/admin/RenameContractTest.java"
+        val withLiteral = goldOutput.replace(
+            "GOLD_NEWNAME_DECLS 0",
+            "GOLD_STRING_LITERAL_NAME /work/keycloak/$consumer|2\nGOLD_NEWNAME_DECLS 0",
+        )
+        val g = parseSemanticGold(withLiteral, hiddenConsumerFiles = setOf(consumer))
+        assertTrue(g.literalNameSites.isEmpty()) { "${g.literalNameSites}" }
+    }
+
+    @Test
+    fun `a capture that reports no literal at all leaves the tripwire silent`() {
+        // Every kind shares one tripwire, and only rename-method measures literals today. An absent
+        // reading must not read as a violation, or the other five cases would stop grading.
+        assertTrue(gold().literalNameSites.isEmpty())
+    }
+
+    /**
+     * A failed predicate must name the keys behind it. Build 1031008889 printed `missed sites: 1` and
+     * nothing else, and with the round stopped there was no way to tell a residual key artifact from
+     * a genuine miss — the ambiguity that has now cost three separate readings.
+     */
+    @Test
+    fun `a failed P2 prints the missed site keys, not just how many there were`() {
+        val postWithOneSiteLeftBehind = """
+            POST_NEWNAME_DECLARED true
+            POST_OLDNAME_ON_TARGET 0
+            POST_SITE a/A.java|A#one|2
+            POST_SITE a/A.java|A#two|1
+            POST_DECOY org.keycloak.admin.client.resource.ClientResource|343
+            POST_DECOY org.keycloak.admin.client.resource.UserResource|401
+            POST_TOTAL_NEW_REFS 3
+            POST_END
+        """.trimIndent()
+        val grade = parseSemanticPostcondition(postWithOneSiteLeftBehind, gold())
+        assertFalse(grade.p2AllSitesConverted)
+        val lines = rippleFailedPredicateDetail(grade)
+        assertTrue(lines.any { it.contains("b/B.java|B#three|1") }) { "$lines" }
+    }
+
+    @Test
+    fun `the printed key list is capped and says how many it withheld`() {
+        val many = (1..40).map { GoldSite("a/F$it.java", "a.F$it#m", 1) }
+        val grade = SemanticPostconditionResult(
+            p1NoAliasAndNewNameDeclared = true,
+            p2AllSitesConverted = false,
+            p3DecoysUnchanged = false,
+            p4Conserved = false,
+            recall = 0.0, precision = 0.0, f1 = 0.0,
+            missedSites = many,
+            overReachedDecoys = (1..40).map { "a.D$it#m()" },
+        )
+        val lines = rippleFailedPredicateDetail(grade, limit = 5)
+        assertTrue(lines.any { it.contains("... 35 more not printed") }) { "$lines" }
+        assertEquals(2, lines.count { it.contains("more not printed") }) { "$lines" }
+        assertTrue(lines.any { it.contains("a.D1#m()") }) { "$lines" }
+    }
+
+    @Test
+    fun `nothing is printed when both predicates hold`() {
+        val clean = SemanticPostconditionResult(
+            p1NoAliasAndNewNameDeclared = true,
+            p2AllSitesConverted = true,
+            p3DecoysUnchanged = true,
+            p4Conserved = true,
+            recall = 1.0, precision = 1.0, f1 = 1.0,
+            missedSites = emptyList(),
+            overReachedDecoys = emptyList(),
+        )
+        assertTrue(rippleFailedPredicateDetail(clean).isEmpty())
     }
 
     @Test

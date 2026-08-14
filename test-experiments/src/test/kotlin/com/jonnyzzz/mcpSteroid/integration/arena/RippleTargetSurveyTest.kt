@@ -109,6 +109,53 @@ class RippleTargetSurveyTest {
     }
 
     @Test
+    fun `the cheap-kinds script surveys the rename-method kind`() {
+        // The pilot predates the survey, so its kind was never surveyed and its target was never
+        // measured against the family's own criteria — which is how an ill-posed rename got pinned.
+        val script = RippleTargetSurveyScripts.survey()
+        assertTrue(script.contains("\"rename-method\"")) { script }
+        assertTrue(script.contains("SURVEY_STRING_LITERAL_NAMES")) {
+            "A rename-method candidate must be measured against string literals naming it: $script"
+        }
+        assertTrue(script.contains("jakarta.ws.rs")) {
+            "A JAX-RS resource method is addressable by name and must not be offered as a " +
+                "rename-method candidate: $script"
+        }
+    }
+
+    @Test
+    fun `the script prints its extra evidence from the same fan-out floor the verdict uses`() {
+        assertTrue(RippleTargetSurveyScripts.survey().contains("refs.size >= $MIN_WIDE_REFERENCES")) {
+            "A gate below the wide floor would withhold the module list and the literal count from " +
+                "candidates that qualify"
+        }
+    }
+
+    @Test
+    fun `the modules a compile gate would need are parsed off the survey output`() {
+        val modules = parseCandidateModules("""
+            SURVEY_MODULE_NAMES org.keycloak.a.Wide|handle|keycloak-services, keycloak-model-jpa
+            SURVEY_CANDIDATE rename-method|org.keycloak.a.Wide|handle|312|41|5|4|0
+            SURVEY_END
+        """.trimIndent())
+        assertEquals(1, modules.size)
+        assertEquals(listOf("keycloak-services", "keycloak-model-jpa"), modules.single().modules)
+        assertEquals("handle", modules.single().name)
+    }
+
+    @Test
+    fun `the string-literal read-back is parsed, and a non-zero count is what disqualifies a target`() {
+        val literals = parseLiteralNameOccurrences("""
+            SURVEY_STRING_LITERAL_NAMES org.keycloak.admin.client.resource.RealmResource|roles|2
+            SURVEY_STRING_LITERAL_NAMES org.keycloak.a.Wide|handle|0
+            SURVEY_END
+        """.trimIndent())
+        assertEquals(2, literals.size)
+        assertEquals(2, literals.first().occurrences)
+        assertEquals(0, literals.last().occurrences)
+    }
+
+    @Test
     fun `pull-up requires hierarchy breadth on top of a wide fan-out`() {
         val byName = parseSurveyCandidates(output).associateBy { it.name }
         assertTrue(byName.getValue("handle").qualifiesForPullUp())

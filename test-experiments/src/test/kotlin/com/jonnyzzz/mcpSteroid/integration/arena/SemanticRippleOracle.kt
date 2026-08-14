@@ -45,6 +45,15 @@ data class SemanticGold(
     val decoyReferences: Map<String, Int>,
     /** Declarations of [newName] already in the project — must be zero, or the task is ill-posed. */
     val newNameDeclarations: Int,
+    /**
+     * Repository files holding a string literal that spells [oldName] exactly, and how many each
+     * holds — the escape hatch no compiler and no reference search can see.
+     *
+     * Empty for a kind whose capture does not measure it; non-empty means the case is ill-posed and
+     * [checkTripwires] refuses to grade it. The hidden consumer's own files are already excluded by
+     * [parseSemanticGold]: that file names the method by reflection deliberately.
+     */
+    val literalNameSites: Map<String, Int> = emptyMap(),
 ) {
     val totalReferences: Int get() = sites.sumOf { it.references }
     val files: Int get() = sites.map { it.file }.toSet().size
@@ -227,6 +236,9 @@ fun parseSemanticGold(output: String, hiddenConsumerFiles: Set<String> = emptySe
             ?: error("Gold capture output is missing the GOLD_NEWNAME_DECLS field:\n$output")
         ).removePrefix("GOLD_NEWNAME_DECLS ").toInt()
 
+    val literalNameSites = parseDecoyLines(lines, "GOLD_STRING_LITERAL_NAME ")
+        .filterKeys { path -> hiddenConsumerFiles.none { path.endsWith(it) } }
+
     return SemanticGold(
         targetFqn = headerParts[0],
         oldName = headerParts[1],
@@ -234,6 +246,7 @@ fun parseSemanticGold(output: String, hiddenConsumerFiles: Set<String> = emptySe
         sites = sites,
         decoyReferences = decoys,
         newNameDeclarations = newNameDeclarations,
+        literalNameSites = literalNameSites,
     )
 }
 
@@ -287,6 +300,16 @@ private fun parseDecoyLines(lines: List<String>, prefix: String): Map<String, In
  * silent failure this seam was cut to remove, reintroduced as a convenience.
  */
 fun SemanticGold.checkTripwires(case: RippleCase) {
+    // FIRST, because it is the only tripwire about whether the case is well-posed at all rather than
+    // about whether the measurement matches. See RippleNameEscapeRule: a name spelled by a string
+    // literal is renamed by no compiler and found by no reference search, so a run can be graded
+    // perfect on every predicate and still break at runtime — which is what the pilot's original
+    // target did through `path(RealmResource.class, "roles")` in two AdminEventPaths files.
+    check(literalNameSites.isEmpty()) {
+        "'${case.target.targetDescription}' is named by a string literal in " +
+            "${literalNameSites.size} repository file(s) — ${literalNameSites.entries.take(5)} — so " +
+            "the transformation is not behaviour-preserving and this case must not be graded"
+    }
     check(newNameDeclarations == 0) {
         "'${case.target.destinationDescription}' already exists $newNameDeclarations times; the " +
             "destination must be free or the task is ill-posed"

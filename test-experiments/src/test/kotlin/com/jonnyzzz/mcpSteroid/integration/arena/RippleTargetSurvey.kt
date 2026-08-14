@@ -47,6 +47,45 @@ fun parseSurveyCandidates(output: String): List<SurveyCandidate> {
 }
 
 /**
+ * The IntelliJ modules holding references to one surveyed declaration.
+ *
+ * A case's `compileGateModules` is a list of MAVEN artifactIds, and mapping a reference back to one
+ * needs the index that found it; the survey used to print only how MANY modules a candidate spanned,
+ * so building a gate for a newly chosen target meant guessing from the repository layout. These are
+ * IntelliJ module names, which for this reactor are the artifactIds, and every one of them still has
+ * to be confirmed against the poms at the base commit before it is pinned.
+ */
+data class CandidateModules(val ownerFqn: String, val name: String, val modules: List<String>)
+
+fun parseCandidateModules(output: String): List<CandidateModules> =
+    output.lines().map { it.trim() }.filter { it.startsWith("SURVEY_MODULE_NAMES ") }.map { line ->
+        val parts = line.removePrefix("SURVEY_MODULE_NAMES ").split('|')
+        check(parts.size == 3) { "Malformed SURVEY_MODULE_NAMES line: $line" }
+        CandidateModules(
+            ownerFqn = parts[0],
+            name = parts[1],
+            modules = parts[2].split(',').map { it.trim() }.filter { it.isNotEmpty() },
+        )
+    }
+
+/**
+ * How many Java string literals in the project spell a candidate's name exactly — the measurement
+ * [RippleNameEscapeRule] exists for.
+ *
+ * Zero is the only value that lets a rename-method case be pinned: a literal is renamed by no
+ * compiler and found by no reference search, so a rename that leaves one behind is graded as perfect
+ * and is broken at runtime.
+ */
+data class LiteralNameOccurrences(val ownerFqn: String, val name: String, val occurrences: Int)
+
+fun parseLiteralNameOccurrences(output: String): List<LiteralNameOccurrences> =
+    output.lines().map { it.trim() }.filter { it.startsWith("SURVEY_STRING_LITERAL_NAMES ") }.map { line ->
+        val parts = line.removePrefix("SURVEY_STRING_LITERAL_NAMES ").split('|')
+        check(parts.size == 3) { "Malformed SURVEY_STRING_LITERAL_NAMES line: $line" }
+        LiteralNameOccurrences(ownerFqn = parts[0], name = parts[1], occurrences = parts[2].toInt())
+    }
+
+/**
  * A read-back of one change-signature target's decoy count, measured through the index under the very
  * exclusion rule the capture script applies.
  *
@@ -84,8 +123,35 @@ fun parseDecoyVerifications(output: String): List<DecoyVerification> {
 /** Lexical ambiguity is required of BOTH members of a wide/narrow pair, so the pair varies fan-out alone. */
 private const val MIN_SAME_NAME_DECLARATIONS = 3
 
+/**
+ * The fan-out floor of a wide case, shared with `RippleTargetSurveyScripts.survey`, which prints the
+ * module names and the string-literal read-back only from this threshold up. The gate and the verdict
+ * must be the same number or the survey would withhold the evidence a qualifying candidate needs.
+ */
+const val MIN_WIDE_REFERENCES = 100
+
+/** The file-span floor of a wide case, and the word-index pre-gate of the rename-method query. */
+const val MIN_WIDE_FILES = 20
+
+/**
+ * The ambiguity ceiling of the rename-method query's pool.
+ *
+ * Ambiguity is required of every case, but `getId` is declared 1021 times in Keycloak and this query
+ * pays one reference search per declaration of a name it accepts. The ceiling is a POOL bound, not a
+ * criterion: a verdict from that script is a verdict about names no more common than this.
+ */
+const val MAX_SAME_NAME_DECLARATIONS = 200
+
+/**
+ * **These functions answer fan-out, and fan-out alone.** A candidate that clears them is a candidate,
+ * not a case: a case additionally has to be behaviour-preserving, and that is [RippleNameEscapeRule]'s
+ * question. Nothing here can see a name that a string literal addresses — no compiler and no
+ * reference search can — and the family's founding case was pinned on exactly that blind spot. Read
+ * [RippleNameEscapeRule] before choosing any target whose NAME the transformation changes.
+ */
 fun SurveyCandidate.qualifiesAsWide(): Boolean =
-    references >= 100 && files >= 20 && modules >= 3 && sameNameDeclarations >= MIN_SAME_NAME_DECLARATIONS
+    references >= MIN_WIDE_REFERENCES && files >= 20 && modules >= 3 &&
+        sameNameDeclarations >= MIN_SAME_NAME_DECLARATIONS
 
 fun SurveyCandidate.qualifiesAsNarrow(): Boolean =
     references in 5..20 && files <= 3 && sameNameDeclarations >= MIN_SAME_NAME_DECLARATIONS
