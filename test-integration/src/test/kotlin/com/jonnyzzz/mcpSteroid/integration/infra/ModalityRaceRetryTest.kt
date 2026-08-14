@@ -83,6 +83,63 @@ class ModalityRaceRetryTest {
         assertFalse(isTransientModalityRace(""))
     }
 
+    /**
+     * The literal failure that lost the `claude+mcp` arm of build `1031488960`: raised NOT by the
+     * gate but by `McpScriptContextImpl.requireNonModal`, from `waitForSmartMode` inside the
+     * JDK-registration script — the storm entered modality one step later, after the gate had
+     * already found its non-modal instant.
+     */
+    private val inScriptRaceFailure = "execution_id: eid_x-integration-test\n" +
+        "FAILED: waitForSmartMode requires a non-modal IDE, but a modal dialog is present. " +
+        "Use modal=smart_non_modal (closes dialogs first) or call closeModalDialogs() before this. " +
+        "See the thread dump under execution 'eid_x-integration-test'."
+
+    @Test
+    fun `an in-script requireNonModal loss under smart_non_modal is retried`() {
+        // Not the gate's text, so the gate predicate must stay blind to it — that blindness is what
+        // failed build 1031488960 in its JDK-registration setup step.
+        assertFalse(isTransientModalityRace(inScriptRaceFailure))
+        assertTrue(isScriptModalityRace(inScriptRaceFailure, ModalMode.SMART_NON_MODAL))
+        assertTrue(isRetriableModalityRace(inScriptRaceFailure, ModalMode.SMART_NON_MODAL))
+        assertTrue(
+            shouldRetryModalityRace(
+                inScriptRaceFailure,
+                elapsedSinceFirstRaceMs = 0,
+                modal = ModalMode.SMART_NON_MODAL,
+            )
+        )
+    }
+
+    @Test
+    fun `the same in-script loss on profiles that never swept is NOT retried`() {
+        // `non_modal` runs no dialog sweep and `unleashed` no gate at all, so modality seen inside a
+        // script there is not evidence of a race — it may be a dialog nobody ever tried to close.
+        for (profile in listOf(ModalMode.NON_MODAL, ModalMode.UNLEASHED)) {
+            assertFalse(isScriptModalityRace(inScriptRaceFailure, profile))
+            assertFalse(isRetriableModalityRace(inScriptRaceFailure, profile))
+            assertFalse(
+                shouldRetryModalityRace(inScriptRaceFailure, elapsedSinceFirstRaceMs = 0, modal = profile)
+            )
+        }
+    }
+
+    @Test
+    fun `the in-script retry is bounded by the same budget`() {
+        assertTrue(
+            shouldRetryModalityRace(inScriptRaceFailure, elapsedSinceFirstRaceMs = 119_000)
+        )
+        assertFalse(
+            shouldRetryModalityRace(inScriptRaceFailure, elapsedSinceFirstRaceMs = 120_001)
+        )
+    }
+
+    @Test
+    fun `a script output that merely mentions modality is not an in-script race`() {
+        assertFalse(isScriptModalityRace("modal dialog is present", ModalMode.SMART_NON_MODAL))
+        assertFalse(isScriptModalityRace("waitForSmartMode returned", ModalMode.SMART_NON_MODAL))
+        assertFalse(isScriptModalityRace("", ModalMode.SMART_NON_MODAL))
+    }
+
     @Test
     fun `the retry is bounded and gives up with the original failure`() {
         assertTrue(shouldRetryModalityRace(raceFailure, elapsedSinceFirstRaceMs = 0, budgetMs = 1_000))

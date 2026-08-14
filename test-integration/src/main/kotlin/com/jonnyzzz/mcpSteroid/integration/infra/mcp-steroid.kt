@@ -124,6 +124,43 @@ const val MODALITY_GATE_MARKER = "modal=smart_non_modal requires a non-modal IDE
 const val TRANSIENT_MODALITY_DETAIL = "a modal dialog/progress is present and could not be cleared"
 
 /**
+ * The modality check `McpScriptContextImpl.requireNonModal` raises from INSIDE a running script — a
+ * different failure from [MODALITY_GATE_MARKER], which `ScriptExecutor` raises BEFORE the script.
+ *
+ * Every guarantee the `smart_non_modal` profile gives is a point-in-time observation: the sweep
+ * closed the dialogs it saw, the gate found a non-modal instant, and the script started. A
+ * concurrent write-action storm can then enter modality WHILE the script runs, and the first
+ * `requireNonModal`-guarded operation the script reaches (`waitForSmartMode`, `syncDocuments`, …)
+ * fails on it — build `1031488960` lost its `claude+mcp` arm exactly that way, in the
+ * JDK-registration setup step, with the gate's retry blind to it because the text is not the gate's.
+ *
+ * The text carries no `modal=` profile (the check does not know one), so unlike the gate marker it
+ * cannot be judged alone — [isScriptModalityRace] pairs it with the profile the CALLER used.
+ */
+const val SCRIPT_MODALITY_MARKER = " requires a non-modal IDE, but a modal dialog is present."
+
+/**
+ * Pure: is this tool-result text the in-script modality race — [SCRIPT_MODALITY_MARKER] raised on a
+ * call the harness made under `smart_non_modal`?
+ *
+ * The profile comes from [modal], not from the text. Under `smart_non_modal` the harness knows the
+ * dialogs were swept and a non-modal instant existed at gate time, so modality observed later in the
+ * same execution is by construction something that arrived DURING the run — transient, and worth one
+ * more ask. Under `non_modal` (no sweep) and `unleashed` (no gate) that reasoning does not hold and
+ * the failure must surface: it may be a stuck dialog nobody ever tried to close.
+ */
+fun isScriptModalityRace(text: String, modal: ModalMode): Boolean =
+    modal == ModalMode.SMART_NON_MODAL && text.contains(SCRIPT_MODALITY_MARKER)
+
+/**
+ * Pure: is [text] a modality race worth re-issuing — either the gate's own
+ * ([isTransientModalityRace], self-describing) or an in-script one ([isScriptModalityRace], judged
+ * against the caller's [modal] profile)? The single predicate the retry loop asks.
+ */
+fun isRetriableModalityRace(text: String, modal: ModalMode): Boolean =
+    isTransientModalityRace(text) || isScriptModalityRace(text, modal)
+
+/**
  * How long to keep re-issuing an exec_code that lost the modality race. Chosen at the plugin's own
  * dialog-less modality bound (`mcp.steroid.execution.dialogless.modal.wait.ms`, default 120s): the
  * race window itself is milliseconds wide, so the budget only has to outlast the burst of write
@@ -171,7 +208,8 @@ fun shouldRetryModalityRace(
     text: String,
     elapsedSinceFirstRaceMs: Long,
     budgetMs: Long = MODALITY_RACE_RETRY_BUDGET_MS,
-): Boolean = isTransientModalityRace(text) && elapsedSinceFirstRaceMs < budgetMs
+    modal: ModalMode = ModalMode.DEFAULT,
+): Boolean = isRetriableModalityRace(text, modal) && elapsedSinceFirstRaceMs < budgetMs
 
 /** The message the plugin logs (SteroidsMcpServer) when its MCP web server cannot start. */
 internal const val MCP_SERVER_STARTUP_FAILURE_MARKER = "Failed to start MCP server"
@@ -638,7 +676,7 @@ try {
         // PROGRESS result → null → call again.
         return waitForValue(INDEXING_POLL_BUDGET_MS, "exec_code '$taskId' to run (IDE busy with import/indexing)") {
             val result = mcpExecuteCodeOnce(code, taskId, reason, timeout, effectiveProjectName, modal)
-            val isRace = result.exitCode != 0 && isTransientModalityRace(result.stdout)
+            val isRace = result.exitCode != 0 && isRetriableModalityRace(result.stdout, modal)
             // Stamped (or cleared) on EVERY attempt, before the branches: an attempt that is not a
             // race ends the current storm's window, so the next storm starts its budget fresh.
             modalityRaceWindowStartMs =
@@ -667,16 +705,20 @@ try {
                 // nothing to wait for, the gate sees modality, and no budget can close a race: the
                 // only fix is to ask again for another instant. Bounded, logged, and only for the
                 // transient variant, and only under the profile that actually swept and waited —
-                // see [isTransientModalityRace]. The budget covers the current storm, not the whole
-                // call. On exhaustion the failing result is returned as-is, so the caller's
+                // see [isTransientModalityRace]. The same storm can also enter modality one step
+                // later, while the script already runs, and fail an in-script `requireNonModal`
+                // operation instead of the gate — [isScriptModalityRace], same remedy. The budget
+                // covers the current storm, not the whole call. On exhaustion the failing result is
+                // returned as-is, so the caller's
                 // assertExitCode reports the original gate error with its screenshot and
                 // thread-dump pointers.
                 isRace -> {
                     val windowStart = modalityRaceWindowStartMs ?: System.currentTimeMillis()
                     val elapsed = System.currentTimeMillis() - windowStart
-                    if (shouldRetryModalityRace(result.stdout, elapsed)) {
+                    if (shouldRetryModalityRace(result.stdout, elapsed, modal = modal)) {
                         println("[MCP] exec_code '$taskId' lost the modality race (IDE entered modality " +
-                            "between the pre-flight wait and the gate) — retrying, ${elapsed}ms spent so far")
+                            "after the pre-flight wait, at the gate or inside the script) — retrying, " +
+                            "${elapsed}ms spent so far")
                         null
                     } else {
                         println("[MCP] exec_code '$taskId' kept losing the modality race for ${elapsed}ms — " +
