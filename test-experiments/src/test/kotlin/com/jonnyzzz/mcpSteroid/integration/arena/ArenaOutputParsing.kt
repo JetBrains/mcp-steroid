@@ -23,6 +23,15 @@ private const val PARAMETER_VALIDATION_PREFIX = "Parameter "
  */
 const val PROJECT_BASE_PATH_MARKER = "base:"
 
+/**
+ * The only string the harness reads as "the agent claims it finished" — see `ArenaTestRunner.evaluate`.
+ *
+ * A constant because every prompt that reaches an agent must ask for exactly this and `runTest`
+ * refuses to send one that does not: a track whose prompt spells the marker differently reports every
+ * run as unclaimed, and nothing else in the harness would say why.
+ */
+const val ARENA_FIX_APPLIED_MARKER = "ARENA_FIX_APPLIED: yes"
+
 /** One normalized steroid_execute_code result, independent of the agent CLI that emitted it. */
 data class ExecuteCodeResult(
     val isError: Boolean,

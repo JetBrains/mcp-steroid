@@ -357,6 +357,22 @@ class ArenaTestRunner(
      *                              When set, skips clone + patch (done by IntelliJProject.deploy()).
      *                              The project was deployed via [IntelliJProject.ProjectFromGitCommitAndPatch]
      *                              and indexed by [IntelliJContainer.waitForProjectReady].
+     * @param promptBuilder builds the prompt for the resolved project directory. The default is
+     *                      [buildPrompt], the dpaia brief, which is what every dpaia case wants. A
+     *                      track whose task is not a dpaia issue states its own brief instead: the
+     *                      semantic-ripple family passes `RippleScenarioBaseTest.promptFor`, whose
+     *                      environment paragraphs contradict this one's (it forbids the reactor-wide
+     *                      test run [buildPrompt] demands, because Keycloak's reactor cannot be built
+     *                      to completion at all). Until this parameter existed there was no way to
+     *                      send anything but [buildPrompt], so that family's prompt was written,
+     *                      contract-tested, and never sent.
+     * @param enforceFirstCallProjectMarker fails the run when the first executed `steroid_execute_code`
+     *                      result does not print `base: <projectDir>` (#251). That marker exists only
+     *                      because [buildPrompt] MANDATES a first-call recipe that prints it, so it is
+     *                      a compliance check on THIS prompt's instruction and must be off for a track
+     *                      that sends another one. A mechanism-pure prompt cannot ask for it without
+     *                      naming the tool it is testing whether the agent finds; the ripple family
+     *                      proves IDE use through `ArenaEvaluation.usedMcpSteroid` instead.
      */
     fun runTest(
         testCase: DpaiaTestCase,
@@ -366,6 +382,8 @@ class ArenaTestRunner(
         prewarm: ((projectDir: String) -> Unit)? = null,
         predeployedProjectDir: String? = null,
         logDir: File? = null,
+        promptBuilder: (projectDir: String) -> String = { dir -> buildPrompt(testCase, dir, withMcp) },
+        enforceFirstCallProjectMarker: Boolean = true,
     ): ArenaTestResult {
         println("[ARENA] ========================================")
         println("[ARENA] Running: ${testCase.instanceId}")
@@ -385,8 +403,12 @@ class ArenaTestRunner(
         }
 
         // Step 3: Build prompt
-        val prompt = buildPrompt(testCase, projectDir, withMcp = withMcp)
+        val prompt = promptBuilder(projectDir)
         println("[ARENA] Prompt length: ${prompt.length} chars")
+        check(prompt.contains(ARENA_FIX_APPLIED_MARKER)) {
+            "The prompt does not ask for '$ARENA_FIX_APPLIED_MARKER', which is the only string " +
+                "`evaluate` reads as a claimed fix — a run under it can never report one."
+        }
 
         // Pre-warm (NOT measured — IDE setup before the agent's timer starts)
         val prewarmStartMs = System.currentTimeMillis()
@@ -432,7 +454,7 @@ class ArenaTestRunner(
             )
         }
 
-        if (withMcp && !evaluation.firstExecutionTargetedProject) {
+        if (withMcp && enforceFirstCallProjectMarker && !evaluation.firstExecutionTargetedProject) {
             error(
                 "[ARENA] ${testCase.instanceId}: the mandatory first steroid_execute_code result did not " +
                     "confirm project.basePath=$projectDir, so the MCP arm may have operated on another " +
@@ -472,7 +494,7 @@ class ArenaTestRunner(
             usedMcpSteroid = transcript.usedMcpSteroid,
             successfulMcpExecution = transcript.successfulMcpExecution,
             firstExecutionTargetedProject = transcript.firstExecutionTargetsProject(expectedProjectDir),
-            agentClaimedFix = combined.contains("ARENA_FIX_APPLIED: yes", ignoreCase = true),
+            agentClaimedFix = combined.contains(ARENA_FIX_APPLIED_MARKER, ignoreCase = true),
             agentSummary = extractMarker(combined, "ARENA_SUMMARY:"),
             projectResolutionStatus = projectResolutionStatus,
             projectResolutionFailed = projectResolutionFailed,

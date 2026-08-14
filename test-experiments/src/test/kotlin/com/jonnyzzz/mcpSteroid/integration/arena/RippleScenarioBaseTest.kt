@@ -39,6 +39,19 @@ abstract class RippleScenarioBaseTest {
 
     abstract val case: RippleCase
 
+    /**
+     * The prompt this harness sends, and the only place it is built.
+     *
+     * Public and non-`@Test` so the contract tests can read the string the agent really receives
+     * instead of a builder output that `ArenaTestRunner` used to replace. That substitution was the
+     * defect: `runTest` built a dpaia brief around the case's `problemStatement`, so
+     * [buildRipplePrompt]'s environment paragraphs — verify by compiling the changed modules, never
+     * launch a reactor-wide test run — never reached any agent, while a contract test asserted they
+     * did.
+     */
+    fun promptFor(projectDir: String, withMcp: Boolean): String =
+        buildRipplePrompt(case, projectDir, withMcp)
+
     // The agent's own budget is 90 min (SemanticRippleSpec.agentTimeoutSeconds). A cold CI agent
     // additionally pays Docker image build (measured 34 min for the image build alone on a developer
     // machine) plus a cold Keycloak clone and Maven import. After the agent returns, grading adds the
@@ -139,6 +152,12 @@ abstract class RippleScenarioBaseTest {
                 timeoutSeconds = SemanticRippleSpec.agentTimeoutSeconds,
                 predeployedProjectDir = projectDir,
                 logDir = session.runDirInContainer,
+                promptBuilder = { dir -> promptFor(dir, withMcp) },
+                // The #251 gate checks that the agent obeyed a first-call recipe only the dpaia brief
+                // gives, and printed `base: <dir>` from it. This family's prompt cannot ask for that
+                // without naming the very tool the experiment tests whether the agent finds; IDE use
+                // is proven below by `usedMcpSteroid` instead.
+                enforceFirstCallProjectMarker = false,
             )
 
             // The IDE that ran the gold capture can be dead by the time we get here — e.g. an agent
@@ -228,6 +247,7 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE]   precision:       ${"%.4f".format(grade.precision)}")
             println("[RIPPLE]   f1:              ${"%.4f".format(grade.f1)}")
             println("[RIPPLE]   missed sites:    ${grade.missedSites.size}")
+            rippleFailedPredicateDetail(grade).forEach { println(it) }
             println("[RIPPLE]   consumer refs excluded from conservation: ${grade.excludedConsumerReferences}")
             println("[RIPPLE]   import refs excluded from conservation:   " +
                 "${grade.excludedImportReferences} (gold held ${gold.importReferences}, " +
@@ -257,6 +277,42 @@ abstract class RippleScenarioBaseTest {
             }
         } finally {
             lifetime.closeAllStacks()
+        }
+    }
+}
+
+/**
+ * The KEYS behind a failed P2 or P3, not just how many there were.
+ *
+ * A bare count cannot be read. Build 1031008889 (rename-type wide, claude+mcp) printed
+ * `missed sites: 1` at recall 0.9814 after three of the four keys that the type-level remapping was
+ * built for started matching — and with the round stopped there was no second arm to compare against,
+ * so nothing in the log could say whether that one site was a residual oracle artifact or a genuine
+ * miss by the agent. A key answers it immediately: an artifact sits inside the transformed type's own
+ * file, a real miss does not.
+ *
+ * Bounded, because P2 can fail with hundreds of sites in a shell arm that did nothing at all, and a
+ * run summary is not a place to print a gold set. The cap keeps the shape readable and always states
+ * how many were withheld.
+ */
+fun rippleFailedPredicateDetail(
+    grade: SemanticPostconditionResult,
+    limit: Int = 15,
+): List<String> = buildList {
+    if (grade.missedSites.isNotEmpty()) {
+        add("[RIPPLE]   missed site keys (file|enclosing declaration|references the gold set held):")
+        grade.missedSites.take(limit).forEach {
+            add("[RIPPLE]     ${it.file}|${it.enclosingDeclaration}|${it.references}")
+        }
+        if (grade.missedSites.size > limit) {
+            add("[RIPPLE]     ... ${grade.missedSites.size - limit} more not printed")
+        }
+    }
+    if (grade.overReachedDecoys.isNotEmpty()) {
+        add("[RIPPLE]   over-reached decoy keys:")
+        grade.overReachedDecoys.take(limit).forEach { add("[RIPPLE]     $it") }
+        if (grade.overReachedDecoys.size > limit) {
+            add("[RIPPLE]     ... ${grade.overReachedDecoys.size - limit} more not printed")
         }
     }
 }

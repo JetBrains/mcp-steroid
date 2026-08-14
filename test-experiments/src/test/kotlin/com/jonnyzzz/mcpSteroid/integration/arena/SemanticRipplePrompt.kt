@@ -1,6 +1,9 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.arena
 
+import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
+import com.jonnyzzz.mcpSteroid.testHelper.docker.StartContainerRequest
+
 /**
  * The task brief for one case of the keycloak-semantic-ripple family.
  *
@@ -19,7 +22,7 @@ fun buildRipplePrompt(case: RippleCase, projectDir: String, withMcp: Boolean): S
     appendLine("You are working on a large multi-module Java project located at: `$projectDir`")
     appendLine()
     appendLine("**OUTPUT REQUIREMENT** (read now, apply at the end): when the task is complete and the")
-    appendLine("project compiles, your LAST message MUST contain `ARENA_FIX_APPLIED: yes` on its own line.")
+    appendLine("project compiles, your LAST message MUST contain `$ARENA_FIX_APPLIED_MARKER` on its own line.")
     appendLine("The harness detects only that exact string, not a build tool's own success output.")
     appendLine()
     appendLine("## Task")
@@ -54,18 +57,46 @@ fun buildRipplePrompt(case: RippleCase, projectDir: String, withMcp: Boolean): S
     appendLine()
     appendLine("End your last message with exactly:")
     appendLine()
-    appendLine("    ARENA_FIX_APPLIED: yes")
+    appendLine("    $ARENA_FIX_APPLIED_MARKER")
+    appendLine("    ARENA_SUMMARY: <one line on what you changed and how you verified it>")
     appendLine()
     appendLine("If you could not complete the task, end with `ARENA_FIX_APPLIED: no` and one line saying why.")
 }
 
 /**
- * The pilot's prompt, kept as a one-line delegate.
+ * The dpaia brief a ripple case USED to be sent, kept only so a test can show what changed.
+ *
+ * `RippleScenarioBaseTest` went through `ArenaTestRunner.runTest`, which wrapped the case's
+ * `problemStatement` — the `## Task` section alone — in the dpaia track's scaffolding. That
+ * scaffolding opens with "You are working on a Java Spring project", prints the FAIL_TO_PASS class
+ * and the whole test patch (the hidden consumer, which names the answer), and twice orders a
+ * reactor-wide test run that Keycloak cannot complete. Every environment paragraph
+ * [buildRipplePrompt] was written for was dropped on the floor. Nothing in production builds this
+ * string for a ripple case any more; `SemanticRipplePromptWiringTest` uses it to pin the difference.
+ */
+fun legacyDpaiaWrappedRipplePrompt(case: RippleCase, projectDir: String, withMcp: Boolean): String =
+    ArenaTestRunner(
+        container = ContainerDriver(
+            logPrefix = "ripple-prompt",
+            containerId = "unused",
+            startRequest = StartContainerRequest(),
+        ),
+        projectGuestDir = projectDir,
+    ).buildPrompt(case.dpaiaCase(), projectDir, withMcp)
+
+/**
+ * The pilot's prompt AS THE HARNESS SENDS IT, kept as a one-line delegate.
  *
  * It exists so `SemanticRipplePromptContractTest` — written before the family had a seam — keeps
- * compiling and passing unedited. That test is the regression check on the extraction: if the shared
+ * compiling and passing. That test is the regression check on the extraction: if the shared
  * scaffolding drifted by a single line while the `## Task` section moved into [RippleTarget], it is
  * what says so.
+ *
+ * It routes through [RippleScenarioBaseTest.promptFor] rather than through [buildRipplePrompt]
+ * because a contract that checks a builder nobody sends is what let a dpaia-shaped brief reach the
+ * agent for five measured rounds while the reviewed prompt sat unused.
  */
 fun buildSemanticRipplePrompt(projectDir: String, withMcp: Boolean): String =
-    buildRipplePrompt(RippleCases.renameMethodWide, projectDir, withMcp)
+    object : RippleScenarioBaseTest() {
+        override val case: RippleCase get() = RippleCases.renameMethodWide
+    }.promptFor(projectDir, withMcp)
