@@ -222,12 +222,15 @@ and that check is not optional:
   up. `RippleTarget.oldIdentitySearchTokens` names the banned token per kind and
   `RippleCaseRegistryTest` enforces both halves of `RippleConsumerIdentityRule`: the token must not
   appear contiguously anywhere in the patch, and — with the fragments joined and the constant helpers
-  inlined — it must appear on a line that also performs a reflective lookup (`Class.forName(`,
-  `getMethod(`, …). The second half is scoped to the LOOKUP, not to the file, because a dead helper
-  plus `assertTrue(true)` satisfies "the name is in there somewhere" while proving nothing; that
-  counterexample is a fixture in the same test. Assertion wrappers deliberately do not qualify — every
-  consumer also puts its assembled name in a failure MESSAGE, and a message proves nothing about what
-  was looked up. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
+  inlined — it must appear on a line that performs a reflective lookup (`Class.forName(`, `getMethod(`,
+  …) INSIDE a `@Test` method or a method reachable from one. **That guard has been defeated twice in
+  review** — once by a dead helper that assembled the name and was never called, once by a decoy method
+  containing a real `Class.forName(oldFqn())` that nothing ever called — so it asks about reachability
+  rather than about text. Both bypasses are fixtures in `RippleCaseRegistryTest`, which is the only
+  reason the current version can be called stronger rather than merely newer; distrust a fourth
+  relaxation that arrives without a fixture of its own. Assertion wrappers deliberately do not qualify —
+  every consumer also puts its assembled name in a failure MESSAGE, and a message proves nothing about
+  what was looked up. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
 - This is not hypothetical. The family's founding case renamed `RealmResource.roles()` believing the
   `@Path("roles")` annotation carried the contract. Two `AdminEventPaths` files name the method as a
   string, so the rename yields `RESTEASY003645` at runtime — while the oracle graded an arm as a

@@ -169,8 +169,24 @@ class RippleCaseRegistryTest {
     }
 
     /**
-     * The same fixture with its helper wired into the lookup it exists for, so the test above fails
-     * for the reason it names rather than because the fixture is malformed in some other way.
+     * The second bypass a review found, in the version that had just closed the first one.
+     *
+     * That version required a reflective lookup on the token's line — anywhere in the file. A
+     * never-called method holding `Class.forName(oldFqn())` satisfies it to the letter while the
+     * `@Test` method still asserts nothing. Both bypasses are the same defect: asking whether the
+     * right TEXT exists rather than whether the assertion depends on it.
+     */
+    @Test
+    fun `a consumer whose only lookup sits in a method nothing calls is rejected`() {
+        val findings = RippleConsumerIdentityRule.findings(DECOY_LOOKUP_CONSUMER, "KeyUtils")
+        assertTrue(findings.any { it.contains("no @Test method reaches") }) {
+            "The guard accepted a consumer whose lookup is dead code: $findings"
+        }
+    }
+
+    /**
+     * The same fixture with its helper wired into the lookup it exists for, so the tests above fail
+     * for the reason they name rather than because the fixture is malformed in some other way.
      */
     @Test
     fun `the same consumer passes once the assembled name reaches a lookup`() {
@@ -777,6 +793,24 @@ class RippleCaseRegistryTest {
 private val DEAD_HELPER_CONSUMER = """
     +public class RenameTypeNarrowContractTest {
     +    private static String oldFqn() { return "org.keycloak.tests.utils." + "Key" + "Utils"; }
+    +
+    +    @Test
+    +    public void oldNameIsGone() {
+    +        assertTrue(true);
+    +    }
+    +}
+""".trimIndent()
+
+/**
+ * The second review's counterexample: a real lookup, in a method nothing ever calls.
+ */
+private val DECOY_LOOKUP_CONSUMER = """
+    +public class RenameTypeNarrowContractTest {
+    +    private static String oldFqn() { return "org.keycloak.tests.utils." + "Key" + "Utils"; }
+    +
+    +    private static void decoyLookupNeverCalled() throws ClassNotFoundException {
+    +        Class.forName(oldFqn());
+    +    }
     +
     +    @Test
     +    public void oldNameIsGone() {
