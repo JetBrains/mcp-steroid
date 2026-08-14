@@ -153,6 +153,35 @@ class RippleCaseRegistryTest {
     }
 
     /**
+     * Each consumer must pass the guard because of its LOOKUP, never because of its message.
+     *
+     * Every consumer interpolates its assembled name into a failure message, and a message is text: if
+     * one of them phrased that message as "Class.forName(<name>) must not resolve", the guard would be
+     * satisfied by the sentence and would keep passing after the real lookup was deleted — a green
+     * verdict over an oracle that verifies nothing. Deleting every lookup line must therefore make the
+     * guard REJECT each consumer. This is the ablation the review asked for, kept as a test because the
+     * property is not visible by reading the rule; it is only visible by removing the thing it depends
+     * on.
+     */
+    @TestFactory
+    fun `every consumer passes on its lookup and not on its message`(): List<DynamicTest> =
+        RippleCases.all.map { case ->
+            DynamicTest.dynamicTest(case.instanceId) {
+                val withoutLookups = case.testPatch().lines()
+                    .filterNot { line -> RippleConsumerIdentityRule.nameResolvingCalls.any { line.contains(it) } }
+                    .joinToString("\n")
+                case.target.oldIdentitySearchTokens.forEach { token ->
+                    val findings = RippleConsumerIdentityRule.findings(withoutLookups, token)
+                    assertTrue(findings.isNotEmpty()) {
+                        "${case.instanceId}: with every lookup line deleted the guard still accepts this " +
+                            "consumer for '$token', so it is passing on the TEXT of a message rather than " +
+                            "on a lookup — the guard is not verifying this consumer at all"
+                    }
+                }
+            }
+        }
+
+    /**
      * The bypass a review found in this guard's first version, kept as a fixture so it cannot return.
      *
      * That version asked only that the token appear once the string fragments were joined, which the
@@ -181,6 +210,37 @@ class RippleCaseRegistryTest {
         val findings = RippleConsumerIdentityRule.findings(DECOY_LOOKUP_CONSUMER, "KeyUtils")
         assertTrue(findings.any { it.contains("no @Test method reaches") }) {
             "The guard accepted a consumer whose lookup is dead code: $findings"
+        }
+    }
+
+    /**
+     * The third bypass, and the sharpest: no helper, no dead code, no reflection — just a MESSAGE.
+     *
+     * Version 3 blanked comments but not string contents, so once the fragments were joined a failure
+     * message quoting `Class.forName(` was indistinguishable from a call. Excluding assertion wrappers
+     * from the whitelist did nothing about it, because the bypass never needed `assertTrue(` to be
+     * whitelisted — it needed `Class.forName(` to survive inside a string.
+     */
+    @Test
+    fun `a consumer whose only lookup is quoted inside a message is rejected`() {
+        val findings = RippleConsumerIdentityRule.findings(MESSAGE_ONLY_CONSUMER, "KeyUtils")
+        assertTrue(findings.any { it.contains("no runtime lookup") }) {
+            "The guard accepted a consumer whose 'lookup' is a sentence: $findings"
+        }
+    }
+
+    /**
+     * The same channel aimed at the call graph: the version-2 decoy, resurrected by one word.
+     *
+     * A string that merely MENTIONS `decoyLookupNeverCalled()` made the dead method read as called, so
+     * its lookup counted as reachable. Blanking string contents is what closes this and the message
+     * bypass at once — neither prose nor a message can steer the call graph.
+     */
+    @Test
+    fun `a decoy named only inside a string is still not reachable`() {
+        val findings = RippleConsumerIdentityRule.findings(DECOY_NAMED_IN_STRING_CONSUMER, "KeyUtils")
+        assertTrue(findings.any { it.contains("no @Test method reaches") }) {
+            "A string mentioning a method made it read as called: $findings"
         }
     }
 
@@ -815,6 +875,34 @@ private val DECOY_LOOKUP_CONSUMER = """
     +    @Test
     +    public void oldNameIsGone() {
     +        assertTrue(true);
+    +    }
+    +}
+""".trimIndent()
+
+/**
+ * The third review's counterexample, verbatim: the whole "lookup" is the text of a message.
+ */
+private val MESSAGE_ONLY_CONSUMER = """
+    +public class RenameTypeNarrowContractTest {
+    +    @Test
+    +    public void oldNameIsGone() {
+    +        assertTrue(true, "Class.forName(" + "org.keycloak.tests.utils." + "Key" + "Utils" + ") must not resolve");
+    +    }
+    +}
+""".trimIndent()
+
+/** [DECOY_LOOKUP_CONSUMER] resurrected: the `@Test` body only NAMES the decoy, inside a string. */
+private val DECOY_NAMED_IN_STRING_CONSUMER = """
+    +public class RenameTypeNarrowContractTest {
+    +    private static String oldFqn() { return "org.keycloak.tests.utils." + "Key" + "Utils"; }
+    +
+    +    private static void decoyLookupNeverCalled() throws ClassNotFoundException {
+    +        Class.forName(oldFqn());
+    +    }
+    +
+    +    @Test
+    +    public void oldNameIsGone() {
+    +        assertTrue(true, "see decoyLookupNeverCalled() for the real check");
     +    }
     +}
 """.trimIndent()

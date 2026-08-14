@@ -222,15 +222,22 @@ and that check is not optional:
   up. `RippleTarget.oldIdentitySearchTokens` names the banned token per kind and
   `RippleCaseRegistryTest` enforces both halves of `RippleConsumerIdentityRule`: the token must not
   appear contiguously anywhere in the patch, and — with the fragments joined and the constant helpers
-  inlined — it must appear on a line that performs a reflective lookup (`Class.forName(`, `getMethod(`,
-  …) INSIDE a `@Test` method or a method reachable from one. **That guard has been defeated twice in
-  review** — once by a dead helper that assembled the name and was never called, once by a decoy method
-  containing a real `Class.forName(oldFqn())` that nothing ever called — so it asks about reachability
-  rather than about text. Both bypasses are fixtures in `RippleCaseRegistryTest`, which is the only
-  reason the current version can be called stronger rather than merely newer; distrust a fourth
-  relaxation that arrives without a fixture of its own. Assertion wrappers deliberately do not qualify —
-  every consumer also puts its assembled name in a failure MESSAGE, and a message proves nothing about
-  what was looked up. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
+  inlined — it must appear on a line whose CODE (comments blanked, **string contents blanked**) performs
+  a reflective lookup (`Class.forName(`, `getMethod(`, …) inside a `@Test` method or a method reachable
+  from one. **That guard has been defeated three times in review** — by a dead helper that assembled the
+  name and was never called; by a decoy method holding a real `Class.forName(oldFqn())` that nothing
+  called; and by a failure MESSAGE quoting `Class.forName(` with the token spliced in, which needed no
+  helper, no dead code and no reflection at all. Every bypass is a fixture in `RippleCaseRegistryTest`,
+  which is the only reason the current version is stronger rather than merely newer; refuse a
+  relaxation that arrives without a fixture of its own. What the guard asserts is exactly this: the
+  token and a lookup call-site sit on one joined line inside a `@Test`-reachable method. It does not
+  assert that the result is asserted on, that the branch is taken, or that the exception is not
+  swallowed — that boundary is deliberate, and the agentless probe is what covers behaviour.
+  `every consumer passes on its lookup and not on its message` ablates the lookups and proves each
+  consumer depends on one. **This rule errs STRICT on purpose**: a false rejection is loud and its
+  remedy message says what to write, while a false acceptance is a silently inert oracle that reads
+  green and that nothing else in the harness catches — the tamper check catches an EDITED consumer,
+  never a vacuous one. Cost of getting this wrong: build 1031230755, pilot pass 3, claude+mcp.
 - This is not hypothetical. The family's founding case renamed `RealmResource.roles()` believing the
   `@Path("roles")` annotation carried the contract. Two `AdminEventPaths` files name the method as a
   string, so the rename yields `RESTEASY003645` at runtime — while the oracle graded an arm as a

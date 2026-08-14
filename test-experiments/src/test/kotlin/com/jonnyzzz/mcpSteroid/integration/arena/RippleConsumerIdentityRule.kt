@@ -18,29 +18,53 @@ package com.jonnyzzz.mcpSteroid.integration.arena
  * 1. the token appears on no line of the patch contiguously — code, comment and message alike, because
  *    a text search does not care which it lands in; and
  * 2. after adjacent string fragments are joined and each constant helper is inlined at its call sites,
- *    the token appears on a line that performs a [nameResolvingCalls] lookup AND that line sits inside
- *    a `@Test` method, or inside a method reachable from one.
+ *    the token appears on a line whose CODE — comments blanked, string contents blanked — performs a
+ *    [nameResolvingCalls] lookup, and that line sits inside a `@Test` method or a method reachable
+ *    from one.
  *
- * **This guard has been defeated twice, and both bypasses are fixtures in `RippleCaseRegistryTest`.**
- * That is the only reason this third version can be called stronger rather than merely newer, and it is
- * the reason to distrust a fourth relaxation that arrives without a fixture of its own.
+ * **What this guarantees, exactly.** The token and a lookup call-site appear on one joined line inside
+ * a method the test can reach. That proves the assembled name is passed to something that resolves it
+ * at runtime, so deleting the lookup breaks the guard — which is the property
+ * `RippleCaseRegistryTest.every consumer passes on its lookup and not on its message` ablates and
+ * asserts for all seven. It does NOT prove the lookup's result is asserted on, that the call is on a
+ * taken branch, or that its exception is not swallowed. Those are the acknowledged boundary of a
+ * textual rule (below), and a positive control that reaches them is caught by the probe rather than
+ * here.
  *
- * - *Version 1* asked only that the token appear once the fragments were joined. The fragments alone
- *   satisfy that: keep the assembled name in a helper, never call it, assert `true`, and the consumer
- *   passes while reporting the same verdict whether or not a compatibility alias survived.
- * - *Version 2* additionally required a [nameResolvingCalls] lookup on the token's line — anywhere in
- *   the file. A never-called `private static void decoyLookupNeverCalled()` holding
- *   `Class.forName(oldFqn())` satisfies that literally, and the consumer still proves nothing.
+ * **This guard has been defeated three times in review, and every bypass is a fixture in
+ * `RippleCaseRegistryTest`.** That is the only reason each version can be called stronger rather than
+ * merely newer, and it is why a fourth relaxation arriving without a fixture of its own should be
+ * refused.
  *
- * Both bypasses are the same defect: asking whether the right TEXT exists rather than whether the
- * assertion actually depends on it. Hence version 3's reachability requirement — evidence is a lookup
- * the `@Test` method really executes. Reachability through a private helper stays legal, because that
- * is the shape all seven consumers use for the NAME; a method nothing calls is not evidence.
+ * - *Version 1* asked only that the token appear once the fragments were joined. Defeated by a dead
+ *   helper: assemble the name, never call it, assert `true`.
+ * - *Version 2* additionally required a lookup on the token's line, anywhere in the file. Defeated by a
+ *   decoy: `private static void decoyLookupNeverCalled() { Class.forName(oldFqn()); }`.
+ * - *Version 3* additionally required reachability from a `@Test` method — but scanned lines whose
+ *   STRING CONTENTS were still live text. Defeated four ways at once, the sharpest needing no helper,
+ *   no dead code and no reflection at all:
+ *   `assertTrue(true, "Class.forName(" + "org.keycloak.tests.utils." + "Key" + "Utils" + ") must not resolve")`.
+ *   The same channel resurrected the version-2 decoy — a string merely MENTIONING
+ *   `decoyLookupNeverCalled()` made the dead method read as called.
  *
- * **Why assertion wrappers do not qualify.** `assertThrows(`, `fail(`, `assertTrue(` and friends are
- * deliberately absent from [nameResolvingCalls]. Every consumer also interpolates its assembled name
- * into a FAILURE MESSAGE, and a message proves nothing about what was looked up — admitting those
- * shapes would readmit both bypasses through their own error text.
+ * All three defeats are one defect: asking whether the right TEXT exists rather than whether the
+ * assertion depends on it. Version 3's KDoc claimed message shapes could not qualify because assertion
+ * wrappers were off the whitelist; that claim was FALSE as shipped, because the bypass never needed
+ * `assertTrue(` to be whitelisted — it needed `Class.forName(` to survive inside a string. What makes
+ * the claim true is [withoutStringContents], not the whitelist.
+ *
+ * **Direction: this rule errs strict, deliberately.** A false rejection is loud and [remedy] tells the
+ * author what to write. A false acceptance produces a silently inert oracle that reads green
+ * downstream, and nothing else in the harness catches it — the tamper check catches an EDITED consumer,
+ * never a vacuous one. Every other guard in this family errs strict; this is the one that chose
+ * leniency, and the one where leniency costs most. When a shape is ambiguous, reject it.
+ *
+ * **The boundary, recorded rather than chased.** Two bypasses are out of scope for a textual rule and
+ * are not defects to fix here: a real lookup inside a never-taken branch, and a real lookup whose
+ * exception is swallowed. Both need control- and data-flow, which means PSI over a compilable file
+ * rather than a regex over a patch. They are why [findings] returning nothing is evidence about the
+ * consumer's SHAPE, and the agentless probe — which runs the consumer and reads what threw — is the
+ * evidence about its behaviour.
  */
 object RippleConsumerIdentityRule {
 
@@ -51,6 +75,8 @@ object RippleConsumerIdentityRule {
      * The family uses two of these today — `Class.forName(` for the type-level kinds and `getMethod(`
      * for the method-level ones. The rest are the same reflective family, listed so a future consumer
      * that reaches for the obvious neighbour is not failed for a distinction without a difference.
+     * Matched only against code with string contents blanked, so the same text inside a message is not
+     * a call.
      */
     val nameResolvingCalls: List<String> = listOf(
         "Class.forName(",
@@ -72,26 +98,30 @@ object RippleConsumerIdentityRule {
             .filter { it.value.contains(token) }
             .map { "spelled contiguously at line ${it.index + 1}: ${it.value.trim()}" }
 
+        // The token is read from the resolved text, where it legitimately lives INSIDE a string literal:
+        // that is what a reflective lookup takes. Everything that decides whether a line CALLS anything
+        // is read from `code`, where string contents are gone, so a message quoting a call is not one.
         val resolved = resolveConstants(joinJavaLiteralFragments(patch))
-        val code = withoutComments(resolved)
+        val code = withoutStringContents(withoutComments(resolved))
         val methods = declaredMethods(code, resolved)
         val reachable = reachableFromTests(code, methods)
 
         val lookups = code.indices.filter { line ->
-            code[line].contains(token) && nameResolvingCalls.any { code[line].contains(it) }
+            resolved[line].contains(token) && nameResolvingCalls.any { code[line].contains(it) }
         }
         val executed = lookups.filter { line -> methods.any { it.holds(line) && it.name in reachable } }
 
         val unused = when {
             executed.isNotEmpty() -> emptyList()
             lookups.isEmpty() -> listOf(
-                "names '$token' through no runtime lookup: with its fragments joined and its constant " +
-                    "helpers inlined, no line both holds the token and calls one of " +
-                    "${nameResolvingCalls.joinToString(", ")} — so the assertion would report the same " +
-                    "verdict whether or not the old identity survived"
+                "names '$token' through no runtime lookup: with its fragments joined, its constant " +
+                    "helpers inlined and its comments and string contents blanked, no line both holds " +
+                    "the token and CALLS one of ${nameResolvingCalls.joinToString(", ")} — so the " +
+                    "assertion would report the same verdict whether or not the old identity survived"
             )
             else -> listOf(
-                "looks up '$token' only from ${lookups.map { line -> methods.firstOrNull { it.holds(line) }?.name ?: "<no method>" }}" +
+                "looks up '$token' only from " +
+                    "${lookups.map { line -> methods.firstOrNull { it.holds(line) }?.name ?: "<no method>" }}" +
                     ", which no @Test method reaches: the lookup is dead code, so the assertion would " +
                     "report the same verdict whether or not the old identity survived"
             )
@@ -129,7 +159,8 @@ object RippleConsumerIdentityRule {
      * The same lines with comment text blanked out.
      *
      * Braces and calls inside a comment are not code, and the family's own consumers carry `{@link X}`
-     * in their KDoc — counting that brace would misplace every method boundary after it.
+     * in their KDoc — counting that brace would misplace every method boundary after it. Run BEFORE
+     * [withoutStringContents], since a comment may contain an unbalanced quote.
      */
     private fun withoutComments(lines: List<String>): List<String> {
         var inBlock = false
@@ -152,6 +183,24 @@ object RippleConsumerIdentityRule {
             }
             text.substringBefore("//")
         }
+    }
+
+    /**
+     * The same lines with the CONTENTS of every string literal emptied, `"anything"` becoming `""`.
+     *
+     * This is what makes the rule's claim about messages true. A failure message is text, and every
+     * consumer interpolates its assembled name into one; without this step a message reading
+     * `"Class.forName(" + name + ") must not resolve"` is, after the fragments are joined,
+     * indistinguishable from a reflective call — which is how version 3 was defeated four ways, none of
+     * them needing an actual lookup. Blanking also removes braces and `foo()` mentions from strings, so
+     * neither method boundaries nor the call graph can be steered by prose.
+     *
+     * Only call detection reads this; token detection reads the unblanked text, because a lookup's
+     * argument IS a string literal and blanking it there would reject every honest consumer.
+     */
+    private fun withoutStringContents(lines: List<String>): List<String> {
+        val literal = Regex(""""(?:\\.|[^"\\])*"""")
+        return lines.map { line -> literal.replace(line, "\"\"") }
     }
 
     /**
@@ -191,11 +240,12 @@ object RippleConsumerIdentityRule {
     }
 
     /**
-     * Every method a `@Test` method can reach, by name, closed transitively over textual calls.
+     * Every method a `@Test` method can reach, by name, closed transitively over calls in blanked code.
      *
      * Transitive rather than one level deep: one level is what the consumers need today, and a rule
      * that stopped there would reject an honest two-step helper chain for no reason the reader could
-     * defend. What it must never admit is a method NOTHING calls, and the closure does not.
+     * defend. What it must never admit is a method NOTHING calls — including one merely NAMED inside a
+     * string, which is how the version-2 decoy was resurrected against version 3.
      */
     private fun reachableFromTests(code: List<String>, methods: List<JavaMethod>): Set<String> {
         val reachable = methods.filter { it.isTest }.map { it.name }.toMutableSet()
