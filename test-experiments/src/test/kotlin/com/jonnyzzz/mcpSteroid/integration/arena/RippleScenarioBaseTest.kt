@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.Timeout
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -111,8 +112,9 @@ abstract class RippleScenarioBaseTest {
             // tripwire caught the moment the consumer's imports began to resolve.
             val gold = parseSemanticGold(goldOutput, rippleCase.hiddenConsumerFiles())
             gold.checkTripwires(rippleCase)
-            println("[RIPPLE] gold: ${gold.totalReferences} references, ${gold.files} files, " +
-                "${gold.decoyReferences.size} decoys")
+            println("[RIPPLE] gold: ${gold.totalReferences} references " +
+                "(${gold.countedReferences} graded, ${gold.importReferences} in imports), " +
+                "${gold.files} files, ${gold.decoyReferences.size} decoys")
 
             val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
             // Before the snapshot, never after: the project's own formatter rewrites a patch file that
@@ -170,6 +172,7 @@ abstract class RippleScenarioBaseTest {
                 gold,
                 hiddenConsumerFiles = rippleCase.hiddenConsumerFiles(),
                 extraPredicates = rippleCase.target.extraPredicates(postOutput),
+                expectedPostKey = rippleCase.target::expectedPostKey,
             )
 
             // The layer that covers every call site: a site the agent missed still names a declaration
@@ -223,10 +226,11 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE]   f1:              ${"%.4f".format(grade.f1)}")
             println("[RIPPLE]   missed sites:    ${grade.missedSites.size}")
             println("[RIPPLE]   consumer refs excluded from conservation: ${grade.excludedConsumerReferences}")
+            println("[RIPPLE]   import refs excluded from conservation:   ${grade.excludedImportReferences}")
             println("[RIPPLE]   over-reached:    ${grade.overReachedDecoys}")
             println("[RIPPLE]   compile gate:    ${if (gate.passed) "PASS" else "FAIL (exit ${gate.exitCode})"}")
             println("[RIPPLE]   verified FTP:    ${verification.classesPassed}/${verification.classesTotal}")
-            println("[RIPPLE]   agent time:      ${record.agentDurationMs / 1000}s")
+            rippleAgentCostLines(record.agentDurationMs, record.tokenUsage).forEach { println(it) }
             val success = gate.passed && verification.objectiveSuccess && grade.allPassed
             println("[RIPPLE]   SUCCESS:         $success")
             println("[RIPPLE] ════════════════════════════════════════")
@@ -250,4 +254,44 @@ abstract class RippleScenarioBaseTest {
             lifetime.closeAllStacks()
         }
     }
+}
+
+/**
+ * The cost of the run, as `[RIPPLE]` lines, next to the time it took.
+ *
+ * Collected metrics are unchanged — [TokenUsage] was already gathered and already written into the
+ * run-summary JSON. That JSON lands in `IdeTestFolders.testOutputDir`, which is not among the published
+ * TeamCity artifacts, so the six-case smoke round's dollar figures had to be scraped back out of raw
+ * agent NDJSON echoed into the build log. Cost is the headline of this family — the separating case
+ * measured $1.21 with the IDE against $86.84 without — and a headline that is only recoverable by
+ * scraping is a reporting gap, not a measurement one.
+ *
+ * A missing [TokenUsage] prints as UNAVAILABLE rather than as a zero: no usage event in the agent's
+ * output means the figure is unknown, and a printed 0 would read as a free run. A null [TokenUsage.
+ * costUsd] is the normal Codex case — that CLI reports no dollar figure, and deriving one from a
+ * hardcoded price would silently go stale — so it says so instead of inventing a number.
+ */
+fun rippleAgentCostLines(agentDurationMs: Long, tokens: TokenUsage?): List<String> {
+    fun line(label: String, value: String) = "[RIPPLE]   ${(label + ":").padEnd(17)}$value"
+    val time = line("agent time", "${agentDurationMs / 1000}s")
+    if (tokens == null) {
+        return listOf(
+            time,
+            line("tokens/cost", "UNAVAILABLE — the agent's output carried no usage event"),
+        )
+    }
+    return listOf(
+        time,
+        line(
+            "tokens in/out",
+            "${tokens.inputTokens}/${tokens.outputTokens} (total ${tokens.totalTokens}, " +
+                "cache read ${tokens.cacheReadTokens}, cache created ${tokens.cacheCreationTokens})",
+        ),
+        line("turns", tokens.numTurns?.toString() ?: "not reported by this agent CLI"),
+        line(
+            "cost",
+            tokens.costUsd?.let { "$" + String.format(Locale.ROOT, "%.4f", it) }
+                ?: "not reported by this agent CLI",
+        ),
+    )
 }

@@ -481,4 +481,264 @@ class SemanticRippleOracleTest {
         }
         assertFalse(parseFqnMovePredicate(post(new = false, old = true)))
     }
+
+    // --- Fix round 2: conservation across a move, and the type-level gold key ---
+
+    private val moveTarget = RippleCases.moveClassNarrowTarget
+
+    private val moveOldDir = "/work/keycloak/model/infinispan/src/main/java/org/keycloak/models/cache/infinispan"
+
+    /**
+     * The measured shape of the move-class NARROW case: 9 gold references over 3 files, two of them
+     * already imports (the two files outside the moved class's package), the rest usages.
+     * `RealmCacheSession` sits in the moved class's OWN package, so at the base commit it names the
+     * class with no import at all — which is the file that must gain one.
+     */
+    private val moveGold = """
+        GOLD_TARGET ${moveTarget.oldFqn}|${moveTarget.simpleName}|${moveTarget.newPackage}
+        GOLD_SITE $moveOldDir/RealmCacheSession.java|org.keycloak.models.cache.infinispan.RealmCacheSession#getClientAdapter|4
+        GOLD_SITE $moveOldDir/stream/ClientListPredicate.java|<import>|1
+        GOLD_SITE $moveOldDir/stream/ClientListPredicate.java|org.keycloak.models.cache.infinispan.stream.ClientListPredicate#test|2
+        GOLD_SITE $moveOldDir/events/ClientUpdatedEvent.java|<import>|1
+        GOLD_SITE $moveOldDir/events/ClientUpdatedEvent.java|org.keycloak.models.cache.infinispan.events.ClientUpdatedEvent#getClient|1
+        GOLD_DECOY org.keycloak.models.cache.infinispan.entities.ClientAdapter|3
+        GOLD_DECOY org.keycloak.storage.client.ClientAdapter|7
+        GOLD_DECOY org.keycloak.models.map.client.ClientAdapter|1
+        GOLD_NEWNAME_DECLS 0
+        GOLD_END
+    """.trimIndent()
+
+    /**
+     * A PERFECT move of the same target, as both arms of the smoke round performed it: recall 1.0000,
+     * P1/P2/P3 true, the new FQN resolving and the old one not, compile gate PASS, hidden consumer green
+     * — and 10 post references against a gold of 9, at precision 0.9000, because `RealmCacheSession` sat
+     * in the moved class's own package and named it with NO import, and after the move it must add one.
+     * The single extra reference is that newly required import statement.
+     */
+    private val perfectMovePost = """
+        POST_NEWNAME_DECLARED true
+        POST_OLDNAME_ON_TARGET 0
+        POST_NEW_FQN ${moveTarget.newFqn}
+        POST_OLD_FQN ${moveTarget.oldFqn}
+        POST_NEW_FQN_RESOLVES true
+        POST_OLD_FQN_RESOLVES false
+        POST_SITE $moveOldDir/RealmCacheSession.java|<import>|1
+        POST_SITE $moveOldDir/RealmCacheSession.java|org.keycloak.models.cache.infinispan.RealmCacheSession#getClientAdapter|4
+        POST_SITE $moveOldDir/stream/ClientListPredicate.java|<import>|1
+        POST_SITE $moveOldDir/stream/ClientListPredicate.java|org.keycloak.models.cache.infinispan.stream.ClientListPredicate#test|2
+        POST_SITE $moveOldDir/events/ClientUpdatedEvent.java|<import>|1
+        POST_SITE $moveOldDir/events/ClientUpdatedEvent.java|org.keycloak.models.cache.infinispan.events.ClientUpdatedEvent#getClient|1
+        POST_DECOY org.keycloak.models.cache.infinispan.entities.ClientAdapter|3
+        POST_DECOY org.keycloak.storage.client.ClientAdapter|7
+        POST_DECOY org.keycloak.models.map.client.ClientAdapter|1
+        POST_TOTAL_NEW_REFS 10
+        POST_END
+    """.trimIndent()
+
+    @Test
+    fun `a perfect move conserves references once imports are excluded from both readings`() {
+        val gold = parseSemanticGold(moveGold)
+        assertEquals(9, gold.totalReferences) { "The raw reading is what the pinned tripwire counts" }
+        assertEquals(3, gold.files) { "And the pinned file count is the raw reading too" }
+        assertEquals(2, gold.importReferences)
+        assertEquals(7, gold.countedReferences) { "The graded reading is usages only" }
+
+        val r = parseSemanticPostcondition(
+            perfectMovePost, gold,
+            extraPredicates = moveTarget.extraPredicates(perfectMovePost),
+            expectedPostKey = moveTarget::expectedPostKey,
+        )
+        assertTrue(r.p4Conserved) {
+            "A correct move must add an import wherever the class was named without one; 10 post " +
+                "references against a gold of 9 is that newly required import, not an invented usage"
+        }
+        assertEquals(3, r.excludedImportReferences)
+        assertEquals(1.0, r.recall)
+        assertEquals(1.0, r.precision)
+        assertEquals(1.0, r.f1)
+        assertTrue(r.p2AllSitesConverted) { "missed: ${r.missedSites}" }
+        assertTrue(r.extraPredicates.getValue("P1_MOVED"))
+        assertTrue(r.allPassed) {
+            "This is the run the smoke round scored SUCCESS: false on P4 alone: ${r.missedSites}"
+        }
+    }
+
+    @Test
+    fun `without the import exclusion the same perfect move fails conservation at 9 of 10`() {
+        // The negative control, in the numbers the round printed for move-class narrow: recall 1.0000,
+        // precision 0.9000, P4 the only failing predicate. The oracle as it was is reproduced by
+        // relabelling every import site to the file bucket it used to land in, on BOTH readings — which
+        // is exactly what an oracle that cannot see imports does.
+        val gold = parseSemanticGold(moveGold.replace("|<import>|", "|<file>|"))
+        assertEquals(9, gold.countedReferences)
+        val r = parseSemanticPostcondition(perfectMovePost.replace("|<import>|", "|<file>|"), gold)
+        assertFalse(r.p4Conserved) {
+            "If this passes, the test above proves nothing: conservation was never the failing predicate"
+        }
+        assertEquals(1.0, r.recall) { "Nothing was missed — only the total grew" }
+        assertEquals(0.9, r.precision, 1e-9)
+        assertFalse(r.allPassed)
+    }
+
+    @Test
+    fun `an invented usage still fails conservation with the import exclusion in place`() {
+        // The exclusion must not become a hole: a reference the agent created where it did not belong is
+        // not an import, so it still shows.
+        val invented = perfectMovePost
+            .replace(
+                "POST_TOTAL_NEW_REFS 10",
+                "POST_SITE $moveOldDir/Invented.java|org.keycloak.models.cache.infinispan.Invented#x|3\n" +
+                    "POST_TOTAL_NEW_REFS 13",
+            )
+        val r = parseSemanticPostcondition(
+            invented, parseSemanticGold(moveGold),
+            expectedPostKey = moveTarget::expectedPostKey,
+        )
+        assertFalse(r.p4Conserved)
+        assertEquals(7.0 / 10.0, r.precision, 1e-9)
+        assertEquals(1.0, r.recall) { "Every gold usage is still converted" }
+    }
+
+    private val renameTypeTarget = RippleCases.renameTypeWideTarget
+
+    private val renameTypeDir = "/work/keycloak/server-spi/src/main/java/org/keycloak/validate"
+
+    /**
+     * The measured shape of the rename-type WIDE case: 198 gold references, FOUR of them keys that name
+     * the target's own file and the target itself — the four that went missing when the gold key was
+     * compared unmapped, giving both arms exactly 194 of 198. One of them sits in a nested class, so the
+     * mapping is exercised on `Old.Nested#member` as well as on `Old` and `Old#member`.
+     */
+    private val renameTypeGold = """
+        GOLD_TARGET ${renameTypeTarget.oldFqn}|ValidationContext|ValidationRunContext
+        GOLD_SITE $renameTypeDir/ValidationContext.java|${renameTypeTarget.oldFqn}|1
+        GOLD_SITE $renameTypeDir/ValidationContext.java|${renameTypeTarget.oldFqn}#getEvent|1
+        GOLD_SITE $renameTypeDir/ValidationContext.java|${renameTypeTarget.oldFqn}#getAttributes|1
+        GOLD_SITE $renameTypeDir/ValidationContext.java|${renameTypeTarget.oldFqn}.Builder#build|1
+        GOLD_SITE $renameTypeDir/Validators.java|org.keycloak.validate.Validators#validate|190
+        GOLD_SITE $renameTypeDir/ValidatorConfig.java|org.keycloak.validate.ValidatorConfig#of|4
+        GOLD_DECOY org.keycloak.services.validation.ValidationContext|11
+        GOLD_DECOY org.keycloak.userprofile.ValidationContext|2
+        GOLD_DECOY org.keycloak.authorization.policy.evaluation.ValidationContext|5
+        GOLD_NEWNAME_DECLS 0
+        GOLD_END
+    """.trimIndent()
+
+    /**
+     * A PERFECT rename of the same target: every one of the 198 references converted, the four
+     * self-references now living in `ValidationRunContext.java` under the renamed type — which is both
+     * halves of the gold key changing at once.
+     */
+    private val perfectRenameTypePost = """
+        POST_NEWNAME_DECLARED true
+        POST_OLDNAME_ON_TARGET 0
+        POST_SITE $renameTypeDir/ValidationRunContext.java|${renameTypeTarget.newFqn}|1
+        POST_SITE $renameTypeDir/ValidationRunContext.java|${renameTypeTarget.newFqn}#getEvent|1
+        POST_SITE $renameTypeDir/ValidationRunContext.java|${renameTypeTarget.newFqn}#getAttributes|1
+        POST_SITE $renameTypeDir/ValidationRunContext.java|${renameTypeTarget.newFqn}.Builder#build|1
+        POST_SITE $renameTypeDir/Validators.java|org.keycloak.validate.Validators#validate|190
+        POST_SITE $renameTypeDir/ValidatorConfig.java|org.keycloak.validate.ValidatorConfig#of|4
+        POST_DECOY org.keycloak.services.validation.ValidationContext|11
+        POST_DECOY org.keycloak.userprofile.ValidationContext|2
+        POST_DECOY org.keycloak.authorization.policy.evaluation.ValidationContext|5
+        POST_TOTAL_NEW_REFS 198
+        POST_END
+    """.trimIndent()
+
+    @Test
+    fun `a perfect type rename scores recall 1 once the gold key follows the rename`() {
+        val gold = parseSemanticGold(renameTypeGold)
+        assertEquals(198, gold.totalReferences)
+        val r = parseSemanticPostcondition(
+            perfectRenameTypePost, gold,
+            expectedPostKey = renameTypeTarget::expectedPostKey,
+        )
+        assertEquals(1.0, r.recall) {
+            "The four self-references moved with the type; they are converted, not missed: ${r.missedSites}"
+        }
+        assertEquals(1.0, r.precision)
+        assertTrue(r.p2AllSitesConverted) { "missed: ${r.missedSites}" }
+        assertTrue(r.p4Conserved)
+        assertTrue(r.allPassed)
+    }
+
+    @Test
+    fun `without the mapping the same perfect rename scores 194 of 198 in both arms`() {
+        // The negative control, in the numbers the round printed: recall AND precision both exactly
+        // 0.9798, P2 false, no over-reach — identical in both arms because it was the oracle's key, not
+        // the agents' work.
+        val r = parseSemanticPostcondition(perfectRenameTypePost, parseSemanticGold(renameTypeGold))
+        assertEquals(194.0 / 198.0, r.recall, 1e-9)
+        assertEquals(194.0 / 198.0, r.precision, 1e-9)
+        assertEquals(0.9798, r.recall, 1e-4) { "The printed figure was 0.9798" }
+        assertFalse(r.p2AllSitesConverted)
+        assertEquals(4, r.missedSites.size) { "The four gold keys inside the renamed file: ${r.missedSites}" }
+        assertTrue(r.overReachedDecoys.isEmpty()) { "No decoy moved; only the key was wrong" }
+    }
+
+    @Test
+    fun `a type rename that really misses a site still fails P2 under the mapping`() {
+        val missing = perfectRenameTypePost
+            .replace(
+                "POST_SITE $renameTypeDir/ValidatorConfig.java|org.keycloak.validate.ValidatorConfig#of|4",
+                "POST_SITE $renameTypeDir/ValidatorConfig.java|org.keycloak.validate.ValidatorConfig#of|1",
+            )
+            .replace("POST_TOTAL_NEW_REFS 198", "POST_TOTAL_NEW_REFS 195")
+        val r = parseSemanticPostcondition(
+            missing, parseSemanticGold(renameTypeGold),
+            expectedPostKey = renameTypeTarget::expectedPostKey,
+        )
+        assertFalse(r.p2AllSitesConverted) { "The mapping must not make missed sites unreachable" }
+        assertEquals(195.0 / 198.0, r.recall, 1e-9)
+    }
+
+    // --- Fix round 2: the run block prints what the round cost ---
+
+    @Test
+    fun `the run block prints tokens and cost beside the agent time`() {
+        // The separating case's two arms, in the figures the smoke round measured.
+        val withIde = rippleAgentCostLines(
+            agentDurationMs = 1_800_000L,
+            tokens = TokenUsage(
+                inputTokens = 1_200L, outputTokens = 34_000L, cacheReadTokens = 4_100_000L,
+                cacheCreationTokens = 120_000L, costUsd = 1.21, numTurns = 61,
+            ),
+        )
+        assertEquals("[RIPPLE]   agent time:      1800s", withIde.first())
+        assertTrue(withIde.any { it.contains("cost:") && it.contains("$1.2100") }) { "$withIde" }
+        assertTrue(withIde.any { it.contains("tokens in/out:") && it.contains("1200/34000") }) { "$withIde" }
+        assertTrue(withIde.any { it.contains("turns:") && it.contains("61") }) { "$withIde" }
+
+        val withoutIde = rippleAgentCostLines(
+            agentDurationMs = 5_400_000L,
+            tokens = TokenUsage(
+                inputTokens = 900_000L, outputTokens = 410_000L, cacheReadTokens = 260_000_000L,
+                cacheCreationTokens = 3_000_000L, costUsd = 86.84, numTurns = 720,
+            ),
+        )
+        assertTrue(withoutIde.any { it.contains("$86.8400") }) {
+            "The 86.84-against-1.21 separation is the headline and must be readable from the log: $withoutIde"
+        }
+    }
+
+    @Test
+    fun `a run with no usage event says UNAVAILABLE rather than printing a free run`() {
+        val lines = rippleAgentCostLines(agentDurationMs = 60_000L, tokens = null)
+        assertEquals("[RIPPLE]   agent time:      60s", lines.first())
+        assertTrue(lines.any { it.contains("UNAVAILABLE") }) { "$lines" }
+        assertFalse(lines.any { it.contains("$0") }) { "A missing figure is unknown, not zero: $lines" }
+    }
+
+    @Test
+    fun `an agent CLI that reports no dollar figure says so instead of inventing one`() {
+        // Codex reports per-turn token usage and no cost at all.
+        val lines = rippleAgentCostLines(
+            agentDurationMs = 120_000L,
+            tokens = TokenUsage(inputTokens = 10L, outputTokens = 20L, numTurns = 3),
+        )
+        assertTrue(lines.any { it.startsWith("[RIPPLE]   cost:") && it.contains("not reported") }) {
+            "$lines"
+        }
+        assertFalse(lines.any { it.contains("$0.0000") }) { "$lines" }
+    }
 }

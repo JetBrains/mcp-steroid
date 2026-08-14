@@ -2,6 +2,17 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 /**
+ * The enclosing-declaration marker both oracle scripts emit for a reference that lives inside an
+ * `import` statement.
+ *
+ * An import has no enclosing method and no enclosing class, so before this marker existed every
+ * import reference landed in the same `<file>` bucket as any other file-level reference and could not
+ * be told apart from one. It is a single constant rather than a literal in each script because the
+ * scripts emit it and the parsers act on it: two spellings would make the exclusion silently inert.
+ */
+const val IMPORT_SITE_DECLARATION = "<import>"
+
+/**
  * One place a reference to the rename target lives, keyed so it survives the agent's edits.
  *
  * The key is `(file, enclosing declaration)` rather than a line or offset: line numbers shift as
@@ -11,9 +22,20 @@ data class GoldSite(
     val file: String,
     val enclosingDeclaration: String,
     val references: Int,
-)
+) {
+    /** True when this site is an `import` statement rather than a usage — see [SemanticGold.countedSites]. */
+    val isImport: Boolean get() = enclosingDeclaration == IMPORT_SITE_DECLARATION
+}
 
-/** The pre-agent semantic state: what a correct rename must move, and what it must leave alone. */
+/**
+ * The pre-agent semantic state: what a correct rename must move, and what it must leave alone.
+ *
+ * Two readings live here on purpose. [sites] / [totalReferences] / [files] are the RAW reading — every
+ * resolved reference the IDE reports, which is what the survey measured and what
+ * [SemanticGold.checkTripwires] pins a case against, so the pinned constants keep meaning exactly what
+ * they meant when they were measured. [countedSites] / [countedReferences] are the GRADED reading, with
+ * import statements removed; that is the set P2, P4, recall and precision are computed over.
+ */
 data class SemanticGold(
     val targetFqn: String,
     val oldName: String,
@@ -27,6 +49,31 @@ data class SemanticGold(
     val totalReferences: Int get() = sites.sumOf { it.references }
     val files: Int get() = sites.map { it.file }.toSet().size
 
+    /** References the raw reading holds inside `import` statements. */
+    val importReferences: Int get() = sites.filter { it.isImport }.sumOf { it.references }
+
+    /**
+     * The sites conservation, P2, recall and precision are computed over: usages, never imports.
+     *
+     * The family measures usages; an import is bookkeeping that follows from where a usage sits. For a
+     * rename and a change-signature the distinction is arithmetically free — the same import reference
+     * exists in both readings and cancels — but for a MOVE it is the difference between a meaningful
+     * predicate and an impossible one. Classes that lived in the moved class's own package named it
+     * with no import at all, and after a correct move they must add one; an import statement is itself
+     * a resolved reference, so a perfect move GROWS the total by the number of newly required imports
+     * and strict equality can never hold. Both arms of both move cases were scored `SUCCESS: false`
+     * for that alone — a perfect move at recall 1.0, precision 0.9000 (9 of 10) on the narrow case and
+     * 0.8333 (145 of 174) on the wide one. Excluding imports from BOTH readings restores conservation
+     * without weakening it: a usage the agent invented still shows, because it is not an import.
+     *
+     * A missed import is not left unmeasured either — it cannot compile, and the scoped compile gate
+     * is the layer that covers it.
+     */
+    val countedSites: List<GoldSite> get() = sites.filterNot { it.isImport }
+
+    /** [totalReferences] minus [importReferences] — the denominator of recall. */
+    val countedReferences: Int get() = countedSites.sumOf { it.references }
+
     /** Key used to match a post-agent site against this gold set. */
     fun keyOf(site: GoldSite): Pair<String, String> = site.file to site.enclosingDeclaration
 }
@@ -38,11 +85,14 @@ data class SemanticGold(
 data class SemanticPostconditionResult(
     /** P1: the new name is declared on the target type and the old name is gone from it. */
     val p1NoAliasAndNewNameDeclared: Boolean,
-    /** P2: every gold site now holds at least as many references to the new name as it held to the old. */
+    /**
+     * P2: every counted gold site — a usage site, at the identity the transformation gives it — now
+     * holds at least as many references to the new name as it held to the old.
+     */
     val p2AllSitesConverted: Boolean,
     /** P3: every decoy declaration's reference count is unchanged. */
     val p3DecoysUnchanged: Boolean,
-    /** P4: total references to the new name equal the gold total. */
+    /** P4: counted references to the new name equal the counted gold total, imports excluded from both. */
     val p4Conserved: Boolean,
     val recall: Double,
     val precision: Double,
@@ -54,6 +104,12 @@ data class SemanticPostconditionResult(
      * therefore excluded from [p4Conserved] and [precision] — see [parseSemanticPostcondition].
      */
     val excludedConsumerReferences: Int = 0,
+    /**
+     * References counted in the post-agent reading that live inside an `import` statement and were
+     * therefore excluded from [p4Conserved] and [precision] — see [SemanticGold.countedSites] for why
+     * both readings drop them.
+     */
+    val excludedImportReferences: Int = 0,
     /**
      * Kind-specific predicates contributed by the [RippleTarget] variant — arity for a signature
      * change, FQN movement for a move, supertype ownership for a pull-up. Kept as a map rather than
@@ -244,12 +300,24 @@ fun SemanticGold.checkPilotTripwires() = checkTripwires(RippleCases.renameMethod
  * p4Conserved] and from precision, and reported separately; the consumer itself is graded by the
  * compile gate and by its own FAIL_TO_PASS run, not by this count. Paths are matched as suffixes
  * because the reading carries absolute container paths.
+ *
+ * [expectedPostKey] maps a gold site's key to the identity that same site must carry AFTER the
+ * transformation the case asked for. The default is the identity mapping, which is correct for a
+ * transformation that leaves every enclosing declaration where it was — a method rename, a signature
+ * change. It is NOT correct for a TYPE-level transformation: the target is its own enclosing
+ * declaration and the file is named after it, so the type's self-references inside its own file change
+ * both halves of the key at once. Both arms of the rename-type wide case scored exactly recall 0.9798
+ * and precision 0.9798 (194 of 198, P2 false, no over-reach) because of it — identical scores in both
+ * arms being the signature of an oracle artifact rather than of agent behaviour. The mapping comes from
+ * the [RippleTarget] variant, which knows the transformation it asked for; see
+ * [retargetTypeSiteKey].
  */
 fun parseSemanticPostcondition(
     output: String,
     gold: SemanticGold,
     hiddenConsumerFiles: Set<String> = emptySet(),
     extraPredicates: Map<String, Boolean> = emptyMap(),
+    expectedPostKey: (GoldSite) -> Pair<String, String> = { it.file to it.enclosingDeclaration },
 ): SemanticPostconditionResult {
     val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
     check(lines.any { it == "POST_END" }) {
@@ -269,22 +337,24 @@ fun parseSemanticPostcondition(
         "POST_SITE references sum to ${allPostSites.sumOf { it.references }}, which exceeds the " +
             "declared POST_TOTAL_NEW_REFS $totalNewRefs — the capture script or its parsing is broken"
     }
-    val (consumerSites, postSites) = allPostSites.partition { site ->
+    val (consumerSites, projectSites) = allPostSites.partition { site ->
         hiddenConsumerFiles.any { site.file.endsWith(it) }
     }
     val excludedRefs = consumerSites.sumOf { it.references }
-    val countedNewRefs = totalNewRefs - excludedRefs
+    val (importSites, postSites) = projectSites.partition { it.isImport }
+    val excludedImportRefs = importSites.sumOf { it.references }
+    val countedNewRefs = totalNewRefs - excludedRefs - excludedImportRefs
     check(countedNewRefs >= 0) {
-        "Hidden-consumer references ($excludedRefs) exceed POST_TOTAL_NEW_REFS ($totalNewRefs) — the " +
-            "capture script or its parsing is broken"
+        "Hidden-consumer references ($excludedRefs) plus import references ($excludedImportRefs) " +
+            "exceed POST_TOTAL_NEW_REFS ($totalNewRefs) — the capture script or its parsing is broken"
     }
     val postByKey = postSites.associate { (it.file to it.enclosingDeclaration) to it.references }
 
-    val missed = gold.sites.filter { site ->
-        (postByKey[gold.keyOf(site)] ?: 0) < site.references
+    val missed = gold.countedSites.filter { site ->
+        (postByKey[expectedPostKey(site)] ?: 0) < site.references
     }
-    val convertedAtGold = gold.sites.sumOf { site ->
-        minOf(postByKey[gold.keyOf(site)] ?: 0, site.references)
+    val convertedAtGold = gold.countedSites.sumOf { site ->
+        minOf(postByKey[expectedPostKey(site)] ?: 0, site.references)
     }
 
     val postDecoys = parseDecoyLines(lines, "POST_DECOY ")
@@ -300,7 +370,8 @@ fun parseSemanticPostcondition(
         .filter { gold.decoyReferences[it] != postDecoys[it] }
         .sorted()
 
-    val recall = if (gold.totalReferences == 0) 0.0 else convertedAtGold.toDouble() / gold.totalReferences
+    val recall =
+        if (gold.countedReferences == 0) 0.0 else convertedAtGold.toDouble() / gold.countedReferences
     val precision = if (countedNewRefs == 0) 0.0 else convertedAtGold.toDouble() / countedNewRefs
     val f1 = if (recall + precision == 0.0) 0.0 else 2 * recall * precision / (recall + precision)
 
@@ -308,13 +379,14 @@ fun parseSemanticPostcondition(
         p1NoAliasAndNewNameDeclared = newNameDeclared && oldNameOnTarget == 0,
         p2AllSitesConverted = missed.isEmpty(),
         p3DecoysUnchanged = overReached.isEmpty(),
-        p4Conserved = countedNewRefs == gold.totalReferences,
+        p4Conserved = countedNewRefs == gold.countedReferences,
         recall = recall,
         precision = precision,
         f1 = f1,
         missedSites = missed,
         overReachedDecoys = overReached,
         excludedConsumerReferences = excludedRefs,
+        excludedImportReferences = excludedImportRefs,
         extraPredicates = extraPredicates,
     )
 }

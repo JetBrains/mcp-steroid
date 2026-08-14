@@ -338,6 +338,15 @@
   gate to fail for reasons that have nothing to do with the task. Narrow it the next time a container has the
   project indexed: print `ModuleUtilCore.findModuleForFile` over the gold reference set, map those
   IntelliJ module names to artifactIds, and pin the six.
+- [ ] **The ripple family's pinned gold counts are RAW readings and no case pins its graded one.**
+  `expectedGoldReferences` / `expectedGoldFiles` are the survey's raw resolved-reference counts, and
+  `SemanticGold.checkTripwires` still compares against them — deliberately, so the pins keep meaning what
+  they meant when they were measured and no case needs re-measuring for the import exclusion to land. But
+  the number every score is now computed over is `SemanticGold.countedReferences` (imports removed), and
+  nothing pins it: an index change that turned five usages into five imports would keep the tripwire green
+  while silently moving every recall denominator. Remedy on the next indexed container: print
+  `GOLD_SITE` totals split by `IMPORT_SITE_DECLARATION` for all seven cases, add
+  `expectedGoldUsageReferences` beside the raw pin, and tripwire both.
 - [ ] **`KeycloakChangeSignatureWideRippleTest` has no TeamCity configuration yet.** The family's
   other two cases each have per-agent configs matching `-PtestFilter=*<Class>.<agent>*`; the third
   case needs the same in `~/Work/mcp-steroid-teamcity` before it runs anywhere.

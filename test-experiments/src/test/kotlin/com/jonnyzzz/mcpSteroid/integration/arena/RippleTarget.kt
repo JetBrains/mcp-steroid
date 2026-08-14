@@ -54,6 +54,54 @@ sealed interface RippleTarget {
 
     /** Kind-specific predicates, keyed by a stable id, computed from the post-condition output. */
     fun extraPredicates(output: String): Map<String, Boolean> = emptyMap()
+
+    /**
+     * The `(file, enclosing declaration)` identity a gold site must carry AFTER this transformation.
+     *
+     * The default is the identity mapping, and it is the right one for every transformation that leaves
+     * enclosing declarations where they are: a method rename and a signature change move neither the
+     * owning class nor the file it lives in, so a gold key is directly comparable to a post key.
+     *
+     * A TYPE-level transformation is different, and the oracle can normalise for it because it knows
+     * exactly what it asked for — see [retargetTypeSiteKey].
+     */
+    fun expectedPostKey(site: GoldSite): Pair<String, String> = site.file to site.enclosingDeclaration
+}
+
+/**
+ * Maps a gold site key from `oldFqn`'s world into `newFqn`'s, for the two kinds that transform a TYPE.
+ *
+ * A type is its own enclosing declaration and its file is named after it, so a self-reference inside
+ * the target's own file changes BOTH halves of the key — gold
+ * `.../ValidationContext.java|org.keycloak.validate.ValidationContext` against post
+ * `.../ValidationRunContext.java|org.keycloak.validate.ValidationRunContext`. Unmapped, those gold keys
+ * read as missed sites and an equal number of post keys read as unmatched, which is why the rename-type
+ * wide case produced identical recall and precision (194 of 198) in both arms.
+ *
+ * Both halves are mapped exactly, never loosened. The file is rewritten only when its path really is
+ * the path the old fully-qualified name implies, and the declaration only when it IS the old
+ * fully-qualified name or is nested inside it (`Old.Inner`, `Old#method`, `Old.Inner#method`). A
+ * file-only or count-only match would be weaker than the key this family deliberately chose: a
+ * line- or offset-based key produced false misses, which is why the key has this shape at all.
+ *
+ * One function for both kinds because the two transformations are the same mapping in different
+ * clothes: a rename-type changes the last path segment and the last FQN segment, a move changes the
+ * leading directories and the package. Naming them separately would duplicate the arithmetic and let
+ * the two drift.
+ */
+fun retargetTypeSiteKey(site: GoldSite, oldFqn: String, newFqn: String): Pair<String, String> {
+    val oldPath = oldFqn.replace('.', '/') + ".java"
+    val newPath = newFqn.replace('.', '/') + ".java"
+    val file =
+        if (site.file.endsWith(oldPath)) site.file.removeSuffix(oldPath) + newPath else site.file
+    val declaration = site.enclosingDeclaration
+    val mappedDeclaration = when {
+        declaration == oldFqn -> newFqn
+        declaration.startsWith("$oldFqn#") || declaration.startsWith("$oldFqn.") ->
+            newFqn + declaration.substring(oldFqn.length)
+        else -> declaration
+    }
+    return file to mappedDeclaration
 }
 
 /**
@@ -64,8 +112,10 @@ sealed interface RippleTarget {
  * the agent has edited dozens of files, and a stale index would report a correct transformation as a
  * failed one — or the reverse.
  *
- * The enclosing-declaration key is the nearest named parent of the reference. Line and offset keys
- * would shift with the agent's edits and produce false misses.
+ * The enclosing-declaration key is the nearest named parent of the reference, except inside an `import`
+ * statement, which has no named parent and is reported under [IMPORT_SITE_DECLARATION] so the graded
+ * readings can drop it. Line and offset keys would shift with the agent's edits and produce false
+ * misses.
  */
 object RippleOracleScripts {
 
@@ -84,6 +134,13 @@ object RippleOracleScripts {
 
         fun siteKey(ref: PsiReference): String? {
             val file = ref.element.containingFile?.virtualFile?.path ?: return null
+            // An import statement has neither an enclosing method nor an enclosing class, so without
+            // this branch it shares the "<file>" bucket with every other file-level reference and the
+            // graded readings cannot tell bookkeeping from usage.
+            if (PsiTreeUtil.getParentOfType(
+                    ref.element, PsiImportStatementBase::class.java, false) != null) {
+                return file + "|$IMPORT_SITE_DECLARATION"
+            }
             val owner = PsiTreeUtil.getParentOfType(ref.element, PsiMethod::class.java, false)
                 ?.let { m -> (m.containingClass?.qualifiedName ?: "?") + "#" + m.name }
                 ?: PsiTreeUtil.getParentOfType(ref.element, PsiClass::class.java, false)
@@ -222,6 +279,14 @@ data class RenameType(
 
     /** Where the renamed type must land: same package, new simple name. */
     val newFqn: String get() = oldFqn.substringBeforeLast('.') + "." + newSimpleName
+
+    /**
+     * The renamed type's own file and own qualified name move together, so its self-references carry a
+     * different key after the rename than before it. This is the case whose gold key instability cost
+     * both arms four sites of 198 — see [retargetTypeSiteKey].
+     */
+    override fun expectedPostKey(site: GoldSite): Pair<String, String> =
+        retargetTypeSiteKey(site, oldFqn, newFqn)
 
     override fun captureFragment(): String = """
         smartReadAction(project) {
@@ -607,6 +672,14 @@ data class MoveClass(
 
     /** Where the moved type must land: new package, same simple name. */
     val newFqn: String get() = "$newPackage.$simpleName"
+
+    /**
+     * A move changes the target's directory and its package, so its self-references sit in a file at a
+     * new path under a newly qualified declaration — the same key instability [RenameType] has, in the
+     * other axis. See [retargetTypeSiteKey].
+     */
+    override fun expectedPostKey(site: GoldSite): Pair<String, String> =
+        retargetTypeSiteKey(site, oldFqn, newFqn)
 
     override fun extraPredicates(output: String): Map<String, Boolean> =
         mapOf("P1_MOVED" to parseFqnMovePredicate(output))

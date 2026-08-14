@@ -455,4 +455,77 @@ class RippleCaseRegistryTest {
             }
         }
     }
+
+    /**
+     * The gold key must survive the transformation the case itself asked for. A type-level kind moves
+     * its own file and its own qualified name, so its self-references carry a different key afterwards;
+     * a method-level kind moves neither. This is the contract that turned the rename-type wide case's
+     * 194-of-198 in BOTH arms — the signature of an oracle artifact — back into parity at recall 1.0.
+     */
+    @Test
+    fun `only the type-level kinds remap a gold key, and they remap both halves of it`() {
+        RippleCases.all.forEach { case ->
+            when (val target = case.target) {
+                is RenameMethod, is ChangeSignature -> {
+                    val site = GoldSite("/src/a/A.java", "a.A#m", 3)
+                    assertEquals(site.file to site.enclosingDeclaration, target.expectedPostKey(site)) {
+                        "${case.instanceId}: a method-level transformation leaves every enclosing " +
+                            "declaration and every file where it was"
+                    }
+                }
+                is RenameType -> {
+                    val dir = "/work/keycloak/x/src/main/java/" +
+                        target.oldFqn.substringBeforeLast('.').replace('.', '/')
+                    val self = GoldSite("$dir/${target.oldSimpleName}.java", target.oldFqn, 1)
+                    assertEquals(
+                        "$dir/${target.newSimpleName}.java" to target.newFqn,
+                        target.expectedPostKey(self),
+                    ) { "${case.instanceId}: the renamed type's file and qualified name move together" }
+                }
+                is MoveClass -> {
+                    val root = "/work/keycloak/x/src/main/java/"
+                    val self = GoldSite(
+                        root + target.oldFqn.replace('.', '/') + ".java", target.oldFqn, 1,
+                    )
+                    assertEquals(
+                        (root + target.newFqn.replace('.', '/') + ".java") to target.newFqn,
+                        target.expectedPostKey(self),
+                    ) { "${case.instanceId}: the moved type's directory and package move together" }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `the type-level remapping is exact and touches nothing it was not asked to touch`() {
+        val old = "org.keycloak.validate.ValidationContext"
+        val new = "org.keycloak.validate.ValidationRunContext"
+        fun key(file: String, declaration: String) =
+            retargetTypeSiteKey(GoldSite(file, declaration, 1), old, new)
+
+        // A nested class and a member of one are inside the transformed type and move with it.
+        assertEquals(
+            "/p/org/keycloak/validate/ValidationRunContext.java" to "$new.Builder#build",
+            key("/p/org/keycloak/validate/ValidationContext.java", "$old.Builder#build"),
+        )
+        // Another file's declaration keeps its identity, even one whose name merely starts the same way.
+        assertEquals(
+            "/p/org/keycloak/validate/Validators.java" to "org.keycloak.validate.Validators#validate",
+            key("/p/org/keycloak/validate/Validators.java", "org.keycloak.validate.Validators#validate"),
+        )
+        assertEquals(
+            "/p/o/ValidationContextHelper.java" to "org.keycloak.validate.ValidationContextHelper",
+            key("/p/o/ValidationContextHelper.java", "org.keycloak.validate.ValidationContextHelper"),
+        ) { "A longer name that merely starts with the old FQN is a different type" }
+        // The import marker is a bucket, not a declaration, and must pass through untouched.
+        assertEquals(
+            "/p/org/keycloak/validate/Validators.java" to IMPORT_SITE_DECLARATION,
+            key("/p/org/keycloak/validate/Validators.java", IMPORT_SITE_DECLARATION),
+        )
+        // A file whose path is not the one the old FQN implies is left alone, even in the same package.
+        assertEquals(
+            "/p/org/keycloak/other/ValidationContext.java" to "org.keycloak.other.ValidationContext",
+            key("/p/org/keycloak/other/ValidationContext.java", "org.keycloak.other.ValidationContext"),
+        )
+    }
 }
