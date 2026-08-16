@@ -532,6 +532,7 @@ class ArenaVerificationTest {
             if (ok) SurefireClassResult(name, 3, 0, 0, 0) else SurefireClassResult(name, 3, 1, 0, 0)
         },
         mavenExitCode = 0,
+        measured = true,
     )
 
     @Test
@@ -603,12 +604,24 @@ class ArenaVerificationTest {
         // The springboot3 shape: `release version 24 not supported`, exit 1, no reports. Calling that
         // "nothing to regress" would publish a measured-looking zero for a scenario where regressions
         // were never observable.
-        assertFalse(FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 1).usableAsBaseline)
+        assertFalse(
+            FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 1, measured = true).usableAsBaseline,
+        )
     }
 
     @Test
     fun `an empty project that builds cleanly is still a valid baseline`() {
-        assertTrue(FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0).usableAsBaseline)
+        assertTrue(
+            FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0, measured = true).usableAsBaseline,
+        )
+    }
+
+    @Test
+    fun `a synthetic snapshot nobody measured cannot serve as a baseline`() {
+        // The ripple shape: an empty snapshot handed in as "the baseline" without any suite behind it.
+        // Accepting it bought a 40-minute post-agent whole-reactor run whose only possible verdict was
+        // "no regressions", because the passing set it compared against was empty by construction.
+        assertFalse(FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0).usableAsBaseline)
     }
 
     @Test
@@ -619,6 +632,7 @@ class ArenaVerificationTest {
             FullSuiteSnapshot(
                 perClass = listOf(SurefireClassResult("A", 3, 0, 0, 0)),
                 mavenExitCode = 1,
+                measured = true,
             ).usableAsBaseline,
         )
     }

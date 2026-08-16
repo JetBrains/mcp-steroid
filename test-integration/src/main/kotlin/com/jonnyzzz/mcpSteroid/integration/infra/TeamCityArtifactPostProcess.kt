@@ -48,9 +48,14 @@ object TeamCityArtifactPostProcess {
      * runDir (default `/mcp-run-dir`). The function is a no-op outside TC.
      *
      * Safe to call from a lifetime cleanup action — any failure is logged but
-     * does not propagate, so it cannot mask the real test outcome. We keep a
-     * 10-minute timeout because the ffmpeg re-encode on a 20-minute 4K capture
-     * can take a few minutes on slower CI agents.
+     * does not propagate, so it cannot mask the real test outcome.
+     *
+     * Run as TWO independent steps with their own budgets. With both in one
+     * 10-minute exec, an ffmpeg re-encode that overran (build 1031488960,
+     * `[TC-POSTPROCESS] failed: … Terminated by timeout`) killed the whole
+     * script — including the log/NDJSON bundle, which is the part a failure
+     * investigation actually needs and which costs seconds to produce. The
+     * bundle now lands first and cannot be lost to the video step.
      */
     fun buildPublishTree(
         driver: ContainerDriver,
@@ -69,9 +74,9 @@ object TeamCityArtifactPostProcess {
         // ffmpeg internal stash. `--link-dest` would hard-link identical
         // files if we cared about throughput, but the bundle is small
         // (~20–50 MB of logs/NDJSON) so a plain copy is fine.
-        val script = buildString {
+        val bundleScript = buildString {
             appendLine("set -eu")
-            appendLine("mkdir -p '$videoOut' '$bundleOut'")
+            appendLine("mkdir -p '$bundleOut'")
             // Copy everything under runDir into bundle/, excluding video,
             // screenshots, the publish dir itself, and the ffmpeg working
             // stash. Use `find … -print0 | xargs -0 cp` to stay robust to
@@ -80,11 +85,16 @@ object TeamCityArtifactPostProcess {
             appendLine("find . -mindepth 1 -maxdepth 1 \\")
             appendLine("  -not -name video -not -name screenshot -not -name '${PUBLISH_SUBDIR}' \\")
             appendLine("  -print0 | xargs -0 -I{} cp -a {} '$bundleOut/'")
-            // Re-encode video → 1080p h264 High CRF 23. Fall back to a plain
-            // copy if ffmpeg fails (so the TC artifact always has *some*
-            // video, even an ugly-sized one). If the source is missing
-            // (ffmpeg failed at startup, test died before video recording
-            // began), skip silently.
+        }
+
+        // Re-encode video → 1080p h264 High CRF 23. Fall back to a plain
+        // copy if ffmpeg fails (so the TC artifact always has *some*
+        // video, even an ugly-sized one). If the source is missing
+        // (ffmpeg failed at startup, test died before video recording
+        // began), skip silently.
+        val videoScript = buildString {
+            appendLine("set -eu")
+            appendLine("mkdir -p '$videoOut'")
             appendLine("if [ -s '$srcVideo' ]; then")
             appendLine("  if ! ffmpeg -nostdin -y -loglevel error \\")
             appendLine("       -i '$srcVideo' \\")
@@ -97,15 +107,26 @@ object TeamCityArtifactPostProcess {
             appendLine("fi")
         }
 
+        runStep(driver, bundleScript, timeoutSeconds = 300, what = "logs bundle at $bundleOut")
+        runStep(driver, videoScript, timeoutSeconds = 600, what = "video re-encode at $videoOut")
+    }
+
+    /** One post-process step, isolated: a failure is reported and the next step still runs. */
+    private fun runStep(
+        driver: ContainerDriver,
+        script: String,
+        timeoutSeconds: Long,
+        what: String,
+    ) {
         try {
             driver.startProcessInContainer {
                 this
                     .args("bash", "-c", script)
-                    .timeoutSeconds(600)
-                    .description("TC artifact post-process: build $publishDir")
-            }.assertExitCode(0) { "TC artifact post-process failed: $stderr" }
+                    .timeoutSeconds(timeoutSeconds)
+                    .description("TC artifact post-process: $what")
+            }.assertExitCode(0) { "TC artifact post-process failed ($what): $stderr" }
         } catch (t: Throwable) {
-            System.err.println("[TC-POSTPROCESS] failed: ${t.message}")
+            System.err.println("[TC-POSTPROCESS] $what failed: ${t.message}")
             t.printStackTrace(System.err)
         }
     }

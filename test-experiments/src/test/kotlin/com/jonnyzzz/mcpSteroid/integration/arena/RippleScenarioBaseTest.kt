@@ -204,7 +204,12 @@ abstract class RippleScenarioBaseTest {
                 projectJdkVersion = SemanticRippleSpec.projectJdkVersion,
                 testPatch = testCase.testPatch,
                 preAgentSnapshot = preAgentSnapshot,
-                baseline = FullSuiteSnapshot(perClass = emptyList(), mavenExitCode = 0),
+                // No regression baseline for ripple: the whole-reactor suite this would trigger costs
+                // 40 minutes on Keycloak, is cut short by the harness timeout anyway, and was compared
+                // against a synthetic empty snapshot that could never report a regression. The missed
+                // call sites this scenario is about are caught by the compile gate instead, which sees
+                // every one of them. Regressions are reported as UNKNOWN, which is what they are.
+                baseline = null,
                 mavenProjectSelector = rippleCase.gradingScopeSelector(),
                 preAgentOracleContents = preAgentOracle,
             )

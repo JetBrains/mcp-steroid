@@ -68,6 +68,17 @@ data class FullSuiteSnapshot(
      * truncated baseline is not evidence of none, and must not be published as if it were.
      */
     val timedOut: Boolean = false,
+    /**
+     * True only for a snapshot that came from an actual [ArenaVerifier.fullSuiteSnapshot] run.
+     *
+     * A hand-built empty snapshot is not a measurement of anything: the ripple scenarios passed
+     * `FullSuiteSnapshot(emptyList(), mavenExitCode = 0)` as their baseline, which read as "a project
+     * with nothing to break", so every run paid a 40-minute post-agent whole-reactor suite (truncated by
+     * the harness timeout on Keycloak, builds 1031488927/1031488962) only to compare against an empty
+     * passing set and print "no regressions" no matter what broke. Defaulting to false makes a synthetic
+     * baseline report regressions as UNKNOWN instead of buying a meaningless zero with 40 minutes.
+     */
+    val measured: Boolean = false,
 ) {
     val passing: Set<String> get() = perClass.filter { it.passed }.map { it.className }.toSet()
     val failing: Set<String> get() = perClass.filterNot { it.passed }.map { it.className }.toSet()
@@ -80,7 +91,7 @@ data class FullSuiteSnapshot(
      * scenario where regressions were never observable; an empty project that builds cleanly (exit 0)
      * really does have nothing to regress and stays usable.
      */
-    val usableAsBaseline: Boolean get() = perClass.isNotEmpty() || mavenExitCode == 0
+    val usableAsBaseline: Boolean get() = measured && (perClass.isNotEmpty() || mavenExitCode == 0)
 }
 
 /** One FAIL_TO_PASS dataset entry: a class, plus the single method when the entry names one. */
@@ -538,6 +549,7 @@ class ArenaVerifier(
             perClass = perClass,
             mavenExitCode = mvn.exitCode ?: -1,
             timedOut = timedOut,
+            measured = true,
         )
     }
 
@@ -834,7 +846,8 @@ class ArenaVerifier(
         if (baseline != null && usableBaseline == null) {
             System.err.println(
                 "[ARENA-VERIFY] the pre-agent baseline never ran the tests (Maven " +
-                    "exit=${baseline.mavenExitCode}, 0 classes), so regressions are UNKNOWN for this run " +
+                    "exit=${baseline.mavenExitCode}, ${baseline.perClass.size} classes, " +
+                    "measured=${baseline.measured}), so regressions are UNKNOWN for this run " +
                     "— not zero. Reported as null rather than a measured clean result."
             )
         }
