@@ -488,28 +488,26 @@ class RippleCaseRegistryTest {
     }
 
     /**
-     * The retargeted pilot. The original target — `RealmResource.roles()` — was withdrawn because two
-     * `AdminEventPaths` files address it by name through `UriBuilder.path(RealmResource.class,
-     * "roles")`, which no compiler and no reference search can see; see [RippleNameEscapeRule] and
-     * [RippleCases.renameMethodWideTarget].
+     * The retargeted pilot. See [RippleCases.renameMethodWideTarget] for the two withdrawals that
+     * preceded this target (`RealmResource.roles()` for [RippleNameEscapeRule], then
+     * `UserSessionProvider#getUserSession` for failing to separate the arms on TC 1031488927).
      */
     @Test
     fun `the pilot's measured numbers and its destination name are unchanged`() {
         val pilot = RippleCases.renameMethodWide
-        assertEquals(121, pilot.expectedGoldReferences)
-        assertEquals(42, pilot.expectedGoldFiles)
-        assertEquals(15, pilot.expectedDecoyDeclarations)
-        assertEquals(9, pilot.compileGateModules.size)
+        assertEquals(496, pilot.expectedGoldReferences)
+        assertEquals(109, pilot.expectedGoldFiles)
+        assertEquals(37, pilot.expectedDecoyDeclarations)
+        assertEquals(14, pilot.compileGateModules.size)
         assertTrue(pilot.compileGateSelectors().contains(":keycloak-server-spi"))
-        assertTrue(pilot.compileGateSelectors().contains(":keycloak-model-infinispan")) {
-            "The three overriding implementations live there and nothing calls the method in that " +
-                "module, so only the gate can see them left behind"
+        assertTrue(pilot.compileGateSelectors().contains(":keycloak-services")) {
+            "DefaultKeycloakContext#setRealm lives there; the gate must compile the sole override"
         }
-        assertEquals("org.keycloak.models.UserSessionProvider", RippleCases.renameMethodWideTarget.targetClassFqn)
-        assertEquals("getUserSession", RippleCases.renameMethodWideTarget.oldName)
-        assertEquals("lookupUserSession", RippleCases.renameMethodWideTarget.newName)
+        assertEquals("org.keycloak.models.KeycloakContext", RippleCases.renameMethodWideTarget.targetClassFqn)
+        assertEquals("setRealm", RippleCases.renameMethodWideTarget.oldName)
+        assertEquals("bindRealm", RippleCases.renameMethodWideTarget.newName)
         assertEquals(
-            "UserSessionModel getUserSession(RealmModel realm, String id)",
+            "void setRealm(RealmModel realm)",
             RippleCases.renameMethodWideTarget.declarationSignature,
         ) { "The prompt states the declaration exactly, parameters included" }
     }
@@ -518,29 +516,41 @@ class RippleCaseRegistryTest {
      * The gate of a rename-method case is the UNION of two measured populations plus the declaring
      * module, and this pins it for the pilot from the two lists the survey printed.
      *
-     * A gate derived from reference modules alone is not merely incomplete, it is silently wrong for
-     * this kind: an arm that renames the interface and every one of the 121 call sites but leaves the
-     * three implementations in `keycloak-model-infinispan` alone scores P1 to P4 true at recall 1.0
-     * and precision 1.0 with a green hidden consumer, because an override is not a reference, the
-     * override family is excluded from the decoys by design, and the alias check looks only at the
-     * interface. Nothing but the compile gate can see it, and only if that module is in the gate.
+     * A gate derived from reference modules alone is not merely incomplete for this kind in general:
+     * an override is not a reference, the override family is excluded from the decoys by design, and
+     * the alias check looks only at the interface. For THIS target the sole override
+     * (`DefaultKeycloakContext`) happens to live in a module that also holds call sites, so the
+     * override list is a subset of the reference list — the union still equals
+     * `refs ∪ {declaring}`, and the formula is what is pinned, not a disjoint geometry that only the
+     * previous target had.
      */
     @Test
     fun `the pilot's gate is the union of its reference modules, its overrides and its declaring module`() {
-        // Both lists as the survey printed them for org.keycloak.models.UserSessionProvider#getUserSession.
+        // Both lists as the survey printed them for org.keycloak.models.KeycloakContext#setRealm.
         val referenceModules = listOf(
-            "integration-arquillian-tests-base", "keycloak-model-test", "keycloak-server-spi-private",
-            "keycloak-services", "keycloak-tests-base", "keycloak-tests-utils-shared",
-            "keycloak-testsuite-utils",
+            "integration-arquillian-tests-base",
+            "keycloak-admin-v2-services",
+            "keycloak-admin-v2-tests",
+            "keycloak-ldap-federation",
+            "keycloak-model-infinispan",
+            "keycloak-model-jpa",
+            "keycloak-model-storage-private",
+            "keycloak-model-storage-services",
+            "keycloak-model-test",
+            "keycloak-server-spi-private",
+            "keycloak-services",
+            "keycloak-ssf-transmitter",
+            "keycloak-tests-base",
         )
-        val overrideModules = listOf("keycloak-model-infinispan")
+        val overrideModules = listOf("keycloak-services")
         val pilot = RippleCases.renameMethodWide
         assertEquals(
             renameMethodGateModules(referenceModules, overrideModules, pilot.declaringModuleArtifactId),
             pilot.compileGateModules.sorted(),
         )
-        assertTrue(referenceModules.none { it in overrideModules }) {
-            "The fixture only proves the union matters while the override module holds no call site"
+        assertTrue(overrideModules.all { it in referenceModules }) {
+            "For this target the override module also holds call sites; the union still adds the " +
+                "declaring module on top of the reference set"
         }
     }
 

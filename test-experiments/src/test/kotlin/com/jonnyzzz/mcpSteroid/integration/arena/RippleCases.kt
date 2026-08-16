@@ -13,40 +13,60 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 object RippleCases {
 
     /**
-     * **This case was retargeted; the original was ill-posed.** It renamed
-     * `org.keycloak.admin.client.resource.RealmResource.roles()` on the recorded premise that the
-     * method's `@Path("roles")` annotation carried the HTTP contract, so the Java name was free. Two
-     * files call `UriBuilder.fromUri("").path(RealmResource.class, "roles")` —
-     * `tests/utils/.../AdminEventPaths.java:218` and
-     * `testsuite/integration-arquillian/tests/base/.../AdminEventPaths.java:217` — and RESTEasy
-     * resolves that second argument as a METHOD NAME, answering
-     * `RESTEASY003645: No public @Path annotated method for ...RealmResource.roles` after the rename.
-     * No compiler and no reference search sees a string literal, so a live round graded an arm as a
-     * perfect rename — P1 to P4 true, recall 1.0, precision 1.0, no missed sites, compile gate PASS,
-     * hidden consumer green — over broken runtime behaviour. See [RippleNameEscapeRule].
+     * **This case was retargeted twice.**
      *
-     * **Why THIS target instead.** `UserSessionProvider` is a server-SPI provider interface and
-     * `getUserSession(RealmModel, String)` is a plain lookup on it: no `jakarta.ws.rs` annotation, so
-     * `UriBuilder.path(Class, String)` cannot address it; the string `"getUserSession"` occurs in no
-     * Java literal (measured through the string index by the survey: 0) and the word occurs in no
-     * non-`.java` file at all at the base commit — no theme message, no realm JSON, no
-     * `META-INF/services` entry, and none of the GraalJS scripts under `testsuite` that call model
-     * methods by name at runtime (which is what disqualified `ClientModel#getClientId` and
-     * `CommonClientSessionModel#getClient`). It is not reachable by name-derived reflection either:
-     * the tree's only `Class.getMethods()` enumeration keyed by property name is
-     * `ProtocolMapperUtils`, and it enumerates `UserModel` (which is what disqualified every
-     * `UserModel` getter, `getUsername` and `getEmail` included). The name is declared exactly once on
-     * the interface, so the transformation has a single unambiguous target, and the method overrides
-     * nothing, so it is the root of its own ripple.
+     * The founding target — `RealmResource.roles()` — was ill-posed: two `AdminEventPaths` files
+     * address it by name through `UriBuilder.path(RealmResource.class, "roles")`, which no compiler
+     * and no reference search can see. See [RippleNameEscapeRule].
      *
-     * `lookupUserSession` is free at the base commit: zero occurrences anywhere in the tree.
+     * The first retarget — `UserSessionProvider#getUserSession(RealmModel, String)` — was well-posed
+     * and graded cleanly, but it did not separate the arms. On TeamCity build 1031488927 both
+     * claude+mcp and claude+none returned f1=1.0000, compile gate PASS, verified FTP 1/1, SUCCESS
+     * true. The method's two-argument form is distinctive enough that a text search for
+     * `getUserSession(` plus the interface hierarchy finishes the ripple without IDE reference
+     * search; the experiment measured nothing.
+     *
+     * **Why THIS target.** `KeycloakContext#setRealm(RealmModel)` is a plain mutator on a server-SPI
+     * interface: no `jakarta.ws.rs` annotation, so `UriBuilder.path(Class, String)` cannot address
+     * it; the string `"setRealm"` occurs in no Java literal (survey `SURVEY_STRING_LITERAL_NAMES`:
+     * 0; confirmed offline with `git grep -nE '"setRealm"'` at the base commit); it is not a
+     * `UserModel` property getter, so `ProtocolMapperUtils`' reflective enumeration cannot reach it;
+     * and none of the GraalJS scripts under `testsuite` call it by name. The name is declared exactly
+     * once on the interface and overrides nothing, so it is the root of its own ripple.
+     *
+     * What the previous target lacked is **same-signature decoy pressure**. At the base commit 39
+     * methods are named `setRealm` (survey `sameNameDeclarations=38` others). Most of them are not
+     * this method: representation setters take `String` / `List` / `Set`, JPA entities take
+     * `RealmEntity`, and several service types — `OIDCLoginProtocol`, `SamlProtocol`,
+     * `AuthenticationProcessor`, `AppAuthManager.BearerTokenAuthenticator`,
+     * `FreeMarkerEmailTemplateProvider`, `PersistentUserSessionAdapter` — declare
+     * `setRealm(RealmModel)` with the SAME parameter list on a DIFFERENT owner. A text replace of
+     * `setRealm(` cannot tell `context.setRealm(realm)` from `protocol.setRealm(realm)` without the
+     * receiver's type; `ReferencesSearch` can. That is the pressure `getUserSession` did not apply
+     * (its decoys were almost all no-arg `getUserSession()` forms, filtered by arity alone).
+     *
+     * The word `setRealm` also appears as a React `useState` setter in
+     * `js/apps/admin-ui/src/realm/add/NewRealmForm.tsx`. That is a different function in a different
+     * language, not a string-addressed lookup of this Java method; renaming the Java method does not
+     * change it, and [RippleNameEscapeRule] is about string literals (count zero). It is noted so a
+     * later reader does not rediscover the hit and treat it as a load-bearing name.
+     *
+     * Numbers below are from the rename-method survey at the base commit
+     * (`KeycloakRippleTargetSurveyTest` / `RippleTargetSurveyScripts.renameMethod`, log
+     * `run-20260814-122936-ripple-target-survey`):
+     * `SURVEY_CANDIDATE ...|setRealm|496|109|13|38|0`, `SURVEY_OVERRIDES ...|1`,
+     * `SURVEY_STRING_LITERAL_NAMES ...|0`. Decoys = same-name others minus the one overriding
+     * declaration (`DefaultKeycloakContext#setRealm` in `keycloak-services`) = 38 − 1 = 37.
+     *
+     * `bindRealm` is free at the base commit: zero occurrences anywhere in the tree
+     * (`git grep -l bindRealm` over the bare repository returns nothing).
      */
     val renameMethodWideTarget: RenameMethod = RenameMethod(
-        targetClassFqn = "org.keycloak.models.UserSessionProvider",
-        oldName = "getUserSession",
-        newName = "lookupUserSession",
-        returnTypeSimpleName = "UserSessionModel",
-        parameterList = "RealmModel realm, String id",
+        targetClassFqn = "org.keycloak.models.KeycloakContext",
+        oldName = "setRealm",
+        newName = "bindRealm",
+        returnTypeSimpleName = "void",
+        parameterList = "RealmModel realm",
         behaviourPreservationEvidence =
             "The target carries no JAX-RS annotation and its name appears in no string literal, no " +
                 "configuration file, no runtime script and no name-derived reflective lookup at the " +
@@ -54,51 +74,54 @@ object RippleCases {
     )
 
     /**
-     * The compile gate is the union of three populations, and a rename-method case needs all three.
+     * The compile gate is the union of three populations, and a rename-method case needs all three
+     * — see [renameMethodGateModules].
      *
-     * The seven modules PSI measured as holding REFERENCES; the DECLARING module, which holds no
-     * reference of its own, so without it the interface whose declaration changes would never be
-     * compiled at all; and the modules holding OVERRIDING IMPLEMENTATIONS —
-     * `keycloak-model-infinispan`, where `InfinispanUserSessionProvider`,
-     * `PersistentUserSessionProvider` and `remote/RemoteUserSessionProvider` each declare
-     * `getUserSession(RealmModel, String)` and nothing calls it.
+     * The thirteen modules PSI measured as holding REFERENCES
+     * (`SURVEY_MODULE_NAMES org.keycloak.models.KeycloakContext|setRealm|...`); the DECLARING module
+     * `keycloak-server-spi`, which holds no reference of its own, so without it the interface whose
+     * declaration changes would never be compiled at all; and the module holding the sole OVERRIDING
+     * IMPLEMENTATION — `keycloak-services`, where `DefaultKeycloakContext#setRealm` lives.
+     * `QuarkusKeycloakContext` and `ResteasyKeycloakContext` extend `DefaultKeycloakContext` without
+     * redeclaring the method, so they contribute no extra override modules
+     * (`SURVEY_OVERRIDES ...|1`).
      *
-     * **That third population is invisible to every other layer of the oracle.** An override is not a
-     * reference, so `ReferencesSearch` never reports it and it is not a gold site; it IS in the
-     * target's own override family, which the decoy set deliberately excludes because a correct
-     * solution must move it; and `POST_OLDNAME_ON_TARGET` inspects the interface alone. So an arm
-     * that renames the interface and all 121 call sites but leaves the three implementations behind
-     * scores P1 to P4 true at recall 1.0 and precision 1.0 over a tree where
-     * `keycloak-model-infinispan` does not compile — `@Override` on a method that overrides nothing,
-     * plus an unimplemented abstract `lookupUserSession`. The prompt tells the agent to compile one
-     * module at a time, so it is a state an arm can reach without ever seeing the error. Only the
-     * gate covers it, and only if that module is in the gate.
+     * Unlike the previous target, the override module is NOT disjoint from the reference set: it
+     * also holds call sites. The union formula still applies; the override entry is just already
+     * covered by the reference list. The gate below is exactly
+     * `renameMethodGateModules(referenceModules, listOf("keycloak-services"), "keycloak-server-spi")`
+     * as the survey printed those lists.
      */
     val renameMethodWide: RippleCase = RippleCase(
         instanceId = "ripple__keycloak__rename-method-wide",
         target = renameMethodWideTarget,
-        expectedGoldReferences = 121,
-        expectedGoldFiles = 42,
-        // 21 declarations share the simple name at the base commit; the 6 inside the target's own
-        // override family are excluded, because a correct solution MUST rename those too.
-        expectedDecoyDeclarations = 15,
+        expectedGoldReferences = 496,
+        expectedGoldFiles = 109,
+        // 38 other declarations share the simple name at the base commit; the 1 inside the target's
+        // own override family (DefaultKeycloakContext) is excluded, because a correct solution MUST
+        // rename that too.
+        expectedDecoyDeclarations = 37,
         compileGateModules = listOf(
+            "integration-arquillian-tests-base",
+            "keycloak-admin-v2-services",
+            "keycloak-admin-v2-tests",
+            "keycloak-ldap-federation",
+            "keycloak-model-infinispan",
+            "keycloak-model-jpa",
+            "keycloak-model-storage-private",
+            "keycloak-model-storage-services",
+            "keycloak-model-test",
             "keycloak-server-spi",
             "keycloak-server-spi-private",
             "keycloak-services",
-            "keycloak-model-test",
-            "integration-arquillian-tests-base",
-            "keycloak-testsuite-utils",
+            "keycloak-ssf-transmitter",
             "keycloak-tests-base",
-            "keycloak-tests-utils-shared",
-            // Holds the three overriding implementations and not one call site.
-            "keycloak-model-infinispan",
         ),
         declaringModuleArtifactId = "keycloak-server-spi",
         consumerModuleArtifactId = "keycloak-server-spi",
         hiddenConsumerFqn = "org.keycloak.models.RenameMethodWideContractTest",
         patchResource = "arena-overlays/ripple-keycloak-rename-method-wide.patch",
-        createdAt = "2026-08-14T00:00:00Z",
+        createdAt = "2026-08-16T00:00:00Z",
     )
 
     /**
