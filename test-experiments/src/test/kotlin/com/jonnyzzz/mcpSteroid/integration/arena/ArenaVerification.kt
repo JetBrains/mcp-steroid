@@ -287,6 +287,19 @@ fun verificationNeverRanTests(
 }
 
 /**
+ * The goals the FAIL_TO_PASS grading run executes: `test`, or `clean test` when the graded output has
+ * to be rebuilt from the sources the agent left behind.
+ *
+ * Maven keeps the class file of a source that was deleted or moved and then reports `Nothing to
+ * compile - all classes are up to date`, so an oracle that resolves a name reflectively grades the
+ * PREVIOUS build. Gradle deletes stale output on its own, so the flag is a no-op there and the
+ * whole-reactor dpaia runs — where a `clean` would throw away the very reports the grade is read
+ * from — keep the plain `test` they always ran.
+ */
+fun gradingGoals(purgeScopedBuildOutput: Boolean, buildSystem: String): String =
+    if (purgeScopedBuildOutput && buildSystem != "gradle") "clean test" else "test"
+
+/**
  * The `-pl` flag that limits the grading run to one reactor project, or "" when the whole reactor is
  * wanted.
  *
@@ -733,6 +746,19 @@ class ArenaVerifier(
         mavenProjectSelector: String? = null,
         /** Pre-agent contents from [snapshotOracleContents]; makes a tamper verdict show its evidence. */
         preAgentOracleContents: Map<String, String> = emptyMap(),
+        /**
+         * Rebuild the graded module from scratch instead of trusting the output already in `target/`.
+         *
+         * Maven's incremental compiler leaves the class file of a source that was DELETED or MOVED in
+         * `target/classes` and then reports `Nothing to compile - all classes are up to date`. A
+         * FAIL_TO_PASS oracle that resolves a name reflectively — `Class.forName("…ResourceType")`,
+         * how the ripple family pins "the old fully-qualified name is gone" — therefore reads the
+         * PREVIOUS build, not the tree the agent produced: the semantic oracle sees no such source and
+         * the scoped compile gate passes, while the reflective test still finds the stale class and
+         * grades the run 0/1. It hit only the arm that never shelled out to Maven itself, which makes
+         * it a bias against one arm rather than noise. Costs one scoped `clean` per graded run.
+         */
+        purgeScopedBuildOutput: Boolean = false,
     ): ArenaVerificationResult {
         val startMs = System.currentTimeMillis()
 
@@ -770,8 +796,9 @@ class ArenaVerifier(
         // `set -o pipefail` keeps Maven's exit code instead of `tail`'s — without it a Maven that never
         // started was logged as `exit=0`, indistinguishable from a clean run whose tests simply failed.
         val scope = mavenProjectScopeFlag(mavenProjectSelector)
+        val goals = gradingGoals(purgeScopedBuildOutput, buildSystem)
         val mvn = bash(
-            "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand test " +
+            "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand $goals " +
                 "$scope $testFilter " +
                 // 200, not 100: a 43-module reactor summary plus the [ERROR] block must fit, because
                 // the `-rf :<artifactId>` line inside it is what identifies the module that failed.
@@ -812,6 +839,7 @@ class ArenaVerifier(
                     failToPass, required, testPatch, preAgentSnapshot, baseline, retried = true,
                     mavenProjectSelector = mavenProjectSelector,
                     preAgentOracleContents = preAgentOracleContents,
+                    purgeScopedBuildOutput = purgeScopedBuildOutput,
                 )
             }
         }

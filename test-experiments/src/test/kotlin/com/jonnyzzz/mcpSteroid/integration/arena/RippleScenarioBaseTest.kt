@@ -212,6 +212,14 @@ abstract class RippleScenarioBaseTest {
                 baseline = null,
                 mavenProjectSelector = rippleCase.gradingScopeSelector(),
                 preAgentOracleContents = preAgentOracle,
+                // This family's oracles resolve names reflectively, so they must read the tree the
+                // agent produced and not the class files of the build before it: a moved or renamed
+                // type leaves its old `.class` behind, Maven answers "Nothing to compile - all classes
+                // are up to date", and `Class.forName` keeps finding a name the sources no longer
+                // declare. Measured on build 1032547532, where the semantic oracle graded f1 = 1.0 with
+                // P1_MOVED true and the compile gate PASS while the very same run graded 0/1 on
+                // `MoveClassWideContractTest.oldFqnIsGone`.
+                purgeScopedBuildOutput = true,
             )
 
             val metrics = collectRunMetrics(

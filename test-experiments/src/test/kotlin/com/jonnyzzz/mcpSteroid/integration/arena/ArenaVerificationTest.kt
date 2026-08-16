@@ -290,6 +290,17 @@ class ArenaVerificationTest {
     }
 
     @Test
+    fun `a reflective oracle grades a freshly built module, not the class files of the previous build`() {
+        assertEquals("clean test", gradingGoals(purgeScopedBuildOutput = true, buildSystem = "maven"))
+    }
+
+    @Test
+    fun `the whole-reactor dpaia runs keep the plain test goal`() {
+        assertEquals("test", gradingGoals(purgeScopedBuildOutput = false, buildSystem = "maven"))
+        assertEquals("test", gradingGoals(purgeScopedBuildOutput = true, buildSystem = "gradle"))
+    }
+
+    @Test
     fun `an unrelated module breaking the build is an infrastructure failure`() {
         assertTrue(
             verificationNeverRanTests(
