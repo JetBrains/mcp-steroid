@@ -63,6 +63,36 @@ class SemanticRipplePromptContractTest {
     }
 
     @Test
+    fun `the mcp arm is told the tools exist and what they answer`() {
+        assertTrue(mcpPrompt.contains("## Available Tools")) {
+            "Build 1032465247's mcp arm made 38 Bash calls against 6 tool calls: an arm that is never " +
+                "told it has resolved access to the program measures tool-choice luck, not the " +
+                "access:\n$mcpPrompt"
+        }
+        assertTrue(mcpPrompt.contains("where a declaration is really used")) {
+            "The arm must be told the CLASS of question the tools answer, or the paragraph is decoration"
+        }
+    }
+
+    @Test
+    fun `the shell arm is not told about tools it does not have`() {
+        assertFalse(nonePrompt.contains("## Available Tools")) {
+            "The arm without tools cannot be told it has them; that paragraph is the only asymmetry " +
+                "the experiment is allowed:\n$nonePrompt"
+        }
+    }
+
+    @Test
+    fun `both arms are warned that a name match is not an identification`() {
+        // The whole family turns on same-named declarations on unrelated types. Withholding that the
+        // task HAS that shape does not test the mechanism, it tests whether the agent guessed the
+        // shape — and it is stated to both arms, so it cannot favour either one.
+        both.forEach { p ->
+            assertTrue(p.contains("A name match is not an identification")) { p }
+        }
+    }
+
+    @Test
     fun `neither arm hands over the answer`() {
         both.forEach { p ->
             assertFalse(p.contains("ClientResource")) {

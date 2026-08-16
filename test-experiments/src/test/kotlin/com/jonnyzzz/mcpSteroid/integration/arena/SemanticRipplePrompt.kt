@@ -15,6 +15,16 @@ import com.jonnyzzz.mcpSteroid.testHelper.docker.StartContainerRequest
  *
  * Only the `## Task` section belongs to the kind; every other paragraph is the same in all cases,
  * which is what makes two arms of two different cases comparable at all.
+ *
+ * **The MCP arm is TOLD it has tools, and that is not a hint.** Until build 1032465247 the brief was
+ * identical in both arms except for one `JAVA_HOME` line, on the premise that an agent must discover
+ * the mechanism itself. What it discovered was that the shell is enough to start: that run's mcp arm
+ * made 38 Bash calls against 6 `execute_code` calls, so the arm labelled "with IDE access" spent its
+ * budget doing what the other arm does, and the comparison measured a coin flip about tool choice
+ * rather than the value of resolved references. Announcing that the tools exist and what CLASS of
+ * question they answer restores the thing under test; what stays hidden is everything the contract
+ * still forbids — no tool names, no API names, no search recipe, no counts, no file list. The arm
+ * without tools cannot be given the same paragraph, because for it the paragraph would be a lie.
  */
 fun buildRipplePrompt(case: RippleCase, projectDir: String, withMcp: Boolean): String = buildString {
     val jdkPrefix = "/usr/lib/jvm/temurin-${SemanticRippleSpec.projectJdkVersion}-jdk-"
@@ -48,7 +58,21 @@ fun buildRipplePrompt(case: RippleCase, projectDir: String, withMcp: Boolean): S
     appendLine("  Verify your work by compiling the modules you changed, one at a time, with")
     appendLine("  `./mvnw compile -pl <module>` (and `test-compile` for test sources); do not launch a")
     appendLine("  reactor-wide test run to check yourself.")
+    appendLine("- A name match is not an identification. This tree declares the same simple name on")
+    appendLine("  unrelated types, so deciding a match by the text around it renames things that must keep")
+    appendLine("  their name and misses call sites written in a form you did not search for. Decide every")
+    appendLine("  site by what the expression it belongs to actually resolves to.")
     if (withMcp) {
+        appendLine()
+        appendLine("## Available Tools")
+        appendLine()
+        appendLine("- Besides the shell, this session is connected to tools that expose THIS project as a")
+        appendLine("  resolved, fully indexed program: they answer what a declaration is, what an expression")
+        appendLine("  resolves to, and where a declaration is really used — as opposed to where its name")
+        appendLine("  happens to occur as text. List the tools available to you before you start working.")
+        appendLine("- Use them for every question about the code. Keep the shell for building, running and")
+        appendLine("  writing files. A grep over this tree answers a different question than the one you")
+        appendLine("  need answered, and answers it wrongly here.")
         appendLine("- Bash build commands must use the exact `Recommended JAVA_HOME` printed by your first")
         appendLine("  tool call, which starts with `$jdkPrefix`.")
     }

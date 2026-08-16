@@ -412,6 +412,18 @@
 
 ## Keycloak semantic-ripple family
 
+- [x] **Every ripple round measured before `5ae147d29` is WITHDRAWN — do not publish those numbers.**
+  Builds up to and including `1028521545` (branch `whitepaper/ide-access`, revision `20c233760`) sent the
+  case through the dpaia track's wrapper instead of `buildRipplePrompt`: the brief opened with "You are
+  working on a Java Spring project" (12 occurrences in that build's log, 0 in `1032465247`), printed the
+  FAIL_TO_PASS class and the whole hidden-consumer patch (80 `FAIL_TO_PASS` lines), and twice ordered a
+  reactor-wide test run Keycloak cannot complete, while every environment paragraph — `./mvnw`, the JDK
+  path, `-pl <module>` — was dropped. The headline ratio from that series (shell arm $2.89 / 47 turns /
+  39 bash calls against the mcp arm's $1.42 / 24 turns) is the cost of that broken brief, not of IDE
+  access: once both arms got the reviewed prompt the mcp arm's cost did not move ($1.42 → $1.44) while
+  the shell arm's collapsed ($2.89 → $1.06). The same defect produced the "446 against a gold of 445"
+  conservation miss in both arms. Cite those runs only as evidence about the harness.
+
 - [ ] **Pin-verify the retargeted `rename-method-wide` numbers in Docker.** `KeycloakContext#setRealm`'s
   496 references / 109 files come from the `SURVEY_CANDIDATE` line of run
   `run-20260814-122936-ripple-target-survey`, and the 37 decoys from the documented
@@ -425,3 +437,13 @@
   If the family ever needs a real regression number, it needs a real pre-agent `fullSuiteSnapshot`, and
   the whole-reactor Keycloak suite does not fit the harness timeout — scope it to the touched modules
   plus their reverse dependencies first.
+- [ ] **Re-run the family with the strengthened brief and check the mcp arm now uses its tools.** In
+  `1032465247` the mcp arm made 38 Bash calls against 6 tool calls, i.e. it ran as a shell arm carrying
+  MCP overhead, which is why the two arms tied on six of seven cases. The brief now announces that the
+  tools exist and what class of question they answer (`## Available Tools`, mcp arm only) and warns both
+  arms that a name match is not an identification. The check is the tool-call split per arm, not just
+  SUCCESS: if the mcp arm still barely calls its tools, the paragraph is not the lever and the case
+  design is.
+- [ ] **Three repeats per configuration per revision.** `rename-type-wide` separated the arms twice on
+  `.658` and tied on `de26f1999`; one run per configuration cannot tell "the case does not separate"
+  from "this run got lucky".
