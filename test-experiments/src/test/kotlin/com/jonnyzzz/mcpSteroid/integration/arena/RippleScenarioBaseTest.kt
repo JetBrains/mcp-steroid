@@ -219,6 +219,37 @@ abstract class RippleScenarioBaseTest {
                 agentName = agentName,
                 fallbackStdout = result.agentResult.stdout,
             )
+            // A measurement-quality verdict, printed and persisted for every run: an mcp arm that
+            // barely touched the IDE still ran, still graded, and still cost money — but its dollars
+            // measure the overhead of HAVING the IDE rather than of using it, and an aggregate needs
+            // to be able to hold them out. Counts come from the decoded transcript, the same source
+            // the run summary already persists, so the log and the aggregate cannot disagree.
+            val comparability = rippleArmComparability(
+                withMcp = withMcp,
+                decoded = metrics.decodedLogMetrics,
+                toolStats = metrics.toolCallStats,
+            )
+            val success = gate.passed && verification.objectiveSuccess && grade.allPassed
+            val rippleSummary = RippleRunSummary(
+                comparability = comparability,
+                compileGatePassed = gate.passed,
+                allPredicatesPassed = grade.allPassed,
+                rippleSuccess = success,
+                recall = grade.recall,
+                precision = grade.precision,
+                f1 = grade.f1,
+                missedSiteCount = grade.missedSites.size,
+                overReachedDecoyCount = grade.overReachedDecoys.size,
+                p1NoAliasAndNewNameDeclared = grade.p1NoAliasAndNewNameDeclared,
+                p2AllSitesConverted = grade.p2AllSitesConverted,
+                p3DecoysUnchanged = grade.p3DecoysUnchanged,
+                p4Conserved = grade.p4Conserved,
+                p6ImportCountUnchanged = grade.p6ImportCountUnchanged,
+                extraPredicates = grade.extraPredicates,
+                goldReferences = gold.totalReferences,
+                goldFiles = gold.files,
+                goldDecoys = gold.decoyReferences.size,
+            )
             val record = DpaiaScenarioBaseTest.RunRecord(
                 instanceId = testCase.instanceId,
                 agentName = agentName,
@@ -234,8 +265,15 @@ abstract class RippleScenarioBaseTest {
                 decodedLogMetrics = metrics.decodedLogMetrics,
                 verification = verification,
                 runDirPath = session.runDirInContainer.absolutePath,
+                rippleSummary = rippleSummary,
             )
-            writeArenaRunSummary(testCase.instanceId, agentName, modeLabel, record)
+            writeArenaRunSummary(
+                testCase.instanceId,
+                agentName,
+                modeLabel,
+                record,
+                runDir = session.runDirInContainer,
+            )
 
             println("[RIPPLE] ════════════════════════════════════════")
             println("[RIPPLE] $agentName+$modeLabel — ${testCase.instanceId}")
@@ -253,6 +291,7 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE]   f1:              ${"%.4f".format(grade.f1)}")
             println("[RIPPLE]   missed sites:    ${grade.missedSites.size}")
             rippleFailedPredicateDetail(grade).forEach { println(it) }
+            rippleStructuralPredicateDetail(postOutput).forEach { println(it) }
             println("[RIPPLE]   consumer refs excluded from conservation: ${grade.excludedConsumerReferences}")
             println("[RIPPLE]   import refs excluded from conservation:   " +
                 "${grade.excludedImportReferences} (gold held ${gold.importReferences}, " +
@@ -261,7 +300,7 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE]   compile gate:    ${if (gate.passed) "PASS" else "FAIL (exit ${gate.exitCode})"}")
             println("[RIPPLE]   verified FTP:    ${verification.classesPassed}/${verification.classesTotal}")
             rippleAgentCostLines(record.agentDurationMs, record.tokenUsage).forEach { println(it) }
-            val success = gate.passed && verification.objectiveSuccess && grade.allPassed
+            rippleToolUsageLines(comparability, metrics.decodedLogMetrics).forEach { println(it) }
             println("[RIPPLE]   SUCCESS:         $success")
             println("[RIPPLE] ════════════════════════════════════════")
             if (!gate.passed) {
@@ -323,14 +362,57 @@ fun rippleFailedPredicateDetail(
 }
 
 /**
+ * The KEYS behind a failed `P7_RECEIVER` or `P8_NO_SHIM`, read straight off the post-condition output.
+ *
+ * The same argument [rippleFailedPredicateDetail] makes for missed sites, applied to the rename
+ * predicates: `P7_RECEIVER: false` alone cannot be told from an oracle artifact, and the family has
+ * already spent one graded round on a predicate whose failing keys nobody could see. The owner of every
+ * foreign reference and the qualified name of every surviving old-name declaration are what settle it.
+ *
+ * The receiver counts are printed whenever the script reported them, passing or not — a passing P7 over
+ * three checked references is a different fact from a passing P7 over sixty, and only the printed
+ * counts distinguish them. Kinds that emit no such lines (a move, a signature change) print nothing.
+ */
+fun rippleStructuralPredicateDetail(postOutput: String, limit: Int = 15): List<String> = buildList {
+    val lines = postOutput.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    fun keys(prefix: String): List<String> =
+        lines.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix).trim() }
+
+    val checked = lines.firstOrNull { it.startsWith("POST_RECEIVER_CHECKED ") }
+    if (checked != null) {
+        fun count(prefix: String): String =
+            lines.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)?.trim() ?: "?"
+        add(
+            "[RIPPLE]   receivers:       ${count("POST_RECEIVER_CHECKED ")} checked " +
+                "(${count("POST_RECEIVER_FOREIGN ")} foreign, " +
+                "${count("POST_RECEIVER_UNQUALIFIED ")} anonymous or local, " +
+                "${count("POST_RECEIVER_UNRESOLVED ")} unresolved)"
+        )
+    }
+    val foreign = keys("POST_RECEIVER_FOREIGN_SITE ")
+    if (foreign.isNotEmpty()) {
+        add("[RIPPLE]   foreign receiver owners (the new name resolves outside the target's hierarchy):")
+        foreign.take(limit).forEach { add("[RIPPLE]     $it") }
+        if (foreign.size > limit) add("[RIPPLE]     ... ${foreign.size - limit} more not printed")
+    }
+    val shims = keys("POST_SHIM_DECL ")
+    if (shims.isNotEmpty()) {
+        add("[RIPPLE]   surviving old-name declarations:")
+        shims.take(limit).forEach { add("[RIPPLE]     $it") }
+        if (shims.size > limit) add("[RIPPLE]     ... ${shims.size - limit} more not printed")
+    }
+}
+
+/**
  * The cost of the run, as `[RIPPLE]` lines, next to the time it took.
  *
  * Collected metrics are unchanged — [TokenUsage] was already gathered and already written into the
- * run-summary JSON. That JSON lands in `IdeTestFolders.testOutputDir`, which is not among the published
- * TeamCity artifacts, so the six-case smoke round's dollar figures had to be scraped back out of raw
- * agent NDJSON echoed into the build log. Cost is the headline of this family — the separating case
- * measured $1.21 with the IDE against $86.84 without — and a headline that is only recoverable by
- * scraping is a reporting gap, not a measurement one.
+ * run-summary JSON. That JSON used to land ONLY in `IdeTestFolders.testOutputDir`, which is not among
+ * the published TeamCity artifacts, so the six-case smoke round's dollar figures had to be scraped back
+ * out of raw agent NDJSON echoed into the build log; [writeArenaRunSummary] now also drops a copy into
+ * the per-run directory that does get bundled. These lines stay regardless: cost is the headline of
+ * this family — the separating case measured $1.21 with the IDE against $86.84 without — and a
+ * headline a reader has to download an artifact to see is a reporting gap of its own.
  *
  * A missing [TokenUsage] prints as UNAVAILABLE rather than as a zero: no usage event in the agent's
  * output means the figure is unknown, and a printed 0 would read as a free run. A null [TokenUsage.

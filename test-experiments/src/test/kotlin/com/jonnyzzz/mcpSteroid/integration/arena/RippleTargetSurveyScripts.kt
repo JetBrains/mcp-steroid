@@ -254,6 +254,127 @@ object RippleTargetSurveyScripts {
     """.trimIndent()
 
     /**
+     * The text-ambiguity reading of already-chosen rename targets — see [TextAmbiguity].
+     *
+     * This is not a candidate search: it takes the cases the registry already holds and measures, for
+     * each of them, the three numbers that decide whether a TEXT search must get the task wrong.
+     * Fan-out queries cannot answer that — `rename-method-wide` cleared every fan-out threshold with
+     * 496 references and 37 same-named declarations and still tied the arms, because a same-named
+     * DECLARATION is not a trap unless something CALLS it.
+     *
+     * Per target:
+     *
+     * - **textual occurrences** — leaf elements whose text is exactly the simple name, over the word
+     *   index in `IN_CODE` context. That is the upper bound of what `grep`/`sed` sees, measured the
+     *   same way [survey]'s literal count is measured, only in code rather than in strings.
+     * - **resolved references** — `ReferencesSearch` on the target declaration itself. Same query the
+     *   capture script pins `expectedGoldReferences` with, so the two numbers are comparable.
+     * - **foreign same-name call sites** — references to every same-named declaration OUTSIDE the
+     *   target's own override family, summed. The family is excluded for the reason the decoy set
+     *   excludes it: a correct solution must rename those too, so their call sites are gold, not traps.
+     *
+     * Emits one `SURVEY_TEXT_AMBIGUITY` line per target and a `SURVEY_TEXT_AMBIGUITY_END` terminator;
+     * a target the index cannot find fails the script rather than printing a zero, because a zero here
+     * is indistinguishable from "measured and free of ambiguity", which is the verdict this phase
+     * exists to withhold.
+     */
+    fun textAmbiguity(cases: List<RippleCase>): String {
+        val fragments = cases.mapNotNull { case ->
+            when (val target = case.target) {
+                is RenameMethod -> renameMethodTextAmbiguity(target)
+                is RenameType -> renameTypeTextAmbiguity(target)
+                else -> null
+            }
+        }
+        require(fragments.isNotEmpty()) {
+            "No rename case among ${cases.map { it.instanceId }} — the text-ambiguity phase would " +
+                "print nothing and read as a clean measurement"
+        }
+        return """
+        import com.intellij.openapi.vfs.VirtualFileManager
+        import com.intellij.psi.*
+        import com.intellij.psi.search.GlobalSearchScope
+        import com.intellij.psi.search.PsiSearchHelper
+        import com.intellij.psi.search.PsiShortNamesCache
+        import com.intellij.psi.search.UsageSearchContext
+        import com.intellij.psi.search.searches.ClassInheritorsSearch
+        import com.intellij.psi.search.searches.ReferencesSearch
+
+        VirtualFileManager.getInstance().asyncRefresh()
+        waitForSmartMode()
+
+        smartReadAction(project) {
+            val scope = GlobalSearchScope.projectScope(project)
+            val cache = PsiShortNamesCache.getInstance(project)
+            val helper = PsiSearchHelper.getInstance(project)
+
+            // What a text tool sees: every leaf that spells the name, in code, anywhere in the
+            // project. `processElementsWithWord` walks the word index, so this costs an index scan
+            // and no resolve.
+            fun textualOccurrences(name: String): Int {
+                var hits = 0
+                helper.processElementsWithWord({ element, _ ->
+                    if (element.text == name) hits++
+                    true
+                }, scope, name, UsageSearchContext.IN_CODE, true)
+                return hits
+            }
+
+            fun overrideFamily(owner: PsiClass): Set<PsiClass> {
+                val related = HashSet<PsiClass>()
+                related.add(owner)
+                related.addAll(ClassInheritorsSearch.search(owner, scope, true).findAll())
+                return related
+            }
+
+${fragments.joinToString("\n\n") { it.prependIndent("            ") }}
+
+            println("SURVEY_TEXT_AMBIGUITY_END")
+        }
+        """.trimIndent()
+    }
+
+    private fun renameMethodTextAmbiguity(target: RenameMethod): String = """
+        run {
+            val name = "${target.oldName}"
+            val textual = textualOccurrences(name)
+            val declarations = cache.getMethodsByName(name, scope).toList()
+            val self = declarations.filter { it.containingClass?.qualifiedName == "${target.targetClassFqn}" }
+            check(self.size == 1) {
+                "Expected exactly one ${target.targetClassFqn}#" + name + ", found " + self.size
+            }
+            val method = self.single()
+            val resolved = ReferencesSearch.search(method, scope).findAll().size
+            val family = overrideFamily(method.containingClass!!)
+            val foreignSites = declarations.filter { d ->
+                d !== method && d.containingClass?.let { c -> family.contains(c) } != true
+            }.sumOf { d -> ReferencesSearch.search(d, scope).findAll().size }
+            println("SURVEY_TEXT_AMBIGUITY rename-method|${target.targetClassFqn}|" + name + "|" +
+                textual + "|" + resolved + "|" + foreignSites)
+        }
+    """.trimIndent()
+
+    private fun renameTypeTextAmbiguity(target: RenameType): String = """
+        run {
+            val simpleName = "${target.oldFqn.substringAfterLast('.')}"
+            val textual = textualOccurrences(simpleName)
+            val classes = cache.getClassesByName(simpleName, scope).toList()
+            val self = classes.filter { it.qualifiedName == "${target.oldFqn}" }
+            check(self.size == 1) {
+                "Expected exactly one class ${target.oldFqn}, found " + self.size
+            }
+            val type = self.single()
+            val resolved = ReferencesSearch.search(type, scope).findAll().size
+            // A type has no override family to exclude: renaming a type does not force any subtype to
+            // change its own name, so every OTHER class of this simple name is foreign by definition.
+            val foreignSites = classes.filter { it !== type }
+                .sumOf { c -> ReferencesSearch.search(c, scope).findAll().size }
+            println("SURVEY_TEXT_AMBIGUITY rename-type|${target.oldFqn}|" + simpleName + "|" +
+                textual + "|" + resolved + "|" + foreignSites)
+        }
+    """.trimIndent()
+
+    /**
      * The pull-up query, alone, with the whole process budget to itself.
      *
      * Four narrowings, each of them a precondition of the verdict rather than a convenience — the

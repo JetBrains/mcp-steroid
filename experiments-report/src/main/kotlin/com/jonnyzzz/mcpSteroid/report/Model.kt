@@ -50,4 +50,60 @@ data class AgentRun(
     val toolCalls: Map<String, Int> = emptyMap(),
     val execCodeCalls: Int? = null,
     val summary: String? = null,
+    // ── Objective grade, straight from the harness's own verifier ────────────────────────────────
+    /** FAIL_TO_PASS green AND no regression. For a ripple run this is NECESSARY but NOT sufficient. */
+    val objectiveSuccess: Boolean? = null,
+    /** The agent edited the very tests it was graded by — the run is void, whatever else it says. */
+    val failToPassTampered: Boolean? = null,
+    // ── The semantic-ripple family's own grade (absent on every non-ripple run) ──────────────────
+    /** compile gate AND objective FAIL_TO_PASS AND every ripple predicate — the family's real SUCCESS. */
+    val rippleSuccess: Boolean? = null,
+    val rippleAllPredicatesPassed: Boolean? = null,
+    val rippleCompileGatePassed: Boolean? = null,
+    val rippleF1: Double? = null,
+    val rippleRecall: Double? = null,
+    val ripplePrecision: Double? = null,
+    /** `P5_ARITY`, `P7_RECEIVER`, `P8_NO_SHIM`, … — the kind-specific predicates, by id. */
+    val rippleExtraPredicates: Map<String, Boolean> = emptyMap(),
+    // ── Comparability of this arm's COST (see RippleArmComparability on the producer side) ───────
+    /** `COMPARABLE` / `NOT_COMPARABLE` / `UNKNOWN`; null when the run carries no verdict at all. */
+    val comparabilityVerdict: String? = null,
+    /** Always populated alongside the verdict — a verdict without its arithmetic cannot be argued with. */
+    val comparabilityReason: String? = null,
+    val steroidCalls: Int? = null,
+    val bashCalls: Int? = null,
+    val totalToolCalls: Int? = null,
+    val toolErrorCount: Int? = null,
+    val ideCallShare: Double? = null,
 )
+
+/**
+ * May this run's cost enter a price aggregate?
+ *
+ * Deliberately NOT a boolean on [AgentRun]: three different states have to stay apart.
+ *  - [CostInclusion.INCLUDED] — the run is comparable and untampered.
+ *  - [CostInclusion.EXCLUDED] — it completed, but its money means something else than the table claims
+ *    (tampered grade, or an mcp arm that barely touched the IDE, or a crashed agent CLI).
+ *  - [CostInclusion.UNKNOWN] — nothing was recorded either way. Counting that as excluded would silently
+ *    shrink the series; counting it as included would silently pollute it.
+ */
+enum class CostInclusion { INCLUDED, EXCLUDED, UNKNOWN }
+
+/** A [CostInclusion] together with the sentence that justifies it — never one without the other. */
+data class CostInclusionDecision(val state: CostInclusion, val reason: String?)
+
+/** Whether this run's money may be averaged, and why. */
+fun AgentRun.costInclusion(): CostInclusionDecision = when {
+    failToPassTampered == true ->
+        CostInclusionDecision(CostInclusion.EXCLUDED, "FAIL_TO_PASS tampered — the run is void")
+    agentCrashed() ->
+        CostInclusionDecision(CostInclusion.EXCLUDED, "the agent CLI itself died (exit $exitCode)")
+    comparabilityVerdict == "NOT_COMPARABLE" ->
+        CostInclusionDecision(CostInclusion.EXCLUDED, comparabilityReason ?: "not comparable")
+    comparabilityVerdict == "UNKNOWN" -> CostInclusionDecision(
+        CostInclusion.UNKNOWN,
+        comparabilityReason ?: "comparability not decidable from what was recorded",
+    )
+    comparabilityVerdict == "COMPARABLE" -> CostInclusionDecision(CostInclusion.INCLUDED, null)
+    else -> CostInclusionDecision(CostInclusion.UNKNOWN, "this run carries no comparability verdict")
+}

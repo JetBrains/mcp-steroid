@@ -70,6 +70,10 @@ object Aggregator {
  * success only if it built AND no tests failed. Falls back to `claimedFix`, then the JUnit status.
  */
 fun AgentRun.succeeded(): Boolean? = when {
+    // The ripple family's own verdict outranks everything: its `objective_success` is FAIL_TO_PASS
+    // green plus no regression, which a run can hold while still failing a structural predicate —
+    // `change-signature-wide`'s baseline does exactly that at FAIL_TO_PASS 1/1.
+    rippleSuccess != null -> rippleSuccess
     buildSuccess != null -> buildSuccess && (testsFail ?: 0) == 0
     claimedFix != null -> claimedFix
     testStatus != null -> testStatus.equals("SUCCESS", ignoreCase = true)

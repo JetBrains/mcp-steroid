@@ -5,6 +5,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -28,6 +29,20 @@ object RunSummaryJsonParser {
         fun int(k: String) = o[k]?.jsonPrimitive?.intOrNull
         fun dbl(k: String) = o[k]?.jsonPrimitive?.doubleOrNull
         fun bool(k: String) = o[k]?.jsonPrimitive?.booleanOrNull
+
+        // The semantic-ripple track nests its own grade under `ripple` (see `buildRippleRunSummaryJson`),
+        // because the shared `objective_success` is only a NECESSARY part of a ripple SUCCESS and reading
+        // it as the family's verdict would publish a run that failed a structural predicate as a success.
+        val ripple = o["ripple"] as? JsonObject
+        fun rBool(k: String) = ripple?.get(k)?.jsonPrimitive?.booleanOrNull
+        fun rDbl(k: String) = ripple?.get(k)?.jsonPrimitive?.doubleOrNull
+        val comparability = ripple?.get("comparability") as? JsonObject
+        fun cStr(k: String) = comparability?.get(k)?.jsonPrimitive?.contentOrNull
+        fun cInt(k: String) = comparability?.get(k)?.jsonPrimitive?.intOrNull
+        val extraPredicates = (ripple?.get("extra_predicates") as? JsonObject)
+            ?.mapNotNull { (id, v) -> v.jsonPrimitive.booleanOrNull?.let { id to it } }
+            ?.toMap()
+            .orEmpty()
 
         // Per-tool call counts → the toolCalls map used for the with/without diff. Only the *_calls keys
         // that are present contribute, so the map stays accurate for partial summaries.
@@ -63,6 +78,22 @@ object RunSummaryJsonParser {
             toolCalls = toolCalls,
             execCodeCalls = int("exec_code_calls"),
             summary = str("agent_summary")?.ifBlank { null },
+            objectiveSuccess = bool("objective_success"),
+            failToPassTampered = bool("fail_to_pass_tampered"),
+            rippleSuccess = rBool("ripple_success"),
+            rippleAllPredicatesPassed = rBool("all_predicates_passed"),
+            rippleCompileGatePassed = rBool("compile_gate_passed"),
+            rippleF1 = rDbl("f1"),
+            rippleRecall = rDbl("recall"),
+            ripplePrecision = rDbl("precision"),
+            rippleExtraPredicates = extraPredicates,
+            comparabilityVerdict = cStr("verdict"),
+            comparabilityReason = cStr("reason"),
+            steroidCalls = cInt("steroid_calls"),
+            bashCalls = cInt("bash_calls"),
+            totalToolCalls = cInt("total_tool_calls"),
+            toolErrorCount = cInt("tool_error_count"),
+            ideCallShare = comparability?.get("ide_call_share")?.jsonPrimitive?.doubleOrNull,
         )
     }
 }

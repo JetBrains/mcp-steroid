@@ -387,6 +387,13 @@ abstract class DpaiaScenarioBaseTest {
         /** Test classes ALREADY failing before the agent ran — the pre-existing failures it is not to blame for. */
         val baselineAlreadyFailing: Int? = null,
         val runDirPath: String = "",
+        /**
+         * The semantic-ripple track's own grade, or null for a DPAIA run.
+         *
+         * Carried on the shared record because the two tracks deliberately share one summary shape —
+         * see [RippleRunSummary] for why `objective_success` alone cannot stand in for it.
+         */
+        val rippleSummary: RippleRunSummary? = null,
     )
 
     companion object {
@@ -466,6 +473,7 @@ fun buildRunSummaryJson(rec: DpaiaScenarioBaseTest.RunRecord): JsonObject = buil
     put("regression_scan_truncated", rec.verification?.regressionScanTruncated)
     put("baseline_passing", rec.baselinePassing)
     put("baseline_already_failing", rec.baselineAlreadyFailing)
+    rec.rippleSummary?.let { put("ripple", buildRippleRunSummaryJson(it)) }
     put("agent_summary", rec.summary ?: "")
     put("timestamp", java.time.Instant.now().toString())
 }

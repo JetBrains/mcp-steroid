@@ -4,6 +4,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test
@@ -622,7 +623,7 @@ class RippleCaseRegistryTest {
      * [RippleCases.changeSignatureWide]'s.
      */
     @Test
-    fun `only change-signature and move-class kinds contribute an extra predicate`() {
+    fun `every kind contributes exactly the extra predicates its transformation needs`() {
         RippleCases.all.forEach { case ->
             when (val target = case.target) {
                 is ChangeSignature -> {
@@ -649,14 +650,171 @@ class RippleCaseRegistryTest {
                     }
                 }
                 is RenameMethod, is RenameType -> {
-                    val predicates = target.extraPredicates("POST_END")
-                    assertTrue(predicates.isEmpty()) {
-                        "${case.instanceId}: P1 to P4 are the family contract; a kind adds its own only " +
-                            "when it needs one"
+                    val predicates = target.extraPredicates(cleanRenamePost)
+                    assertEquals(setOf("P7_RECEIVER", "P8_NO_SHIM"), predicates.keys) {
+                        "${case.instanceId}: a rename kind must contribute both of its structural " +
+                            "predicates; a set of converted sites cannot express either of them"
+                    }
+                    assertTrue(predicates.values.all { it }) {
+                        "${case.instanceId}: a clean reading must pass both predicates, otherwise " +
+                            "every run fails them and neither says anything: $predicates"
                     }
                 }
             }
         }
+    }
+
+    /**
+     * The post-condition reading of a rename that was performed by resolving, not by substituting:
+     * every reference to the new name lands inside the target's own hierarchy, and the old name
+     * survives nowhere in it.
+     *
+     * The unqualified and unresolved counts are non-zero on purpose. Anonymous and local classes give
+     * the `?#member` key shape that has already produced oracle artifacts in this family, and an
+     * unresolved reference is a compile error the gate judges — a predicate that failed on either
+     * would report the harness rather than the agent.
+     */
+    private val cleanRenamePost = """
+        POST_RECEIVER_CHECKED 61
+        POST_RECEIVER_FOREIGN 0
+        POST_RECEIVER_UNQUALIFIED 2
+        POST_RECEIVER_UNRESOLVED 1
+        POST_SHIM_DECLS 0
+        POST_END
+    """.trimIndent()
+
+    /**
+     * The failure `P7_RECEIVER` exists for, and the reason a set-of-sites comparison cannot see it: a
+     * call site of a same-named declaration on a FOREIGN type, rewritten by a textual replacement.
+     *
+     * The foreign declaration itself is untouched, so its decoy key is intact and P3 is green; every
+     * gold site was converted too, so recall is 1.0. Only resolving the new name from the other end
+     * finds it.
+     */
+    @Test
+    fun `a rename kind fails P7 when the new name resolves into a foreign type`() {
+        val post = cleanRenamePost.replace(
+            "POST_RECEIVER_FOREIGN 0",
+            "POST_RECEIVER_FOREIGN 3\nPOST_RECEIVER_FOREIGN_SITE org.keycloak.other.Session#setRealm",
+        )
+        RippleCases.all.map { it.target }.filter { it is RenameMethod || it is RenameType }
+            .forEach { target ->
+                val predicates = target.extraPredicates(post)
+                assertFalse(predicates.getValue("P7_RECEIVER")) {
+                    "${target.targetDescription}: a reference to the new name resolving outside the " +
+                        "target's hierarchy is the defect this predicate exists to catch"
+                }
+                assertTrue(predicates.getValue("P8_NO_SHIM")) {
+                    "${target.targetDescription}: the two predicates must fail independently"
+                }
+            }
+    }
+
+    /**
+     * Anonymous and local owners must not fail `P7_RECEIVER`. That key shape is a known source of
+     * oracle artifacts, and a predicate that reads it as a defect would spend the first real failure
+     * of the series on the harness.
+     */
+    @Test
+    fun `a rename kind passes P7 when the only unqualified owners are anonymous or local`() {
+        val post = cleanRenamePost.replace(
+            "POST_RECEIVER_UNQUALIFIED 2", "POST_RECEIVER_UNQUALIFIED 17",
+        )
+        RippleCases.all.map { it.target }.filter { it is RenameMethod || it is RenameType }
+            .forEach { target ->
+                assertTrue(target.extraPredicates(post).getValue("P7_RECEIVER")) {
+                    "${target.targetDescription}: an owner with no qualified name is an artifact of " +
+                        "the key shape, not a rewritten foreign call site"
+                }
+            }
+    }
+
+    /**
+     * A run that renamed nothing leaves no reference to the new name at all, and an empty reading must
+     * not read as a clean one — the same rule [parseArityPredicate] applies to its own total.
+     */
+    @Test
+    fun `a rename kind fails P7 when nothing resolves to the new name at all`() {
+        val post = cleanRenamePost.replace("POST_RECEIVER_CHECKED 61", "POST_RECEIVER_CHECKED 0")
+            .replace("POST_RECEIVER_UNQUALIFIED 2", "POST_RECEIVER_UNQUALIFIED 0")
+        RippleCases.all.map { it.target }.filter { it is RenameMethod || it is RenameType }
+            .forEach { target ->
+                assertFalse(target.extraPredicates(post).getValue("P7_RECEIVER")) {
+                    "${target.targetDescription}: an empty reading is not a clean one"
+                }
+            }
+    }
+
+    /** An old-name forwarder left on the hierarchy keeps every old caller resolving; P8 is what sees it. */
+    @Test
+    fun `a rename kind fails P8 when the old name survives as a forwarder`() {
+        val post = cleanRenamePost.replace(
+            "POST_SHIM_DECLS 0",
+            "POST_SHIM_DECLS 1\nPOST_SHIM_DECL org.keycloak.models.KeycloakContext#setRealm",
+        )
+        RippleCases.all.map { it.target }.filter { it is RenameMethod || it is RenameType }
+            .forEach { target ->
+                val predicates = target.extraPredicates(post)
+                assertFalse(predicates.getValue("P8_NO_SHIM")) {
+                    "${target.targetDescription}: a surviving old-name declaration is a shim"
+                }
+                assertTrue(predicates.getValue("P7_RECEIVER")) {
+                    "${target.targetDescription}: the two predicates must fail independently"
+                }
+            }
+    }
+
+    /**
+     * A malformed reading must throw, never grade. A missing field or a self-contradictory one means
+     * the script and the parser describe different transformations, and a silent `false` would publish
+     * an instrument fault as an agent defect — the rule [parseArityPredicate] already follows.
+     */
+    @Test
+    fun `a rename kind throws on a post-condition reading it cannot trust`() {
+        val target = RippleCases.all.map { it.target }.first { it is RenameMethod }
+        listOf(
+            cleanRenamePost.lines().filterNot { it.startsWith("POST_RECEIVER_FOREIGN ") }
+                .joinToString("\n"),
+            cleanRenamePost.lines().filterNot { it.startsWith("POST_SHIM_DECLS ") }.joinToString("\n"),
+            cleanRenamePost.replace("POST_END", ""),
+            // More foreign and unqualified references than were checked at all.
+            cleanRenamePost.replace("POST_RECEIVER_CHECKED 61", "POST_RECEIVER_CHECKED 1"),
+            // A count with no keys behind it cannot be told from an oracle artifact.
+            cleanRenamePost.replace("POST_RECEIVER_FOREIGN 0", "POST_RECEIVER_FOREIGN 2"),
+            // A shim counted but never named.
+            cleanRenamePost.replace("POST_SHIM_DECLS 0", "POST_SHIM_DECLS 1"),
+        ).forEach { broken ->
+            assertThrows(IllegalStateException::class.java) { target.extraPredicates(broken) }
+        }
+    }
+
+    /**
+     * The predicates have to reach the log by the path the family already prints, so the first real
+     * failure is diagnosable from a build log alone rather than from a rerun.
+     */
+    @Test
+    fun `a failing rename predicate reaches the printed grade`() {
+        val target = RippleCases.all.map { it.target }.first { it is RenameMethod }
+        val post = cleanRenamePost.replace(
+            "POST_SHIM_DECLS 0",
+            "POST_SHIM_DECLS 1\nPOST_SHIM_DECL org.keycloak.models.KeycloakContext#setRealm",
+        )
+        val grade = SemanticPostconditionResult(
+            p1NoAliasAndNewNameDeclared = true,
+            p2AllSitesConverted = true,
+            p3DecoysUnchanged = true,
+            p4Conserved = true,
+            recall = 1.0,
+            precision = 1.0,
+            f1 = 1.0,
+            missedSites = emptyList(),
+            overReachedDecoys = emptyList(),
+            extraPredicates = target.extraPredicates(post),
+        )
+        assertFalse(grade.allPassed) {
+            "A surviving shim must void the grade even at f1 1.0 — that is the whole point"
+        }
+        assertEquals(false, grade.extraPredicates["P8_NO_SHIM"])
     }
 
     /**

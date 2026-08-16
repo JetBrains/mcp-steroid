@@ -25,6 +25,15 @@ data class RippleCase(
     /** Declarations sharing the target's simple name, excluding the target's own owner. */
     val expectedDecoyDeclarations: Int,
     /**
+     * Whether a TEXT search is obliged to get this case wrong — the admission metric of [TextAmbiguity].
+     *
+     * A rename case must carry a reading; a move-class case carries [TextAmbiguityPin.NotApplicable],
+     * because a move never changes the simple name and so has no textual answer to be wrong about. A
+     * change-signature case is likewise not admitted on this metric: its discriminator is arity
+     * (`P5_ARITY`), which a text tool gets wrong for a different reason.
+     */
+    val textAmbiguity: TextAmbiguityPin,
+    /**
      * The declaring module plus every module holding a reference — complete w.r.t. the ripple.
      *
      * These are Maven artifactIds, verified against the poms at [SemanticRippleSpec.baseCommit].
@@ -39,6 +48,20 @@ data class RippleCase(
     val patchResource: String,
     val createdAt: String,
 ) {
+
+    init {
+        // Fail at registry construction, not mid-run: an inadmissible case would otherwise be
+        // discovered after a night of builds measured a task a `sed` was allowed to solve.
+        textAmbiguity.requireAdmissible(instanceId)
+        check(!target.needsTextAmbiguityPin() || textAmbiguity !is TextAmbiguityPin.NotApplicable) {
+            "$instanceId renames a name, so the text-ambiguity metric applies to it and " +
+                "NotApplicable cannot be its pin"
+        }
+        check(target.needsTextAmbiguityPin() || textAmbiguity is TextAmbiguityPin.NotApplicable) {
+            "$instanceId does not change any name, so a text-ambiguity reading would describe a " +
+                "transformation this case never performs"
+        }
+    }
 
     /**
      * [compileGateModules] in the form Maven's `-pl` actually understands.

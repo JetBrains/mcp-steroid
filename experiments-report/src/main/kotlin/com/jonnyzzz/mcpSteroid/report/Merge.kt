@@ -43,4 +43,22 @@ private fun mergeTwo(a: AgentRun, b: AgentRun): AgentRun = a.copy(
     toolCalls = a.toolCalls.ifEmpty { b.toolCalls },
     execCodeCalls = a.execCodeCalls ?: b.execCodeCalls,
     summary = a.summary ?: b.summary,
+    objectiveSuccess = a.objectiveSuccess ?: b.objectiveSuccess,
+    failToPassTampered = a.failToPassTampered ?: b.failToPassTampered,
+    rippleSuccess = a.rippleSuccess ?: b.rippleSuccess,
+    rippleAllPredicatesPassed = a.rippleAllPredicatesPassed ?: b.rippleAllPredicatesPassed,
+    rippleCompileGatePassed = a.rippleCompileGatePassed ?: b.rippleCompileGatePassed,
+    rippleF1 = a.rippleF1 ?: b.rippleF1,
+    rippleRecall = a.rippleRecall ?: b.rippleRecall,
+    ripplePrecision = a.ripplePrecision ?: b.ripplePrecision,
+    rippleExtraPredicates = a.rippleExtraPredicates.ifEmpty { b.rippleExtraPredicates },
+    comparabilityVerdict = a.comparabilityVerdict ?: b.comparabilityVerdict,
+    // The reason travels with the verdict it explains: taking one from each source would print an
+    // arithmetic that does not add up to the verdict shown next to it.
+    comparabilityReason = if (a.comparabilityVerdict != null) a.comparabilityReason else b.comparabilityReason,
+    steroidCalls = a.steroidCalls ?: b.steroidCalls,
+    bashCalls = a.bashCalls ?: b.bashCalls,
+    totalToolCalls = a.totalToolCalls ?: b.totalToolCalls,
+    toolErrorCount = a.toolErrorCount ?: b.toolErrorCount,
+    ideCallShare = a.ideCallShare ?: b.ideCallShare,
 )

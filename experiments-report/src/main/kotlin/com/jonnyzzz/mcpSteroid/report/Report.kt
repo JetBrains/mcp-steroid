@@ -10,6 +10,12 @@ data class Report(
     val collectedBuilds: List<BuildMeta> = emptyList(),
     /** Recency-weighted aggregation over ALL cached builds per (scenario, agent, mode) — see [runHistories]. */
     val histories: List<RunHistory> = emptyList(),
+    /**
+     * Same-revision repeated-run statistics for the semantic-ripple family — see [rippleSeries].
+     * Built from ALL collected builds, not [allRuns]: the latest-only view is exactly the one that
+     * throws the repeats away.
+     */
+    val rippleSeries: List<RippleCaseSeries> = emptyList(),
 )
 
 /** One collected build's identity + outcome, from the collector's `meta.json`. Drives the coverage view. */

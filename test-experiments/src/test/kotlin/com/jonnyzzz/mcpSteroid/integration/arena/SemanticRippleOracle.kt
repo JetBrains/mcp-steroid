@@ -205,6 +205,84 @@ fun parseFqnMovePredicate(output: String): Boolean {
 }
 
 /**
+ * True when every reference that now spells the NEW name resolves into the transformation's own
+ * hierarchy — the predicate a set-of-sites comparison structurally cannot express.
+ *
+ * P2 asks whether every gold site was converted and P3 whether every same-named DECLARATION was left
+ * alone. Neither sees a foreign CALL SITE rewritten: the foreign declaration keeps its key, so P3 is
+ * green, and every gold site was converted too, so recall is 1.0. That is the exact residue of a
+ * textual replacement, and reading the new name back through `resolve()` is the only way to see it.
+ *
+ * Sites whose owner cannot be qualified — anonymous and local classes, the `?#method` key shape that
+ * has already produced oracle artifacts in this family — are counted and reported separately and never
+ * held against the run. So are unresolved references: those are compile errors, and the compile gate
+ * is what judges them.
+ *
+ * `checked > 0` for the same reason [parseArityPredicate] requires it: a run that renamed nothing
+ * leaves no reference to the new name at all, and an empty reading must not read as a clean one.
+ */
+fun parseReceiverPredicate(output: String): Boolean {
+    val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    check(lines.any { it == "POST_END" }) {
+        "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
+    }
+    fun field(prefix: String): Int =
+        (lines.firstOrNull { it.startsWith(prefix) }
+            ?: error("Post-condition output is missing the $prefix field:\n$output"))
+            .removePrefix(prefix).trim().toInt()
+    val checked = field("POST_RECEIVER_CHECKED ")
+    val foreign = field("POST_RECEIVER_FOREIGN ")
+    val unqualified = field("POST_RECEIVER_UNQUALIFIED ")
+    val unresolved = field("POST_RECEIVER_UNRESOLVED ")
+    check(checked >= 0 && foreign >= 0 && unqualified >= 0 && unresolved >= 0) {
+        "The receiver reading is negative somewhere, which no count can be:\n$output"
+    }
+    check(foreign + unqualified <= checked) {
+        "The receiver reading claims $foreign foreign and $unqualified unqualified references out of " +
+            "$checked checked; the script and this parser disagree about what was counted:\n$output"
+    }
+    // Every foreign owner is listed, so the first failure can be argued with from the build log
+    // alone. A count without its keys would be indistinguishable from an oracle artifact.
+    val listed = lines.count { it.startsWith("POST_RECEIVER_FOREIGN_SITE ") }
+    check(listed <= foreign) {
+        "The receiver reading lists $listed foreign owners but counted only $foreign of them:\n$output"
+    }
+    check(foreign == 0 || listed > 0) {
+        "The receiver reading counted $foreign foreign references and named none of them, so the " +
+            "failure could not be told from an oracle artifact:\n$output"
+    }
+    return checked > 0 && foreign == 0
+}
+
+/**
+ * True when the old name survives nowhere in the hierarchy the transformation owns.
+ *
+ * A deprecated forwarder, a default method left behind, an overload under the old name, or — for a
+ * type — a deprecated empty subtype at the old name: each keeps every old caller compiling AND
+ * resolving, so P1 to P4 stay green while the identity the case asked to retire is still there. This
+ * is the rename-shaped sibling of [parseArityPredicate]'s added-overload check.
+ *
+ * Expectations are deliberately low. An LLM agent rarely leaves a shim behind; the predicate exists so
+ * the cheap way out is closed, not because it is expected to fire.
+ */
+fun parseNoShimPredicate(output: String): Boolean {
+    val lines = output.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    check(lines.any { it == "POST_END" }) {
+        "Post-condition output has no POST_END terminator — the script was truncated or failed:\n$output"
+    }
+    val declared = (lines.firstOrNull { it.startsWith("POST_SHIM_DECLS ") }
+        ?: error("Post-condition output is missing the POST_SHIM_DECLS field:\n$output"))
+        .removePrefix("POST_SHIM_DECLS ").trim().toInt()
+    check(declared >= 0) { "A negative shim count is not a reading:\n$output" }
+    // Every survivor is named, for the same reason the receiver reading names its owners.
+    val listed = lines.count { it.startsWith("POST_SHIM_DECL ") }
+    check(listed == declared) {
+        "The shim reading counted $declared surviving declarations and named $listed of them:\n$output"
+    }
+    return declared == 0
+}
+
+/**
  * Parse the capture script's output.
  *
  * Requires the `GOLD_END` terminator: without it a truncated or cancelled script would parse as a

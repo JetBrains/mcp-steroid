@@ -234,6 +234,53 @@ class SemanticRippleOracleTest {
         assertTrue(rippleFailedPredicateDetail(clean).isEmpty())
     }
 
+    /**
+     * A failed `P7_RECEIVER` must arrive with its owners, for the reason the missed-site keys do: a
+     * bare `false` cannot be told from an oracle artifact, and the first failure of the series is the
+     * one that has to be diagnosable from the build log alone.
+     */
+    @Test
+    fun `the rename predicates print the owners and the declarations behind them`() {
+        val post = """
+            POST_RECEIVER_CHECKED 61
+            POST_RECEIVER_FOREIGN 2
+            POST_RECEIVER_FOREIGN_SITE org.keycloak.other.Session#setRealm
+            POST_RECEIVER_UNQUALIFIED 3
+            POST_RECEIVER_UNRESOLVED 0
+            POST_SHIM_DECLS 1
+            POST_SHIM_DECL org.keycloak.models.KeycloakContext#setRealm
+            POST_END
+        """.trimIndent()
+        val lines = rippleStructuralPredicateDetail(post)
+        val counts = lines.single { it.contains("receivers:") }
+        assertTrue(counts.contains("61 checked"), counts)
+        assertTrue(counts.contains("2 foreign"), counts)
+        assertTrue(counts.contains("3 anonymous or local"), counts)
+        assertTrue(lines.any { it.contains("org.keycloak.other.Session#setRealm") }) { "$lines" }
+        assertTrue(lines.any { it.contains("org.keycloak.models.KeycloakContext#setRealm") }) { "$lines" }
+    }
+
+    /**
+     * The counts are printed even when both predicates hold — a P7 that passed over three checked
+     * references is a different fact from one that passed over sixty — while a kind that emits no
+     * receiver reading at all (a move, a signature change) prints nothing.
+     */
+    @Test
+    fun `a clean rename reading prints its counts and a non-rename kind prints nothing`() {
+        val clean = """
+            POST_RECEIVER_CHECKED 3
+            POST_RECEIVER_FOREIGN 0
+            POST_RECEIVER_UNQUALIFIED 0
+            POST_RECEIVER_UNRESOLVED 0
+            POST_SHIM_DECLS 0
+            POST_END
+        """.trimIndent()
+        val lines = rippleStructuralPredicateDetail(clean)
+        assertEquals(1, lines.size) { "$lines" }
+        assertTrue(lines.single().contains("3 checked"), lines.single())
+        assertTrue(rippleStructuralPredicateDetail(perfectMovePost).isEmpty())
+    }
+
     @Test
     fun `tripwires reject a pre-existing new name`() {
         val taken = goldOutput.replace("GOLD_NEWNAME_DECLS 0", "GOLD_NEWNAME_DECLS 5")

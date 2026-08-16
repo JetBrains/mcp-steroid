@@ -28,6 +28,7 @@ object HtmlRenderer {
 
         renderSummary(sb, report)
         renderOverview(sb, report)
+        renderRippleSeries(sb, report)
         renderComparisons(sb, report)
         renderProblems(sb, report)
         renderCoverage(sb, report)
@@ -85,6 +86,82 @@ object HtmlRenderer {
                 .append("${s.neutral}/${s.incomplete} <span class=\"subtle\">of ${s.total}</span></span></div>\n")
         }
         sb.append("</section>\n")
+    }
+
+    // ── Semantic ripple: same-revision repeated runs, with the spread and the exclusions ────────
+    /**
+     * A section of its own rather than a change to the latest-run table above: that table answers
+     * "what did the newest build do", this one answers "what does the series say", and the two must
+     * not be read as the same claim. Every leg prints its exclusions with their reasons, and the
+     * per-case statement refuses to name a difference that does not clear the spread.
+     */
+    private fun renderRippleSeries(sb: StringBuilder, report: Report) {
+        if (report.rippleSeries.isEmpty()) return
+        sb.append("<section><h2>").append(esc(ScenarioBucket.RIPPLE.title)).append("</h2>\n")
+        sb.append("<p class=\"meta\">Medians over repeated attempts of the same case on ONE revision; ")
+            .append("spread is the observed min…max, not a confidence interval. Cost medians cover only ")
+            .append("the runs admitted to the price aggregate — tampered runs, crashed agent CLIs and mcp ")
+            .append("arms that barely touched the IDE are excluded and listed with their reason. ")
+            .append("Fewer than ").append(RIPPLE_MIN_REPEATS).append(" usable pairs names no difference.</p>\n")
+        sb.append("<table>\n<thead><tr>")
+        sb.append("<th>case</th><th>agent</th><th>arm</th><th>n (used/all)</th><th>ripple SUCCESS</th>")
+        sb.append("<th>median cost</th><th>median turns</th><th>median agent time</th><th>overhead / work tokens</th>")
+        sb.append("</tr></thead>\n<tbody>\n")
+        for (s in report.rippleSeries) {
+            for ((label, leg) in listOf("with MCP" to s.withMcp, "without MCP" to s.without)) {
+                if (leg == null) continue
+                sb.append("<tr>")
+                sb.append("<td class=\"task\">").append(esc(s.scenario)).append("</td>")
+                sb.append("<td>").append(esc(s.agent)).append("</td>")
+                sb.append("<td>").append(label).append("</td>")
+                sb.append("<td class=\"num\">").append(leg.includedInCost).append("/").append(leg.attempts)
+                if (leg.unknownComparability > 0) {
+                    sb.append(" <span class=\"warn\">(").append(leg.unknownComparability).append(" unknown)</span>")
+                }
+                sb.append("</td>")
+                sb.append("<td class=\"num\">")
+                    .append(if (leg.qualityKnown == 0) "<span class=\"missing\">—</span>"
+                            else "${leg.rippleSuccesses}/${leg.qualityKnown}")
+                    .append("</td>")
+                sb.append("<td class=\"num\">").append(money(leg.medianCostUsd, leg.costSpread)).append("</td>")
+                sb.append("<td class=\"num\">").append(plain(leg.medianTurns, leg.turnsSpread)).append("</td>")
+                sb.append("<td class=\"num\">")
+                    .append(leg.medianAgentDurationMs?.let { fmtDuration(it.toLong()) } ?: "—")
+                    .append("</td>")
+                sb.append("<td class=\"num\">").append(tokenSplit(leg)).append("</td>")
+                sb.append("</tr>\n")
+                for (x in leg.exclusions) {
+                    sb.append("<tr class=\"detail\"><td colspan=\"9\"><span class=\"detail-label\">excluded")
+                        .append(x.buildId?.let { " (build $it)" } ?: "").append(":</span> ")
+                        .append(esc(x.reason)).append("</td></tr>\n")
+                }
+            }
+            sb.append("<tr class=\"detail\"><td colspan=\"9\"><span class=\"detail-label\">paired result:</span> ")
+                .append(esc(s.statement)).append("</td></tr>\n")
+        }
+        sb.append("</tbody>\n</table>\n</section>\n")
+    }
+
+    /** `$1.23 (1.01…1.44)` — a median is not publishable without the range it came from. */
+    private fun money(median: Double?, spread: Spread?): String {
+        if (median == null) return "<span class=\"missing\">—</span>"
+        val range = spread?.let { " <span class=\"subtle\">(%.2f…%.2f)</span>".format(it.min, it.max) } ?: ""
+        return "$" + String.format("%.2f", median) + range
+    }
+
+    private fun plain(median: Double?, spread: Spread?): String {
+        if (median == null) return "<span class=\"missing\">—</span>"
+        val range = spread?.let { " <span class=\"subtle\">(%.0f…%.0f)</span>".format(it.min, it.max) } ?: ""
+        return String.format("%.1f", median) + range
+    }
+
+    /** Fixed overhead (cache-read + input) against actual work (output) — the split "+52%" was missing. */
+    private fun tokenSplit(leg: RippleLegStats): String {
+        val overhead = leg.medianOverheadTokens
+        val work = leg.medianWorkTokens
+        if (overhead == null && work == null) return "<span class=\"missing\">—</span>"
+        fun n(v: Double?) = v?.let { String.format("%,d", Math.round(it)) } ?: "?"
+        return n(overhead) + " / " + n(work)
     }
 
     // ── Primary: per-agent with/without tables, grouped into scenario buckets ───

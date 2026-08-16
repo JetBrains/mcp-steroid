@@ -20,6 +20,10 @@ class ScenarioBucketTest {
         assertEquals(ScenarioBucket.DEBUGGER, scenarioBucket("debugger__sortedByDescending"))
         assertEquals(ScenarioBucket.DPAIA, scenarioBucket("dpaia__spring__petclinic-27"))
         assertEquals(ScenarioBucket.OTHER, scenarioBucket("something__new"))
+        // The ripple family's ids embed the project name: `keycloak__` is present but NOT at
+        // position 0, so without its own route the whole series lands silently in OTHER.
+        assertEquals(ScenarioBucket.RIPPLE, scenarioBucket("ripple__keycloak__rename-method-wide"))
+        assertEquals(ScenarioBucket.RIPPLE, scenarioBucket("ripple__keycloak__change-signature-wide"))
     }
 
     @Test

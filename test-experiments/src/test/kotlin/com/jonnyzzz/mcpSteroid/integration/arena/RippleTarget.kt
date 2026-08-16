@@ -255,6 +255,28 @@ data class RenameMethod(
     override val targetTypeFqn: String get() = targetClassFqn
 
     /**
+     * The two predicates a set-of-sites comparison cannot express for a rename.
+     *
+     * `P7_RECEIVER` is the one that matters. The decoy set is built from same-named DECLARATIONS, and
+     * P3 compares its keys — so renaming a foreign declaration is caught, but rewriting a foreign CALL
+     * SITE is not: `other.setRealm(x)` textually substituted retires no decoy key, because the foreign
+     * declaration itself is untouched, and it costs no recall, because every gold site was converted
+     * too. It is precisely the mistake a textual replacement makes and a resolve cannot. The predicate
+     * reads it from the other end: every reference that now spells the new name must resolve into the
+     * target's own hierarchy.
+     *
+     * `P8_NO_SHIM` is the rename-shaped sibling of [ChangeSignature]'s arity check — an old-name
+     * forwarder or overload left on the hierarchy keeps every old caller compiling and resolving, so P1
+     * to P4 stay green while the old identity survives. Expectations for it are deliberately low: LLM
+     * agents rarely leave a shim behind, and it is here so that the cheap way out is closed, not
+     * because it is expected to fire.
+     */
+    override fun extraPredicates(output: String): Map<String, Boolean> = mapOf(
+        "P7_RECEIVER" to parseReceiverPredicate(output),
+        "P8_NO_SHIM" to parseNoShimPredicate(output),
+    )
+
+    /**
      * The decoy key and the target's own override family, shared by both scripts.
      *
      * **A decoy is keyed by its full signature, not by its owner alone.** Two overloads of the same
@@ -391,6 +413,64 @@ ${decoyKeyHelper().prependIndent("            ")}
             printDecoys("POST_DECOY ", cache.getMethodsByName("$oldName", scope).toList()
                 .filter { m -> m.containingClass?.let { it in related } != true })
 
+            // P7: read the NEW name from the other end. Every reference that now spells it must
+            // resolve into the target's own hierarchy; one that resolves into a foreign type is a
+            // call site a textual replacement rewrote, which no decoy key and no gold site can see.
+            var receiverChecked = 0
+            var receiverForeign = 0
+            var receiverUnresolved = 0
+            var receiverUnqualified = 0
+            val foreignOwners = HashSet<String>()
+            com.intellij.psi.search.PsiSearchHelper.getInstance(project).processElementsWithWord(
+                { element, _ ->
+                    val ref = element as? PsiReferenceExpression
+                    if (ref != null && ref.referenceName == "$newName") {
+                        val resolved = ref.resolve() as? PsiMethod
+                        val declaring = resolved?.containingClass
+                        val qualified = declaring?.qualifiedName
+                        when {
+                            // A reference that resolves to nothing is a compile error, and the
+                            // compile gate is what judges those; counting it here would report a
+                            // broken tree as a receiver defect.
+                            resolved == null -> receiverUnresolved++
+                            // An anonymous or local owner has no qualified name to compare, and the
+                            // `?#method` key shape those produce is a known oracle artifact. Counted
+                            // and reported, never held against the run.
+                            qualified == null -> {
+                                receiverChecked++
+                                receiverUnqualified++
+                            }
+                            declaring in related -> receiverChecked++
+                            else -> {
+                                receiverChecked++
+                                receiverForeign++
+                                foreignOwners.add(qualified + "#" + resolved.name)
+                            }
+                        }
+                    }
+                    true
+                },
+                scope, "$newName",
+                com.intellij.psi.search.UsageSearchContext.IN_CODE, true,
+            )
+            println("POST_RECEIVER_CHECKED " + receiverChecked)
+            println("POST_RECEIVER_FOREIGN " + receiverForeign)
+            println("POST_RECEIVER_UNQUALIFIED " + receiverUnqualified)
+            println("POST_RECEIVER_UNRESOLVED " + receiverUnresolved)
+            foreignOwners.toSortedSet().forEach { println("POST_RECEIVER_FOREIGN_SITE " + it) }
+
+            // P8: the old name must survive nowhere in the hierarchy the rename owns — not on the
+            // interface as a default forwarder, not on an implementation as an overload. Read over
+            // the whole override family, because a forwarder on a subclass keeps every old caller
+            // compiling just as well as one on the interface.
+            val shims = cache.getMethodsByName("$oldName", scope).toList()
+                .filter { m -> m.containingClass?.let { it in related } == true }
+            println("POST_SHIM_DECLS " + shims.size)
+            for (shim in shims.sortedBy { it.textOffset }) {
+                println("POST_SHIM_DECL " +
+                    (shim.containingClass?.qualifiedName ?: "<anonymous>") + "#" + shim.name)
+            }
+
             println("POST_TOTAL_NEW_REFS " + refs.size)
             println("POST_END")
         }
@@ -463,6 +543,24 @@ data class RenameType(
     override fun expectedPostKey(site: GoldSite): Pair<String, String> =
         retargetTypeSiteKey(site, oldFqn, newFqn)
 
+    /**
+     * The same two predicates [RenameMethod] contributes, read against a TYPE.
+     *
+     * `P7_RECEIVER`: a reference that now spells the new simple name must resolve to the renamed type
+     * itself. A textual replacement of the old simple name rewrites the spelling of a same-named type
+     * in another package wherever the pattern matched, and the case's tripwire guarantees the new
+     * simple name was free before the run — so anything else the new name resolves to was created by
+     * this run.
+     *
+     * `P8_NO_SHIM`: the old simple name must not survive as the target's own qualified name, nor as a
+     * deprecated subtype of the renamed type, which is exactly the alias the prompt forbids and which
+     * every reference-based predicate would let through.
+     */
+    override fun extraPredicates(output: String): Map<String, Boolean> = mapOf(
+        "P7_RECEIVER" to parseReceiverPredicate(output),
+        "P8_NO_SHIM" to parseNoShimPredicate(output),
+    )
+
     override fun captureFragment(): String = """
         smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)
@@ -518,6 +616,62 @@ data class RenameType(
                 if (decoyOwner == "$oldFqn") continue
                 println("POST_DECOY " + decoyOwner + "|" +
                     ReferencesSearch.search(decoy, scope).findAll().size)
+            }
+
+            // P7: every reference that now spells the new simple name must resolve to the renamed
+            // type. The case's own tripwire proves the new name was free before the run, so anything
+            // else it resolves to is a same-named type this run rewrote — the mistake a textual
+            // replacement makes at a site whose declaration it never touched.
+            var receiverChecked = 0
+            var receiverForeign = 0
+            var receiverUnresolved = 0
+            var receiverUnqualified = 0
+            val foreignOwners = HashSet<String>()
+            com.intellij.psi.search.PsiSearchHelper.getInstance(project).processElementsWithWord(
+                { element, _ ->
+                    val ref = element as? PsiJavaCodeReferenceElement
+                    if (ref != null && ref.referenceName == "$newSimpleName") {
+                        val resolved = ref.resolve() as? PsiClass
+                        val qualified = resolved?.qualifiedName
+                        when {
+                            // Unresolved is a compile error and belongs to the compile gate.
+                            resolved == null -> receiverUnresolved++
+                            // An anonymous or local class has no qualified name to compare against,
+                            // and those key shapes are a known oracle artifact: reported, not held
+                            // against the run.
+                            qualified == null -> {
+                                receiverChecked++
+                                receiverUnqualified++
+                            }
+                            qualified == "$newFqn" -> receiverChecked++
+                            else -> {
+                                receiverChecked++
+                                receiverForeign++
+                                foreignOwners.add(qualified)
+                            }
+                        }
+                    }
+                    true
+                },
+                scope, "$newSimpleName",
+                com.intellij.psi.search.UsageSearchContext.IN_CODE, true,
+            )
+            println("POST_RECEIVER_CHECKED " + receiverChecked)
+            println("POST_RECEIVER_FOREIGN " + receiverForeign)
+            println("POST_RECEIVER_UNQUALIFIED " + receiverUnqualified)
+            println("POST_RECEIVER_UNRESOLVED " + receiverUnresolved)
+            foreignOwners.toSortedSet().forEach { println("POST_RECEIVER_FOREIGN_SITE " + it) }
+
+            // P8: the old simple name must not survive as this type's own qualified name, and must
+            // not come back as a subtype of the renamed type — the deprecated empty interface the
+            // prompt forbids, which every reference-based predicate would let through.
+            val shims = cache.getClassesByName("$oldSimpleName", scope).toList().filter { c ->
+                c.qualifiedName == "$oldFqn" ||
+                    (renamed != null && c !== renamed && c.isInheritor(renamed, true))
+            }
+            println("POST_SHIM_DECLS " + shims.size)
+            for (shim in shims.sortedBy { it.textOffset }) {
+                println("POST_SHIM_DECL " + (shim.qualifiedName ?: "<anonymous>"))
             }
 
             println("POST_TOTAL_NEW_REFS " + refs.size)

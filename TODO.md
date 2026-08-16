@@ -424,12 +424,17 @@
   the shell arm's collapsed ($2.89 → $1.06). The same defect produced the "446 against a gold of 445"
   conservation miss in both arms. Cite those runs only as evidence about the harness.
 
-- [ ] **Pin-verify the retargeted `rename-method-wide` numbers in Docker.** `KeycloakContext#setRealm`'s
-  496 references / 109 files come from the `SURVEY_CANDIDATE` line of run
-  `run-20260814-122936-ripple-target-survey`, and the 37 decoys from the documented
-  `sameNameDeclarations − overrides` formula — not from a fresh `DECOY_VERIFY` / `GOLD_*` capture. The
-  14-module compile gate has also never had its offline `test-compile` proven, and a module that fails
-  there voids the arm rather than grading it.
+- [x] **Pin-verify of the retargeted `rename-method-wide` numbers is DONE.** Run
+  `run-20260816-185913-ripple-target-survey` (`-Dripple.survey.phases=text-ambiguity,decoys,pins`,
+  local Docker, 3m15s wall) printed `[PIN-VERIFY] org.keycloak.models.KeycloakContext#setRealm:
+  measured 496 references over 109 files, 37 decoys, 0 declarations of 'bindRealm', 0 files with a
+  string literal naming it` against the pinned 496 / 109 / 37 — `tripwires PASS`. The same run's
+  `DECOY_VERIFY` matched both change-signature pins (`Resource#getId` 1018 of 1022,
+  `Attributes#contains` 18 of 20). So 496/109/37 is no longer a formula.
+- [ ] **The 14-module compile gate of `rename-method-wide` still has no proven offline `test-compile`.**
+  A module that fails there voids the arm rather than grading it. Unchanged by the retarget decision
+  below (the target was KEPT, so the gate list is the one already pinned) — but it is a Maven run on
+  an untouched tree, not a PSI query, and it has still never been made.
 - [ ] **Run all eight ripple configurations on one revision.** The matrix currently spans `.655`–`.658`,
   so cross-scenario comparison is not valid. The configurations have no VCS trigger — they must be
   started by hand after a push to `jb`.
@@ -452,3 +457,95 @@
   VCS trigger). The Codex half has never run before, so a failure there is as likely to be
   configuration as it is to be the case. Read the tool-call split per arm first; SUCCESS alone repeats
   the mistake of the `de26f1999` round.
+- [ ] **`RIPPLE_IDE_CALL_SHARE_THRESHOLD` is deliberately null until the `6c35a0d8c` series is read.**
+  Every arm now prints and persists its tool split (`[RIPPLE]   tools:` / `tool errors:` /
+  `comparable:`) and the run summary carries a `ripple.comparability` object, but no run is judged:
+  the mcp arm reports `UNKNOWN` because the threshold has no honest source yet. Take the number from
+  the distribution of IDE-call shares across the fourteen in-flight builds — NOT from `1032465247`
+  (6 of 44), which is one build and the very run the gate was invented to describe — then record in
+  the constant's KDoc which builds were read and where in that distribution it sits. `UNKNOWN` also
+  covers a run whose decoded transcript is missing, which must never be conflated with an arm that
+  did not call the IDE.
+- [x] **The ripple run summary is published AND read.** `writeArenaRunSummary` writes a second copy
+  into the per-run directory that `TeamCityArtifactPostProcess.buildPublishTree` bundles, so the JSON
+  leaves a CI build, and the ripple grade (`ripple_success`, compile gate, all-predicates,
+  f1/recall/precision, extra predicates, gold pins) lives under a `ripple` key. `:experiments-report`
+  now routes `ripple__*` into its own `ScenarioBucket.RIPPLE` (the ids read `ripple__keycloak__…`, so
+  without an explicit route they matched no prefix and fell into `OTHER`), parses the `ripple` object
+  and its nested `comparability` block, and `AgentRun.succeeded()` prefers `ripple_success` over the
+  shared `objective_success` — which is exactly the trap that would have published
+  `change-signature-wide` as a baseline success on the run where the baseline fails `P5_ARITY`.
+- [ ] **The n=3 series itself has NOT been run.** `rippleSeries` (`experiments-report`) aggregates
+  repeats off `InputReader.readAll().allBuilds` — never `latest`, which keeps one build per leg and
+  would silently turn three repeats into a median of one — and renders a section of its own with, per
+  arm: attempts used/total, ripple SUCCESS count, median and observed min…max of cost/turns/agent
+  time, the token split into fixed overhead (cache-read + input) and work (output), every excluded
+  attempt with its build id and reason, and one paired statement per case. The statement refuses to
+  name a difference below three usable pairs or one whose paired range straddles zero. What remains is
+  operational and cannot be done from a workstation session: start 3 repeats per (case × agent) on ONE
+  revision on TeamCity by hand (these configurations have no VCS trigger), not in parallel, and point
+  the collector at the resulting builds. Until those builds exist, every ripple leg reports
+  `UNKNOWN` comparability and the report will say `insufficient repeats` — by design, not as a bug.
+- [ ] **The fourteen builds in flight on `6c35a0d8c` have not been read into the report yet.** They are
+  the baseline sample the comparability threshold is supposed to come from (see the
+  `RIPPLE_IDE_CALL_SHARE_THRESHOLD` item above) and the first real input for the new ripple section.
+  Note they predate the summary-publication change if their agents ran before it landed — in that case
+  the tool split must still be read out of the `[RIPPLE]` lines in the build log, and the JSON path
+  starts with the next series.
+- [ ] **`P7_RECEIVER` / `P8_NO_SHIM` have never fired on a real run.** Both rename kinds now contribute
+  them (`RippleTarget.extraPredicates`, parsed fail-fast by `parseReceiverPredicate` /
+  `parseNoShimPredicate`), and the post-condition script reports `POST_RECEIVER_CHECKED / FOREIGN /
+  UNQUALIFIED / UNRESOLVED` plus every foreign owner and every surviving old-name declaration, printed
+  by `rippleStructuralPredicateDetail`. Only the fixture tests have exercised them. Read the FIRST
+  failure by hand before treating it as a signal: an owner with no qualified name is an artifact of the
+  key shape (already excluded), but an unexpected foreign owner may still be one. `P8_NO_SHIM` is the
+  weaker of the two on purpose — agents rarely leave a forwarder — so a series where only P7 ever moves
+  is the expected shape, not a defect.
+- [x] **All three rename cases now carry a MEASURED text-ambiguity reading, and none of them is
+  retargeted.** From `run-20260816-185913-ripple-target-survey`
+  (`-Dripple.survey.phases=text-ambiguity`), as `textual | resolved | foreign call sites`:
+  `rename-method-wide` `KeycloakContext#setRealm` **696 | 496 | 151**; `rename-type-wide`
+  `org.keycloak.validate.ValidationContext` **593 | 198 | 74**; `rename-type-narrow`
+  `org.keycloak.tests.utils.KeyUtils` **496 | 12 | 287**. All three DISCRIMINATE (textual strictly
+  above resolved) and all three have a non-zero foreign CALL-SITE trap, so the retarget rule fires on
+  none of them — `KeycloakContext#setRealm`, the suspect, turns out to have 151 foreign call sites a
+  textual replacement would rewrite. In every case `resolvedReferences` came back equal to the pinned
+  `expectedGoldReferences` (496 / 198 / 12), i.e. an independent query reproduced the gold pin.
+  `RippleTextAmbiguityTest` now REQUIRES a measured pin with a foreign trap for every rename case, so
+  a future target cannot be admitted on argument again.
+  **Consequence for the plan:** the `de26f1999` tie on `rename-method-wide` is NOT explained by a
+  target a text tool cannot get wrong. The remaining explanations are the ones step 1 is measuring —
+  the mcp arm barely calling the IDE — or the agent doing the semantic work by reading files.
+  Why the metric exists, kept for the next reader: a case used to be admitted on FAN-OUT (references,
+  files, modules) and on same-named DECLARATIONS, and neither says a textual solution must fail — a
+  declaration nobody calls is never touched by a replacement of call sites. The metric
+  (`RippleTargetSurveyScripts.textAmbiguity`, survey phase `text-ambiguity`, parser
+  `parseTextAmbiguity`) and its tripwire in `RippleCase.init`
+  (`textualOccurrences <= resolvedReferences` rejects the case, naming the run) are what replaced
+  that argument with a measurement. Never transcribe a number no run printed.
+- [ ] **The final ripple verdict is UNDECIDED, and the rule for reaching it is now written down.**
+  The publication contract lives in two mirrored places — `TEAMCITY-WHITEPAPER.md` §9f (§9f.1 why the
+  cost criterion currently points against us, §9f.2 comparability, §9f.3 the withdrawn series, §9f.4
+  case admission, §9f.5 what the report may say, §9f.6 the four kill criteria, §9f.7 forbidden moves,
+  §9f.8 what is pending) and
+  `docs/superpowers/specs/2026-08-16-keycloak-ripple-kill-criteria-and-publication-contract.md`.
+  Both were written **before** the deciding series on purpose, and both carry an explicitly EMPTY
+  result slot. The four outcomes are: (1) IDE really used, quality equal, cost lower → publish the
+  intended claim with spread and exclusion count; (2) IDE really used, quality equal, cost still
+  higher → publish the NEGATIVE result and move the claim to a task class where a shell physically
+  cannot answer (call hierarchy through a generic interface, implementors, runtime state in the
+  debugger) — never to "cheaper"; (3) baseline stably fails `P7_RECEIVER` / `P8_NO_SHIM` → headline
+  moves back to correctness; (4) the mcp arm still does not call its tools → fix the CASE, not the
+  brief. Forbidden, written down so it cannot be rationalised later: breaking the baseline with the
+  prompt, narrowing the decoy set, publishing n=1, restoring the withdrawn pre-`5ae147d29` series as
+  anything but harness evidence, tuning `RIPPLE_IDE_CALL_SHARE_THRESHOLD` after seeing which side of
+  it a run falls on, weakening the oracle, and naming a difference that lies inside the observed
+  spread. **Numbers on the record so far, all measured:** `de26f1999` equal quality, mcp $12.13 vs
+  none $7.98 (+52 %), output tokens +62 %, turns near equal; `1032465247` mcp arm 6 tool calls
+  against 38 Bash. **What must happen before this item can be closed:** read the fourteen
+  `6c35a0d8c` builds and take the threshold from their distribution; run 3 repeats per (case × agent)
+  on ONE revision; prove the offline `test-compile` of the 14-module compile gate; read the first
+  real `P7_RECEIVER` / `P8_NO_SHIM` failure by hand. Then fill the result slot in BOTH documents with
+  the build ids, medians, spreads, exclusions and the selected outcome number — and change nothing
+  above it. If outcome 2 fires, raise the replacement showcase as a SEPARATE task; do not start it
+  in this track.

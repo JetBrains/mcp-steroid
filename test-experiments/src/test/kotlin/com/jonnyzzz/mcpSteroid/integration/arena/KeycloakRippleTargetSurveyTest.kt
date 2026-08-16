@@ -48,6 +48,12 @@ class KeycloakRippleTargetSurveyTest {
         DECOYS("decoys"),
 
         /**
+         * Measures [TextAmbiguity] for every rename case in the registry — the admission metric that
+         * says whether a TEXT search must get the case wrong. See [reportTextAmbiguity].
+         */
+        TEXT_AMBIGUITY("text-ambiguity"),
+
+        /**
          * Runs the retargeted pilot's own CAPTURE script and its tripwires — the exact code an arm
          * runs before the agent starts. See [verifyPilotPins].
          */
@@ -105,6 +111,7 @@ class KeycloakRippleTargetSurveyTest {
                     SurveyPhase.RENAME_METHOD -> surveyRenameMethod(session)
                     SurveyPhase.PINS -> verifyPilotPins(session)
                     SurveyPhase.DECOYS -> verifyPinnedDecoyCounts(session)
+                    SurveyPhase.TEXT_AMBIGUITY -> reportTextAmbiguity(session)
                 }
             }
         } finally {
@@ -315,6 +322,46 @@ class KeycloakRippleTargetSurveyTest {
             val verdict = if (found.decoys == pin) "MATCHES" else "MISMATCH — the pin would abort this case"
             println("[DECOY-VERIFY] ${target.targetDescription}: measured decoys=${found.decoys} " +
                 "(same simple name=${found.sameSimpleName}), pinned=$pin — $verdict")
+        }
+    }
+
+    /**
+     * Measure the text-ambiguity metric of every rename case and print the verdict per target.
+     *
+     * Reported, never asserted, exactly like [verifyPinnedDecoyCounts]: this class prints numbers for
+     * transcription into the registry, and the enforcement lives in `RippleCase.init` via
+     * [TextAmbiguityPin.requireAdmissible] — a case that does not discriminate must be RETARGETED,
+     * which is a registry edit and not a broken harness.
+     *
+     * All three rename cases were filled by `run-20260816-185913-ripple-target-survey`, so the useful
+     * output of this phase now is the MATCHES / stale comparison against the registry pin; a pin that
+     * is still [TextAmbiguityPin.Unmeasured] prints its stated reason instead of a number.
+     */
+    private fun reportTextAmbiguity(session: IntelliJContainer) {
+        val renameCases = RippleCases.all.filter { it.target.needsTextAmbiguityPin() }
+        val output = session.mcpSteroid.mcpExecuteCode(
+            code = RippleTargetSurveyScripts.textAmbiguity(renameCases),
+            reason = "Measure the text-ambiguity metric of every rename case in the registry",
+            taskId = "ripple-text-ambiguity",
+            timeout = 3_600,
+        ).stdout
+
+        val readings = parseTextAmbiguity(output).associateBy { it.targetDescription }
+        for (case in renameCases) {
+            val reading = readings[case.target.targetDescription]
+                ?: error("No SURVEY_TEXT_AMBIGUITY line for ${case.target.targetDescription}:\n$output")
+            println("[TEXT-AMBIGUITY] ${case.instanceId}: ${reading.report()}")
+            when (val pin = case.textAmbiguity) {
+                is TextAmbiguityPin.Measured ->
+                    println("[TEXT-AMBIGUITY]   pinned: ${pin.reading.report()} (from ${pin.source}) — " +
+                        if (pin.reading == reading) "MATCHES" else "MISMATCH — the registry pin is stale")
+                is TextAmbiguityPin.Unmeasured ->
+                    println("[TEXT-AMBIGUITY]   pin is UNMEASURED: ${pin.reason}")
+                TextAmbiguityPin.NotApplicable ->
+                    error("${case.instanceId} renames a name but pins NotApplicable")
+            }
+            println("[TEXT-AMBIGUITY]   resolved references pinned as expectedGoldReferences: " +
+                "${case.expectedGoldReferences}, measured now: ${reading.resolvedReferences}")
         }
     }
 

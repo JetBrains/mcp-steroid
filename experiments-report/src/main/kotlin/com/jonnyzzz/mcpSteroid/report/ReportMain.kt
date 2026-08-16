@@ -19,6 +19,8 @@ fun buildReport(inputDir: File, title: String, generatedAt: String): Report {
         // generatedAt is the "now" of the recency weighting — the clock is threaded through, the
         // pure pipeline never reads the wall clock itself.
         histories = runHistories(collected.allBuilds, parseFinishDate(generatedAt)),
+        // The n=3 series lives on allBuilds by construction: latestBuildOnly() drops every repeat.
+        rippleSeries = rippleSeries(collected.allBuilds),
     )
 }
 
@@ -47,6 +49,20 @@ fun main(args: Array<String>) {
     println("[report] runs=${report.allRuns.size} comparisons=${report.comparisons.size}")
     for (s in summaries) {
         println("[report]   ${s.agent}: ${s.helped} helped, ${s.hurt} hurt, ${s.neutral} neutral, ${s.incomplete} incomplete")
+    }
+    // The ripple series is printed too: its statement is the line the whitepaper quotes, and it must be
+    // readable from a build log without opening the HTML.
+    for (s in report.rippleSeries) {
+        println("[report]   ripple ${s.scenario}/${s.agent}: ${s.statement}")
+        for (leg in listOfNotNull(s.withMcp, s.without)) {
+            val arm = if (leg.mode == McpMode.WITH) "mcp " else "shell"
+            println(
+                "[report]     $arm n=${leg.includedInCost}/${leg.attempts} used · " +
+                    "median cost=${leg.medianCostUsd?.let { "%.2f".format(it) } ?: "?"} · " +
+                    "excluded=${leg.exclusions.size} · unknown=${leg.unknownComparability}"
+            )
+            for (x in leg.exclusions) println("[report]       excluded build ${x.buildId}: ${x.reason}")
+        }
     }
     println("[report] wrote ${outFile.absolutePath}")
 }

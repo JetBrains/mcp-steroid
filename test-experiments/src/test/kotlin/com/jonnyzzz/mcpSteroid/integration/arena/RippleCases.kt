@@ -60,6 +60,26 @@ object RippleCases {
      *
      * `bindRealm` is free at the base commit: zero occurrences anywhere in the tree
      * (`git grep -l bindRealm` over the bare repository returns nothing).
+     *
+     * **What none of the numbers above establishes, and what the family learned the hard way.** Every
+     * count here is about REACH (496 references, 109 files, 14 modules) or about same-named
+     * DECLARATIONS (37). A declaration is not a trap for a textual replacement: `sed` rewrites CALL
+     * sites, and a `setRealm` declared on `SamlProtocol` that nothing in the tree calls is never
+     * touched by it. So the argument three paragraphs up — "a text replace of `setRealm(` cannot tell
+     * `context.setRealm(realm)` from `protocol.setRealm(realm)`" — is stated about declarations and
+     * only holds for the foreign declarations that are actually CALLED, which this case never
+     * measured. On `de26f1999` the arms tied here at f1 1.0000, which is the reading that argument
+     * predicts when the number of foreign call sites is small.
+     *
+     * [TextAmbiguity] is the measurement that settles it, and it has now been made. The
+     * text-ambiguity survey phase at the base commit (log `run-20260816-185913-ripple-target-survey`)
+     * printed `SURVEY_TEXT_AMBIGUITY rename-method|org.keycloak.models.KeycloakContext|setRealm|696|496|151`:
+     * 696 places in code spell the word `setRealm`, only 496 of them reference this method, and 151
+     * are CALL sites of same-named declarations outside this method's override family. So the trap
+     * is real and measured — a blind textual replacement of `setRealm` rewrites 151 call sites it
+     * must not touch — and the target is KEPT rather than retargeted. The tie on `de26f1999` was
+     * therefore not caused by a target a text tool cannot get wrong; whatever explains it, it is not
+     * this.
      */
     val renameMethodWideTarget: RenameMethod = RenameMethod(
         targetClassFqn = "org.keycloak.models.KeycloakContext",
@@ -101,6 +121,20 @@ object RippleCases {
         // own override family (DefaultKeycloakContext) is excluded, because a correct solution MUST
         // rename that too.
         expectedDecoyDeclarations = 37,
+        // Measured, not argued: 696 textual occurrences against 496 real references, and 151 foreign
+        // CALL sites a text replacement would rewrite. `resolvedReferences` is the same 496 pinned as
+        // expectedGoldReferences above, read back by an independent query in the same run.
+        textAmbiguity = TextAmbiguityPin.Measured(
+            reading = TextAmbiguity(
+                kind = "rename-method",
+                ownerFqn = "org.keycloak.models.KeycloakContext",
+                name = "setRealm",
+                textualOccurrences = 696,
+                resolvedReferences = 496,
+                foreignSameNameCallSites = 151,
+            ),
+            source = "run-20260816-185913-ripple-target-survey",
+        ),
         compileGateModules = listOf(
             "integration-arquillian-tests-base",
             "keycloak-admin-v2-services",
@@ -145,6 +179,19 @@ object RippleCases {
         expectedGoldReferences = 198,
         expectedGoldFiles = 41,
         expectedDecoyDeclarations = 3,
+        // Measured in run-20260816-185913-ripple-target-survey:
+        // SURVEY_TEXT_AMBIGUITY rename-type|org.keycloak.validate.ValidationContext|ValidationContext|593|198|74
+        textAmbiguity = TextAmbiguityPin.Measured(
+            reading = TextAmbiguity(
+                kind = "rename-type",
+                ownerFqn = "org.keycloak.validate.ValidationContext",
+                name = "ValidationContext",
+                textualOccurrences = 593,
+                resolvedReferences = 198,
+                foreignSameNameCallSites = 74,
+            ),
+            source = "run-20260816-185913-ripple-target-survey",
+        ),
         compileGateModules = listOf(
             "keycloak-server-spi",
             "keycloak-server-spi-private",
@@ -204,6 +251,7 @@ object RippleCases {
         target = changeSignatureWideTarget,
         expectedGoldReferences = 104,
         expectedGoldFiles = 49,
+        textAmbiguity = TextAmbiguityPin.NotApplicable,
         // 1021 declarations share the simple name at the base commit; the three that implement the
         // target — `ResourceAdapter` (infinispan), `ResourceAdapter` (jpa) and `ResourceWrapper`,
         // one `getId()` each, no further subtypes and no anonymous implementers — are excluded by
@@ -254,6 +302,22 @@ object RippleCases {
         expectedGoldReferences = 12,
         expectedGoldFiles = 3,
         expectedDecoyDeclarations = 3,
+        // Measured in run-20260816-185913-ripple-target-survey:
+        // SURVEY_TEXT_AMBIGUITY rename-type|org.keycloak.tests.utils.KeyUtils|KeyUtils|496|12|287
+        // The sharpest reading in the family: 496 places spell `KeyUtils`, only 12 of them reference
+        // this class, and 287 are call sites of the OTHER same-named classes (chiefly
+        // org.keycloak.common.util.KeyUtils). A textual rename here is wrong 287 times over.
+        textAmbiguity = TextAmbiguityPin.Measured(
+            reading = TextAmbiguity(
+                kind = "rename-type",
+                ownerFqn = "org.keycloak.tests.utils.KeyUtils",
+                name = "KeyUtils",
+                textualOccurrences = 496,
+                resolvedReferences = 12,
+                foreignSameNameCallSites = 287,
+            ),
+            source = "run-20260816-185913-ripple-target-survey",
+        ),
         compileGateModules = listOf("keycloak-tests-utils"),
         declaringModuleArtifactId = "keycloak-tests-utils",
         consumerModuleArtifactId = "keycloak-tests-utils",
@@ -307,6 +371,7 @@ object RippleCases {
         target = changeSignatureNarrowTarget,
         expectedGoldReferences = 11,
         expectedGoldFiles = 1,
+        textAmbiguity = TextAmbiguityPin.NotApplicable,
         expectedDecoyDeclarations = 18,
         compileGateModules = listOf("keycloak-server-spi", "keycloak-server-spi-private"),
         declaringModuleArtifactId = "keycloak-server-spi",
@@ -348,6 +413,7 @@ object RippleCases {
         target = moveClassWideTarget,
         expectedGoldReferences = 145,
         expectedGoldFiles = 50,
+        textAmbiguity = TextAmbiguityPin.NotApplicable,
         expectedDecoyDeclarations = 4,
         compileGateModules = listOf(
             "keycloak-server-spi-private",
@@ -387,6 +453,7 @@ object RippleCases {
         target = moveClassNarrowTarget,
         expectedGoldReferences = 9,
         expectedGoldFiles = 3,
+        textAmbiguity = TextAmbiguityPin.NotApplicable,
         expectedDecoyDeclarations = 3,
         compileGateModules = listOf(
             "keycloak-model-infinispan",
