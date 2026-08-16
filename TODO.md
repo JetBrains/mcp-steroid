@@ -409,3 +409,19 @@
   Clion/ClionEap/Idea/IdeaEap/Pycharm/PycharmEap/Rider and all fail on RiderEap, so `:prompts:test` cannot
   go green for any article regardless of its content. Either gate the file behind the availability of the
   Java inspection API or keep it off the fence classpath.
+
+## Keycloak semantic-ripple family
+
+- [ ] **Pin-verify the retargeted `rename-method-wide` numbers in Docker.** `KeycloakContext#setRealm`'s
+  496 references / 109 files come from the `SURVEY_CANDIDATE` line of run
+  `run-20260814-122936-ripple-target-survey`, and the 37 decoys from the documented
+  `sameNameDeclarations − overrides` formula — not from a fresh `DECOY_VERIFY` / `GOLD_*` capture. The
+  14-module compile gate has also never had its offline `test-compile` proven, and a module that fails
+  there voids the arm rather than grading it.
+- [ ] **Run all eight ripple configurations on one revision.** The matrix currently spans `.655`–`.658`,
+  so cross-scenario comparison is not valid. The configurations have no VCS trigger — they must be
+  started by hand after a push to `jb`.
+- [ ] **Regressions are now reported as UNKNOWN for every ripple arm** (the synthetic baseline is gone).
+  If the family ever needs a real regression number, it needs a real pre-agent `fullSuiteSnapshot`, and
+  the whole-reactor Keycloak suite does not fit the harness timeout — scope it to the touched modules
+  plus their reverse dependencies first.
