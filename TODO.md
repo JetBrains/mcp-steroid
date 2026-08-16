@@ -447,3 +447,8 @@
 - [ ] **Three repeats per configuration per revision.** `rename-type-wide` separated the arms twice on
   `.658` and tied on `de26f1999`; one run per configuration cannot tell "the case does not separate"
   from "this run got lucky".
+- [ ] **Series in flight on `6c35a0d8c`: all seven cases × Claude AND × Codex** (builds
+  `1032490553`…`1032490573`, `1032503275`…`1032503279`, started by hand — these configurations have no
+  VCS trigger). The Codex half has never run before, so a failure there is as likely to be
+  configuration as it is to be the case. Read the tool-call split per arm first; SUCCESS alone repeats
+  the mistake of the `de26f1999` round.
