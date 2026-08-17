@@ -82,8 +82,23 @@ fun Test.configureExperimentalTest() {
     // DockerCodexSession, and arena pass reporting) — these are precise keys, not a prefix family.
     // `ripple.survey.phases` selects which measurements KeycloakRippleTargetSurveyTest performs, so a
     // locked slot is not re-measured at the cost of the IDE's whole budget.
-    listOf("claude.model", "codex.model", "arena.pass.label", "ripple.survey.phases")
-        .forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
+    // Each key also has an environment-variable spelling, because TeamCity's Gradle runner does NOT put
+    // `system.*` build parameters on the Gradle command line for these builds: a `-Sclaude.model=…`
+    // override is silently ignored and the run measures the DEFAULT model instead (verified on builds
+    // 1032824130 / 1032824136, which reported `--model claude-opus-5` / `--model gpt-5.6-sol` under an
+    // explicit `-S` override). `env.*` build parameters DO reach the step environment — that is how the
+    // agent API keys already arrive — so an unattended TC run selects its model via `-E CLAUDE_MODEL=…`.
+    // The system property wins when both are present, so a local `-Dclaude.model=…` keeps working.
+    mapOf(
+        "claude.model" to "CLAUDE_MODEL",
+        "codex.model" to "CODEX_MODEL",
+        "arena.pass.label" to "ARENA_PASS_LABEL",
+        "ripple.survey.phases" to "RIPPLE_SURVEY_PHASES",
+    ).forEach { (key, envName) ->
+        val value = System.getProperty(key)?.takeIf { it.isNotBlank() }
+            ?: System.getenv(envName)?.takeIf { it.isNotBlank() }
+        value?.let { systemProperty(key, it) }
+    }
 
     dependsOn(pluginZip, agentOutputFilterDist, devrigPackageDist)
     doFirst {
