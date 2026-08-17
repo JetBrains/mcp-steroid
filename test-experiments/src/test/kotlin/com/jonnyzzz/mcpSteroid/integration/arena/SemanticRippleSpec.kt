@@ -51,15 +51,20 @@ object SemanticRippleSpec {
      * it by hand would be a hand-maintained copy of `-am`. `-fae` because the reactor cannot be built
      * to completion — the distribution modules need a `:zip` artifact only their own profile produces
      * — and those failures must not stop the modules this track actually needs. So the exit code of
-     * this command is not evidence of anything; the pre-agent compile gate is what proves the
+     * this command is not evidence of anything BY ITSELF; the pre-agent compile gate is what proves the
      * environment, and it fails the run when it cannot pass.
+     *
+     * The one exception is a network failure, which `-fae` turns into a cascade — see
+     * [REACTOR_INSTALL_ATTEMPTS]. [resumeFrom] carries Maven's own resume point (`-rf :artifactId`) so
+     * that retry rebuilds the failed module and everything skipped after it, not the ~150 modules that
+     * already installed successfully.
      */
-    fun reactorInstallArgs(): List<String> = listOf(
+    fun reactorInstallArgs(resumeFrom: String? = null): List<String> = listOf(
         "install",
         "-P", reactorProfile,
         "-DskipTests",
         "-fae",
-    )
+    ) + (resumeFrom?.let { listOf("-rf", it) } ?: emptyList())
 
     const val projectJdkVersion: String = "21"
 
