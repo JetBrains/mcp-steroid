@@ -12,9 +12,41 @@ class SemanticRippleCompileGateTest {
 
     @Test
     fun `gate compiles test sources, not just main`() {
-        assertTrue(script.contains("test-compile")) {
-            "All 445 references live in test sources; `compile` alone would not see them:\n$script"
+        assertTrue(script.contains("package")) {
+            "All 445 references live in test sources, and `package` runs the test-compile phase:\n$script"
         }
+        assertTrue(script.contains("-DskipTests")) {
+            "-DskipTests skips test EXECUTION only, so test sources still compile:\n$script"
+        }
+        assertFalse(script.contains("maven.test.skip")) {
+            "-Dmaven.test.skip would skip test COMPILATION and blind the gate:\n$script"
+        }
+    }
+
+    @Test
+    fun `gate packages its reactor so a clean cannot read as a missed call site`() {
+        assertTrue(script.contains("package")) { script }
+        assertFalse(Regex("""\btest-compile\b""").containsMatchIn(script)) {
+            "test-compile leaves integration-arquillian-testsuite-providers unpackaged, and " +
+                "integration-arquillian-tests-base copies it as a jar (MDEP-187), so the gate would " +
+                "only pass while a jar from the pre-agent install survived in target/ — any `mvn clean` " +
+                "the agent ran turned the gate into a FAIL unrelated to the refactoring:\n$script"
+        }
+    }
+
+    @Test
+    fun `every case whose gate reactor holds the providers module packages it`() {
+        RippleCases.all
+            .filter { it.compileGateModules.contains("integration-arquillian-testsuite-providers") }
+            .also { cases ->
+                assertTrue(cases.isNotEmpty()) {
+                    "The MDEP-187 trap is what this test guards; a registry without that module " +
+                        "would make it vacuous"
+                }
+            }
+            .forEach { case ->
+                assertTrue(case.compileGateArgs().contains("package")) { case.instanceId }
+            }
     }
 
     @Test

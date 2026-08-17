@@ -74,13 +74,27 @@ data class RippleCase(
     fun compileGateSelectors(): List<String> = compileGateModules.map { ":$it" }
 
     /**
-     * Maven arguments for the compile gate. `test-compile` rather than `compile` because references
-     * live in test sources as well as main ones and `test-compile` compiles both; `-pl` without
-     * `-am` because the harness prewarm already installed the siblings, and `-am` OOM-kills the
-     * container.
+     * Maven arguments for the compile gate.
+     *
+     * `package` rather than `test-compile`, even though compiling is all this gate wants to measure:
+     * `test-compile` leaves every selected module UNPACKAGED, and one module of this reactor consumes
+     * a sibling of it as a jar. `integration-arquillian-tests-base` runs
+     * `dependency:copy-dependencies` over `integration-arquillian-testsuite-providers`, and Maven
+     * answers `Artifact has not been packaged yet … MDEP-187` whenever that sibling is in the same
+     * reactor without a jar. Under `test-compile` the gate therefore passed only as long as a jar left
+     * by the pre-agent reactor install still sat in `target/`, so ANY `mvn clean` the agent ran (the
+     * shell arm's logs are full of `mvnw clean test-compile -pl …`) turned the next gate into a FAIL
+     * that had nothing to do with the refactoring — measured on builds 1032607581 (v3) and 1032995293
+     * (v4), both reporting `f1 1.0000, missed sites 0` beside `compile gate FAIL`, and exactly on the
+     * two cases whose gate reactor holds the providers module. `package` builds that jar in the same
+     * session, before the module that copies it, so the gate measures the tree again.
+     *
+     * `-DskipTests` skips test EXECUTION only, so `package` still compiles test sources — where most
+     * references live. `-pl` without `-am` because the harness prewarm already installed the
+     * siblings, and `-am` OOM-kills the container.
      */
     fun compileGateArgs(): List<String> = listOf(
-        "test-compile",
+        "package",
         "-P", SemanticRippleSpec.reactorProfile,
         "-pl", compileGateSelectors().joinToString(","),
         "-DskipTests",

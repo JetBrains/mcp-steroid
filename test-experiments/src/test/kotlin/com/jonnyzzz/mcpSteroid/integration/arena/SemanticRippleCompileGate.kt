@@ -21,7 +21,10 @@ data class CompileGateResult(
  * exists in that form, which is a compile error. Scoping to the declaring module plus every module
  * holding a reference is therefore complete — no reference exists outside that set.
  *
- * `test-compile` rather than `compile` because references live in test sources. `-pl` without `-am`
+ * `package -DskipTests` rather than `test-compile`: it still compiles test sources, where the
+ * references live, AND it leaves a jar on every selected module — without which
+ * `integration-arquillian-tests-base` cannot copy its sibling providers artifact and reports
+ * `MDEP-187` instead of a compile verdict. See [RippleCase.compileGateArgs]. `-pl` without `-am`
  * because the harness prewarm already installed the siblings, and `-am` OOM-kills the container.
  *
  * Takes the case rather than reading one by name, which is what made the family's second case grow a

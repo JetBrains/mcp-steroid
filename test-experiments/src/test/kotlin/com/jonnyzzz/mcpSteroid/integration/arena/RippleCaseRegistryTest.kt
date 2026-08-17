@@ -48,7 +48,10 @@ class RippleCaseRegistryTest {
                 case.compileGateModules.distinct().size, case.compileGateModules.size,
             ) { case.instanceId }
             assertFalse(case.compileGateArgs().contains("-am")) { case.instanceId }
-            assertTrue(case.compileGateArgs().contains("test-compile")) { case.instanceId }
+            // `package`, not `test-compile`: the providers module must carry a jar before
+            // integration-arquillian-tests-base copies it — see RippleCase.compileGateArgs.
+            assertTrue(case.compileGateArgs().contains("package")) { case.instanceId }
+            assertTrue(case.compileGateArgs().contains("-DskipTests")) { case.instanceId }
 
             assertTrue(case.expectedGoldReferences > 0) { case.instanceId }
             assertTrue(case.expectedGoldFiles > 0) { case.instanceId }
