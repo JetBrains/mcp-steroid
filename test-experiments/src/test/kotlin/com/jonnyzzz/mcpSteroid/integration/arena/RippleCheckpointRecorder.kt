@@ -111,8 +111,8 @@ private val checkpointJson = Json { prettyPrint = true }
  *
  * Everything lives NEXT TO [gitDir] — the counter, the hook script, the exported patches, the
  * metadata — so pointing [gitDir] inside the session's run dir is all it takes to have the whole
- * recording collected as a test artifact. The default is a plain `/checkpoints` for the preflight,
- * which throws its container away.
+ * recording collected as a test artifact. The default sits under [DEFAULT_CHECKPOINT_DIR] and is meant
+ * for the preflight, which throws its container away.
  *
  * [case], [arm] and [model] are the identity the exported metadata carries. They are not needed to
  * record a run, only to describe one, so they stay optional and [exportMetadata] refuses to write a
@@ -122,7 +122,7 @@ class RippleCheckpointRecorder(
     private val container: ContainerDriver,
     private val projectDir: String,
     private val targetSteps: List<Int>,
-    private val gitDir: String = "/checkpoints/.git",
+    private val gitDir: String = "$DEFAULT_CHECKPOINT_DIR/.git",
     private val case: String = "",
     private val arm: String = "",
     private val model: String = "",
@@ -284,6 +284,15 @@ class RippleCheckpointRecorder(
     }.awaitForProcessFinish()
 
     companion object {
+        /**
+         * Where a throwaway recording goes when the caller does not choose a directory.
+         *
+         * Under `/tmp` and not at the filesystem root: the agent container runs as an unprivileged user,
+         * so `mkdir /checkpoints` fails with `Permission denied` — measured, not assumed (TeamCity build
+         * 1034576458 died exactly there, before the hook could ever fire).
+         */
+        const val DEFAULT_CHECKPOINT_DIR: String = "/tmp/ripple-checkpoints"
+
         /** The metadata file [exportMetadata] writes next to the shadow git dir. */
         const val METADATA_FILE_NAME: String = "checkpoints.json"
 
