@@ -82,6 +82,9 @@ fun Test.configureExperimentalTest() {
     // DockerCodexSession, and arena pass reporting) — these are precise keys, not a prefix family.
     // `ripple.survey.phases` selects which measurements KeycloakRippleTargetSurveyTest performs, so a
     // locked slot is not re-measured at the cost of the IDE's whole budget.
+    // `ripple.checkpoint.*` address ONE cell of the solution-readiness pilot's grid (arm x checkpoint x
+    // replicate). They matter more than they look: the 50 probe builds differ ONLY by these three values,
+    // so a key that fails to arrive does not fail a build — it silently re-measures one cell 50 times.
     // Each key also has an environment-variable spelling, because TeamCity's Gradle runner does NOT put
     // `system.*` build parameters on the Gradle command line for these builds: a `-Sclaude.model=…`
     // override is silently ignored and the run measures the DEFAULT model instead (verified on builds
@@ -94,6 +97,9 @@ fun Test.configureExperimentalTest() {
         "codex.model" to "CODEX_MODEL",
         "arena.pass.label" to "ARENA_PASS_LABEL",
         "ripple.survey.phases" to "RIPPLE_SURVEY_PHASES",
+        "ripple.checkpoint.arm" to "RIPPLE_CHECKPOINT_ARM",
+        "ripple.checkpoint.index" to "RIPPLE_CHECKPOINT_INDEX",
+        "ripple.checkpoint.replicate" to "RIPPLE_CHECKPOINT_REPLICATE",
     ).forEach { (key, envName) ->
         val value = System.getProperty(key)?.takeIf { it.isNotBlank() }
             ?: System.getenv(envName)?.takeIf { it.isNotBlank() }
