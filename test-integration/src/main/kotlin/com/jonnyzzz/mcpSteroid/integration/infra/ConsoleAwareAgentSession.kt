@@ -5,6 +5,7 @@ import com.jonnyzzz.mcpSteroid.aiAgents.StdioMcpCommand
 import com.jonnyzzz.mcpSteroid.filter.filterText
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
 import com.jonnyzzz.mcpSteroid.testHelper.AiStartedProcess
+import com.jonnyzzz.mcpSteroid.testHelper.DockerClaudeSession
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessStreamType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,13 @@ import java.util.concurrent.atomic.AtomicInteger
  *  - `agent-{agentName}-{N}-decoded.txt`   — the human-readable decoded output
  */
 class ConsoleAwareAgentSession(
-    private val delegate: AiAgentSession,
+    /**
+     * The wrapped session, readable so a test can reach an agent-SPECIFIC seam this interface cannot
+     * carry — see [asDockerClaudeSession]. [AiAgentSession] is deliberately agent-agnostic, and a
+     * Claude Code settings file (`--settings`, used to register a `PostToolUse` hook) has no meaning
+     * for Codex or Gemini, so it will never appear on it.
+     */
+    val delegate: AiAgentSession,
     private val console: ConsoleDriver,
     private val agentName: String,
     private val logDir: File,
@@ -102,4 +109,19 @@ class ConsoleAwareAgentSession(
     override fun registerDevrigMcp(installDir: File, mcpName: String) {
         delegate.registerDevrigMcp(installDir, mcpName)
     }
+}
+
+/**
+ * The [DockerClaudeSession] behind an agent handed out by [AiAgentDriver], unwrapping the console
+ * decorator.
+ *
+ * Needed by callers of Claude-only seams — `useSettings` (hooks) and the resolved `model` — which the
+ * agent-agnostic [AiAgentSession] interface does not and should not carry. A wrong agent fails loudly
+ * here rather than silently doing nothing later: a hook that was never registered produces exactly the
+ * artifacts of a run that had no hook at all.
+ */
+fun AiAgentSession.asDockerClaudeSession(): DockerClaudeSession = when (this) {
+    is DockerClaudeSession -> this
+    is ConsoleAwareAgentSession -> delegate.asDockerClaudeSession()
+    else -> error("$displayName is not a Claude Code session (${this::class.simpleName})")
 }

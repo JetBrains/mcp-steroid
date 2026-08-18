@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
+import com.jonnyzzz.mcpSteroid.integration.infra.asDockerClaudeSession
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
@@ -75,7 +76,27 @@ abstract class RippleScenarioBaseTest {
     @Timeout(value = 180, unit = TimeUnit.MINUTES)
     fun `codex without mcp`() = runArm("codex", withMcp = false)
 
-    private fun runArm(agentName: String, withMcp: Boolean) {
+    /**
+     * One arm, unchanged, optionally RECORDED for the solution-readiness pilot.
+     *
+     * [recorderFactory] is a factory and not a ready [RippleCheckpointRecorder] because everything a
+     * recorder addresses — the container and the guest project dir it snapshots — is created inside this
+     * method. It is called once, after the gold capture (which is the harness's work, not the agent's,
+     * and must not be counted as a step) and before the agent's first tool call.
+     *
+     * With no factory, every statement below is the run this family has always performed: the two blocks
+     * the pilot adds are both inside `recorder`-guarded scopes, and `null` is the default so no existing
+     * case had to be touched.
+     *
+     * Public rather than protected because the capture test HOLDS an arm flow instead of extending it —
+     * a subclass would inherit this class's four graded `@Test` methods, and `--tests
+     * '*CheckpointCaptureTest*'` would then spend four extra Opus runs that record nothing.
+     */
+    fun runArm(
+        agentName: String,
+        withMcp: Boolean,
+        recorderFactory: ((session: IntelliJContainer, projectDir: String) -> RippleCheckpointRecorder)? = null,
+    ) {
         val rippleCase = case
         val testCase = rippleCase.dpaiaCase()
         val modeLabel = if (withMcp) "mcp" else "none"
@@ -139,6 +160,17 @@ abstract class RippleScenarioBaseTest {
             // Kept so a tamper verdict — which voids the arm — can print what actually changed. Build
             // 1029045444 lost a perfect mcp arm to a hash change no transcript accounted for.
             val preAgentOracle = verifier.snapshotOracleContents(testCase.testPatch, testCase.failToPass)
+
+            // The hook is registered on the very session the runner is about to drive, and only ever on
+            // Claude: the recorder's seam is a Claude Code `--settings` file, and a recorder handed to
+            // another agent would leave a run that is indistinguishable from an unrecorded one.
+            val recorder = recorderFactory?.let { factory ->
+                check(agentName == "claude") {
+                    "the checkpoint recorder registers a Claude Code PostToolUse hook, and $agentName has " +
+                        "no such seam — a recorded run of it would count nothing"
+                }
+                factory(session, projectDir).also { it.install(session.aiAgents.claude.asDockerClaudeSession()) }
+            }
 
             val runner = ArenaTestRunner(container = session.scope, projectGuestDir = projectDir)
             val result = runner.runTest(
@@ -313,6 +345,37 @@ abstract class RippleScenarioBaseTest {
             println("[RIPPLE] ════════════════════════════════════════")
             if (!gate.passed) {
                 println("[RIPPLE] compile gate tail:\n${gate.tail}")
+            }
+
+            // Recorded runs only. The verdict is PRINTED and never asserted: a capture that misses the
+            // representativeness band is a real measurement of this arm, and the operator — not the test
+            // — decides whether to spend another Opus run. The patches are exported after the [RIPPLE]
+            // block so the numbers are in the log even if a whole-tree git diff later fails.
+            recorder?.let { rec ->
+                val nActual = rec.stepCount()
+                val steps = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue(modeLabel))
+                val admission = admitCapture(
+                    reference = v3RenameMethodWideReference.getValue(modeLabel),
+                    success = success,
+                    steps = nActual,
+                    seconds = result.agentDurationMs / 1000,
+                    endContextTokens = metrics.tokenUsage?.totalTokens ?: 0L,
+                    lastCheckpointStep = steps.last(),
+                )
+                println("[CHECKPOINT] n=$nActual steps=$steps admitted=${admission.admitted}")
+                admission.reasons.forEach { println("[CHECKPOINT]   rejected: $it") }
+                // Only the positions the trajectory really passed through. Asking for a later tag would
+                // fail the build on a legitimately short run, which the admission verdict above already
+                // reports — and would throw away the patches of the states that WERE captured.
+                val reached = steps.filter { it <= nActual }
+                if (reached != steps) {
+                    println(
+                        "[CHECKPOINT] the run ended at $nActual steps, so ${steps - reached} were never " +
+                            "snapshotted — this capture cannot carry the full curve"
+                    )
+                }
+                reached.forEach { step -> rec.exportPatch(step) }
+                rec.exportMetadata(nActual)
             }
 
             // The run is a measurement, not a pass/fail on the agent's competence: a shell arm scoring
