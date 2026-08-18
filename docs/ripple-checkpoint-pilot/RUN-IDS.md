@@ -4,7 +4,7 @@ This file is the only link between a TeamCity build id and the cell it measured:
 `TAG_BUILD`/`COMMENT_BUILD` permission, so a build carries no marker of its coordinates beyond the
 parameters recorded on it. Fill a row the moment a build is queued, not afterwards.
 
-Series revision (`--revision`): `1e68a13a282985fa08a11960c099d799866128e2` on
+Series revision (`--revision`): `83798f22fb603050b63e3eccbae5693530a377c8` on
 `jb/worktree-semantic-ripple-pilot` — every build of one series must pin the same commit.
 
 Launch order and the reasoning behind it: `docs/ripple-checkpoint-pilot/RUNBOOK.md`.
@@ -13,9 +13,10 @@ Launch order and the reasoning behind it: `docs/ripple-checkpoint-pilot/RUNBOOK.
 
 | # | method | build id | status | n (steps) | agent s | end tok | admitted | note |
 |---|:---|---:|:---|---:|---:|---:|:---|:---|
-| 1 | `hookPreflight` | 1034576458 | | — | | — | — | counter ≥ 3 and a non-empty `step-2` patch |
-| 2 | `captureMcpArm` | | | | | | | v3 band: steps 22–41, 31.6 ± 7.1; 871 ± 411 s; 75070 ± 11820 tok |
-| 3 | `captureShellArm` | | | | | | | v3 band: steps 31–56, 39.9 ± 8.1; 749 ± 265 s; 66364 ± 7009 tok |
+| 1 | `hookPreflight` | 1034576458 | FAILURE | — | — | — | — | instrument bug: `mkdir /checkpoints` denied — the container user is unprivileged; fixed on `83798f22f` |
+| 1b | `hookPreflight` | 1034618405 | SUCCESS | 3 | — | — | — | hook fired, counter = 3, `step-2.patch` non-empty (129 chars) — instrument proven |
+| 2 | `captureMcpArm` | 1034656372 | | | | | | v3 band: steps 22–41, 31.6 ± 7.1; 871 ± 411 s; 75070 ± 11820 tok |
+| 3 | `captureShellArm` | 1034656374 | | | | | | v3 band: steps 31–56, 39.9 ± 8.1; 749 ± 265 s; 66364 ± 7009 tok |
 
 Rejected captures stay in this table — a repeat is a new row, and the report shows every attempt.
 
