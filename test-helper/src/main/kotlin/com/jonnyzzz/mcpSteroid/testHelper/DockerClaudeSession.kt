@@ -33,6 +33,7 @@ class DockerClaudeSession(
 ) : AiAgentSession {
     override val displayName: String = Companion.displayName
     private var mcpConfigJson: String? = null
+    private var settingsFile: String? = null
     private val mcpRegistrationLog = mutableListOf<McpRegistration>()
     override val mcpRegistrations: List<McpRegistration>
         get() = mcpRegistrationLog.toList()
@@ -106,6 +107,19 @@ class DockerClaudeSession(
     }
 
     /**
+     * Makes every later [runPrompt] run under [settingsJson] as an explicit Claude Code settings file,
+     * so a test can register e.g. a `PostToolUse` hook for the session.
+     *
+     * The JSON is written into the container as a FILE for the same Windows quote-stripping reason the
+     * MCP config is a file (see the note in [runPrompt]) — inline JSON loses its `"` characters.
+     */
+    fun useSettings(settingsJson: String) {
+        val file = "/tmp/claude-settings.json"
+        session.writeFileInContainer(file, settingsJson)
+        settingsFile = file
+    }
+
+    /**
      * Runs Claude in non-interactive mode with a prompt.
      *
      * Uses `--output-format stream-json --verbose` so that tool calls, assistant
@@ -120,32 +134,21 @@ class DockerClaudeSession(
         prompt: String,
         timeoutSeconds: Long,
     ): AiStartedProcess {
-        val claudeArgs = buildList {
-            add("--permission-mode")
-            add("bypassPermissions")
-            add("--model")
-            add(model)
-            add("--tools")
-            add("default")
-            add("--input-format")
-            add("text")
-            add("--output-format")
-            add("stream-json")
-            add("--verbose")
-            mcpConfigJson?.let { configJson ->
-                // Write MCP config to a file to avoid Windows ProcessBuilder double-quote stripping.
-                // Passing JSON inline as a bash -c arg strips all " characters on Windows
-                // (CommandLineToArgvW interprets them as quote delimiters), so Claude CLI sees
-                // the unquoted string as a file path and fails with "MCP config file not found".
-                val configFile = "/tmp/claude-mcp-config.json"
-                session.writeFileInContainer(configFile, configJson)
-                add("--mcp-config")
-                add(configFile)
-                add("--strict-mcp-config")
-            }
-            add("-p")
-            add(prompt)
+        val mcpConfigFile = mcpConfigJson?.let { configJson ->
+            // Write MCP config to a file to avoid Windows ProcessBuilder double-quote stripping.
+            // Passing JSON inline as a bash -c arg strips all " characters on Windows
+            // (CommandLineToArgvW interprets them as quote delimiters), so Claude CLI sees
+            // the unquoted string as a file path and fails with "MCP config file not found".
+            val configFile = "/tmp/claude-mcp-config.json"
+            session.writeFileInContainer(configFile, configJson)
+            configFile
         }
+        val claudeArgs = claudeRunPromptArgs(
+            model = model,
+            mcpConfigFile = mcpConfigFile,
+            settingsFile = settingsFile,
+            prompt = prompt,
+        )
 
         return runInContainer(
             args = claudeArgs,
