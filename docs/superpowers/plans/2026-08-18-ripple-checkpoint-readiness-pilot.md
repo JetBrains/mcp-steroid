@@ -20,6 +20,15 @@ trapezoidal AUC over the observed range.
 
 Design: `docs/superpowers/specs/2026-08-18-ripple-checkpoint-readiness-pilot-design.md`.
 
+**Amendment (after Task 1 landed).** Everything below derives the checkpoint positions per arm, from
+each arm's own historical mean step count (`mcp` 32 → 2, 6, 11, 17, 24; `none` 40 → 3, 8, 14, 22, 30).
+That was wrong: `V_mcp` and `V_shell` are only comparable when both are measured after the SAME number
+of tool calls, so a per-arm schedule would compare readiness after 24 mcp calls against readiness after
+30 shell calls and call the difference an arm effect. The implemented code uses one shared schedule —
+`RIPPLE_CHECKPOINT_STEPS = 2, 6, 11, 17, 24` from the scalar `RIPPLE_EXPECTED_STEPS = 32`, the deepest
+value the shorter arm's admission band can reach. The sketches below are left as written so the change
+stays readable; where they disagree with the code, the code is right.
+
 ## Global Constraints
 
 - Branch `worktree-semantic-ripple-pilot`; all code lives in this worktree.
