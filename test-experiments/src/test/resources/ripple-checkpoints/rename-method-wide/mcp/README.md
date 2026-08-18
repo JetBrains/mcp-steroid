@@ -7,7 +7,8 @@ Expected contents once the capture has run and been admitted:
 
 - `step-2.patch`, `step-6.patch`, `step-11.patch`, `step-17.patch`, `step-24.patch` —
   `git diff step-0 step-<a_i>` of the recorded trajectory. The positions come from
-  `rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS["mcp"] = 32)`, so the file names are known before the
+  `RIPPLE_CHECKPOINT_STEPS` — shared with the `none` arm, so both readiness curves are measured after
+  the same numbers of tool calls. The file names are therefore known before the
   run and a probe cell addresses one of them by index.
 - `checkpoints.json` — `RippleCheckpointRecorder.exportMetadata`, which carries the MEASURED step
   count `n`. The probe reports `position = a_i/n` from it; without the file no probe can say where on

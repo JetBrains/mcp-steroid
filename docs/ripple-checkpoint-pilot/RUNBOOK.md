@@ -22,13 +22,16 @@ spends money and cannot run on a laptop. Design and plan:
 | verdicts → table, curve, AUC | `RippleCheckpointReport.kt` |
 | TeamCity capture/probe configurations | `mcp-steroid-teamcity` commit `67d178d` |
 
-Checkpoint positions are precomputed from the v3 mean step count of each arm, so the hook snapshots five
-states instead of every one of them: `mcp` (n̂ = 32) → `2, 6, 11, 17, 24`; `none` (n̂ = 40) →
-`3, 8, 14, 22, 30`. Reports normalize by the capture run's **actual** `n` (the hook counter's final value).
+Checkpoint positions are precomputed once and SHARED by both arms, so the hook snapshots five states
+instead of every one of them: n̂ = 32 → `2, 6, 11, 17, 24` for `mcp` and for `none` alike. One schedule
+because `V_mcp` and `V_shell` are only comparable at equal tool-call counts; 32 because the admission band
+of the shorter (mcp) arm accepts captures from 25 steps up, so `a_5` may not exceed 24. Reports normalize
+by the capture run's **actual** `n` (the hook counter's final value).
 
 ## Prerequisites
 
-1. The pilot branch must be visible to TeamCity: TC's VCS root pulls from `jb`, not `origin`.
+1. The pilot branch must be visible to TeamCity: TC's VCS root pulls from `jb`, not `origin`. The pilot
+   lives on `jb/worktree-semantic-ripple-pilot`; the branch is intentionally NOT kept on `origin`.
 2. The DSL commits `67d178d` + `cb5356a` must reach the TeamCity settings repo — until then the two
    configurations do not exist on the server.
 3. Land the Gradle property forwarding **before** the DSL: an unknown `-P`/`-D` is silently ignored, and
@@ -54,7 +57,8 @@ export TEAMCITY_URL=https://buildserver.labs.intellij.net
 export TEAMCITY_TOKEN="$(tr -d '\n' < ~/.config/teamcity/token)"
 CAP=mcp_steroid_IntegrationTests_RippleCheckpointCapture
 PROBE=mcp_steroid_IntegrationTests_RippleCheckpointProbe
-SHA=$(git -C ~/work/mcp-steroid rev-parse HEAD)   # pins the whole series to one revision
+BRANCH=worktree-semantic-ripple-pilot              # the pilot branch, as pushed to jb
+SHA=$(git -C ~/work/mcp-steroid/.claude/worktrees/semantic-ripple-pilot rev-parse HEAD)  # pins the series
 ```
 
 The token authenticates only through these environment variables (the keyring path returns 401), and it
@@ -63,7 +67,7 @@ has no `TAG_BUILD`/`COMMENT_BUILD` permission — `--revision` is what identifie
 ### 1. Hook preflight
 
 ```bash
-jb tc native run start "$CAP" --branch main --revision "$SHA" --no-push \
+jb tc native run start "$CAP" --branch "$BRANCH" --revision "$SHA" --no-push \
   -P ripple.checkpoint.capture.method=hookPreflight --json=id,webUrl,state
 ```
 
@@ -79,7 +83,7 @@ for a capture.
 
 ```bash
 for method in captureMcpArm captureShellArm; do
-  jb tc native run start "$CAP" --branch main --revision "$SHA" --no-push \
+  jb tc native run start "$CAP" --branch "$BRANCH" --revision "$SHA" --no-push \
     -P ripple.checkpoint.capture.method="$method" --json=id,webUrl | tee -a /tmp/ripple-capture-runs.jsonl
 done
 ```
@@ -106,7 +110,7 @@ missing state can never be mistaken for a failed probe.
 ### 4. Smoke probe, then the grid
 
 ```bash
-jb tc native run start "$PROBE" --branch main --revision "$SHA" --no-push \
+jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
   -P ripple.checkpoint.arm=mcp -P ripple.checkpoint.index=5 -P ripple.checkpoint.replicate=1 \
   --json=id,webUrl,state
 ```
@@ -117,7 +121,7 @@ resulting properties and in the step log) and that the patch applied.
 ```bash
 for arm in mcp none; do for idx in 1 2 3 4 5; do for rep in 1 2 3 4 5; do
   [ "$arm/$idx/$rep" = "mcp/5/1" ] && continue
-  jb tc native run start "$PROBE" --branch main --revision "$SHA" --no-push \
+  jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
     -P ripple.checkpoint.arm="$arm" -P ripple.checkpoint.index="$idx" \
     -P ripple.checkpoint.replicate="$rep" --json=id,webUrl | tee -a /tmp/ripple-probe-runs.jsonl
   sleep 2

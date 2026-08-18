@@ -80,8 +80,9 @@ class RippleCaptureAdmissionTest {
             ),
             v3RenameMethodWideReference.getValue("none"),
         )
-        // The gate exists per arm because the arms differ: the shell arm takes more steps and fewer
-        // tokens, so one shared band would admit an outlier of either.
-        assertEquals(v3RenameMethodWideReference.keys, RIPPLE_EXPECTED_STEPS.keys)
+        // The BAND is per arm because the arms differ: the shell arm takes more steps and fewer tokens,
+        // so one shared band would admit an outlier of either. The checkpoint SCHEDULE is shared for the
+        // opposite reason — a readiness curve per arm is only comparable at identical tool-call counts.
+        assertEquals(RIPPLE_CHECKPOINT_ARMS.toSet(), v3RenameMethodWideReference.keys)
     }
 }

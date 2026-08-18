@@ -146,7 +146,7 @@ class KeycloakRenameMethodWideCheckpointCaptureTest {
             RippleCheckpointRecorder(
                 container = session.scope,
                 projectDir = projectDir,
-                targetSteps = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue(arm)),
+                targetSteps = RIPPLE_CHECKPOINT_STEPS,
                 gitDir = "${session.guestRunDir()}/checkpoints/.git",
                 case = RippleCases.renameMethodWide.instanceId,
                 arm = arm,

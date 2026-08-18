@@ -47,10 +47,10 @@ data class ProbeCoordinates(val arm: String, val checkpoint: Int, val replicate:
  * will ever fold into a `V`.
  */
 fun probeCoordinates(arm: String?, index: String?, replicate: String?): ProbeCoordinates {
-    require(arm != null && arm in RIPPLE_EXPECTED_STEPS.keys) {
-        "the probe arm must be one of ${RIPPLE_EXPECTED_STEPS.keys}, got '$arm' — no other arm was captured"
+    require(arm != null && arm in RIPPLE_CHECKPOINT_ARMS) {
+        "the probe arm must be one of $RIPPLE_CHECKPOINT_ARMS, got '$arm' — no other arm was captured"
     }
-    val checkpointCount = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue(arm)).size
+    val checkpointCount = RIPPLE_CHECKPOINT_STEPS.size
     val checkpoint = index?.toIntOrNull()
     require(checkpoint != null && checkpoint in 1..checkpointCount) {
         "the checkpoint index must be in 1..$checkpointCount, got '$index' — the capture took exactly " +
@@ -112,13 +112,13 @@ class RippleCheckpointProbeTest {
         val oracleFileNames = RippleCases.renameMethodWide.dpaiaCase().failToPass
             .map { it.substringAfterLast('.') + ".java" }
 
-        RIPPLE_EXPECTED_STEPS.keys.forEach { arm ->
+        RIPPLE_CHECKPOINT_ARMS.forEach { arm ->
             val dir = checkpointResourceDir(arm)
             assertTrue(dir.isDirectory) {
                 "$dir is missing. The probe reads its starting states from there, so the layout is part " +
                     "of the instrument and not something a capture run creates on the fly."
             }
-            val scheduledNames = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue(arm))
+            val scheduledNames = RIPPLE_CHECKPOINT_STEPS
                 .map { step -> RippleCheckpointRecorder.patchFileName(step) }
             val patches = patchFilesIn(dir)
             println("[CHECKPOINT-RESOURCES] $arm: ${patches.size} committed patch(es) of " +
@@ -486,7 +486,7 @@ private fun patchFilesIn(dir: File): List<File> =
  */
 private fun loadCheckpoint(coordinates: ProbeCoordinates): LoadedCheckpoint {
     val dir = checkpointResourceDir(coordinates.arm)
-    val steps = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue(coordinates.arm))
+    val steps = RIPPLE_CHECKPOINT_STEPS
     val committed = patchFilesIn(dir)
     check(committed.size == steps.size) {
         "${dir.absolutePath} holds ${committed.size} patch(es) ${committed.map { it.name }} but the " +

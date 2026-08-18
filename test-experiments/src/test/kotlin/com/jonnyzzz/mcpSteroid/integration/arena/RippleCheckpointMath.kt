@@ -26,12 +26,31 @@ fun rippleCheckpointSteps(n: Int, count: Int = 5): List<Int> {
     return fixed
 }
 
+/** The two arms of the pilot: the source trajectory either had MCP Steroid or had nothing but a shell. */
+val RIPPLE_CHECKPOINT_ARMS: List<String> = listOf("mcp", "none")
+
 /**
- * The step count a capture run of each arm is EXPECTED to have, rounded from the v3 sample means
- * (mcp 31.6, none 39.9). Checkpoint positions are derived from these before the run, so the hook can
- * snapshot five states instead of every one of them.
+ * The ONE assumed trajectory length both arms' checkpoints are derived from.
+ *
+ * Shared on purpose: `V_mcp` and `V_shell` are only comparable when both curves are measured at the
+ * SAME tool-call counts, so a per-arm schedule would compare readiness after 24 mcp calls against
+ * readiness after 30 shell calls and call the difference an arm effect.
+ *
+ * 32 is not the pooled mean (36) but the largest shared value both arms can actually reach: the v3
+ * mcp sample is the shorter one (31.6±7.1 steps), so [admitCapture] only admits mcp captures of ≥25
+ * tool calls, and `round(33·(5/6)^1.5) = 25` would already put the fifth snapshot beyond an admissible
+ * run. It happens to equal the rounded mcp mean.
  */
-val RIPPLE_EXPECTED_STEPS: Map<String, Int> = mapOf("mcp" to 32, "none" to 40)
+val RIPPLE_EXPECTED_STEPS: Int = 32
+
+/**
+ * The five tool-call counts every capture run of this pilot snapshots at — `2, 6, 11, 17, 24`.
+ *
+ * Computed once, before any run: a snapshot is a full `git add -A` over the whole Keycloak tree, so
+ * snapshotting every step would add tens of tree scans inside the measured agent loop and distort the
+ * trajectory it records.
+ */
+val RIPPLE_CHECKPOINT_STEPS: List<Int> = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS)
 
 /**
  * `V(s_i)` for one checkpoint: the fraction of probes that finished the task from that state.

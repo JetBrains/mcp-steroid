@@ -233,7 +233,7 @@ class RippleCheckpointRecorder(
             case = case,
             arm = arm,
             model = model,
-            expectedSteps = RIPPLE_EXPECTED_STEPS.getValue(arm),
+            expectedSteps = RIPPLE_EXPECTED_STEPS,
             actualSteps = nActual,
             steps = targetSteps,
         )

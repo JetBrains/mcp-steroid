@@ -353,7 +353,7 @@ abstract class RippleScenarioBaseTest {
             // block so the numbers are in the log even if a whole-tree git diff later fails.
             recorder?.let { rec ->
                 val nActual = rec.stepCount()
-                val steps = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue(modeLabel))
+                val steps = RIPPLE_CHECKPOINT_STEPS
                 val admission = admitCapture(
                     reference = v3RenameMethodWideReference.getValue(modeLabel),
                     success = success,

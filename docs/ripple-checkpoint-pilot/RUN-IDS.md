@@ -20,7 +20,8 @@ Rejected captures stay in this table — a repeat is a new row, and the report s
 
 ## Probe stage — 2 arms × 5 checkpoints × 5 replicates
 
-Checkpoint steps are fixed by the schedule: `mcp` → 2, 6, 11, 17, 24; `none` → 3, 8, 14, 22, 30.
+Checkpoint steps are fixed by ONE schedule shared by both arms: 2, 6, 11, 17, 24 — `V_mcp` and `V_shell`
+are only comparable when both were measured after the same number of tool calls.
 `Y` is 1 only when the compile gate, the semantic oracle post-condition and FAIL_TO_PASS all pass;
 `LOST` means the instrument failed (patch did not apply, container died) and must NOT be read as `Y = 0`.
 
@@ -38,11 +39,11 @@ Checkpoint steps are fixed by the schedule: `mcp` → 2, 6, 11, 17, 24; `none` �
 
 | checkpoint | step | r1 | r2 | r3 | r4 | r5 | successes | V |
 |---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | 3 | | | | | | | |
-| 2 | 8 | | | | | | | |
-| 3 | 14 | | | | | | | |
-| 4 | 22 | | | | | | | |
-| 5 | 30 | | | | | | | |
+| 1 | 2 | | | | | | | |
+| 2 | 6 | | | | | | | |
+| 3 | 11 | | | | | | | |
+| 4 | 17 | | | | | | | |
+| 5 | 24 | | | | | | | |
 
 Cell format: `<build id>:<Y|LOST>`.
 

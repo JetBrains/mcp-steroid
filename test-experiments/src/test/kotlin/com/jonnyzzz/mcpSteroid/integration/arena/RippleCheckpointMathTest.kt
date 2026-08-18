@@ -23,9 +23,29 @@ class RippleCheckpointMathTest {
     }
 
     @Test
-    fun `the pilot's arms use the v3 mean step counts`() {
-        assertEquals(listOf(2, 6, 11, 17, 24), rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue("mcp")))
-        assertEquals(listOf(3, 8, 14, 22, 30), rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS.getValue("none")))
+    fun `both arms are probed at the very same steps`() {
+        assertEquals(listOf(2, 6, 11, 17, 24), RIPPLE_CHECKPOINT_STEPS)
+        assertEquals(rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS), RIPPLE_CHECKPOINT_STEPS)
+        assertEquals(listOf("mcp", "none"), RIPPLE_CHECKPOINT_ARMS)
+    }
+
+    /**
+     * The shared schedule is only usable if an admissible capture of EITHER arm reaches its last
+     * position, and the mcp arm is the short one: `admitCapture` requires steps inside mean±1sd, i.e.
+     * at least 25 tool calls, so `a_5 = 24` is the deepest checkpoint the pilot may schedule. One step
+     * more and every below-average mcp capture would be rejected for a missing fifth state.
+     */
+    @Test
+    fun `the last checkpoint stays inside what an admissible capture of either arm reaches`() {
+        val minimumAdmissibleSteps = v3RenameMethodWideReference.values.minOf { reference ->
+            Math.ceil(reference.stepsMean - reference.stepsSd).toInt()
+        }
+        assertTrue(RIPPLE_CHECKPOINT_STEPS.last() < minimumAdmissibleSteps) {
+            "a_5=${RIPPLE_CHECKPOINT_STEPS.last()} is not reached by a capture of $minimumAdmissibleSteps steps"
+        }
+        assertTrue(rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS + 1).last() >= minimumAdmissibleSteps) {
+            "n̂=${RIPPLE_EXPECTED_STEPS} is not the largest schedule both arms can carry"
+        }
     }
 
     @Test

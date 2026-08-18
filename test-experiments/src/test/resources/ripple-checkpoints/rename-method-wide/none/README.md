@@ -5,10 +5,11 @@ The states `RippleCheckpointProbeTest.probe` restarts a bare Haiku from, capture
 
 Expected contents once the capture has run and been admitted:
 
-- `step-3.patch`, `step-8.patch`, `step-14.patch`, `step-22.patch`, `step-30.patch` —
-  `git diff step-0 step-<a_i>` of the recorded trajectory. The positions come from
-  `rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS["none"] = 40)`, so the file names are known before the
-  run and a probe cell addresses one of them by index.
+- `step-2.patch`, `step-6.patch`, `step-11.patch`, `step-17.patch`, `step-24.patch` —
+  `git diff step-0 step-<a_i>` of the recorded trajectory. The positions are `RIPPLE_CHECKPOINT_STEPS`,
+  the SAME five tool-call counts as the `mcp` arm (`V_mcp` and `V_shell` are only comparable when both
+  are measured after the same number of tool calls), so the file names are known before the run and a
+  probe cell addresses one of them by index.
 - `checkpoints.json` — `RippleCheckpointRecorder.exportMetadata`, which carries the MEASURED step
   count `n`. The probe reports `position = a_i/n` from it; without the file no probe can say where on
   the trajectory its readiness value belongs.

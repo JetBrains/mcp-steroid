@@ -1,6 +1,7 @@
 # Solution-readiness along a trajectory — checkpoint/probe pilot (design)
 
-Status: awaiting approval. Branch: `worktree-semantic-ripple-pilot`.
+Status: approved, running. Branch: `worktree-semantic-ripple-pilot`, published to `jb` (TeamCity's VCS
+root pulls from the JetBrains mirror, not from `origin`).
 
 ## 1. Question this pilot answers
 
@@ -56,9 +57,18 @@ capture phase is separate from the probe phase: probes are only launched against
 a_i = round(n̂ * (i/6)^1.5),  i = 1..5      → ≈ 7%, 19%, 35%, 54%, 76% of n̂
 ```
 
-The positions are computed **before the capture run** from the historical mean step count `n̂` of the
-v3 sample for that arm (`mcp` → `n̂ = 32`, `none` → `n̂ = 40`), which yields
-`mcp: 2, 6, 11, 17, 24` and `none: 3, 8, 14, 22, 30`.
+The positions are computed **before the capture run** from ONE assumed step count `n̂ = 32`, shared by
+both arms, which yields `2, 6, 11, 17, 24` for `mcp` and for `none` alike.
+
+Why one schedule for both arms: `V_mcp` and `V_shell` are only comparable when they are measured after
+the same amount of agent work. A per-arm schedule (`mcp: 2, 6, 11, 17, 24` vs `none: 3, 8, 14, 22, 30`,
+from each arm's own v3 mean) would compare readiness after 24 mcp tool calls against readiness after 30
+shell tool calls and attribute the difference to the arm.
+
+Why `n̂ = 32` and not the pooled mean 36: the fifth position must be reachable by an admissible capture
+of EITHER arm, and `mcp` is the shorter one — the admission band (31.6 ± 7.1 steps, section 2.1) accepts
+mcp captures from 25 tool calls up, so `a_5` may not exceed 24. `n̂ = 33` already gives `a_5 = 25`. So 32
+is the deepest shared schedule the gate allows; a unit test pins exactly that (one step more must fail).
 
 Why not the capture run's own `n`: a snapshot is a full `git add -A` over the whole Keycloak tree, so
 snapshotting *every* step would add tens of tree scans inside the measured agent loop and could distort
@@ -142,6 +152,10 @@ Report table per arm: checkpoint, `a_i`, `a_i/n`, successes, runs, `V(s_i)`; plu
 using real normalized positions, never the nominal 7/19/35/54/76%, and with no extrapolation to 0 or
 beyond the last checkpoint. The integration range is printed with the AUC. Because the two arms have
 different `n`, their AUCs are also reported normalized by their own integration width.
+
+The `a_i` column is IDENTICAL in both arms' tables (section 3), so `V_mcp(a_i)` and `V_shell(a_i)` can be
+compared row by row at equal agent effort; the normalized `a_i/n` differs between the arms only because
+their measured trajectory lengths do.
 
 Also reported: the original capture runs' final outcome (separately from the curve), instrument
 failures vs graded zeros, per-run cost/time, and the total pilot spend.
