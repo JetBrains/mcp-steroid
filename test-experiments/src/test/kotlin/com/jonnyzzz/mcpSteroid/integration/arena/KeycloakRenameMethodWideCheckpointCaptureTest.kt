@@ -30,6 +30,12 @@ import java.util.concurrent.TimeUnit
  * Nothing here asserts admission. [admitCapture]'s verdict is printed by the arm flow, and a capture
  * that misses the v3 representativeness band is a real measurement of this arm — the operator, not the
  * test, decides whether another Opus run is worth its price.
+ *
+ * The three test methods break the package's backticked-sentence naming convention on purpose: each is
+ * selected INDIVIDUALLY by a TeamCity build (`-PtestFilter=*CheckpointCaptureTest.<method>`), and TeamCity
+ * splits `gradleParams` on whitespace with no shell to re-join it, so a name containing spaces cannot be
+ * addressed from CI. A filter that fails to narrow would run all three methods in one build — two Opus
+ * captures plus the preflight, well past the build's own timeout.
  */
 class KeycloakRenameMethodWideCheckpointCaptureTest {
 
@@ -40,12 +46,12 @@ class KeycloakRenameMethodWideCheckpointCaptureTest {
      */
     @Test
     @Timeout(value = 180, unit = TimeUnit.MINUTES)
-    fun `claude with mcp`() = capture(withMcp = true)
+    fun captureMcpArm() = capture(withMcp = true)
 
     /** The recorded shell arm — the positive control the mcp curve is read against. */
     @Test
     @Timeout(value = 180, unit = TimeUnit.MINUTES)
-    fun `claude without mcp`() = capture(withMcp = false)
+    fun captureShellArm() = capture(withMcp = false)
 
     /**
      * The cheapest thing that can go wrong, run BEFORE either capture: does the hook fire on every
@@ -65,7 +71,7 @@ class KeycloakRenameMethodWideCheckpointCaptureTest {
      */
     @Test
     @Timeout(value = 60, unit = TimeUnit.MINUTES)
-    fun `hook counts every call and snapshots at the target step`() {
+    fun hookPreflight() {
         val lifetime = CloseableStackHost()
         try {
             val session = IntelliJContainer.create(lifetime, IntelliJContainerOpts(
