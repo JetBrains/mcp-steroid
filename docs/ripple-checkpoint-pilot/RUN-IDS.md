@@ -4,7 +4,8 @@ This file is the only link between a TeamCity build id and the cell it measured:
 `TAG_BUILD`/`COMMENT_BUILD` permission, so a build carries no marker of its coordinates beyond the
 parameters recorded on it. Fill a row the moment a build is queued, not afterwards.
 
-Series revision (`--revision`): `_______` — every build of one series must pin the same commit.
+Series revision (`--revision`): `1e68a13a282985fa08a11960c099d799866128e2` on
+`jb/worktree-semantic-ripple-pilot` — every build of one series must pin the same commit.
 
 Launch order and the reasoning behind it: `docs/ripple-checkpoint-pilot/RUNBOOK.md`.
 
@@ -12,7 +13,7 @@ Launch order and the reasoning behind it: `docs/ripple-checkpoint-pilot/RUNBOOK.
 
 | # | method | build id | status | n (steps) | agent s | end tok | admitted | note |
 |---|:---|---:|:---|---:|---:|---:|:---|:---|
-| 1 | `hookPreflight` | | | — | | — | — | counter ≥ 3 and a non-empty `step-2` patch |
+| 1 | `hookPreflight` | 1034576458 | | — | | — | — | counter ≥ 3 and a non-empty `step-2` patch |
 | 2 | `captureMcpArm` | | | | | | | v3 band: steps 22–41, 31.6 ± 7.1; 871 ± 411 s; 75070 ± 11820 tok |
 | 3 | `captureShellArm` | | | | | | | v3 band: steps 31–56, 39.9 ± 8.1; 749 ± 265 s; 66364 ± 7009 tok |
 
