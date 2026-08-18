@@ -85,6 +85,11 @@ fun Test.configureExperimentalTest() {
     // `ripple.checkpoint.*` address ONE cell of the solution-readiness pilot's grid (arm x checkpoint x
     // replicate). They matter more than they look: the 50 probe builds differ ONLY by these three values,
     // so a key that fails to arrive does not fail a build — it silently re-measures one cell 50 times.
+    // `test.integration.ide.vm.xmx` caps the guest IDE's heap (read in `intelliJ.kt`'s `generateVmOptions`).
+    // The keycloak-semantic TC builds have been passing it in `gradleParams` since the 6g default let the
+    // IDE and the agent's own Maven build exhaust the Docker VM — but it was never forwarded here, so the
+    // guest IDE kept starting with the default heap and the OOM protection those builds document was
+    // declarative only.
     // Each key also has an environment-variable spelling, because TeamCity's Gradle runner does NOT put
     // `system.*` build parameters on the Gradle command line for these builds: a `-Sclaude.model=…`
     // override is silently ignored and the run measures the DEFAULT model instead (verified on builds
@@ -100,6 +105,7 @@ fun Test.configureExperimentalTest() {
         "ripple.checkpoint.arm" to "RIPPLE_CHECKPOINT_ARM",
         "ripple.checkpoint.index" to "RIPPLE_CHECKPOINT_INDEX",
         "ripple.checkpoint.replicate" to "RIPPLE_CHECKPOINT_REPLICATE",
+        "test.integration.ide.vm.xmx" to "TEST_INTEGRATION_IDE_VM_XMX",
     ).forEach { (key, envName) ->
         val value = System.getProperty(key)?.takeIf { it.isNotBlank() }
             ?: System.getenv(envName)?.takeIf { it.isNotBlank() }

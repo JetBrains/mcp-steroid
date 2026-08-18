@@ -63,4 +63,16 @@ class ModelSyspropForwardingTest {
         val expected = System.getenv("EXPECT_RIPPLE_CHECKPOINT_REPLICATE")
         if (expected != null) assertEquals(expected, forwarded) else assertNull(forwarded)
     }
+
+    /**
+     * The guest IDE's heap cap, read by `generateVmOptions` in `intelliJ.kt`. The keycloak-semantic TC
+     * builds pass it in `gradleParams` to keep the IDE and the agent's own Maven build inside the Docker
+     * VM, so an unforwarded value means those runs quietly kept the default heap.
+     */
+    @Test
+    fun `ide vm xmx sysprop is forwarded to the forked test jvm`() {
+        val forwarded = System.getProperty("test.integration.ide.vm.xmx")
+        val expected = System.getenv("EXPECT_TEST_INTEGRATION_IDE_VM_XMX")
+        if (expected != null) assertEquals(expected, forwarded) else assertNull(forwarded)
+    }
 }
