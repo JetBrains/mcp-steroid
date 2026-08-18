@@ -584,12 +584,16 @@ the agent's disk writes. Run this alone before spending an Opus capture.
 - [ ] **Step 4: Run the preflight, then the two captures**
 
 ```bash
-./gradlew :test-experiments:test --tests '*CheckpointCaptureTest.hook counts every call*'
-./gradlew :test-experiments:test --tests '*CheckpointCaptureTest.claude with mcp'
-./gradlew :test-experiments:test --tests '*CheckpointCaptureTest.claude without mcp'
+./gradlew :test-experiments:test --tests '*CheckpointCaptureTest.hookPreflight'
+./gradlew :test-experiments:test --tests '*CheckpointCaptureTest.captureMcpArm'
+./gradlew :test-experiments:test --tests '*CheckpointCaptureTest.captureShellArm'
 ```
 
-Expected: preflight PASS with `stepCount() >= 2`; each capture prints `[CHECKPOINT] n=… admitted=true`
+The method names carry no spaces on purpose: TeamCity splits `gradleParams` on whitespace with no shell to
+re-join a quoted name, and a filter that fails to narrow would run all three methods — two Opus captures
+plus the preflight — in one build.
+
+Expected: preflight PASS with `stepCount() >= 3`; each capture prints `[CHECKPOINT] n=… admitted=true`
 and drops five `step-<a_i>.patch` files plus `checkpoints.json` into the run dir. Never run two of
 these concurrently. If a capture is rejected, rerun that arm (max 3 attempts) and keep every attempt's
 `[CHECKPOINT]`/`[RIPPLE]` block for the report.
@@ -791,7 +795,8 @@ branch must be visible there, and land the Gradle property change BEFORE the DSL
 
 Order matters: 1 preflight → 2 captures → admission → patches committed → 1 smoke probe
 (`arm=mcp index=5 replicate=1`) → the remaining 49. Record every build id in
-`docs/ripple-checkpoint-pilot/RUN-IDS.md` the way `RIPPLE-RUN-IDS.md` does.
+`docs/ripple-checkpoint-pilot/RUN-IDS.md` the way `RIPPLE-RUN-IDS.md` does. The copy-pasteable `jb tc`
+commands, the admission bands and the aggregation recipe live in `docs/ripple-checkpoint-pilot/RUNBOOK.md`.
 
 - [ ] **Step 5: Commit**
 

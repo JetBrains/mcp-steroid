@@ -40,6 +40,16 @@
   pass 2. Cost here is context replay, not work done, and it is not MCP-specific (the `none` arms of the
   same scenario cost $11.92 and $11.66). Prompt-side fix, deliberately deferred: the whitepaper's
   Round 3 data is pinned against the current prompt, so changing it splits the dataset across two prompts.
+- [ ] Run the solution-readiness checkpoint pilot on TeamCity: 1 hook preflight → `captureMcpArm` +
+  `captureShellArm` → admission against the v3 band → commit the ten `step-<a_i>.patch` states →
+  1 smoke probe (`mcp`, checkpoint 5) → the remaining 49 bare-Haiku probes → `V(x)` curve and
+  observed-range AUC per arm. The harness is landed and unit-tested (`RippleCheckpointMath`,
+  `RippleCheckpointRecorder`, `RippleCaptureAdmission`, `RippleCheckpointProbeTest`,
+  `RippleCheckpointReport`); the runs are the whole remaining cost (~53 builds, ≈$20–35, ≈45 agent-hours).
+  Procedure and `jb tc` commands: `docs/ripple-checkpoint-pilot/RUNBOOK.md`. Local execution is blocked —
+  the `~/.anthropic` key returns 401 and this box gives Docker 8 GB.
+- [ ] Decide the scale-up only after that pilot's method verdict: 10 trajectories × 5 checkpoints ×
+  5 probes × 2 arms = 500 probe runs, testing `V_MCP(x) > V_shell(x)` and `AUC_MCP > AUC_shell`.
 - [ ] Generalize the arena prompt's Docker escape hatch from a whitelist of literal error strings
   (`Could not find a valid Docker environment`, `BadRequestException`, `HTTP 400`, `docker.sock`,
   `DockerClientException`) to any Docker/Testcontainers infrastructure failure.
