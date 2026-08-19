@@ -18,13 +18,29 @@ Non-goals: no cross-arm significance claim, no new cases, no prompt tuning, no c
 
 ## 2. Source trajectories
 
-Case: `ripple__keycloak__rename-method-wide` (`RippleCases.renameMethodWide`), agent `claude`
-(`claude-opus-5`), **both arms** — `mcp` and `none`. Two source trajectories, each yielding five
+Case: **`dpaia__spring__boot__microshop-18`** (RestTemplate → WebClient across 3 modules, 8 FAIL_TO_PASS
+test classes, run by `DpaiaMicroshop18Test` on `DpaiaScenarioBaseTest`), agent `claude`
+(`claude-opus-5`), **both arms** — `mcp` and `none`. Two source trajectories, each yielding up to five
 checkpoints.
 
-Existing v3 traces (`docs/ripple-trajectory-spike/features-v3-claude+codex.csv`) give the reference
-distribution but **not** the intermediate states, so each source trajectory is re-run once with
-snapshotting enabled (section 4).
+### 2.0 Why not the semantic-ripple case it started with
+
+The pilot was first built on `ripple__keycloak__rename-method-wide` and that case cannot carry a
+readiness curve: its solution is ONE atomic edit. In the measured capture the work tree went from
+untouched to all 111 files renamed inside a single tool call, so every checkpoint before it holds the
+pristine tree and every checkpoint after it holds the finished solution. `V(x)` on such a case is a step
+function whose position measures *when the agent happened to run the rename*, not how readiness grows —
+and two of the five scheduled checkpoints were literally the same bytes.
+
+`microshop-18` was selected on the opposite property: the migration proceeds service by service, each
+step leaving a tree that is measurably closer to done, and the objective verifier is a test suite
+(FAIL_TO_PASS + PASS_TO_PASS) that a partially migrated tree can pass partially. Second-best candidate,
+kept for the scale-up: `dpaia__spring__petclinic-71` (JPA → R2DBC, 286 FAIL_TO_PASS tests).
+
+Existing v3 traces (`docs/ripple-trajectory-spike/features-v3-claude+codex.csv`) describe the
+`rename-method-wide` case only; `microshop-18` has **no** historical sample, which is why the
+representativeness gate runs in its "not judged" mode (section 2.1) and this pilot's own captures become
+the first rows of that sample.
 
 ### 2.1 Representativeness gate (before any probe is launched)
 
@@ -39,10 +55,26 @@ from v3 (claude, `rename-method-wide`):
 Admission criteria for a capture run, all required:
 
 1. `SUCCESS: true` (both arms are historically 9/9 and 10/10 — a failed capture is not typical).
-2. tool-call steps inside the arm's v3 **min–max** range and within ±1σ of the v3 mean.
-3. agent wall time and end-of-run context tokens each within ±1σ of the v3 mean for that arm.
-4. all five snapshots were taken, i.e. `n_actual > a_5` — a run that stopped early has no last
-   checkpoint and cannot carry the curve.
+2. the run is longer than the checkpoint count, so five distinct pre-final positions exist in it.
+3. tool-call steps inside the arm's v3 **min–max** range and within ±1σ of the v3 mean.
+4. agent wall time and end-of-run context tokens each within ±1σ of the v3 mean for that arm.
+
+Criteria 3 and 4 apply **only to a case with a measured sample**. For a case that has none — which
+includes `dpaia__spring__boot__microshop-18`, the case this pilot actually runs — `admitCapture` is
+called with `reference = null`: representativeness is not judged at all, and the missing sample is
+reported as a NOTE. Inventing a band would be worse than admitting the gap, because it would look
+objective while judging against numbers nobody measured. The capture's own `n`, seconds, context tokens
+and cost are recorded in `RUN-IDS.md` and become the first rows of that sample.
+
+"End-of-run context tokens" means `input + cache_read + cache_creation + output` of the **last assistant
+message** (`extractEndContextTokens`) — the definition the v3 table above was built with. The terminal
+`result` event reports cumulative traffic instead (its cache-read counter reached 969851 on a run whose
+context was ~75k), and `TokenUsage.totalTokens` is `input + output`; comparing either against this band
+rejects every run, which is exactly what happened on 2026-08-18.
+
+The criterion that used to read "all five snapshots were taken, i.e. `n_actual > a_5`" is gone: every
+step is snapshotted now and the positions are derived from `n_actual`, so a position beyond the run
+cannot exist.
 
 A capture run that misses any criterion is discarded and repeated (max 3 attempts per arm); every
 attempt's numbers are recorded in the report next to the reference table. This gate is the reason the
@@ -54,37 +86,43 @@ capture phase is separate from the probe phase: probes are only launched against
 `steps` column counts.
 
 ```
-a_i = round(n̂ * (i/6)^1.5),  i = 1..5      → ≈ 7%, 19%, 35%, 54%, 76% of n̂
+a_i = round(n * (i/6)^1.5),  i = 1..5      → ≈ 7%, 19%, 35%, 54%, 76% of n
 ```
 
-The positions are computed **before the capture run** from ONE assumed step count `n̂ = 32`, shared by
-both arms, which yields `2, 6, 11, 17, 24` for `mcp` and for `none` alike.
+`n` is the **measured** length of the capture run — the hook counter's final value — so the positions are
+selected AFTER the run, not before it. This is the correction of the pilot's central instrument defect:
+the first implementation precomputed the five positions from an assumed `n̂ = 32` shared by both arms,
+and the two capture runs came in at 23 and 51 tool calls. The 23-step run therefore had **no state at
+all** at its `a_5 = 24`, and the 51-step run's deepest checkpoint landed at 47% of its trajectory while
+being labelled 76%. A schedule fixed in advance can only be the schedule of the run by luck.
 
-Why one schedule for both arms: `V_mcp` and `V_shell` are only comparable when they are measured after
-the same amount of agent work. A per-arm schedule (`mcp: 2, 6, 11, 17, 24` vs `none: 3, 8, 14, 22, 30`,
-from each arm's own v3 mean) would compare readiness after 24 mcp tool calls against readiness after 30
-shell tool calls and attribute the difference to the arm.
+Consequence for arm comparison: the two arms are compared at equal **normalized** positions `a_i/n`, not
+at equal tool-call counts. A shared absolute schedule and the specification's `a_i = round(n(i/6)^1.5)`
+are simply not simultaneously satisfiable when the arms' lengths differ by a factor of 2.2, and the
+normalized position is the quantity the readiness curve is defined over.
 
-Why `n̂ = 32` and not the pooled mean 36: the fifth position must be reachable by an admissible capture
-of EITHER arm, and `mcp` is the shorter one — the admission band (31.6 ± 7.1 steps, section 2.1) accepts
-mcp captures from 25 tool calls up, so `a_5` may not exceed 24. `n̂ = 33` already gives `a_5 = 25`. So 32
-is the deepest shared schedule the gate allows; a unit test pins exactly that (one step more must fail).
+After rounding, positions must be unique and strictly increasing; a collision is resolved by pushing the
+later position up by the minimum amount that keeps the sequence strictly increasing and `< n`. The final
+state is never a checkpoint.
 
-Why not the capture run's own `n`: a snapshot is a full `git add -A` over the whole Keycloak tree, so
-snapshotting *every* step would add tens of tree scans inside the measured agent loop and could distort
-the very trajectory it records. Precomputed positions mean the hook counts tool calls and snapshots at
-exactly five of them. The representativeness gate (section 2.1) is what keeps `n̂` honest.
+### 3.1 No two checkpoints may hold the same state
 
-After rounding, positions must be unique and strictly increasing; a collision is resolved by pushing
-the later position up by the minimum amount that keeps the sequence strictly increasing and `< n̂`.
-The final state is never a checkpoint.
+Rounded positions are distinct, but the STATES at them need not be. In the discarded mcp capture the
+agent finished the whole task at step 11 and touched no file afterwards, so `step-11.patch` and
+`step-17.patch` were byte-identical — five probe builds each, ten in total, to measure one state twice
+and publish it as two points of a curve.
 
-The run's **actual** `n` is still recorded (the hook counter's final value), and the report normalizes
-by it: `x_i = a_i / n_actual`, never by `n̂` and never by the nominal 7/19/35/54/76%. A capture whose
-`n_actual ≤ a_5` never reached the last checkpoint and is rejected by the gate.
+`selectCheckpoints(n, count, stateIdOf)` therefore compares the git **tree id** of each step (the tree,
+not the commit: consecutive `--allow-empty` snapshots of an unchanged work tree share a tree and differ
+as commits). A checkpoint whose nominal step repeats the previous checkpoint's state moves forward to the
+first differing step; when no differing state exists before the final one, the checkpoint is **dropped**
+and the reason is recorded in `CheckpointPlan.corrections`, which the metadata and the report both carry.
+A four-point curve with a stated reason is a measurement; a five-point curve with two identical points is
+not.
 
-Implemented as pure Kotlin (`rippleCheckpointSteps(n)`) with unit tests covering the worked examples,
-the collision rule on short trajectories, and monotonicity for `n = 6..100`.
+Implemented as pure Kotlin (`rippleCheckpointSteps(n)`, `selectCheckpoints(...)`) with unit tests
+covering the worked examples, the collision rule on short trajectories, monotonicity for `n = 6..100`,
+the forward move on a repeated state, and the drop when a trajectory stops changing.
 
 ## 4. Capture phase (2 TeamCity builds)
 
@@ -96,14 +134,18 @@ snapshotting:
    A shadow git dir keeps the project's own `.git` untouched, so an agent that runs `git status`
    cannot see the instrument.
 2. Claude runs with a settings file (`--settings`) carrying a `PostToolUse` hook that invokes a
-   staged shell script. The script increments a counter file on every tool call — that is the cheap
-   part, and its final value is the run's `n` — and commits the work tree into the shadow git dir
-   **only when the counter equals one of the five precomputed `a_i`**, tagging it `step-<a_i>`.
-   IDE-side edits reach disk before the hook because `steroid_execute_code` commits and saves all
-   documents (`McpScriptContextImpl`), so the `mcp` arm's snapshots are as faithful as the shell arm's.
-3. After the agent returns, the harness exports one patch per captured tag (`step-0..step-<a_i>`) plus a
-   `checkpoints.json` (case, arm, model, build id, `n̂`, `n_actual`, `a_i`, `a_i/n_actual`, capture run
-   metrics) into the run dir, which TeamCity publishes.
+   staged shell script. The script increments a counter file on every tool call — its final value is the
+   run's `n` — and commits the work tree into the shadow git dir on **every** call, tagging it
+   `step-<n>`. IDE-side edits reach disk before the hook because `steroid_execute_code` commits and
+   saves all documents (`McpScriptContextImpl`), so the `mcp` arm's snapshots are as faithful as the
+   shell arm's. Snapshotting every step is what makes positions derivable from the measured `n`; its
+   cost is one `add -A` per tool call over the case's tree, which is why the pilot's case is a
+   Spring-sized repository and not the Keycloak monorepo.
+3. After the agent returns, the harness reads `n`, derives the plan (section 3), and exports one patch
+   per PLANNED checkpoint plus a `checkpoints.json` (case, arm, model, `n_actual`, and for each
+   checkpoint its `index`, `nominalStep`, `step`, `position = step/n_actual`, patch file name, plus the
+   plan's `corrections`) into the run dir, which TeamCity publishes. That file is the only source of
+   checkpoint positions for every downstream consumer.
 4. Admitted patches are committed to the branch under
    `test-experiments/src/test/resources/ripple-checkpoints/<case>/<arm>/step-<a_i>.patch`, so a probe
    build needs no artifact plumbing and the pilot is reproducible from the revision alone.
@@ -116,24 +158,31 @@ shadow commits appear — the hook contract is the only unproven external depend
 One build = one `(arm, checkpoint, replicate)`. Order inside the container:
 
 1. Container, clone, `testPatch`, Maven import, gate environment — unchanged.
-2. **Gold capture on the pristine tree** (unchanged). This must happen before the checkpoint patch is
-   applied: gold is the pre-agent resolved reference set of the *task*, and a partially transformed
-   tree would silently shrink it.
+2. **Pre-agent baseline on the pristine tree** (unchanged, `baselineSnapshotAtBaseCommit`). Before the
+   checkpoint patch: the baseline records which test classes were ALREADY red at the base commit, and a
+   partially migrated tree would mis-attribute those to the probe.
 3. `git apply` the checkpoint patch in the guest project dir, then refresh the IDE's VFS. Fail the
    build loudly if the patch does not apply, or if it touches a FAIL_TO_PASS file (that would mean the
    capture run tampered, and the whole checkpoint family is void).
-4. `normalizeFormattingBeforeSnapshot` + `snapshotTestFiles` + `snapshotOracleContents` — taken *after*
-   the patch, so tamper detection measures the probe only.
+4. `normalizeFormattingBeforeSnapshot` + `snapshotTestFiles` — taken *after* the patch, so tamper
+   detection measures the probe only.
 5. Probe agent: `claude` with `claude.model = <haiku>`, **`withMcp = false` in every probe, including
    probes of the `mcp` capture** — the probe is a bare agent by design. Same agent timeout (90 min)
    and identical settings in all 50 runs.
-6. Grading unchanged: semantic oracle post-condition + scoped compile gate + FAIL_TO_PASS
-   verification; `Y = gate.passed && verification.objectiveSuccess && grade.allPassed`.
+6. Grading is the case's own objective verifier, `ArenaVerifier.verify`: the FAIL_TO_PASS classes plus
+   PASS_TO_PASS, with the tamper check against the pre-agent snapshot.
+   `Y = verification.objectiveSuccess && !verification.failToPassTampered`. It is independent of the
+   agent session by construction — it reads the tree and the snapshot, nothing else — which is exactly
+   what makes a state produced by one agent gradeable after a different agent continues from it.
+
+A probe that fails because the INSTRUMENT failed (the checkpoint patch did not apply, the container
+died) is reported as `LOST`, never as `Y = 0`: a zero is a statement about the state's readiness, and
+attributing an infrastructure failure to the state would bias every `V` downward.
 
 ### 5.1 Blindness of the probe prompt
 
-The probe prompt is exactly `buildRipplePrompt(case, projectDir, withMcp = false)` — the shell-variant
-text, identical for both arms' probes — prefixed with one fixed paragraph:
+The probe prompt is exactly the case's own task prompt in its **shell variant** (`withMcp = false`),
+identical for both arms' probes, prefixed with one fixed paragraph:
 
 > You are given an intermediate state of an ongoing attempt to solve this task. Some investigation
 > and/or modifications may already have been performed. Continue from the current repository state and

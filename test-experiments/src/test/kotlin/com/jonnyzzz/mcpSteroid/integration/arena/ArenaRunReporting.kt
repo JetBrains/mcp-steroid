@@ -15,6 +15,14 @@ data class ArenaRunMetrics(
      * mixing the two sources in one table would let the same run report two different totals.
      */
     val toolCallStats: ToolCallStats? = null,
+    /**
+     * The agent's context size at the END of the run, as [extractEndContextTokens] defines it.
+     *
+     * Its own field rather than something derived from [tokenUsage]: the terminal `result` event reports
+     * cumulative traffic, so no arithmetic over [TokenUsage] can produce this quantity. It exists
+     * because the checkpoint pilot's representativeness band is measured this way — see [admitCapture].
+     */
+    val endContextTokens: Long? = null,
 )
 
 /**
@@ -41,6 +49,7 @@ fun collectRunMetrics(runDir: File, agentName: String, fallbackStdout: String): 
         decodedLogMetrics = findDecodedLogFile(runDir, agentName = decodedLogName)
             ?.let { extractDecodedLogMetrics(it.readText()) },
         toolCallStats = extractToolCallStats(rawOutput),
+        endContextTokens = extractEndContextTokens(rawOutput),
     )
 }
 

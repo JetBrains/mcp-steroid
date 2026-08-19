@@ -23,28 +23,25 @@ class RippleCheckpointMathTest {
     }
 
     @Test
-    fun `both arms are probed at the very same steps`() {
-        assertEquals(listOf(2, 6, 11, 17, 24), RIPPLE_CHECKPOINT_STEPS)
-        assertEquals(rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS), RIPPLE_CHECKPOINT_STEPS)
+    fun `the pilot measures five checkpoints per arm`() {
+        assertEquals(5, RIPPLE_CHECKPOINT_COUNT)
+        assertEquals(RIPPLE_CHECKPOINT_COUNT, rippleCheckpointSteps(32).size)
         assertEquals(listOf("mcp", "none"), RIPPLE_CHECKPOINT_ARMS)
     }
 
     /**
-     * The shared schedule is only usable if an admissible capture of EITHER arm reaches its last
-     * position, and the mcp arm is the short one: `admitCapture` requires steps inside mean±1sd, i.e.
-     * at least 25 tool calls, so `a_5 = 24` is the deepest checkpoint the pilot may schedule. One step
-     * more and every below-average mcp capture would be rejected for a missing fifth state.
+     * The deepest checkpoint must be reachable by ANY run the gate admits, whatever its length — which is
+     * exactly what deriving positions from the measured `n` buys. The v3 sample's extremes are the
+     * regression: the pilot's first schedule was fixed at n̂=32, and the mcp arm's 23-step run then had
+     * no state at its `a_5 = 24` to probe at all.
      */
     @Test
-    fun `the last checkpoint stays inside what an admissible capture of either arm reaches`() {
-        val minimumAdmissibleSteps = v3RenameMethodWideReference.values.minOf { reference ->
-            Math.ceil(reference.stepsMean - reference.stepsSd).toInt()
-        }
-        assertTrue(RIPPLE_CHECKPOINT_STEPS.last() < minimumAdmissibleSteps) {
-            "a_5=${RIPPLE_CHECKPOINT_STEPS.last()} is not reached by a capture of $minimumAdmissibleSteps steps"
-        }
-        assertTrue(rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS + 1).last() >= minimumAdmissibleSteps) {
-            "n̂=${RIPPLE_EXPECTED_STEPS} is not the largest schedule both arms can carry"
+    fun `the deepest checkpoint is strictly inside the trajectory for every admissible length`() {
+        val lengths = v3RenameMethodWideReference.values.flatMap { listOf(it.stepsMin, it.stepsMax) }
+        lengths.forEach { n ->
+            val steps = rippleCheckpointSteps(n)
+            assertTrue(steps.last() < n) { "a_5=${steps.last()} is not inside a $n-step trajectory" }
+            assertEquals(RIPPLE_CHECKPOINT_COUNT, steps.size) { "n=$n -> $steps" }
         }
     }
 
@@ -70,6 +67,48 @@ class RippleCheckpointMathTest {
     @Test
     fun `n below six cannot carry five distinct checkpoints`() {
         assertThrows(IllegalArgumentException::class.java) { rippleCheckpointSteps(5) }
+    }
+
+    @Test
+    fun `a trajectory whose every step differs is probed at the formula positions`() {
+        val selection = selectCheckpoints(n = 32) { step -> "state-$step" }
+
+        assertEquals(listOf(2, 6, 11, 17, 24), selection.steps)
+        assertEquals(listOf(2, 6, 11, 17, 24), selection.checkpoints.map { it.nominalStep })
+        assertTrue(selection.corrections.isEmpty()) { "nothing to correct: ${selection.corrections}" }
+    }
+
+    /**
+     * The defect this whole selection exists for. The mcp capture of build 1034656372 wrote the entire
+     * rename at step 11 and touched no file afterwards, so `step-11` and `step-17` were BYTE-IDENTICAL
+     * patches — two probes of one state, reported as two points of a curve.
+     */
+    @Test
+    fun `a checkpoint that would repeat the previous state moves to the next differing step`() {
+        val selection = selectCheckpoints(n = 32) { step -> if (step < 11) "pristine" else "solved" }
+
+        assertEquals(listOf(2, 11), selection.steps.take(2))
+        assertEquals(2, selection.checkpoints.size) { "only two states exist: ${selection.checkpoints}" }
+        assertTrue(selection.corrections.any { it.contains("11") }) { "${selection.corrections}" }
+    }
+
+    @Test
+    fun `positions are normalized by the measured n`() {
+        val selection = selectCheckpoints(n = 23) { step -> "state-$step" }
+
+        assertEquals(listOf(2, 4, 8, 13, 17), selection.steps)
+        assertEquals(2.0 / 23.0, selection.checkpoints.first().position, 1e-9)
+        assertEquals(17.0 / 23.0, selection.checkpoints.last().position, 1e-9)
+    }
+
+    @Test
+    fun `a state repeated to the end of the trajectory drops the checkpoints it would duplicate`() {
+        val selection = selectCheckpoints(n = 20) { step -> if (step < 3) "pristine" else "solved" }
+
+        assertEquals(listOf(1, 4), selection.steps)
+        assertTrue(selection.corrections.any { it.contains("no differing state") }) {
+            "${selection.corrections}"
+        }
     }
 
     @Test

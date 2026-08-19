@@ -353,29 +353,26 @@ abstract class RippleScenarioBaseTest {
             // block so the numbers are in the log even if a whole-tree git diff later fails.
             recorder?.let { rec ->
                 val nActual = rec.stepCount()
-                val steps = RIPPLE_CHECKPOINT_STEPS
+                val endContext = metrics.endContextTokens
                 val admission = admitCapture(
-                    reference = v3RenameMethodWideReference.getValue(modeLabel),
+                    reference = v3RenameMethodWideReference[modeLabel],
                     success = success,
                     steps = nActual,
                     seconds = result.agentDurationMs / 1000,
-                    endContextTokens = metrics.tokenUsage?.totalTokens ?: 0L,
-                    lastCheckpointStep = steps.last(),
+                    contextTokens = endContext ?: 0L,
+                    checkpointCount = RIPPLE_CHECKPOINT_COUNT,
                 )
-                println("[CHECKPOINT] n=$nActual steps=$steps admitted=${admission.admitted}")
+                println("[CHECKPOINT] n=$nActual endContextTokens=${endContext ?: "unknown"} " +
+                    "admitted=${admission.admitted}")
                 admission.reasons.forEach { println("[CHECKPOINT]   rejected: $it") }
-                // Only the positions the trajectory really passed through. Asking for a later tag would
-                // fail the build on a legitimately short run, which the admission verdict above already
-                // reports — and would throw away the patches of the states that WERE captured.
-                val reached = steps.filter { it <= nActual }
-                if (reached != steps) {
-                    println(
-                        "[CHECKPOINT] the run ended at $nActual steps, so ${steps - reached} were never " +
-                            "snapshotted — this capture cannot carry the full curve"
-                    )
-                }
-                reached.forEach { step -> rec.exportPatch(step) }
-                rec.exportMetadata(nActual)
+                admission.notes.forEach { println("[CHECKPOINT]   note: $it") }
+                // The positions are derived HERE, from the length that actually happened, and only from
+                // states that differ from each other — see selectCheckpoints. A capture whose work tree
+                // stopped changing carries fewer than five points, and the plan says so out loud rather
+                // than exporting the same patch under two names.
+                val plan = rec.plan(nActual)
+                plan.checkpoints.forEach { checkpoint -> rec.exportPatch(checkpoint.step) }
+                rec.exportMetadata(plan)
             }
 
             // The run is a measurement, not a pass/fail on the agent's competence: a shell arm scoring

@@ -7,6 +7,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainerOpts
 import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJProject
 import com.jonnyzzz.mcpSteroid.integration.infra.McpConnectionMode
+import com.jonnyzzz.mcpSteroid.integration.infra.asDockerClaudeSession
 import com.jonnyzzz.mcpSteroid.integration.infra.create
 import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.AiAgentSession
@@ -42,6 +43,16 @@ abstract class DpaiaScenarioBaseTest {
 
     /** The DPAIA instance ID for this scenario, e.g. "dpaia__jhipster__sample__app-3". */
     protected abstract val instanceId: String
+
+    /**
+     * What the solution-readiness pilot attaches to this run; [DpaiaRunSeams.NONE] for a scenario test.
+     *
+     * Overridable rather than a parameter of [runAgent] because a recorded or probed run needs the same
+     * flow an ordinary scenario runs — see [DpaiaRunSeams] for why a second copy of it was not an
+     * option. With the default set, every statement of [runAgent] is the run this suite always
+     * performed: the seam calls are four no-ops.
+     */
+    open val seams: DpaiaRunSeams = DpaiaRunSeams.NONE
 
     // The method budget must clear the agent's own budget plus TWO whole-suite runs (the pre-agent
     // regression baseline and the post-agent comparison) plus container startup and indexing. The
@@ -79,7 +90,14 @@ abstract class DpaiaScenarioBaseTest {
 
     // ── Test execution ───────────────────────────────────────────────────────
 
-    private fun runAgent(agentName: String, withMcp: Boolean) {
+    /**
+     * One scenario arm, unchanged, optionally recorded / patched / read through [seams].
+     *
+     * Public rather than private because the pilot's capture and probe tests HOLD a scenario flow instead
+     * of extending it: a named subclass would inherit this class's four graded `@Test` methods, so
+     * `--tests '*CheckpointCaptureTest*'` would spend four extra Opus runs that record nothing at all.
+     */
+    fun runAgent(agentName: String, withMcp: Boolean) {
         val datasetCase = resolvedTestCase
         val modeLabel = if (withMcp) "mcp" else "none"
         val caseConfig = DpaiaCuratedCases.CASE_CONFIGS[datasetCase.instanceId]
@@ -158,6 +176,13 @@ abstract class DpaiaScenarioBaseTest {
                 projectJdkVersion = caseConfig.projectJdkVersion,
             )
 
+            // SEAM — the work tree, after the deploy and the baseline and before anything the agent is
+            // held responsible for. The readiness probe applies its checkpoint patch here: the baseline
+            // must describe the case's own pristine state (it is the regression reference for every arm
+            // and every probe cell alike), while the tamper snapshot below must describe the state the
+            // agent actually inherited, or every probe would be charged with whatever the capture did.
+            seams.prepareTree(session, ideProjectDir, testCase)
+
             // Hashed AFTER the baseline suite, not before: anything the build itself rewrites (a
             // formatter plugin bound to a lifecycle phase, a code generator) would otherwise be charged
             // to the agent as tampering with the FAIL_TO_PASS oracle. The baseline runs in a detached
@@ -177,13 +202,30 @@ abstract class DpaiaScenarioBaseTest {
                 projectGuestDir = ideProjectDir,
             )
 
+            // SEAM — the recorder is installed on the very session the runner is about to drive, and
+            // only ever on Claude: its seam is a Claude Code `--settings` hook file, so a recorder handed
+            // to another agent would leave a run indistinguishable from an unrecorded one. Installed here
+            // and not earlier, because the harness's own pre-agent work (deploy gate, baseline suite,
+            // formatting, snapshots) is not part of the agent's trajectory and must not be counted as
+            // tool calls — `n` normalizes every published checkpoint position.
+            val recorder = seams.recorderFor(session, ideProjectDir)?.also { rec ->
+                check(agentName == "claude") {
+                    "the checkpoint recorder registers a Claude Code PostToolUse hook, and $agentName " +
+                        "has no such seam — a recorded run of it would count nothing"
+                }
+                rec.install(session.aiAgents.claude.asDockerClaudeSession())
+            }
+
             val result = runner.runTest(
                 testCase = testCase,
                 agent = agent,
                 withMcp = withMcp,
                 timeoutSeconds = caseConfig.agentTimeoutSeconds,
                 predeployedProjectDir = ideProjectDir,
-                logDir = session.runDirInContainer
+                logDir = session.runDirInContainer,
+                // SEAM — the brief the graded scenario sends, decorated. The default decorator is the
+                // identity, so an ordinary scenario still sends exactly `ArenaTestRunner.buildPrompt`.
+                promptBuilder = { dir -> seams.decoratePrompt(runner.buildPrompt(testCase, dir, withMcp)) },
             )
 
             // ── Objective FAIL_TO_PASS verification (outside the agent timer) ────
@@ -282,6 +324,19 @@ abstract class DpaiaScenarioBaseTest {
             }
             println("[ARENA]   Summary:        ${record.summary ?: "(none)"}")
             println("[ARENA] ════════════════════════════════════════")
+
+            // SEAM — the finished run, read. Before the assertions below so a verdict line reaches the
+            // build log even when the run is later ruled invalid, and after every artifact is on disk so
+            // a seam that fails cannot cost the run its report.
+            seams.afterAgentRun(DpaiaRunOutcome(
+                instanceId = testCase.instanceId,
+                agentName = agentName,
+                modeLabel = modeLabel,
+                agentDurationMs = result.agentDurationMs,
+                endContextTokens = metrics.endContextTokens,
+                verification = verification,
+                recorder = recorder,
+            ))
 
             // Lenient assertion
             check(result.evaluation.agentExitedSuccessfully || result.evaluation.agentClaimedFix) {

@@ -80,6 +80,34 @@ fun extractTestMetrics(rawOutput: String): TestMetrics? {
 }
 
 /**
+ * The size of the agent's context at the END of the run, or null when the stream carries no assistant
+ * usage at all.
+ *
+ * `input + cache_read + cache_creation + output` of the LAST assistant message — the definition the
+ * RIPPLE v3 trajectory analysis used, and therefore the only quantity comparable with the historical
+ * bands in [CaptureReference]. Deliberately not derived from [TokenUsage]: the terminal `result` event
+ * reports CUMULATIVE traffic over the whole run (its cache-read counter reached 969851 on a run whose
+ * context was ~75k), and `TokenUsage.totalTokens` is `input + output` only, which is a third quantity
+ * again. Comparing any of the three against a band built from another rejects every run — see
+ * [admitCapture].
+ */
+fun extractEndContextTokens(rawOutput: String): Long? {
+    for (line in rawOutput.lines().asReversed()) {
+        val json = parseJsonObjectOrNull(line) ?: continue
+        if (json["type"]?.jsonPrimitive?.content != "assistant") continue
+        val usage = json["message"]?.jsonObject?.get("usage")?.jsonObject ?: continue
+        val fields = listOf(
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "output_tokens",
+        )
+        return fields.sumOf { usage[it]?.jsonPrimitive?.longOrNull ?: 0L }
+    }
+    return null
+}
+
+/**
  * Extract token usage from either agent CLI's NDJSON output.
  *
  * Claude CLI `--output-format stream-json` ends with a terminal result event:

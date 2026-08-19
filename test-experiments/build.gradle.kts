@@ -167,6 +167,29 @@ fun Test.configureExperimentalTest() {
     }
 }
 
+/**
+ * The capture classes of the solution-readiness pilot, keyed by the case they record.
+ *
+ * Two entries because two cases are captured with the same instrument: `microshop-18` is what the
+ * pilot measures (its solution is built incrementally, so readiness can rise along the trajectory) and
+ * `rename-method-wide` is kept as the already-measured second case, whose one atomic edit makes its
+ * curve a step function.
+ *
+ * `RippleCheckpointCaptureFilterTest` loads every class and method named here by reflection, because a
+ * rename on either side of this mapping would otherwise produce a filter matching nothing — and a
+ * capture build that matches nothing does not fail, it runs whatever the configuration's own filter
+ * selects.
+ */
+val checkpointCaptureClasses = mapOf(
+    "microshop-18" to "DpaiaMicroshop18CheckpointCaptureTest",
+    "rename-method-wide" to "KeycloakRenameMethodWideCheckpointCaptureTest",
+)
+
+val checkpointCaptureMethods = listOf("hookPreflight", "captureMcpArm", "captureShellArm")
+
+val checkpointCaptureMethodProperty = "ripple.checkpoint.capture.method"
+val checkpointCaptureCaseProperty = "ripple.checkpoint.capture.case"
+
 tasks.test {
     configureExperimentalTest()
 
@@ -177,6 +200,27 @@ tasks.test {
     project.findProperty("testFilter")?.toString()?.let { pattern ->
         filter { includeTestsMatching(pattern) }
     }
+
+    // The capture side of the pilot is selected by ONE parameter, mapped to a filter here. Every
+    // invalid value is a hard configuration failure rather than a default: a capture build costs a full
+    // Opus run, and the failure mode this replaces is silent — Gradle ignores an unknown `-P`, so a
+    // misspelled method used to leave the build running whatever else the configuration selected.
+    project.findProperty(checkpointCaptureMethodProperty)?.toString()?.takeIf { it.isNotBlank() }
+        ?.let { method ->
+            require(method in checkpointCaptureMethods) {
+                "-P$checkpointCaptureMethodProperty=$method is not a capture method; " +
+                    "expected one of $checkpointCaptureMethods"
+            }
+            val case = project.findProperty(checkpointCaptureCaseProperty)?.toString()
+                ?.takeIf { it.isNotBlank() }
+                ?: "microshop-18"
+            val captureClass = checkpointCaptureClasses[case]
+                ?: error(
+                    "-P$checkpointCaptureCaseProperty=$case has no capture class; " +
+                        "expected one of ${checkpointCaptureClasses.keys}"
+                )
+            filter { includeTestsMatching("*$captureClass.$method") }
+        }
 
     // Prevent this task from being silently triggered by root-level './gradlew test' aggregation.
     // Experimental integration tests require Docker, API keys, and IDE containers — invoke explicitly.

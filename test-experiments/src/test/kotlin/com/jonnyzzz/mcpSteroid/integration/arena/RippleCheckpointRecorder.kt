@@ -11,6 +11,7 @@ import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -20,10 +21,15 @@ import kotlinx.serialization.json.putJsonObject
 /**
  * The `PostToolUse` hook that turns a capture run into a counted, snapshotted trajectory.
  *
- * Two jobs, deliberately unequal in cost. **Counting** happens on EVERY tool call, so the counter's
- * final value is the run's `n` — the number every reported position is normalized by. **Snapshotting**
- * happens only at [targetSteps]: `add -A` over Keycloak is a full tree scan, and doing one per tool
- * call would put tens of them inside the agent loop this run exists to measure faithfully.
+ * Counting AND snapshotting happen on every tool call. The pilot's checkpoint positions are
+ * `round(n·(i/6)^1.5)` of the run's MEASURED length, and `n` is only known once the run is over — so a
+ * hook that snapshots a schedule computed in advance can only be right by luck. It was not: the two
+ * captures of 2026-08-18 came in at 23 and 51 tool calls against an assumed 32, which left the mcp arm
+ * without its fifth state (the run ended before that step) and put every published position at a
+ * percentage nobody had chosen. Recording every step decouples the instrument from the guess:
+ * [RippleCheckpointRecorder.plan] picks the five positions afterwards, from the length that actually
+ * happened, and it can also see WHICH steps changed the work tree, so no two checkpoints of a curve
+ * are the same state.
  *
  * Three properties are non-negotiable, and each of them cost a real failure somewhere to learn:
  *
@@ -35,47 +41,32 @@ import kotlinx.serialization.json.putJsonObject
  * - **`exit 0` unconditionally.** A hook that fails hard would abort a $2 Opus run; a missing tag is
  *   visible later, in [RippleCheckpointRecorder.exportPatch], and is a far cheaper failure.
  *
- * One `case` arm per target step, each naming its own tag: the tag names are then part of the text
- * that can be asserted before the run instead of being assembled at run time, when nobody is reading.
- *
  * The counter is a read-modify-write of one file, so two tool calls that complete in the same instant
  * can share a number. Nothing corrects for that: the counter is what the instrument observed, and the
  * positions in the report are normalized by that same number, so an undercount shifts the whole curve
- * consistently instead of mislabeling one checkpoint.
+ * consistently instead of mislabeling one checkpoint. A number reused this way loses one snapshot —
+ * `git tag` refuses to move an existing tag — and [RippleCheckpointRecorder.plan] then reports the
+ * gap instead of silently probing the wrong state.
  */
 fun checkpointHookScript(
     gitDir: String,
     workTree: String,
     counterFile: String,
-    targetSteps: List<Int>,
-): String {
-    require(targetSteps.isNotEmpty()) { "a hook with no target steps counts a trajectory it never records" }
-    require(targetSteps == targetSteps.sorted() && targetSteps.distinct() == targetSteps) {
-        "target steps must be strictly increasing and distinct: $targetSteps"
-    }
-    val arms = targetSteps.joinToString("\n") { step -> "$step) snapshot \"step-$step\" ;;" }
-    return """
-        #!/bin/sh
-        # Count this tool call, then snapshot the work tree only at the precomputed checkpoint steps.
-        # The shadow git dir keeps the project's own repository untouched, everything goes to stderr so
-        # no byte can reach the agent's JSON-RPC channel, and the exit code is always 0 so a broken
-        # instrument cannot kill the agent run. See checkpointHookScript's docs for why.
-        n=${'$'}(( ${'$'}(cat $counterFile 2>/dev/null || echo 0) + 1 ))
-        echo "${'$'}n" > $counterFile
+): String = """
+    #!/bin/sh
+    # Count this tool call and snapshot the work tree under the tag of that step.
+    # The shadow git dir keeps the project's own repository untouched, everything goes to stderr so
+    # no byte can reach the agent's JSON-RPC channel, and the exit code is always 0 so a broken
+    # instrument cannot kill the agent run. See checkpointHookScript's docs for why.
+    n=${'$'}(( ${'$'}(cat $counterFile 2>/dev/null || echo 0) + 1 ))
+    echo "${'$'}n" > $counterFile
 
-        snapshot() {
-          cd $workTree || return 0
-          git --git-dir=$gitDir --work-tree=$workTree add -A >&2
-          git --git-dir=$gitDir --work-tree=$workTree commit --allow-empty -q -m "${'$'}1" >&2
-          git --git-dir=$gitDir --work-tree=$workTree tag "${'$'}1" >&2
-        }
-
-        case "${'$'}n" in
-${arms.prependIndent("          ")}
-        esac
-        exit 0
-    """.trimIndent() + "\n"
-}
+    cd $workTree || exit 0
+    git --git-dir=$gitDir --work-tree=$workTree add -A >&2
+    git --git-dir=$gitDir --work-tree=$workTree commit --allow-empty -q -m "step-${'$'}n" >&2
+    git --git-dir=$gitDir --work-tree=$workTree tag "step-${'$'}n" >&2
+    exit 0
+""".trimIndent() + "\n"
 
 /**
  * The Claude Code settings file that runs [scriptPath] after every tool call.
@@ -121,7 +112,6 @@ private val checkpointJson = Json { prettyPrint = true }
 class RippleCheckpointRecorder(
     private val container: ContainerDriver,
     private val projectDir: String,
-    private val targetSteps: List<Int>,
     private val gitDir: String = "$DEFAULT_CHECKPOINT_DIR/.git",
     private val case: String = "",
     private val arm: String = "",
@@ -137,7 +127,7 @@ class RippleCheckpointRecorder(
      * snapshot taken before `step-0` exists would have nothing to be a diff against.
      */
     fun install(claude: DockerClaudeSession) {
-        println("[CHECKPOINT] installing recorder: gitDir=$gitDir workTree=$projectDir steps=$targetSteps")
+        println("[CHECKPOINT] installing recorder: gitDir=$gitDir workTree=$projectDir (every step)")
         container.mkdirs(checkpointDir).assertExitCode(0) { "Failed to create $checkpointDir: $stderr" }
 
         // Both repositories need a safe.directory entry, for the reason GitDriver.cloneFromCachedBare
@@ -163,7 +153,7 @@ class RippleCheckpointRecorder(
 
         container.writeFileInContainer(
             scriptPath,
-            checkpointHookScript(gitDir, projectDir, counterFile, targetSteps),
+            checkpointHookScript(gitDir, projectDir, counterFile),
             executable = true,
         )
         // The script is staged from the host, so its mode and owner come from `docker cp`; the agent
@@ -224,22 +214,60 @@ class RippleCheckpointRecorder(
      * Writes `checkpoints.json` next to [gitDir] and returns it, so the patches are never read without
      * the step count they have to be normalized by.
      */
-    fun exportMetadata(nActual: Int): String {
+    fun exportMetadata(plan: CheckpointPlan): String {
         require(case.isNotBlank() && arm.isNotBlank() && model.isNotBlank()) {
             "metadata needs the capture identity: construct RippleCheckpointRecorder with case, arm " +
                 "and model (got case='$case', arm='$arm', model='$model')"
         }
-        val json = metadataJson(
-            case = case,
-            arm = arm,
-            model = model,
-            expectedSteps = RIPPLE_EXPECTED_STEPS,
-            actualSteps = nActual,
-            steps = targetSteps,
-        )
+        val json = metadataJson(case = case, arm = arm, model = model, plan = plan)
         container.writeFileInContainer("$checkpointDir/$METADATA_FILE_NAME", json)
-        println("[CHECKPOINT] exported $checkpointDir/$METADATA_FILE_NAME for n=$nActual")
+        println("[CHECKPOINT] exported $checkpointDir/$METADATA_FILE_NAME for n=${plan.n}")
         return json
+    }
+
+    /**
+     * The tree id of every snapshotted step, read in ONE container exec.
+     *
+     * A `rev-parse step-N^{tree}` per step would be one exec per tool call of a 50-step run, all of it
+     * inside the capture build's wall time. `for-each-ref` prints the same ids in one go, and the tree
+     * id — not the commit id — is what identifies a STATE: consecutive snapshots of an unchanged work
+     * tree are different commits (they are `--allow-empty`) with the very same tree.
+     */
+    fun stepTreeIds(): Map<Int, String> {
+        val listing = exec(
+            "git for-each-ref refs/tags",
+            listOf(
+                "git", "--git-dir=$gitDir", "for-each-ref",
+                "--format=%(refname:strip=2) %(tree)", "refs/tags",
+            ),
+            timeoutSeconds = GIT_TREE_TIMEOUT_SECONDS,
+        ).assertExitCode(0) { "Failed to list the snapshot tags of $gitDir: $stderr" }
+        return parseStepTreeIds(listing.stdout)
+    }
+
+    /**
+     * The checkpoints of THIS run: five positions of [nActual], each holding a state no earlier
+     * checkpoint held.
+     *
+     * The gap check is the reason this is not a one-liner over [selectCheckpoints]. The hook's counter
+     * is a read-modify-write, so two tool calls finishing in the same instant can share a number and
+     * cost one snapshot; a missing `step-N` would then make the selection compare against the wrong
+     * state and publish a position for a state it never saw. Reported, never guessed around.
+     */
+    fun plan(nActual: Int): CheckpointPlan {
+        val trees = stepTreeIds()
+        val missing = (1 until nActual).filterNot { it in trees }
+        check(missing.isEmpty()) {
+            "The hook counted $nActual steps but left no snapshot for $missing in $gitDir — the counter " +
+                "was shared by tool calls finishing in the same instant. The capture cannot be planned " +
+                "without those states."
+        }
+        val plan = selectCheckpoints(nActual) { step ->
+            trees.getValue(step)
+        }
+        println("[CHECKPOINT] plan for n=$nActual: steps=${plan.steps} nominal=${plan.checkpoints.map { it.nominalStep }}")
+        plan.corrections.forEach { println("[CHECKPOINT]   correction: $it") }
+        return plan
     }
 
     private fun snapshot(tag: String) {
@@ -305,38 +333,56 @@ class RippleCheckpointRecorder(
         fun patchFileName(step: Int): String = "step-$step.patch"
 
         /**
-         * What the recording means, as JSON: the checkpoint steps of this run and where along the
-         * trajectory each of them fell.
+         * Parses `<tag> <tree id>` lines into `step -> tree id`.
          *
-         * `position = step / actualSteps` — normalized by the MEASURED step count, never by
-         * [expectedSteps]. The schedule had to be computed before the run from the arm's historical
-         * mean, so a run that ends at 29 steps has its `24` at 83%, not at the 75% the schedule
-         * assumed. [expectedSteps] is kept in the artifact for exactly that reason: the difference
-         * between assumed and measured is what a reader needs to judge the run's representativeness.
+         * Split out of [stepTreeIds] so the parsing is decided by a unit test instead of by a $2
+         * capture run: a listing misread here yields a full, plausible, wrong set of checkpoints.
+         */
+        fun parseStepTreeIds(listing: String): Map<Int, String> = listing.lines()
+            .mapNotNull { line ->
+                val parts = line.trim().split(' ').filter { it.isNotBlank() }
+                if (parts.size != 2) return@mapNotNull null
+                val step = parts[0].removePrefix("step-").toIntOrNull() ?: return@mapNotNull null
+                step to parts[1]
+            }
+            .toMap()
+
+        /**
+         * What the recording means, as JSON: the measured length of the trajectory, the steps probed,
+         * and where along the trajectory each of them fell.
+         *
+         * Both the nominal position and the probed step are written, together with the plan's
+         * [CheckpointPlan.corrections]. A checkpoint that had to move (its nominal step held a state
+         * already probed) sits deeper in the trajectory than the schedule intended, and a curve read
+         * without that fact would look like the schedule everyone expects while measuring something
+         * else. The corrections are also how a report shows a curve of fewer than five points without
+         * anyone having to diff patches to find out why.
          */
         fun metadataJson(
             case: String,
             arm: String,
             model: String,
-            expectedSteps: Int,
-            actualSteps: Int,
-            steps: List<Int>,
+            plan: CheckpointPlan,
         ): String {
-            require(actualSteps > 0) { "a trajectory of $actualSteps steps has no positions to normalize" }
+            require(plan.n > 0) { "a trajectory of ${plan.n} steps has no positions to normalize" }
             val metadata = buildJsonObject {
                 put("case", case)
                 put("arm", arm)
                 put("model", model)
-                put("expectedSteps", expectedSteps)
-                put("actualSteps", actualSteps)
+                put("actualSteps", plan.n)
                 putJsonArray("checkpoints") {
-                    steps.forEach { step ->
+                    plan.checkpoints.forEach { checkpoint ->
                         addJsonObject {
-                            put("step", step)
-                            put("position", step.toDouble() / actualSteps)
-                            put("patch", patchFileName(step))
+                            put("index", checkpoint.index)
+                            put("nominalStep", checkpoint.nominalStep)
+                            put("step", checkpoint.step)
+                            put("position", checkpoint.position)
+                            put("patch", patchFileName(checkpoint.step))
                         }
                     }
+                }
+                putJsonArray("corrections") {
+                    plan.corrections.forEach { add(it) }
                 }
             }
             return checkpointJson.encodeToString(JsonObject.serializer(), metadata)

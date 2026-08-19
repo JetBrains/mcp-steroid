@@ -26,31 +26,99 @@ fun rippleCheckpointSteps(n: Int, count: Int = 5): List<Int> {
     return fixed
 }
 
+/**
+ * One probe point of a recorded trajectory.
+ *
+ * [nominalStep] is where the schedule of [rippleCheckpointSteps] put this checkpoint and [step] is
+ * where it was actually taken. They differ whenever the nominal step held a state already probed —
+ * see [selectCheckpoints] — and both are reported, because the correction moves the checkpoint deeper
+ * into the trajectory and a reader comparing curves has to see that it happened.
+ */
+data class CheckpointSelection(
+    val index: Int,
+    val nominalStep: Int,
+    val step: Int,
+    val position: Double,
+)
+
+/**
+ * The checkpoints of one capture run, plus every correction the selection had to make.
+ *
+ * [corrections] is part of the measurement, not a log: a plan carrying three checkpoints instead of
+ * five is a statement about the recorded trajectory (it stopped changing the work tree), and the
+ * report has to print the reason next to the shortened curve.
+ */
+data class CheckpointPlan(
+    val n: Int,
+    val checkpoints: List<CheckpointSelection>,
+    val corrections: List<String>,
+) {
+    val steps: List<Int> get() = checkpoints.map { it.step }
+}
+
+/**
+ * Picks the probe points of a trajectory of [n] steps, given the state each step left behind.
+ *
+ * [stateIdOf] identifies the work tree after a step — a git tree id in the capture, a string in the
+ * tests. Two checkpoints with the same state id are the same experiment run twice: the mcp capture of
+ * build 1034656372 finished the whole rename at step 11 and touched no file afterwards, so its
+ * scheduled `step-11` and `step-17` patches were byte-identical, and probing both would have reported
+ * one measured state as two points of a readiness curve.
+ *
+ * So a checkpoint whose nominal position repeats the previous checkpoint's state moves FORWARD to the
+ * first step that differs — the smallest correction that keeps the sequence strictly increasing, and
+ * the one the pilot's specification allows. When no differing state exists before the final step, the
+ * checkpoint is dropped instead of duplicated: fewer honest points beat five points of which two are
+ * the same measurement. The final state itself is never a checkpoint, which is why the search stops at
+ * `n - 1`.
+ */
+fun selectCheckpoints(n: Int, count: Int = 5, stateIdOf: (Int) -> String): CheckpointPlan {
+    val nominal = rippleCheckpointSteps(n, count)
+    val corrections = mutableListOf<String>()
+    val chosen = mutableListOf<CheckpointSelection>()
+    var previousStep = 0
+    var previousState: String? = null
+
+    nominal.forEachIndexed { zeroBased, nominalStep ->
+        val index = zeroBased + 1
+        val from = maxOf(nominalStep, previousStep + 1)
+        val step = (from until n).firstOrNull { candidate -> stateIdOf(candidate) != previousState }
+        if (step == null) {
+            corrections += "checkpoint $index (nominal step $nominalStep): no differing state before the " +
+                "final step $n — the trajectory stopped changing the work tree after step $previousStep, " +
+                "so this checkpoint would have repeated that state"
+            return@forEachIndexed
+        }
+        if (step != nominalStep) {
+            corrections += "checkpoint $index: nominal step $nominalStep held the state already probed at " +
+                "step $previousStep, moved to $step"
+        }
+        chosen += CheckpointSelection(
+            index = index,
+            nominalStep = nominalStep,
+            step = step,
+            position = step.toDouble() / n,
+        )
+        previousStep = step
+        previousState = stateIdOf(step)
+    }
+    return CheckpointPlan(n = n, checkpoints = chosen, corrections = corrections)
+}
+
 /** The two arms of the pilot: the source trajectory either had MCP Steroid or had nothing but a shell. */
 val RIPPLE_CHECKPOINT_ARMS: List<String> = listOf("mcp", "none")
 
 /**
- * The ONE assumed trajectory length both arms' checkpoints are derived from.
+ * How many checkpoints one capture's readiness curve is measured at.
  *
- * Shared on purpose: `V_mcp` and `V_shell` are only comparable when both curves are measured at the
- * SAME tool-call counts, so a per-arm schedule would compare readiness after 24 mcp calls against
- * readiness after 30 shell calls and call the difference an arm effect.
- *
- * 32 is not the pooled mean (36) but the largest shared value both arms can actually reach: the v3
- * mcp sample is the shorter one (31.6±7.1 steps), so [admitCapture] only admits mcp captures of ≥25
- * tool calls, and `round(33·(5/6)^1.5) = 25` would already put the fifth snapshot beyond an admissible
- * run. It happens to equal the rounded mcp mean.
+ * The POSITIONS are not a constant, and deliberately so. They are `round(n·(i/6)^1.5)` of each capture's
+ * own measured length — see [selectCheckpoints] — because a schedule fixed before the run has to guess
+ * `n`, and the guess of 32 that this pilot started with met runs of 23 and 51 tool calls: the first had
+ * no fifth state at all, the second put its deepest checkpoint at 47% of a trajectory instead of 76%.
+ * Curves of two arms are therefore compared at equal NORMALIZED positions `a_i/n`, not at equal
+ * tool-call counts.
  */
-val RIPPLE_EXPECTED_STEPS: Int = 32
-
-/**
- * The five tool-call counts every capture run of this pilot snapshots at — `2, 6, 11, 17, 24`.
- *
- * Computed once, before any run: a snapshot is a full `git add -A` over the whole Keycloak tree, so
- * snapshotting every step would add tens of tree scans inside the measured agent loop and distort the
- * trajectory it records.
- */
-val RIPPLE_CHECKPOINT_STEPS: List<Int> = rippleCheckpointSteps(RIPPLE_EXPECTED_STEPS)
+val RIPPLE_CHECKPOINT_COUNT: Int = 5
 
 /**
  * `V(s_i)` for one checkpoint: the fraction of probes that finished the task from that state.

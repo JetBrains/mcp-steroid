@@ -110,6 +110,36 @@ class ExtractTokenUsageTest {
         assertNull(extractTokenUsage("hello\nnot json\n"))
     }
 
+    /**
+     * The end-of-run CONTEXT, which is a different quantity from the run's token spend.
+     *
+     * `{"type":"result"}` reports cumulative traffic — its `cache_read_input_tokens` is the sum over
+     * every request of the run (969851 on the pilot's mcp capture, for a project whose whole context
+     * was ~75k). The v3 series measured context as the last assistant message's
+     * `input + cache_read + cache_creation + output`, and the checkpoint pilot's representativeness band
+     * is built from those numbers, so anything compared against it has to be measured the same way.
+     * Reading the wrong field rejected both captures of 2026-08-18.
+     */
+    @Test
+    fun `end-of-run context is the last assistant message's own usage`() {
+        val ndjson = listOf(
+            """{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":4,""" +
+                """"output_tokens":10,"cache_read_input_tokens":30000,"cache_creation_input_tokens":100}}}""",
+            """{"type":"user","message":{"role":"user","content":[]}}""",
+            """{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":7,""" +
+                """"output_tokens":20,"cache_read_input_tokens":60000,"cache_creation_input_tokens":900}}}""",
+            """{"type":"result","subtype":"success","usage":{"input_tokens":3829,"output_tokens":13667,""" +
+                """"cache_read_input_tokens":969851,"cache_creation_input_tokens":43787}}""",
+        ).joinToString("\n")
+
+        assertEquals(60927L, extractEndContextTokens(ndjson))
+    }
+
+    @Test
+    fun `a stream without an assistant usage has no context to report`() {
+        assertNull(extractEndContextTokens("""{"type":"result","usage":{"input_tokens":10}}"""))
+    }
+
     // ── The plumbing half of the same bug ─────────────────────────────────────────────────────
     //
     // Teaching the parser Codex's shape was not enough: the metrics were being fed

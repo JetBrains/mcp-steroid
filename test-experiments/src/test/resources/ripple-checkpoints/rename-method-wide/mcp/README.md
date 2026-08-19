@@ -1,22 +1,30 @@
 # `rename-method-wide` — mcp arm checkpoints
 
-The states `RippleCheckpointProbeTest.probe` restarts a bare Haiku from, captured by
-`KeycloakRenameMethodWideCheckpointCaptureTest.claude with mcp`.
+The states captured by `KeycloakRenameMethodWideCheckpointCaptureTest.captureMcpArm`.
 
-Expected contents once the capture has run and been admitted:
+**No probe cell addresses this case any more.** The pilot moved to
+`dpaia__spring__boot__microshop-18` (see `../../microshop-18/`) because this case's edit is atomic: in
+the real capture (TC build 1034656372) the work tree went from untouched straight to all 111 files
+renamed at step 11, and two scheduled checkpoints came out byte-identical — a readiness CURVE cannot be
+measured on a solution that appears all at once. The directory stays, checked by
+`RippleCheckpointProbeTest`, because it is a second, already-measured case and a published curve is only
+readable next to the trajectory it came from.
 
-- `step-2.patch`, `step-6.patch`, `step-11.patch`, `step-17.patch`, `step-24.patch` —
-  `git diff step-0 step-<a_i>` of the recorded trajectory. The positions come from
-  `RIPPLE_CHECKPOINT_STEPS` — shared with the `none` arm, so both readiness curves are measured after
-  the same numbers of tool calls. The file names are therefore known before the
-  run and a probe cell addresses one of them by index.
-- `checkpoints.json` — `RippleCheckpointRecorder.exportMetadata`, which carries the MEASURED step
-  count `n`. The probe reports `position = a_i/n` from it; without the file no probe can say where on
-  the trajectory its readiness value belongs.
+Expected contents once a capture has run and been admitted:
 
-Copy all six files out of the admitted capture build's run-directory artifact (`checkpoints/`) in one
-commit — patches from one run and metadata from another describe a trajectory that never existed.
+- `step-<a_i>.patch`, one per planned checkpoint (at most `RIPPLE_CHECKPOINT_COUNT` = 5) —
+  `git diff step-0 step-<a_i>` of the recorded trajectory. **The file names are NOT known before the
+  run**: the positions are `round(n·(i/6)^1.5)` of the MEASURED tool-call count `n`, corrected where a
+  nominal step repeats an already-probed state, so only `RippleCheckpointRecorder.plan` can say which
+  steps they are. The first fixed schedule this pilot used assumed `n = 32` and met runs of 23 and 51.
+- `checkpoints.json` — `RippleCheckpointRecorder.exportMetadata`, carrying the measured `n` and, per
+  checkpoint, its `index`, `nominalStep`, `step`, `position` = `step/n`, `patch` file name and every
+  correction. Without it nobody can say what fraction of a trajectory a patch represents.
 
-This README is what keeps the directory in git before the capture lands: an empty directory cannot be
-committed, and `RippleCheckpointProbeTest` asserts the layout exists because a probe cell must fail on
-a missing STATE rather than on a missing folder.
+Copy the patches and `checkpoints.json` out of the admitted capture build's run-directory artifact
+(`checkpoints/`) in ONE commit — patches from one run and metadata from another describe a trajectory
+that never existed, and `RippleCheckpointProbeTest` refuses that mismatch.
+
+This README is what keeps the directory in git while it holds no patches: an empty directory cannot be
+committed, and the layout is asserted to exist because a probe cell must fail on a missing STATE rather
+than on a missing folder.

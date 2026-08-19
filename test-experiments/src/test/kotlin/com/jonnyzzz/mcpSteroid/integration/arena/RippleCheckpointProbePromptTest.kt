@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -30,5 +31,31 @@ class RippleCheckpointProbePromptTest {
         listOf("checkpoint", "step 1", "steps", "% of", "mcp", "steroid", "intellij", "opus",
                "previous agent", "another agent", "trajectory")
             .forEach { leak -> assertFalse(probe.contains(leak)) { "probe prompt leaks '$leak'" } }
+    }
+
+    /**
+     * The DPAIA half of the same composition: the paragraph, then the case's OWN brief, untouched.
+     *
+     * The brief arrives as a string rather than being rebuilt here, because the probe must send the very
+     * prompt the graded scenario sends — `ArenaTestRunner.buildPrompt` for that case, produced inside the
+     * run flow — and anything reassembled here could drift from it without a test noticing.
+     */
+    @Test
+    fun `dpaia probe prompt is the case's own brief behind one continuation paragraph`() {
+        val brief = "Replace RestTemplate with WebClient.\nARENA_FIX_APPLIED: yes"
+        val probe = buildDpaiaCheckpointProbePrompt(brief)
+        assertEquals(CHECKPOINT_CONTINUATION_PARAGRAPH + "\n\n" + brief, probe)
+        assertTrue(probe.endsWith(brief)) { "the brief must arrive unchanged and last" }
+    }
+
+    /**
+     * `ArenaTestRunner.runTest` refuses a prompt that never asks for `ARENA_FIX_APPLIED`, and rightly so:
+     * that marker is the only string `evaluate` reads as a claimed fix. A decorator that dropped it would
+     * abort every probe cell after the container, the clone and the Maven import.
+     */
+    @Test
+    fun `dpaia probe prompt keeps the marker the harness reads as a claimed fix`() {
+        val probe = buildDpaiaCheckpointProbePrompt("do the work\nARENA_FIX_APPLIED: yes")
+        assertTrue(probe.contains("ARENA_FIX_APPLIED"))
     }
 }

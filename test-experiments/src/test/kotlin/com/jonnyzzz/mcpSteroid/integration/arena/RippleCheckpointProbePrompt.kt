@@ -24,3 +24,16 @@ const val CHECKPOINT_CONTINUATION_PARAGRAPH: String =
  */
 fun buildCheckpointProbePrompt(case: RippleCase, projectDir: String): String =
     CHECKPOINT_CONTINUATION_PARAGRAPH + "\n\n" + buildRipplePrompt(case, projectDir, withMcp = false)
+
+/**
+ * The same composition for a DPAIA case: the continuation paragraph, then [taskPrompt] untouched.
+ *
+ * [taskPrompt] is the brief the graded scenario would have sent — `ArenaTestRunner.buildPrompt` for
+ * that case, in the shell arm's wording — and it arrives as a string rather than being rebuilt here.
+ * A probe that sent a re-assembled brief would be answering a slightly different question from the
+ * capture whose states it grades, and the difference would not show up anywhere in the report. The
+ * paragraph goes first for the same reason as in the ripple probe: it is the frame for everything after
+ * it, and a probe that reads the task as fresh work has to re-decide whatever it just planned.
+ */
+fun buildDpaiaCheckpointProbePrompt(taskPrompt: String): String =
+    CHECKPOINT_CONTINUATION_PARAGRAPH + "\n\n" + taskPrompt

@@ -57,35 +57,55 @@ val v3RenameMethodWideReference: Map<String, CaptureReference> = mapOf(
  * fail-fast verdict would hide that. The verdict is a printout, never an assertion — see
  * [RippleScenarioBaseTest] — because a rejected capture is a real measurement of the arm.
  */
-data class CaptureAdmission(val admitted: Boolean, val reasons: List<String>)
+data class CaptureAdmission(
+    val admitted: Boolean,
+    val reasons: List<String>,
+    val notes: List<String> = emptyList(),
+)
 
 /**
- * Judge one capture run against [reference].
+ * Judge one capture run against [reference], or — when there is no [reference] — against nothing but
+ * its own usability.
  *
  * One reason per CRITERION, not per comparison: the step count is a single criterion satisfied by
  * being inside the v3 range AND inside mean±1sd, so an outlier at 61 steps produces one reason
  * naming both bounds rather than two rows saying the same thing twice.
  *
- * [lastCheckpointStep] is the fifth snapshot position. A run that ended at or before it never reached
- * that state, so its curve would have four points where the report promises five — a defect in the
- * INSTRUMENT's coverage, which is why it sits next to the representativeness criteria instead of being
- * discovered later by a probe build that cannot find its patch.
+ * [contextTokens] must be measured the SAME way the reference's `tokensMean` was — as the end-of-run
+ * cumulative context, `input + cache_read + cache_creation + output` of the last assistant message (see
+ * [extractEndContextTokens]). Passing a run's `input + output` instead compares two different
+ * quantities: on 2026-08-18 that mistake rejected both captures of the pilot for being ~17k against a
+ * band of 63k..87k, a comparison no run could ever pass.
+ *
+ * [reference] is null for a case with no measured sample of its own. A band cannot be invented for it,
+ * so representativeness is not judged at all and the gap is reported as a note — the capture is still
+ * checked for the two things that make it unusable regardless of history: it must have SUCCEEDED, and
+ * it must be long enough to carry [checkpointCount] distinct pre-final checkpoints.
  */
 fun admitCapture(
-    reference: CaptureReference,
+    reference: CaptureReference?,
     success: Boolean,
     steps: Int,
     seconds: Long,
-    endContextTokens: Long,
-    lastCheckpointStep: Int,
+    contextTokens: Long,
+    checkpointCount: Int = 5,
 ): CaptureAdmission {
+    val arm = reference?.arm ?: "this"
     val reasons = buildList {
         if (!success) {
             add(
-                "SUCCESS was false — the ${reference.arm} arm of this case is historically all-pass, so a " +
+                "SUCCESS was false — the $arm arm of this case is historically all-pass, so a " +
                     "failed run is not a typical trajectory to take checkpoints from"
             )
         }
+        if (steps <= checkpointCount) {
+            add(
+                "the run made only $steps tool calls, which cannot carry $checkpointCount checkpoints " +
+                    "strictly before its final state"
+            )
+        }
+        if (reference == null) return@buildList
+
         val stepsBand = band(reference.stepsMean, reference.stepsSd)
         if (steps !in reference.stepsMin..reference.stepsMax || steps.toDouble() !in stepsBand) {
             add(
@@ -101,20 +121,22 @@ fun admitCapture(
             )
         }
         val tokensBand = band(reference.tokensMean, reference.tokensSd)
-        if (endContextTokens.toDouble() !in tokensBand) {
+        if (contextTokens.toDouble() !in tokensBand) {
             add(
-                "end-context tokens $endContextTokens are outside the v3 ${reference.arm} mean±1sd " +
+                "end-of-run context tokens $contextTokens are outside the v3 ${reference.arm} mean±1sd " +
                     tokensBand.render()
             )
         }
-        if (steps <= lastCheckpointStep) {
+    }
+    val notes = buildList {
+        if (reference == null) {
             add(
-                "the run stopped at $steps tool calls, at or before the last snapshot position " +
-                    "$lastCheckpointStep, so it has no fifth checkpoint to probe"
+                "representativeness was NOT judged: no historical sample exists for this case, so this " +
+                    "capture is a sample of one and the report must say so instead of implying it is typical"
             )
         }
     }
-    return CaptureAdmission(admitted = reasons.isEmpty(), reasons = reasons)
+    return CaptureAdmission(admitted = reasons.isEmpty(), reasons = reasons, notes = notes)
 }
 
 private fun band(mean: Double, sd: Double): ClosedFloatingPointRange<Double> = (mean - sd)..(mean + sd)

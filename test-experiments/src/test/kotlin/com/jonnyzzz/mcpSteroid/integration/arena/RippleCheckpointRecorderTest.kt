@@ -35,26 +35,25 @@ import org.junit.jupiter.api.io.TempDir
  */
 class RippleCheckpointRecorderTest {
     @Test
-    fun `hook script counts every call but commits only at the target steps`() {
+    fun `hook script snapshots every call under the step's own tag`() {
         val script = checkpointHookScript(
-            gitDir = "/checkpoints/.git", workTree = "/work/keycloak",
-            counterFile = "/checkpoints/steps", targetSteps = listOf(2, 6, 11, 17, 24),
+            gitDir = "/checkpoints/.git", workTree = "/work/project",
+            counterFile = "/checkpoints/steps",
         )
         assertTrue(script.startsWith("#!/bin/sh"))
         assertTrue(script.contains("--git-dir=/checkpoints/.git"))
-        assertTrue(script.contains("--work-tree=/work/keycloak"))
+        assertTrue(script.contains("--work-tree=/work/project"))
         assertTrue(script.contains("/checkpoints/steps")) { "the counter is the source of n" }
-        listOf("2", "6", "11", "17", "24").forEach { step ->
-            assertTrue(script.contains("step-$step")) { "no tag for step $step" }
-        }
-        assertFalse(script.contains("git -C /work/keycloak")) { "the project's own .git must stay untouched" }
+        assertTrue(script.contains("step-\$n")) { "the tag must be the step the hook just counted" }
+        assertFalse(script.contains("case ")) { "no schedule may survive in the hook: $script" }
+        assertFalse(script.contains("git -C /work/project")) { "the project's own .git must stay untouched" }
     }
 
     @Test
     fun `hook script never writes stdout and never fails the run`() {
         val script = checkpointHookScript(
-            gitDir = "/checkpoints/.git", workTree = "/work/keycloak",
-            counterFile = "/checkpoints/steps", targetSteps = listOf(2),
+            gitDir = "/checkpoints/.git", workTree = "/work/project",
+            counterFile = "/checkpoints/steps",
         )
         val gitLines = script.lines().map { it.trim() }.filter { it.startsWith("git ") }
         assertTrue(gitLines.isNotEmpty()) { "the hook does not snapshot at all: $script" }
@@ -79,16 +78,16 @@ class RippleCheckpointRecorderTest {
     /**
      * The generated script, run by a real `/bin/sh` against a real `git`. No Docker and no agent are
      * needed for it, and the properties it decides are the ones a text assertion cannot reach: that the
-     * counter really advances on every invocation, that exactly one snapshot lands at the target step
-     * and holds the state as of THAT step, that the project's own repository is left alone, and that
-     * nothing at all reaches stdout. Each of those is otherwise discovered by reading the artifacts of
-     * a finished Opus capture — the most expensive place in this pilot to find a bug.
+     * counter really advances on every invocation, that EVERY step is snapshotted and each snapshot
+     * holds the state as of that step, that the project's own repository is left alone, and that nothing
+     * at all reaches stdout. Each of those is otherwise discovered by reading the artifacts of a
+     * finished Opus capture — the most expensive place in this pilot to find a bug.
      *
      * The hook is deliberately started from OUTSIDE the work tree, because a hook process inherits the
      * agent CLI's working directory and nothing guarantees what that is.
      */
     @Test
-    fun `the generated script counts every run and snapshots once into the shadow repository`(@TempDir tmp: Path) {
+    fun `the generated script snapshots every single step into the shadow repository`(@TempDir tmp: Path) {
         val work = tmp.resolve("work")
         val checkpoints = tmp.resolve("checkpoints").createDirectories()
         val gitDir = checkpoints.resolve(".git").toString()
@@ -107,7 +106,7 @@ class RippleCheckpointRecorderTest {
         git(tmp, "--git-dir=$gitDir", "--work-tree=$work", "tag", "step-0")
 
         val script = checkpoints.resolve("snapshot.sh")
-        script.writeText(checkpointHookScript(gitDir, work.toString(), counterFile, listOf(2)))
+        script.writeText(checkpointHookScript(gitDir, work.toString(), counterFile))
         script.toFile().setExecutable(true)
 
         val runs = mutableListOf(runHook(script, tmp))
@@ -123,31 +122,58 @@ class RippleCheckpointRecorderTest {
         assertEquals("3", Path.of(counterFile).readText().trim()) { "the counter must see every call" }
 
         val tags = git(tmp, "--git-dir=$gitDir", "tag", "--list").lines().filter { it.isNotBlank() }
-        assertEquals(listOf("step-0", "step-2"), tags.sorted()) { "snapshots outside the schedule: $tags" }
+        assertEquals(listOf("step-0", "step-1", "step-2", "step-3"), tags.sorted()) { "missing snapshots: $tags" }
 
-        val patch = git(tmp, "--git-dir=$gitDir", "diff", "step-0", "step-2")
-        assertTrue(patch.contains("after the first tool call")) { "the snapshot missed the edit:\n$patch" }
-        assertFalse(patch.contains("written after the snapshot")) { "the snapshot leaked a later state:\n$patch" }
+        assertEquals("", git(tmp, "--git-dir=$gitDir", "diff", "step-0", "step-1").trim()) {
+            "the first call changed nothing, so its snapshot must equal the pristine tree"
+        }
+
+        val second = git(tmp, "--git-dir=$gitDir", "diff", "step-0", "step-2")
+        assertTrue(second.contains("after the first tool call")) { "the snapshot missed the edit:\n$second" }
+        assertFalse(second.contains("written after the snapshot")) { "the snapshot leaked a later state:\n$second" }
+
+        val third = git(tmp, "--git-dir=$gitDir", "diff", "step-0", "step-3")
+        assertTrue(third.contains("written after the snapshot")) { "the last step was not recorded:\n$third" }
 
         assertEquals("", git(work, "diff", "--cached", "--name-only").trim()) {
             "the instrument staged files in the project's own repository"
         }
     }
 
+    /**
+     * The states a plan is built from come out of the shadow repository as tree ids, and equal tree ids
+     * are what the selection has to treat as one state. A `git rev-parse step-N^{tree}` per step would
+     * be one container exec per tool call, so the recorder reads them all at once — this test pins the
+     * parsing of that one listing, including the pristine `step-0` the plan must never probe.
+     */
     @Test
-    fun `metadata normalizes by the actual step count, not by the assumed one`() {
+    fun `step tree ids are parsed from one listing of the shadow tags`() {
+        val trees = RippleCheckpointRecorder.parseStepTreeIds(
+            """
+            step-0 aaaa111
+            step-1 aaaa111
+            step-2 bbbb222
+            step-10 cccc333
+            """.trimIndent()
+        )
+        assertEquals(mapOf(0 to "aaaa111", 1 to "aaaa111", 2 to "bbbb222", 10 to "cccc333"), trees)
+    }
+
+    @Test
+    fun `metadata carries the measured n, the probed steps and every correction`() {
+        val plan = selectCheckpoints(n = 29) { step -> if (step < 8) "pristine" else "state-$step" }
         val json = Json.parseToJsonElement(
             RippleCheckpointRecorder.metadataJson(
-                case = "ripple__keycloak__rename-method-wide", arm = "mcp",
-                model = "claude-opus-5", expectedSteps = 32, actualSteps = 29,
-                steps = listOf(2, 6, 11, 17, 24),
+                case = "dpaia__spring__boot__microshop-18", arm = "mcp",
+                model = "claude-opus-5", plan = plan,
             )
         ).jsonObject
-        assertEquals(32, json["expectedSteps"]!!.jsonPrimitive.int)
         assertEquals(29, json["actualSteps"]!!.jsonPrimitive.int)
-        val positions = json["checkpoints"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf(2, 6, 11, 17, 24), positions.map { it["step"]!!.jsonPrimitive.int })
-        assertEquals(2.0 / 29.0, positions[0]["position"]!!.jsonPrimitive.double, 1e-9)
+        val checkpoints = json["checkpoints"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(plan.steps, checkpoints.map { it["step"]!!.jsonPrimitive.int })
+        assertEquals(listOf(2, 6, 10, 16, 22), checkpoints.map { it["nominalStep"]!!.jsonPrimitive.int })
+        assertEquals(plan.steps.first().toDouble() / 29.0, checkpoints[0]["position"]!!.jsonPrimitive.double, 1e-9)
+        assertEquals(plan.corrections.size, json["corrections"]!!.jsonArray.size)
     }
 
     private data class HookRun(val exitCode: Int, val stdout: String, val stderr: String)
