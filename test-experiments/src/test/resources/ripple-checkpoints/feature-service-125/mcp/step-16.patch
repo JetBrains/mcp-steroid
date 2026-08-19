@@ -1,0 +1,97 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
+new file mode 100644
+index 0000000..41c4d5f
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
+@@ -0,0 +1,53 @@
++package com.sivalabs.ft.features.domain;
++
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.util.Map;
++import java.util.Set;
++import org.springframework.stereotype.Component;
++
++/**
++ * State machine for {@link ReleaseStatus} transitions.
++ *
++ * <p>Allowed flow: DRAFT -> PLANNED -> IN_PROGRESS -> COMPLETED, with rollbacks from PLANNED to
++ * DRAFT and from IN_PROGRESS to PLANNED. Any non terminal status can be CANCELLED. COMPLETED and
++ * CANCELLED are terminal states.
++ */
++@Component
++public class ReleaseStatusTransitionValidator {
++
++    private static final Map<ReleaseStatus, Set<ReleaseStatus>> ALLOWED_TRANSITIONS = Map.of(
++            ReleaseStatus.DRAFT,
++            Set.of(ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
++            ReleaseStatus.PLANNED,
++            Set.of(ReleaseStatus.IN_PROGRESS, ReleaseStatus.CANCELLED, ReleaseStatus.DRAFT),
++            ReleaseStatus.IN_PROGRESS,
++            Set.of(ReleaseStatus.COMPLETED, ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
++            ReleaseStatus.COMPLETED,
++            Set.of(),
++            ReleaseStatus.CANCELLED,
++            Set.of(),
++            ReleaseStatus.RELEASED,
++            Set.of());
++
++    /**
++     * Checks whether a release can move from {@code currentStatus} to {@code newStatus}. Keeping the
++     * same status is always allowed, null statuses are never allowed.
++     */
++    public boolean validateTransition(ReleaseStatus currentStatus, ReleaseStatus newStatus) {
++        if (currentStatus == null || newStatus == null) {
++            return false;
++        }
++        if (currentStatus == newStatus) {
++            return true;
++        }
++        return getValidNextStates(currentStatus).contains(newStatus);
++    }
++
++    /** Returns the statuses a release in {@code currentStatus} can move to. */
++    public Set<ReleaseStatus> getValidNextStates(ReleaseStatus currentStatus) {
++        if (currentStatus == null) {
++            return Set.of();
++        }
++        return ALLOWED_TRANSITIONS.getOrDefault(currentStatus, Set.of());
++    }
++}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/exceptions/InvalidStatusTransitionException.java b/src/main/java/com/sivalabs/ft/features/domain/exceptions/InvalidStatusTransitionException.java
+new file mode 100644
+index 0000000..919ff15
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/exceptions/InvalidStatusTransitionException.java
+@@ -0,0 +1,32 @@
++package com.sivalabs.ft.features.domain.exceptions;
++
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.util.Set;
++
++public class InvalidStatusTransitionException extends BadRequestException {
++
++    private final ReleaseStatus currentStatus;
++    private final ReleaseStatus newStatus;
++    private final Set<ReleaseStatus> validNextStates;
++
++    public InvalidStatusTransitionException(
++            ReleaseStatus currentStatus, ReleaseStatus newStatus, Set<ReleaseStatus> validNextStates) {
++        super("Invalid release status transition from %s to %s. Valid next states: %s"
++                .formatted(currentStatus, newStatus, validNextStates));
++        this.currentStatus = currentStatus;
++        this.newStatus = newStatus;
++        this.validNextStates = validNextStates == null ? Set.of() : Set.copyOf(validNextStates);
++    }
++
++    public ReleaseStatus getCurrentStatus() {
++        return currentStatus;
++    }
++
++    public ReleaseStatus getNewStatus() {
++        return newStatus;
++    }
++
++    public Set<ReleaseStatus> getValidNextStates() {
++        return validNextStates;
++    }
++}

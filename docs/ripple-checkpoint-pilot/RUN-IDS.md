@@ -106,8 +106,29 @@ between them, so the captures record what the preflight proved. Any build that p
 | # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
 |---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
 | 1 | `hookPreflight` | 1035324252 | SUCCESS | 7 | 27 | n/a | ≈$0 | n/a | 1, 3, 5 | 4 (2 moved, 2 dropped) |
-| 2 | `captureMcpArm` | 1035363501 | queued | | | | | | | |
-| 3 | `captureShellArm` | 1035363503 | queued | | | | | | | |
+| 2 | `captureMcpArm` | 1035363501 | SUCCESS | 26 | 944 | 152414 | $3.83 | true | 2, 15, 16, 17, 20 | 3 moved |
+| 3 | `captureShellArm` | 1035363503 | SUCCESS | 57 | 746 | 133589 | $3.68 | true | 4, 17, 22, 31, 43 | 2 moved |
+
+Both captures were graded SUCCESS by `ArenaVerifier` — the shell arm's agent ended on "107 tests, 0
+failures, 0 errors" across all five FAIL_TO_PASS classes — so admission needed only `n > 5`, which both
+clear. Representativeness was not judged in either, and both logs print that note: this case has no band
+measured on this model and this harness, and these two rows are the first of it.
+
+The two arms differ in a way that is itself a finding rather than noise. The shell arm spent **57** tool
+calls and its five states grow smoothly — 0, 711, 1243, 12587, 24299 patch chars at 7.0 %, 29.8 %,
+38.6 %, 54.4 %, 75.4 % of its trajectory. The mcp arm needed **26** and wrote nothing until step 15, so
+three nominal positions (5, 9, 14) all held the pristine tree and were moved forward onto the first
+differing state: its checkpoints land at 7.7 %, 57.7 %, 61.5 %, 65.4 %, 76.9 % with 0, 2435, 3950, 4407,
+37497 chars. The mcp curve is therefore measured over a much narrower and later window — a consequence of
+reading the project through MCP before writing to it, and the reason the two AUCs cannot be put side by
+side without naming the range each one covers.
+
+The committed states are the ones these two builds exported, copied out of `run-*/checkpoints/` inside
+the run-dir ZIP artifact — the unpacked artifact directory publishes only `video/` — into
+`test-experiments/src/test/resources/ripple-checkpoints/feature-service-125/`. Checkpoint 1 of each arm
+is a ZERO-length patch, i.e. the pristine tree: `GitDriver.applyPatch` treats a blank patch as "nothing
+to apply", so that cell measures the probe's unaided solve rate on this task and anchors the curve
+instead of being a broken export.
 
 Preflight 1035324252 proves the instrument on THIS stage's configuration, and its first line is about
 the configuration rather than the hook: the build was started with
@@ -130,25 +151,29 @@ Rejected captures stay in this table — a repeat is a new row, and the report s
 
 ### Probe stage — 2 arms × up to 5 checkpoints × 5 replicates
 
-#### arm = mcp (n = _fill_)
+Probe builds pin a LATER commit than the captures on purpose: a probe reads its state out of the
+committed resources, so it must pin the commit that carries them. The measurement code is identical
+between the two — the delta is the patches, this file and the resource READMEs.
+
+#### arm = mcp (n = 26)
 
 | checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
 |---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | | | | | | | | | |
-| 2 | | | | | | | | | |
-| 3 | | | | | | | | | |
-| 4 | | | | | | | | | |
-| 5 | | | | | | | | | |
+| 1 | 2 | 0.0769 | | | | | | | |
+| 2 | 15 | 0.5769 | | | | | | | |
+| 3 | 16 | 0.6154 | | | | | | | |
+| 4 | 17 | 0.6538 | | | | | | | |
+| 5 | 20 | 0.7692 | | | | | | | |
 
-#### arm = none (n = _fill_)
+#### arm = none (n = 57)
 
 | checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
 |---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | | | | | | | | | |
-| 2 | | | | | | | | | |
-| 3 | | | | | | | | | |
-| 4 | | | | | | | | | |
-| 5 | | | | | | | | | |
+| 1 | 4 | 0.0702 | | | | | | | |
+| 2 | 17 | 0.2982 | | | | | | | |
+| 3 | 22 | 0.3860 | | | | | | | |
+| 4 | 31 | 0.5439 | | | | | | | |
+| 5 | 43 | 0.7544 | | | | | | | |
 
 ## Totals
 
@@ -156,8 +181,8 @@ Rejected captures stay in this table — a repeat is a new row, and the report s
 |:---|:---|
 | capture builds, stage 1 (discarded) | 4 |
 | capture builds, stage 2 (abandoned case) | 2 preflights |
-| capture builds, stage 3 | 1 preflight |
+| capture builds, stage 3 | 1 preflight + 2 captures, both admitted |
 | probe builds queued | 0 |
 | probe builds graded | 0 |
 | instrument failures (LOST) | 0 |
-| API spend | $4.43, all of it stage 1; every preflight is a scripted agent and costs about nothing |
+| API spend | $11.94 — $4.43 stage 1 (discarded), $7.51 stage 3 ($3.83 mcp + $3.68 shell); a preflight is a scripted agent and costs about nothing |

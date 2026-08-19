@@ -1,0 +1,300 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java
+new file mode 100644
+index 0000000..17b7a31
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java
+@@ -0,0 +1,58 @@
++package com.sivalabs.ft.features.domain;
++
++import com.sivalabs.ft.features.domain.entities.Release;
++import com.sivalabs.ft.features.domain.models.ReleaseSearchCriteria;
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import jakarta.persistence.criteria.Predicate;
++import java.time.Instant;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Set;
++import org.springframework.data.jpa.domain.Specification;
++
++final class ReleaseSpecifications {
++
++    /** Statuses for which a planned release date can no longer be missed. */
++    private static final Set<ReleaseStatus> CLOSED_STATUSES = Set.of(ReleaseStatus.COMPLETED, ReleaseStatus.CANCELLED);
++
++    private ReleaseSpecifications() {}
++
++    static Specification<Release> matching(ReleaseSearchCriteria criteria) {
++        return (root, query, cb) -> {
++            List<Predicate> predicates = new ArrayList<>();
++            if (criteria.productCode() != null) {
++                predicates.add(cb.equal(root.get("product").get("code"), criteria.productCode()));
++            }
++            if (criteria.status() != null) {
++                predicates.add(cb.equal(root.get("status"), criteria.status()));
++            }
++            if (criteria.releaseOwner() != null) {
++                predicates.add(cb.equal(root.get("releaseOwner"), criteria.releaseOwner()));
++            }
++            if (criteria.startDate() != null) {
++                predicates.add(cb.greaterThanOrEqualTo(root.get("plannedReleaseDate"), criteria.startDate()));
++            }
++            if (criteria.endDate() != null) {
++                predicates.add(cb.lessThanOrEqualTo(root.get("plannedReleaseDate"), criteria.endDate()));
++            }
++            return cb.and(predicates.toArray(new Predicate[0]));
++        };
++    }
++
++    /** Releases whose planned release date has passed while the release is still open. */
++    static Specification<Release> overdue(Instant now) {
++        return (root, query, cb) ->
++                cb.and(cb.lessThan(root.get("plannedReleaseDate"), now), notClosed(root, cb));
++    }
++
++    /** Open releases whose planned release date falls within {@code [now, deadline]}. */
++    static Specification<Release> atRisk(Instant now, Instant deadline) {
++        return (root, query, cb) ->
++                cb.and(cb.between(root.get("plannedReleaseDate"), now, deadline), notClosed(root, cb));
++    }
++
++    private static Predicate notClosed(
++            jakarta.persistence.criteria.Root<Release> root, jakarta.persistence.criteria.CriteriaBuilder cb) {
++        return cb.not(root.get("status").in(CLOSED_STATUSES));
++    }
++}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
+new file mode 100644
+index 0000000..a0e7886
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
+@@ -0,0 +1,52 @@
++package com.sivalabs.ft.features.domain;
++
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.util.EnumMap;
++import java.util.Map;
++import java.util.Set;
++import org.springframework.stereotype.Component;
++
++/**
++ * State machine for {@link ReleaseStatus} transitions.
++ *
++ * <p>The happy path is {@code DRAFT -> PLANNED -> IN_PROGRESS -> COMPLETED}. A release can be cancelled from any
++ * non-terminal state and can be rolled back one step while it is still in progress. {@code COMPLETED} and
++ * {@code CANCELLED} are terminal states.
++ */
++@Component
++public class ReleaseStatusTransitionValidator {
++
++    private static final Map<ReleaseStatus, Set<ReleaseStatus>> ALLOWED_TRANSITIONS =
++            new EnumMap<>(Map.of(
++                    ReleaseStatus.DRAFT, Set.of(ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
++                    ReleaseStatus.PLANNED,
++                            Set.of(ReleaseStatus.IN_PROGRESS, ReleaseStatus.DRAFT, ReleaseStatus.CANCELLED),
++                    ReleaseStatus.IN_PROGRESS,
++                            Set.of(ReleaseStatus.COMPLETED, ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
++                    ReleaseStatus.COMPLETED, Set.of(),
++                    ReleaseStatus.CANCELLED, Set.of()));
++
++    /**
++     * @return {@code true} if the release may move from {@code currentStatus} to {@code newStatus}. Staying in the same
++     *     state is always allowed; {@code null} on either side is never allowed.
++     */
++    public boolean validateTransition(ReleaseStatus currentStatus, ReleaseStatus newStatus) {
++        if (currentStatus == null || newStatus == null) {
++            return false;
++        }
++        if (currentStatus == newStatus) {
++            return true;
++        }
++        return getValidNextStates(currentStatus).contains(newStatus);
++    }
++
++    /**
++     * @return the states reachable from {@code status}, or an empty set for terminal and {@code null} states.
++     */
++    public Set<ReleaseStatus> getValidNextStates(ReleaseStatus status) {
++        if (status == null) {
++            return Set.of();
++        }
++        return ALLOWED_TRANSITIONS.getOrDefault(status, Set.of());
++    }
++}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java b/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
+index f601760..48bed37 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
+@@ -7,8 +7,11 @@ import java.time.Instant;
+ public record ReleaseDto(
+         Long id,
+         String code,
++        String productCode,
+         String description,
+         ReleaseStatus status,
++        Instant plannedReleaseDate,
++        String releaseOwner,
+         Instant releasedAt,
+         String createdBy,
+         Instant createdAt,
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java b/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
+index b3d5b99..09866a1 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
+@@ -44,6 +44,16 @@ public class Release {
+     @Enumerated(EnumType.STRING)
+     private ReleaseStatus status;
+ 
++    @Column(name = "planned_release_date")
++    private Instant plannedReleaseDate;
++
++    @Size(max = 255) @Column(name = "release_owner")
++    private String releaseOwner;
++
++    @NotNull @ColumnDefault("1")
++    @Column(name = "release_version", nullable = false)
++    private Integer releaseVersion = 1;
++
+     @Column(name = "released_at")
+     private Instant releasedAt;
+ 
+@@ -103,6 +113,30 @@ public class Release {
+         this.status = status;
+     }
+ 
++    public Instant getPlannedReleaseDate() {
++        return plannedReleaseDate;
++    }
++
++    public void setPlannedReleaseDate(Instant plannedReleaseDate) {
++        this.plannedReleaseDate = plannedReleaseDate;
++    }
++
++    public String getReleaseOwner() {
++        return releaseOwner;
++    }
++
++    public void setReleaseOwner(String releaseOwner) {
++        this.releaseOwner = releaseOwner;
++    }
++
++    public Integer getReleaseVersion() {
++        return releaseVersion;
++    }
++
++    public void setReleaseVersion(Integer releaseVersion) {
++        this.releaseVersion = releaseVersion;
++    }
++
+     public Instant getReleasedAt() {
+         return releasedAt;
+     }
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/exceptions/InvalidStatusTransitionException.java b/src/main/java/com/sivalabs/ft/features/domain/exceptions/InvalidStatusTransitionException.java
+new file mode 100644
+index 0000000..f375568
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/exceptions/InvalidStatusTransitionException.java
+@@ -0,0 +1,31 @@
++package com.sivalabs.ft.features.domain.exceptions;
++
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.util.Set;
++
++public class InvalidStatusTransitionException extends RuntimeException {
++    private final ReleaseStatus currentStatus;
++    private final ReleaseStatus targetStatus;
++    private final Set<ReleaseStatus> allowedTransitions;
++
++    public InvalidStatusTransitionException(
++            ReleaseStatus currentStatus, ReleaseStatus targetStatus, Set<ReleaseStatus> allowedTransitions) {
++        super("Cannot transition release status from %s to %s. Allowed transitions: %s"
++                .formatted(currentStatus, targetStatus, allowedTransitions));
++        this.currentStatus = currentStatus;
++        this.targetStatus = targetStatus;
++        this.allowedTransitions = allowedTransitions;
++    }
++
++    public ReleaseStatus getCurrentStatus() {
++        return currentStatus;
++    }
++
++    public ReleaseStatus getTargetStatus() {
++        return targetStatus;
++    }
++
++    public Set<ReleaseStatus> getAllowedTransitions() {
++        return allowedTransitions;
++    }
++}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java b/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
+index ce2e77f..36b4855 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
+@@ -3,8 +3,10 @@ package com.sivalabs.ft.features.domain.mappers;
+ import com.sivalabs.ft.features.domain.dtos.ReleaseDto;
+ import com.sivalabs.ft.features.domain.entities.Release;
+ import org.mapstruct.Mapper;
++import org.mapstruct.Mapping;
+ 
+ @Mapper(componentModel = "spring")
+ public interface ReleaseMapper {
++    @Mapping(target = "productCode", source = "product.code")
+     ReleaseDto toDto(Release release);
+ }
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseSearchCriteria.java b/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseSearchCriteria.java
+new file mode 100644
+index 0000000..ea815b4
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseSearchCriteria.java
+@@ -0,0 +1,24 @@
++package com.sivalabs.ft.features.domain.models;
++
++import java.time.Instant;
++
++/**
++ * Optional filters for release queries. A {@code null} value means "do not filter on this attribute".
++ *
++ * <p>{@code startDate}/{@code endDate} are applied, inclusively, to the planned release date.
++ */
++public record ReleaseSearchCriteria(
++        String productCode, ReleaseStatus status, String releaseOwner, Instant startDate, Instant endDate) {
++
++    public static ReleaseSearchCriteria byStatus(ReleaseStatus status) {
++        return new ReleaseSearchCriteria(null, status, null, null, null);
++    }
++
++    public static ReleaseSearchCriteria byOwner(String releaseOwner) {
++        return new ReleaseSearchCriteria(null, null, releaseOwner, null, null);
++    }
++
++    public static ReleaseSearchCriteria byPlannedDateRange(Instant startDate, Instant endDate) {
++        return new ReleaseSearchCriteria(null, null, null, startDate, endDate);
++    }
++}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java b/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java
+index 0e0b5e6..15801d3 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java
+@@ -2,5 +2,8 @@ package com.sivalabs.ft.features.domain.models;
+ 
+ public enum ReleaseStatus {
+     DRAFT,
+-    RELEASED
++    PLANNED,
++    IN_PROGRESS,
++    COMPLETED,
++    CANCELLED
+ }
+diff --git a/src/main/resources/db/migration/V5__add_release_planning_columns.sql b/src/main/resources/db/migration/V5__add_release_planning_columns.sql
+new file mode 100644
+index 0000000..a92044a
+--- /dev/null
++++ b/src/main/resources/db/migration/V5__add_release_planning_columns.sql
+@@ -0,0 +1,8 @@
++alter table releases
++    add column planned_release_date timestamp,
++    add column release_owner varchar(255),
++    add column release_version integer not null default 1;
++
++-- The legacy RELEASED status is replaced by the COMPLETED terminal state of the
++-- release planning state machine (DRAFT -> PLANNED -> IN_PROGRESS -> COMPLETED).
++update releases set status = 'COMPLETED' where status = 'RELEASED';

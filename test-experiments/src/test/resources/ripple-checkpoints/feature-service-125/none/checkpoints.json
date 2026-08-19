@@ -1,0 +1,47 @@
+{
+    "case": "dpaia__feature__service-125",
+    "arm": "none",
+    "model": "claude-opus-5",
+    "actualSteps": 57,
+    "checkpoints": [
+        {
+            "index": 1,
+            "nominalStep": 4,
+            "step": 4,
+            "position": 0.07017543859649122,
+            "patch": "step-4.patch"
+        },
+        {
+            "index": 2,
+            "nominalStep": 11,
+            "step": 17,
+            "position": 0.2982456140350877,
+            "patch": "step-17.patch"
+        },
+        {
+            "index": 3,
+            "nominalStep": 20,
+            "step": 22,
+            "position": 0.38596491228070173,
+            "patch": "step-22.patch"
+        },
+        {
+            "index": 4,
+            "nominalStep": 31,
+            "step": 31,
+            "position": 0.543859649122807,
+            "patch": "step-31.patch"
+        },
+        {
+            "index": 5,
+            "nominalStep": 43,
+            "step": 43,
+            "position": 0.7543859649122807,
+            "patch": "step-43.patch"
+        }
+    ],
+    "corrections": [
+        "checkpoint 2: nominal step 11 held the state already probed at step 4, moved to 17",
+        "checkpoint 3: nominal step 20 held the state already probed at step 17, moved to 22"
+    ]
+}
