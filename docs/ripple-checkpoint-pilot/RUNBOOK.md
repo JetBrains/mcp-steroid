@@ -99,8 +99,11 @@ has no `TAG_BUILD`/`COMMENT_BUILD` permission — `--revision` is what identifie
 
 ```bash
 jb tc native run start "$CAP" --branch "$BRANCH" --revision "$SHA" --no-push \
-  -P ripple.checkpoint.capture.method=hookPreflight --json=id,webUrl,state
+  -P ripple.checkpoint.capture.method=hookPreflight
 ```
+
+`run start --json` is a BOOLEAN flag (only `run list --json=<fields>` takes a field list); passing
+`--json=id,webUrl` to `start` fails with `strconv.ParseBool` and queues nothing.
 
 Expected in the log: the counter advances on every tool call, and the exported patch of a step AFTER the
 agent's write is non-empty. A counter that advances while the patch stays empty means the hook fires
@@ -111,7 +114,7 @@ without seeing the agent's disk writes — stop there, before paying for a captu
 ```bash
 for method in captureMcpArm captureShellArm; do
   jb tc native run start "$CAP" --branch "$BRANCH" --revision "$SHA" --no-push \
-    -P ripple.checkpoint.capture.method="$method" --json=id,webUrl | tee -a /tmp/ripple-capture-runs.jsonl
+    -P ripple.checkpoint.capture.method="$method" --json | tee -a /tmp/ripple-capture-runs.jsonl
 done
 ```
 
@@ -145,8 +148,7 @@ come from two different capture runs, and no probe verdict from such a pair mean
 
 ```bash
 jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
-  -P ripple.checkpoint.arm=mcp -P ripple.checkpoint.index=5 -P ripple.checkpoint.replicate=1 \
-  --json=id,webUrl,state
+  -P ripple.checkpoint.arm=mcp -P ripple.checkpoint.index=5 -P ripple.checkpoint.replicate=1 --json
 ```
 
 Confirm on that build that the coordinates arrived (in the build's resulting properties AND in the step
@@ -157,7 +159,7 @@ for arm in mcp none; do for idx in 1 2 3 4 5; do for rep in 1 2 3 4 5; do
   [ "$arm/$idx/$rep" = "mcp/5/1" ] && continue
   jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
     -P ripple.checkpoint.arm="$arm" -P ripple.checkpoint.index="$idx" \
-    -P ripple.checkpoint.replicate="$rep" --json=id,webUrl | tee -a /tmp/ripple-probe-runs.jsonl
+    -P ripple.checkpoint.replicate="$rep" --json | tee -a /tmp/ripple-probe-runs.jsonl
   sleep 2
 done; done; done
 ```

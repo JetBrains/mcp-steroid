@@ -106,14 +106,14 @@ blank — a blank reads as "not queued yet".
 Chosen for its incremental solution path, its working Testcontainers oracle, and a historical success
 rate strictly between 0 and 1.
 
-Series revision (`--revision`): _fill when the capture series starts_ — every build of one series must
-pin the same commit.
+Series revision (`--revision`): `a1fd1ad04` — every build of one series must pin the same commit. The
+preflight below pinned it; a capture started from a later commit starts a NEW series.
 
 ### Capture stage
 
 | # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
 |---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
-| 1 | `hookPreflight` | | | | | | | | | |
+| 1 | `hookPreflight` | 1035324252 | _running_ | | | | ≈$0 | n/a | | |
 | 2 | `captureMcpArm` | | | | | | | | | |
 | 3 | `captureShellArm` | | | | | | | | | |
 
