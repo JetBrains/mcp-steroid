@@ -222,6 +222,14 @@
   to shell text search before initialization completes. This is a client/harness readiness problem; add
   a regression in the agent launcher instead of another server prompt or MCP tool.
 
+- [ ] **Scale the solution-readiness pilot beyond one task** ([RESULTS.md](docs/ripple-checkpoint-pilot/RESULTS.md)).
+  The measured pilot on `dpaia__feature__service-125` gives AUC 0.855 (mcp) against 0.703 (shell) over the
+  fraction of the edit phase, but on ONE capture per arm and 5 replicates per point, which cannot separate
+  0.60 from 0.80. Before spending on 10 tasks, decide two things the pilot exposed: (a) the probe's unaided
+  baseline is 0.67 on this task, so pick cases whose baseline leaves room for `V` to move, and (b) the
+  cost-of-finishing metric (median $/s/turns over successful probes) discriminates where `V` saturates and
+  has a much narrower spread — it may be the cheaper primary signal.
+
 - [ ] **Pin an exact semantic oracle for the Keycloak Authenticator hierarchy E2E**: the headless-agent
   discovery scenario currently gates the pinned checkout with a 70-FQN lower bound plus known indirect
   implementors. Capture the canonical full set (or query it independently after the agent run) so future
