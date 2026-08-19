@@ -360,18 +360,20 @@ abstract class RippleScenarioBaseTest {
                     steps = nActual,
                     seconds = result.agentDurationMs / 1000,
                     contextTokens = endContext ?: 0L,
-                    checkpointCount = RIPPLE_CHECKPOINT_COUNT,
+                    // Ten fractions of the edit phase need at least that many tool calls before they
+                    // can land on ten distinct states, however early the agent started writing.
+                    checkpointCount = RIPPLE_CHECKPOINT_FRACTIONS,
                 )
                 println("[CHECKPOINT] n=$nActual endContextTokens=${endContext ?: "unknown"} " +
                     "admitted=${admission.admitted}")
                 admission.reasons.forEach { println("[CHECKPOINT]   rejected: $it") }
                 admission.notes.forEach { println("[CHECKPOINT]   note: $it") }
-                // The positions are derived HERE, from the length that actually happened, and only from
-                // states that differ from each other — see selectCheckpoints. A capture whose work tree
-                // stopped changing carries fewer than five points, and the plan says so out loud rather
-                // than exporting the same patch under two names.
+                // The fractions are derived HERE, from the edit phase that actually happened — see
+                // selectCheckpoints. A capture whose work tree stopped changing publishes the repetition
+                // as data (sameStateAs) instead of moving a checkpoint to a state the agent never held,
+                // and distinct() keeps two fractions that round onto one step from being exported twice.
                 val plan = rec.plan(nActual)
-                plan.checkpoints.forEach { checkpoint -> rec.exportPatch(checkpoint.step) }
+                plan.steps.distinct().forEach { step -> rec.exportPatch(step) }
                 rec.exportMetadata(plan)
             }
 

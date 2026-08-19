@@ -72,6 +72,7 @@ class DpaiaRunSeamsTest {
         modeLabel = "mcp",
         agentDurationMs = 1_000L,
         endContextTokens = 60_927L,
+        costUsd = 0.3278,
         verification = verification,
         recorder = null,
     )

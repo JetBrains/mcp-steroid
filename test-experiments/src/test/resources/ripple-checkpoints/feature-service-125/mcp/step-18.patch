@@ -1,3 +1,58 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java
+new file mode 100644
+index 0000000..7212243
+--- /dev/null
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java
+@@ -0,0 +1,49 @@
++package com.sivalabs.ft.features.domain;
++
++import com.sivalabs.ft.features.domain.entities.Release;
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.time.Instant;
++import java.util.Collection;
++import org.springframework.data.jpa.domain.Specification;
++
++/** Reusable criteria fragments used by the release query endpoints. */
++final class ReleaseSpecifications {
++
++    private ReleaseSpecifications() {}
++
++    static Specification<Release> matchAll() {
++        return (root, query, cb) -> cb.conjunction();
++    }
++
++    static Specification<Release> hasProductCode(String productCode) {
++        return (root, query, cb) -> cb.equal(root.get("product").get("code"), productCode);
++    }
++
++    static Specification<Release> hasStatus(ReleaseStatus status) {
++        return (root, query, cb) -> cb.equal(root.get("status"), status);
++    }
++
++    static Specification<Release> statusNotIn(Collection<ReleaseStatus> statuses) {
++        return (root, query, cb) -> cb.not(root.get("status").in(statuses));
++    }
++
++    static Specification<Release> hasOwner(String owner) {
++        return (root, query, cb) -> cb.equal(root.get("releaseOwner"), owner);
++    }
++
++    static Specification<Release> plannedReleaseDateIsSet() {
++        return (root, query, cb) -> cb.isNotNull(root.get("plannedReleaseDate"));
++    }
++
++    static Specification<Release> plannedReleaseDateBefore(Instant date) {
++        return (root, query, cb) -> cb.lessThan(root.<Instant>get("plannedReleaseDate"), date);
++    }
++
++    static Specification<Release> plannedReleaseDateFrom(Instant date) {
++        return (root, query, cb) -> cb.greaterThanOrEqualTo(root.<Instant>get("plannedReleaseDate"), date);
++    }
++
++    static Specification<Release> plannedReleaseDateUntil(Instant date) {
++        return (root, query, cb) -> cb.lessThanOrEqualTo(root.<Instant>get("plannedReleaseDate"), date);
++    }
++}
 diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
 new file mode 100644
 index 0000000..41c4d5f

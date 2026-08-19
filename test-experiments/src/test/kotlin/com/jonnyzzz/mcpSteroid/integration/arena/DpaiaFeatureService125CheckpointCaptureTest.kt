@@ -135,7 +135,9 @@ private fun captureScenario(arm: String): DpaiaScenarioBaseTest = object : Dpaia
                 steps = steps,
                 seconds = outcome.agentDurationMs / 1000,
                 contextTokens = outcome.endContextTokens ?: 0L,
-                checkpointCount = RIPPLE_CHECKPOINT_COUNT,
+                // The grid is ten fractions of the edit phase, so a run with fewer tool calls than that
+                // cannot place them on ten distinct states however early it started writing.
+                checkpointCount = RIPPLE_CHECKPOINT_FRACTIONS,
             )
             println(
                 "[CHECKPOINT] case=${outcome.instanceId} arm=$arm n=$steps " +
@@ -145,12 +147,12 @@ private fun captureScenario(arm: String): DpaiaScenarioBaseTest = object : Dpaia
             admission.reasons.forEach { println("[CHECKPOINT]   rejected: $it") }
             admission.notes.forEach { println("[CHECKPOINT]   note: $it") }
 
-            // The positions are derived HERE, from the length that actually happened, and only from
-            // states that differ from each other — see selectCheckpoints. A capture whose work tree
-            // stopped changing carries fewer than five points, and the plan says so out loud rather than
-            // exporting the same patch under two names.
+            // The fractions are derived HERE, from the edit phase that actually happened — see
+            // selectCheckpoints. A capture whose work tree stopped changing publishes the repetition as
+            // data (sameStateAs) instead of moving a checkpoint to a state the agent never held, and
+            // distinct() keeps two fractions that round onto one step from being exported twice.
             val plan = recorder.plan(steps)
-            plan.checkpoints.forEach { checkpoint -> recorder.exportPatch(checkpoint.step) }
+            plan.steps.distinct().forEach { step -> recorder.exportPatch(step) }
             recorder.exportMetadata(plan)
         }
     }

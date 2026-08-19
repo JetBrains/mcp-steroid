@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.fail
@@ -31,22 +32,32 @@ data class ProbeCoordinates(val arm: String, val checkpoint: Int, val replicate:
 /**
  * Read one probe cell's coordinates, rejecting anything the pilot did not capture.
  *
- * [arm] must name a captured arm and [index] one of the pilot's checkpoint ordinals — a fourth arm or a
- * sixth checkpoint has no committed state to start from, and discovering that after the container, the
- * clone and the Maven import would waste most of a build. WHICH step an ordinal refers to is not known
- * here: the positions belong to the capture run and are read from its `checkpoints.json` in
- * [loadCheckpoint]. [replicate] is bounded too, because a replicate outside
+ * [arm] must name a captured arm and [index] one of the checkpoints that arm really committed — a third
+ * arm or a checkpoint past the end of the committed set has no state to start from, and discovering
+ * that after the container, the clone and the Maven import would waste most of a build.
+ *
+ * The upper bound comes from [checkpointsInArm], i.e. from the arm's own `checkpoints.json`, and is not
+ * a constant. It cannot be one: the number of checkpoints follows the axis, which has already changed
+ * twice, and a hardcoded five would have rejected every cell of a ten-fraction grid while looking like
+ * a validation. WHICH step an ordinal refers to is still not decided here — that is [loadCheckpoint]'s
+ * job, from the same file. [replicate] is bounded too, because a replicate outside
  * `1..RIPPLE_CHECKPOINT_REPLICATES` means the operator queued more runs than the aggregator will ever
  * fold into a `V`.
  */
-fun probeCoordinates(arm: String?, index: String?, replicate: String?): ProbeCoordinates {
+fun probeCoordinates(
+    arm: String?,
+    index: String?,
+    replicate: String?,
+    checkpointsInArm: (String) -> Int = ::committedCheckpointCount,
+): ProbeCoordinates {
     require(arm != null && arm in RIPPLE_CHECKPOINT_ARMS) {
         "the probe arm must be one of $RIPPLE_CHECKPOINT_ARMS, got '$arm' — no other arm was captured"
     }
+    val available = checkpointsInArm(arm)
     val checkpoint = index?.toIntOrNull()
-    require(checkpoint != null && checkpoint in 1..RIPPLE_CHECKPOINT_COUNT) {
-        "the checkpoint index must be in 1..$RIPPLE_CHECKPOINT_COUNT, got '$index' — the pilot measures " +
-            "$RIPPLE_CHECKPOINT_COUNT checkpoints per arm"
+    require(checkpoint != null && checkpoint in 1..available) {
+        "the checkpoint index must be in 1..$available, got '$index' — the $arm capture committed " +
+            "$available checkpoint(s) and no other state exists to start a probe from"
     }
     val replicateNumber = replicate?.toIntOrNull()
     require(replicateNumber != null && replicateNumber in 1..RIPPLE_CHECKPOINT_REPLICATES) {
@@ -54,6 +65,23 @@ fun probeCoordinates(arm: String?, index: String?, replicate: String?): ProbeCoo
             "folds exactly $RIPPLE_CHECKPOINT_REPLICATES runs into one readiness value"
     }
     return ProbeCoordinates(arm = arm, checkpoint = checkpoint, replicate = replicateNumber)
+}
+
+/**
+ * How many checkpoints the [arm] capture of this pilot's case committed.
+ *
+ * Read from the artifact rather than computed, because the committed set is what a probe can actually
+ * be started from: a plan may name ten fractions while the directory holds the states of nine distinct
+ * steps, and it is the directory that decides which cells are addressable.
+ */
+fun committedCheckpointCount(arm: String): Int {
+    val metadataFile = checkpointResourceDir(RippleCheckpointCase.RESOURCE_DIR, arm)
+        .resolve(RippleCheckpointRecorder.METADATA_FILE_NAME)
+    check(metadataFile.isFile) {
+        "${metadataFile.absolutePath} is missing, so nothing says how many checkpoints the $arm arm " +
+            "committed and no probe cell can be addressed at all"
+    }
+    return checkpointEntries(metadataFile.readText()).size
 }
 
 /**
@@ -86,9 +114,34 @@ class RippleCheckpointProbeTest {
 
     @Test
     fun `probe coordinates come from system properties and reject an unknown checkpoint`() {
-        assertEquals(ProbeCoordinates("mcp", 3, 2), probeCoordinates("mcp", "3", "2"))
-        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("mcp", "6", "1") }
-        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("shell", "1", "1") }
+        val committed = { arm: String -> if (arm == "mcp") 6 else 8 }
+
+        assertEquals(ProbeCoordinates("mcp", 3, 2), probeCoordinates("mcp", "3", "2", committed))
+        assertEquals(ProbeCoordinates("none", 8, 5), probeCoordinates("none", "8", "5", committed))
+        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("mcp", "7", "1", committed) }
+        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("mcp", "0", "1", committed) }
+        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("shell", "1", "1", committed) }
+        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("mcp", "1", "6", committed) }
+    }
+
+    /**
+     * The guard against the REAL committed set, which is the only thing that can prove the bound moves
+     * with the axis. A hardcoded number here would have to be edited every time the grid changes, and
+     * would be edited to whatever makes the build green rather than to what was captured.
+     */
+    @Test
+    fun `the last committed checkpoint of each arm is addressable and the next one is not`() {
+        RIPPLE_CHECKPOINT_ARMS.forEach { arm ->
+            val committed = committedCheckpointCount(arm)
+            assertTrue(committed > 0) { "the $arm arm committed no checkpoint at all" }
+            assertEquals(
+                ProbeCoordinates(arm, committed, 1),
+                probeCoordinates(arm, committed.toString(), "1"),
+            )
+            assertThrows(IllegalArgumentException::class.java) {
+                probeCoordinates(arm, (committed + 1).toString(), "1")
+            }
+        }
     }
 
     /**
@@ -97,13 +150,15 @@ class RippleCheckpointProbeTest {
      * The arm directories of every case the layout serves are asserted to exist and every patch found in
      * them must be a readable diff that its own `checkpoints.json` accounts for.
      *
-     * It deliberately does NOT assert five patches per arm. Before the capture runs land, the
-     * directories hold only their README, and a hard count here would either be a red build for weeks
-     * or — far worse — invite a skip-on-missing branch that would keep passing after a capture silently
-     * failed to produce a state. The five-patch requirement lives where it can be checked against a
-     * real need: [probe]'s own precondition, which fails loudly when the state it must start from is
-     * absent. What this test guarantees at every point in time is that whatever IS committed is a valid
-     * checkpoint of one run — see [checkpointResourceProblems] for the mismatches it refuses.
+     * It deliberately does NOT assert a fixed number of patches per arm. Before the capture runs land,
+     * the directories hold only their README, and a hard count here would either be a red build for
+     * weeks or — far worse — invite a skip-on-missing branch that would keep passing after a capture
+     * silently failed to produce a state. Nor is a ceiling meaningful any more: the grid is ten
+     * fractions of an edit phase, so how many patches an arm carries is a property of the capture and
+     * not of the instrument. What is required instead is an exact MATCH — the committed patch set must
+     * be the set of steps the arm's own `checkpoints.json` names. What this test guarantees at every
+     * point in time is that whatever IS committed is a valid checkpoint of one run — see
+     * [checkpointResourceProblems] for the mismatches it refuses.
      *
      * The FAIL_TO_PASS oracle is NOT inspected here, and that is a deliberate move rather than a gap:
      * the DPAIA case's oracle class names live in the dataset this module downloads at run time, and a
@@ -121,8 +176,10 @@ class RippleCheckpointProbeTest {
                         "part of the instrument and not something a capture run creates on the fly."
                 }
                 val patches = patchFilesIn(dir)
-                println("[CHECKPOINT-RESOURCES] $caseDir/$arm: ${patches.size} committed patch(es) of " +
-                    "$RIPPLE_CHECKPOINT_COUNT — ${patches.map { it.name }}")
+                println(
+                    "[CHECKPOINT-RESOURCES] $caseDir/$arm: ${patches.size} committed patch(es) — " +
+                        "${patches.map { it.name }}"
+                )
                 val problems = checkpointResourceProblems(
                     location = dir.path,
                     patchFileNames = patches.map { it.name },
@@ -207,44 +264,82 @@ class RippleCheckpointProbeTest {
      * `Y=([01])` matches a graded cell only, so an instrument failure stays out of `V` instead of
      * pulling it down. This asserts the whole round trip — the line the probe prints, read back by
      * [parseProbeVerdicts] — because the two have to agree and they live in different files.
+     *
+     * The graded lines carry the cost the aggregator's median columns are built from; the lost one
+     * carries none, because a cell whose patch never applied never ran an agent and has no price. That
+     * asymmetry is exactly what the parser's optional groups exist for.
      */
     @Test
     fun `a lost measurement never reaches the aggregator as a zero`() {
-        val coordinates = ProbeCoordinates("mcp", checkpoint = 3, replicate = 2)
-        val graded = checkpointProbeLine(coordinates, step = 14, position = 0.4375, verdict = checkpointProbeVerdict(true))
-        val failed = checkpointProbeLine(coordinates, step = 14, position = 0.4375, verdict = checkpointProbeVerdict(false))
-        val lost = checkpointProbeLine(coordinates, step = 14, position = 0.4375, verdict = checkpointProbeVerdict(null))
+        val coordinates = ProbeCoordinates("mcp", checkpoint = 4, replicate = 2)
+        val cost = ProbeRunCost(usd = 0.3278, agentSeconds = 613, tokens = 152_414)
+        fun line(objectiveSuccess: Boolean?, price: ProbeRunCost?) = checkpointProbeLine(
+            coordinates = coordinates,
+            step = 18,
+            editFraction = 0.3,
+            position = 0.6923,
+            verdict = checkpointProbeVerdict(objectiveSuccess),
+            cost = price,
+        )
 
+        val graded = line(true, cost)
         assertEquals(
-            listOf(ProbeVerdict("mcp", 3, 14, 0.4375, 2, success = true)),
+            "[CHECKPOINT-PROBE] arm=mcp checkpoint=4 step=18 editFraction=0.300 position=0.6923 " +
+                "replicate=2 Y=1 usd=0.3278 agentSeconds=613 tokens=152414",
+            graded,
+        )
+        assertEquals(
+            listOf(
+                ProbeVerdict(
+                    "mcp", 4, 18, 0.6923, 2, success = true,
+                    editFraction = 0.3, usd = 0.3278, agentSeconds = 613, tokens = 152_414,
+                )
+            ),
             parseProbeVerdicts(graded),
         )
         assertEquals(
-            listOf(ProbeVerdict("mcp", 3, 14, 0.4375, 2, success = false)),
-            parseProbeVerdicts(failed),
+            listOf(
+                ProbeVerdict(
+                    "mcp", 4, 18, 0.6923, 2, success = false,
+                    editFraction = 0.3, usd = 0.3278, agentSeconds = 613, tokens = 152_414,
+                )
+            ),
+            parseProbeVerdicts(line(false, cost)),
         )
+
+        val lost = line(null, null)
         assertTrue(lost.contains("LOST")) { lost }
+        assertFalse(lost.contains("usd=")) { "a cell that never ran an agent has no price: $lost" }
         assertEquals(emptyList<ProbeVerdict>(), parseProbeVerdicts(lost)) {
             "an ungraded cell must not be foldable into V at all"
         }
     }
 
+    /**
+     * A plan of [steps] as the recorder would publish it, used to build the metadata half of the
+     * resource-shape checks. The trees are made distinct per step so no entry is dropped as a repetition
+     * — these tests are about the patch/metadata PAIRING and not about what the states hold.
+     */
     private fun metadataJson(steps: List<Int>): String = RippleCheckpointRecorder.metadataJson(
         case = RippleCheckpointCase.INSTANCE_ID,
         arm = "mcp",
         model = "claude-opus-5",
         plan = CheckpointPlan(
             n = 30,
+            firstWriteStep = steps.first(),
+            fractions = steps.size,
             checkpoints = steps.mapIndexed { index, step ->
                 CheckpointSelection(
                     index = index + 1,
-                    nominalStep = step,
                     step = step,
+                    editFraction = index.toDouble() / steps.size,
                     position = step / 30.0,
+                    stateId = "tree-$step",
+                    sameStateAs = null,
                 )
             },
-            corrections = emptyList(),
         ),
+        patchChars = steps.associateWith { 0 },
     )
 
     /**
@@ -266,8 +361,9 @@ class RippleCheckpointProbeTest {
         val checkpoint = loadCheckpoint(coordinates)
         println(
             "[CHECKPOINT-PROBE] cell arm=${coordinates.arm} checkpoint=${coordinates.checkpoint} " +
-                "step=${checkpoint.step} position=${checkpoint.formattedPosition()} " +
-                "replicate=${coordinates.replicate} patch=${checkpoint.patchText.length} chars"
+                "step=${checkpoint.step} editFraction=${checkpoint.formattedEditFraction()} " +
+                "position=${checkpoint.formattedPosition()} replicate=${coordinates.replicate} " +
+                "patch=${checkpoint.patchText.length} chars"
         )
 
         // The resolved model can only be steered through this property (DockerClaudeSession reads it when
@@ -353,7 +449,9 @@ private fun checkpointProbeScenario(
                 println("[CHECKPOINT-PROBE] MEASUREMENT LOST: the checkpoint patch did not apply to the")
                 println("[CHECKPOINT-PROBE]   deployed tree, so this cell never received the state it was")
                 println("[CHECKPOINT-PROBE]   supposed to be graded from. Cause: ${e::class.simpleName}: ${e.message}")
-                println(checkpoint.probeLine(coordinates, verdict = CHECKPOINT_PROBE_LOST))
+                // No cost: the agent never started, so every price this cell could report is unknown —
+                // and unknown must reach the aggregator as an absent field, never as a zero.
+                println(checkpoint.probeLine(coordinates, verdict = CHECKPOINT_PROBE_LOST, cost = null))
                 throw IllegalStateException(
                     "MEASUREMENT LOST: the ${coordinates.arm} arm's checkpoint ${coordinates.checkpoint} " +
                         "(step ${checkpoint.step}) did not apply to ${RippleCheckpointCase.INSTANCE_ID}. " +
@@ -368,7 +466,19 @@ private fun checkpointProbeScenario(
 
         override fun afterAgentRun(outcome: DpaiaRunOutcome) {
             val verdict = checkpointProbeVerdict(outcome.objectiveSuccess)
-            println(checkpoint.probeLine(coordinates, verdict = verdict))
+            // The three prices the arena already measured for this run — the agent's own timer, the
+            // dollar figure Claude Code reports on its terminal `result` event, and the end-of-run
+            // context. Read off the outcome rather than recomputed, so the probe's cost columns and the
+            // arena's own run summary can never disagree about the same run.
+            println(checkpoint.probeLine(
+                coordinates,
+                verdict = verdict,
+                cost = ProbeRunCost(
+                    usd = outcome.costUsd,
+                    agentSeconds = outcome.agentDurationMs / 1000,
+                    tokens = outcome.endContextTokens,
+                ),
+            ))
             if (outcome.objectiveSuccess != null) return
             println("[CHECKPOINT-PROBE] MEASUREMENT LOST: the verifier produced no grade for this cell,")
             println("[CHECKPOINT-PROBE]   so its readiness is UNKNOWN rather than zero.")
@@ -382,13 +492,41 @@ private fun checkpointProbeScenario(
 }
 
 /** The state one probe starts from, together with where along the capture's trajectory it was taken. */
-private data class LoadedCheckpoint(val step: Int, val position: Double, val patchText: String) {
+private data class LoadedCheckpoint(
+    val step: Int,
+    val editFraction: Double,
+    val position: Double,
+    val patchText: String,
+) {
+    fun formattedEditFraction(): String = String.format(Locale.ROOT, "%.3f", editFraction)
+
     fun formattedPosition(): String = String.format(Locale.ROOT, "%.4f", position)
 
     /** The one line [parseProbeVerdicts] reads, built through the shared formatter. */
-    fun probeLine(coordinates: ProbeCoordinates, verdict: String): String =
-        checkpointProbeLine(coordinates, step = step, position = position, verdict = verdict)
+    fun probeLine(coordinates: ProbeCoordinates, verdict: String, cost: ProbeRunCost?): String =
+        checkpointProbeLine(
+            coordinates = coordinates,
+            step = step,
+            editFraction = editFraction,
+            position = position,
+            verdict = verdict,
+            cost = cost,
+        )
 }
+
+/**
+ * What one probe run cost: dollars, the agent's own wall seconds, and the end-of-run context size.
+ *
+ * Every field is nullable and each one independently, because the harness really does report them
+ * separately — Claude Code's terminal `result` event carries the price and a stream that ends without
+ * it carries none, while the duration is always measured. Null is printed by omitting the field, so the
+ * aggregator reads it back as "never reported" instead of as a free, instant run.
+ *
+ * These three are the pilot's second signal. `V` saturates: the probe's base rate on the pristine tree
+ * is already around two thirds, so past the middle of the edit phase the only thing that still
+ * distinguishes two states is how much a weak agent must spend to finish from each.
+ */
+private data class ProbeRunCost(val usd: Double?, val agentSeconds: Long?, val tokens: Long?)
 
 /** What a cell prints when it could not be graded at all — see [checkpointProbeVerdict]. */
 private const val CHECKPOINT_PROBE_LOST: String = "LOST"
@@ -410,16 +548,28 @@ private fun checkpointProbeVerdict(objectiveSuccess: Boolean?): String = when (o
 /**
  * The single line the aggregator reads. Built in one place so the shape `parseProbeVerdicts` requires
  * cannot drift between the graded and the lost path.
+ *
+ * A price that was not measured is OMITTED rather than printed as a zero or a dash: the parser's
+ * optional groups then read it back as null, which is the same thing the 38 verdicts recorded before
+ * these fields existed report. One shape for "nobody measured it", whatever the reason.
  */
 private fun checkpointProbeLine(
     coordinates: ProbeCoordinates,
     step: Int,
+    editFraction: Double,
     position: Double,
     verdict: String,
-): String =
-    "[CHECKPOINT-PROBE] arm=${coordinates.arm} checkpoint=${coordinates.checkpoint} step=$step " +
-        "position=${String.format(Locale.ROOT, "%.4f", position)} replicate=${coordinates.replicate} " +
-        verdict
+    cost: ProbeRunCost?,
+): String = buildString {
+    append("[CHECKPOINT-PROBE] arm=${coordinates.arm} checkpoint=${coordinates.checkpoint} step=$step ")
+    append("editFraction=${String.format(Locale.ROOT, "%.3f", editFraction)} ")
+    append("position=${String.format(Locale.ROOT, "%.4f", position)} ")
+    append("replicate=${coordinates.replicate} ")
+    append(verdict)
+    cost?.usd?.let { append(" usd=${String.format(Locale.ROOT, "%.4f", it)}") }
+    cost?.agentSeconds?.let { append(" agentSeconds=$it") }
+    cost?.tokens?.let { append(" tokens=$it") }
+}
 
 /**
  * Every case directory under `ripple-checkpoints/` whose layout has to stay valid.
@@ -475,12 +625,6 @@ private fun checkpointResourceProblems(
     if (malformed.isNotEmpty()) {
         add("$location holds $malformed, which is not a step-<n>.patch, so no probe cell can address it")
     }
-    if (patchFileNames.size > RIPPLE_CHECKPOINT_COUNT) {
-        add(
-            "$location holds ${patchFileNames.size} patches, more than the $RIPPLE_CHECKPOINT_COUNT " +
-                "checkpoints a probe can address — states of two capture runs are mixed in one directory"
-        )
-    }
     if (metadataJson == null) {
         if (patchFileNames.isNotEmpty()) {
             add(
@@ -500,12 +644,23 @@ private fun checkpointResourceProblems(
     }
 }
 
-/** The patch file names one `checkpoints.json` describes, in its own order. */
+/**
+ * The patch file names one `checkpoints.json` describes, in its own order and without repetition.
+ *
+ * Derived from each entry's STEP rather than read from a `patch` field, because the step is what names
+ * the file (`step-<n>.patch`) and a second, redundant name in the metadata could disagree with it. The
+ * de-duplication is not cosmetic: two fractions of a short edit phase round onto the same step, and the
+ * directory then holds one file for both of them.
+ */
 private fun checkpointPatchNames(metadataJson: String): List<String> =
     checkpointEntries(metadataJson).map { entry ->
-        entry["patch"]?.jsonPrimitive?.content
-            ?: error("a checkpoint entry of ${RippleCheckpointRecorder.METADATA_FILE_NAME} names no patch")
-    }
+        val step = entry["step"]?.jsonPrimitive?.content?.toIntOrNull()
+            ?: error(
+                "a checkpoint entry of ${RippleCheckpointRecorder.METADATA_FILE_NAME} names no step, so " +
+                    "the state it describes cannot be matched with a committed patch"
+            )
+        RippleCheckpointRecorder.patchFileName(step)
+    }.distinct()
 
 private fun checkpointEntries(metadataJson: String) =
     Json.parseToJsonElement(metadataJson).jsonObject["checkpoints"]?.jsonArray?.map { it.jsonObject }
@@ -543,15 +698,25 @@ private fun loadCheckpoint(coordinates: ProbeCoordinates): LoadedCheckpoint {
         it["index"]?.jsonPrimitive?.content?.toIntOrNull() == coordinates.checkpoint
     } ?: error(
         "${metadataFile.absolutePath} describes no checkpoint ${coordinates.checkpoint} — that capture " +
-            "carries ${entries.size} checkpoint(s), see its corrections for why"
+            "carries ${entries.size} checkpoint(s)"
     )
     val step = entry["step"]?.jsonPrimitive?.content?.toIntOrNull()
         ?: error("${metadataFile.absolutePath} has no step for checkpoint ${coordinates.checkpoint}")
+    val editFraction = entry["editFraction"]?.jsonPrimitive?.content?.toDoubleOrNull()
+        ?: error(
+            "${metadataFile.absolutePath} has no numeric editFraction for step $step, so this cell " +
+                "could only be published at a coordinate the other arm cannot be compared on"
+        )
     val position = entry["position"]?.jsonPrimitive?.content?.toDoubleOrNull()
         ?: error("${metadataFile.absolutePath} has no numeric position for step $step")
 
     val patch = dir.resolve(RippleCheckpointRecorder.patchFileName(step))
     check(patch.isFile) { "no committed state for checkpoint ${coordinates.checkpoint} at ${patch.absolutePath}" }
 
-    return LoadedCheckpoint(step = step, position = position, patchText = patch.readText())
+    return LoadedCheckpoint(
+        step = step,
+        editFraction = editFraction,
+        position = position,
+        patchText = patch.readText(),
+    )
 }

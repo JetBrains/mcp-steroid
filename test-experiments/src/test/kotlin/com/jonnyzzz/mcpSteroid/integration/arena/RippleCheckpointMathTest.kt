@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -9,106 +10,164 @@ import org.junit.jupiter.api.Test
 /**
  * Pure-JVM coverage for the arithmetic the checkpoint pilot is built on — no Docker, no agent.
  *
- * Two properties are worth a test each. The positions must be the SAME numbers the capture hook was
- * given before the run, because a report that normalizes by a different schedule than the one the
- * snapshots were taken with silently mislabels every measured state. And the area under the readiness
- * curve must stay inside the range that was actually measured: an AUC that quietly extrapolates to 0
- * or to the end of the trajectory would be the loudest number in the report and none of it measured.
+ * Four properties are worth a test each. The axis must be the FRACTION of the edit phase, because that
+ * is the only coordinate the two arms share: this pilot's captures spent 11 and 40 tool calls writing,
+ * so neither "checkpoint 3" nor "edit turn 4" names comparable amounts of work, while "30% of the way
+ * through what this agent wrote" does. The phase must start at the FIRST WRITE, because everything
+ * before it is the agent reading the material and not part of the trajectory being compared. A repeated
+ * state must survive into the plan as a fact about the run rather than be corrected away, since "the
+ * agent wrote nothing between 50% and 80% of its edit phase" is the measured shape of the mcp arm. And
+ * the area under a readiness curve must stay inside the range that was actually measured: an AUC that
+ * quietly extrapolates to 0 or to the end of the trajectory would be the loudest number in the report
+ * and none of it measured.
  */
 class RippleCheckpointMathTest {
     @Test
-    fun `positions follow the 1_5 power schedule`() {
-        assertEquals(listOf(2, 6, 11, 17, 24), rippleCheckpointSteps(32))
-        assertEquals(listOf(3, 8, 14, 22, 30), rippleCheckpointSteps(40))
-    }
-
-    @Test
-    fun `the pilot measures five checkpoints per arm`() {
-        assertEquals(5, RIPPLE_CHECKPOINT_COUNT)
-        assertEquals(RIPPLE_CHECKPOINT_COUNT, rippleCheckpointSteps(32).size)
+    fun `the grid is ten even fractions of the edit phase`() {
+        assertEquals(10, RIPPLE_CHECKPOINT_FRACTIONS)
         assertEquals(listOf("mcp", "none"), RIPPLE_CHECKPOINT_ARMS)
+        // The pilot's measured ground truth: mcp n=26 first write 15, none n=57 first write 17.
+        assertEquals(
+            listOf(15, 16, 17, 18, 19, 21, 22, 23, 24, 25),
+            rippleCheckpointSteps(n = 26, firstWriteStep = 15),
+        )
+        assertEquals(
+            listOf(17, 21, 25, 29, 33, 37, 41, 45, 49, 53),
+            rippleCheckpointSteps(n = 57, firstWriteStep = 17),
+        )
     }
 
     /**
-     * The deepest checkpoint must be reachable by ANY run the gate admits, whatever its length — which is
-     * exactly what deriving positions from the measured `n` buys. The v3 sample's extremes are the
-     * regression: the pilot's first schedule was fixed at n̂=32, and the mcp arm's 23-step run then had
-     * no state at its `a_5 = 24` to probe at all.
+     * The whole point of the axis: the arms' edit phases differ by nearly a factor of four, so only the
+     * fraction lines them up. Both plans carry the very same ten coordinates while their steps have
+     * nothing to do with each other — which is what lets the report draw the two curves over one another.
      */
     @Test
-    fun `the deepest checkpoint is strictly inside the trajectory for every admissible length`() {
-        val lengths = v3RenameMethodWideReference.values.flatMap { listOf(it.stepsMin, it.stepsMax) }
-        lengths.forEach { n ->
-            val steps = rippleCheckpointSteps(n)
-            assertTrue(steps.last() < n) { "a_5=${steps.last()} is not inside a $n-step trajectory" }
-            assertEquals(RIPPLE_CHECKPOINT_COUNT, steps.size) { "n=$n -> $steps" }
+    fun `both arms carry the same ten fractions over utterly different step counts`() {
+        val mcp = selectCheckpoints(n = 26) { step -> if (step < 15) "pristine" else "mcp-$step" }
+        val none = selectCheckpoints(n = 57) { step -> if (step < 17) "pristine" else "none-$step" }
+
+        val fractions = listOf(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+        assertEquals(fractions, mcp.checkpoints.map { it.editFraction })
+        assertEquals(fractions, none.checkpoints.map { it.editFraction })
+        assertEquals(21, mcp.checkpoints[5].step)
+        assertEquals(37, none.checkpoints[5].step)
+    }
+
+    @Test
+    fun `the edit phase starts at the first write and never reaches the final state`() {
+        (2..100).forEach { n ->
+            val firstWrite = maxOf(1, n / 2)
+            val steps = rippleCheckpointSteps(n = n, firstWriteStep = firstWrite)
+
+            assertEquals(RIPPLE_CHECKPOINT_FRACTIONS, steps.size) { "n=$n -> $steps" }
+            assertEquals(firstWrite, steps.first()) { "n=$n -> $steps" }
+            assertTrue(steps.last() < n) { "n=$n -> $steps" }
+            assertEquals(steps.sorted(), steps) { "n=$n -> $steps" }
+        }
+    }
+
+    /**
+     * An edit phase shorter than the number of fractions cannot give every fraction a step of its own,
+     * and the rounding of the last ones lands ON the final state — which is never a checkpoint, because
+     * the source run's own outcome is judged separately. Pulled back to the last state before it, so the
+     * plan stays ten fractions long and the repetition is visible through `sameStateAs`.
+     */
+    @Test
+    fun `a fraction that rounds onto the final state is pulled back to the state before it`() {
+        assertEquals(
+            listOf(4, 4, 4, 5, 5, 5, 5, 5, 5, 5),
+            rippleCheckpointSteps(n = 6, firstWriteStep = 4),
+        )
+    }
+
+    @Test
+    fun `a first write at or past the final state is not a trajectory to compare`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            rippleCheckpointSteps(n = 26, firstWriteStep = 26)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            rippleCheckpointSteps(n = 26, firstWriteStep = 0)
         }
     }
 
     @Test
-    fun `short trajectories are nudged into a strictly increasing sequence`() {
-        val steps = rippleCheckpointSteps(8)
-        assertEquals(steps.sorted(), steps)
-        assertEquals(steps.distinct(), steps)
-        assertTrue(steps.all { it in 1..7 }) { "no checkpoint may be the final state: $steps" }
-    }
+    fun `the first write is the earliest step whose tree differs from the pristine one`() {
+        val plan = selectCheckpoints(n = 26) { step -> if (step < 15) "pristine" else "tree-$step" }
 
-    @Test
-    fun `every trajectory length yields five distinct in-range checkpoints`() {
-        (6..100).forEach { n ->
-            val steps = rippleCheckpointSteps(n)
-            assertEquals(5, steps.size, "n=$n")
-            assertEquals(steps.distinct(), steps, "n=$n -> $steps")
-            assertEquals(steps.sorted(), steps, "n=$n -> $steps")
-            assertTrue(steps.last() < n, "n=$n -> $steps")
-        }
-    }
-
-    @Test
-    fun `n below six cannot carry five distinct checkpoints`() {
-        assertThrows(IllegalArgumentException::class.java) { rippleCheckpointSteps(5) }
-    }
-
-    @Test
-    fun `a trajectory whose every step differs is probed at the formula positions`() {
-        val selection = selectCheckpoints(n = 32) { step -> "state-$step" }
-
-        assertEquals(listOf(2, 6, 11, 17, 24), selection.steps)
-        assertEquals(listOf(2, 6, 11, 17, 24), selection.checkpoints.map { it.nominalStep })
-        assertTrue(selection.corrections.isEmpty()) { "nothing to correct: ${selection.corrections}" }
+        assertEquals(26, plan.n)
+        assertEquals(15, plan.firstWriteStep)
+        assertEquals(RIPPLE_CHECKPOINT_FRACTIONS, plan.fractions)
+        assertEquals(listOf(15, 16, 17, 18, 19, 21, 22, 23, 24, 25), plan.steps)
+        assertEquals((1..10).toList(), plan.checkpoints.map { it.index })
+        assertEquals("tree-15", plan.checkpoints.first().stateId)
     }
 
     /**
-     * The defect this whole selection exists for. The mcp capture of build 1034656372 wrote the entire
-     * rename at step 11 and touched no file afterwards, so `step-11` and `step-17` were BYTE-IDENTICAL
-     * patches — two probes of one state, reported as two points of a curve.
+     * A capture whose work tree never changed has no edit phase at all, so there is nothing to take a
+     * fraction OF. Reported rather than planned around: the caller has just paid for an Opus run and a
+     * plan of ten pristine trees would look like a measurement.
      */
     @Test
-    fun `a checkpoint that would repeat the previous state moves to the next differing step`() {
-        val selection = selectCheckpoints(n = 32) { step -> if (step < 11) "pristine" else "solved" }
-
-        assertEquals(listOf(2, 11), selection.steps.take(2))
-        assertEquals(2, selection.checkpoints.size) { "only two states exist: ${selection.checkpoints}" }
-        assertTrue(selection.corrections.any { it.contains("11") }) { "${selection.corrections}" }
+    fun `a capture that never wrote anything before its final state cannot be planned`() {
+        assertThrows(IllegalStateException::class.java) { selectCheckpoints(n = 26) { "pristine" } }
     }
 
     @Test
     fun `positions are normalized by the measured n`() {
-        val selection = selectCheckpoints(n = 23) { step -> "state-$step" }
+        val plan = selectCheckpoints(n = 26) { step -> if (step < 15) "pristine" else "tree-$step" }
 
-        assertEquals(listOf(2, 4, 8, 13, 17), selection.steps)
-        assertEquals(2.0 / 23.0, selection.checkpoints.first().position, 1e-9)
-        assertEquals(17.0 / 23.0, selection.checkpoints.last().position, 1e-9)
+        assertEquals(15.0 / 26.0, plan.checkpoints.first().position, 1e-9)
+        assertEquals(25.0 / 26.0, plan.checkpoints.last().position, 1e-9)
     }
 
+    /**
+     * The mcp capture's real shape, and the reason the old "move the checkpoint forward" rule had to
+     * go. Ten fractions of that arm's edit phase hold six distinct trees: the agent wrote nothing
+     * between its 19th and 24th tool call, which is a MEASUREMENT ("half way through its edit phase this
+     * agent stopped writing for three checkpoints") and not a collision to be repaired. Every fraction
+     * is kept, and the repetition is named by the earliest step holding that state so a caller can skip
+     * paying for a tree the pilot has already probed.
+     */
     @Test
-    fun `a state repeated to the end of the trajectory drops the checkpoints it would duplicate`() {
-        val selection = selectCheckpoints(n = 20) { step -> if (step < 3) "pristine" else "solved" }
-
-        assertEquals(listOf(1, 4), selection.steps)
-        assertTrue(selection.corrections.any { it.contains("no differing state") }) {
-            "${selection.corrections}"
+    fun `a repeated state is kept as data and points back at the step that first held it`() {
+        val plan = selectCheckpoints(n = 26) { step ->
+            when {
+                step < 15 -> "pristine"
+                step in 19..23 -> "tree-19"
+                step >= 24 -> "tree-24"
+                else -> "tree-$step"
+            }
         }
+
+        assertEquals(listOf(15, 16, 17, 18, 19, 21, 22, 23, 24, 25), plan.steps)
+        assertEquals(
+            listOf(null, null, null, null, null, 19, 19, 19, null, 24),
+            plan.checkpoints.map { it.sameStateAs },
+        )
+        assertEquals(6, plan.checkpoints.count { it.sameStateAs == null })
+    }
+
+    /**
+     * The shell arm's shape: two separate flat stretches, each naming its own earliest step. A rule that
+     * only compared a checkpoint with its predecessor would report the second pair against the first.
+     */
+    @Test
+    fun `two separate repeated stretches each name their own earliest step`() {
+        val plan = selectCheckpoints(n = 57) { step ->
+            when (step) {
+                in 0..16 -> "pristine"
+                29, 33 -> "written-29"
+                45, 49 -> "written-45"
+                else -> "state-$step"
+            }
+        }
+        val sameStateAs = plan.checkpoints.associate { it.step to it.sameStateAs }
+
+        assertNull(sameStateAs.getValue(29))
+        assertEquals(29, sameStateAs.getValue(33))
+        assertNull(sameStateAs.getValue(45))
+        assertEquals(45, sameStateAs.getValue(49))
     }
 
     @Test
@@ -129,6 +188,21 @@ class RippleCheckpointMathTest {
         assertEquals(0.25, curve.auc, 1e-9)
         assertEquals(0.1, curve.rangeFrom, 1e-9)
         assertEquals(0.5, curve.rangeTo, 1e-9)
+    }
+
+    /**
+     * The edit-fraction axis the report integrates over: it starts at 0.0 — the first write — and the
+     * area over a partially probed arm must cover the probed fractions only.
+     */
+    @Test
+    fun `auc integrates the edit fraction axis from the first write`() {
+        val curve = ReadinessCurve(listOf(
+            ReadinessPoint(0.0, 0.0),
+            ReadinessPoint(0.4, 1.0),
+        ))
+        assertEquals(0.2, curve.auc, 1e-9)
+        assertEquals(0.0, curve.rangeFrom, 1e-9)
+        assertEquals(0.4, curve.rangeTo, 1e-9)
     }
 
     @Test

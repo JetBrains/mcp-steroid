@@ -72,6 +72,14 @@ data class DpaiaRunOutcome(
     val agentDurationMs: Long,
     /** End-of-run context size, the quantity [admitCapture] compares against a historical band. */
     val endContextTokens: Long?,
+    /**
+     * What this run cost in dollars, as the agent itself reported it — null when its stream ended
+     * without the terminal event that carries the figure.
+     *
+     * Nullable and not defaulted to zero: the checkpoint probe publishes this number as one of its
+     * three cost columns, and a free run is a real, different measurement from an unreported one.
+     */
+    val costUsd: Double?,
     val verification: ArenaVerificationResult?,
     /** The recorder that watched this run, or null when it was not recorded. */
     val recorder: RippleCheckpointRecorder?,

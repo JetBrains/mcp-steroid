@@ -334,6 +334,7 @@ abstract class DpaiaScenarioBaseTest {
                 modeLabel = modeLabel,
                 agentDurationMs = result.agentDurationMs,
                 endContextTokens = metrics.endContextTokens,
+                costUsd = metrics.tokenUsage?.costUsd,
                 verification = verification,
                 recorder = recorder,
             ))

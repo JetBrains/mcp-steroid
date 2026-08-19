@@ -1,15 +1,199 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java
+index 10ef239..9ecb9f1 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java
+@@ -1,16 +1,14 @@
+ package com.sivalabs.ft.features.domain;
+ 
+ import com.sivalabs.ft.features.domain.entities.Release;
+-import java.util.List;
+ import java.util.Optional;
++import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+ import org.springframework.data.jpa.repository.Modifying;
+ import org.springframework.data.repository.ListCrudRepository;
+ 
+-interface ReleaseRepository extends ListCrudRepository<Release, Long> {
++interface ReleaseRepository extends ListCrudRepository<Release, Long>, JpaSpecificationExecutor<Release> {
+     Optional<Release> findByCode(String code);
+ 
+-    List<Release> findByProductCode(String productCode);
+-
+     @Modifying
+     void deleteByCode(String code);
+ 
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java
+index f51cb01..1567207 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java
+@@ -5,39 +5,70 @@ import com.sivalabs.ft.features.domain.Commands.UpdateReleaseCommand;
+ import com.sivalabs.ft.features.domain.dtos.ReleaseDto;
+ import com.sivalabs.ft.features.domain.entities.Product;
+ import com.sivalabs.ft.features.domain.entities.Release;
++import com.sivalabs.ft.features.domain.exceptions.InvalidStatusTransitionException;
+ import com.sivalabs.ft.features.domain.exceptions.ResourceNotFoundException;
+ import com.sivalabs.ft.features.domain.mappers.ReleaseMapper;
++import com.sivalabs.ft.features.domain.models.ReleaseSearchCriteria;
+ import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import java.time.Duration;
+ import java.time.Instant;
+-import java.util.List;
+ import java.util.Optional;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.data.domain.Page;
++import org.springframework.data.domain.Pageable;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+ @Service
+ public class ReleaseService {
+     public static final String RELEASE_SEPARATOR = "-";
++
++    /** Dedicated audit trail for every release modification. */
++    private static final Logger auditLog = LoggerFactory.getLogger("audit.release");
++
+     private final ReleaseRepository releaseRepository;
+     private final ProductRepository productRepository;
+     private final FeatureRepository featureRepository;
+     private final ReleaseMapper releaseMapper;
++    private final ReleaseStatusTransitionValidator statusTransitionValidator;
+ 
+     ReleaseService(
+             ReleaseRepository releaseRepository,
+             ProductRepository productRepository,
+             FeatureRepository featureRepository,
+-            ReleaseMapper releaseMapper) {
++            ReleaseMapper releaseMapper,
++            ReleaseStatusTransitionValidator statusTransitionValidator) {
+         this.releaseRepository = releaseRepository;
+         this.productRepository = productRepository;
+         this.featureRepository = featureRepository;
+         this.releaseMapper = releaseMapper;
++        this.statusTransitionValidator = statusTransitionValidator;
+     }
+ 
+     @Transactional(readOnly = true)
+-    public List<ReleaseDto> findReleasesByProductCode(String productCode) {
+-        return releaseRepository.findByProductCode(productCode).stream()
+-                .map(releaseMapper::toDto)
+-                .toList();
++    public Page<ReleaseDto> findReleases(ReleaseSearchCriteria criteria, Pageable pageable) {
++        return releaseRepository
++                .findAll(ReleaseSpecifications.matching(criteria), pageable)
++                .map(releaseMapper::toDto);
++    }
++
++    /** Releases whose planned release date has passed and that are neither COMPLETED nor CANCELLED. */
++    @Transactional(readOnly = true)
++    public Page<ReleaseDto> findOverdueReleases(Pageable pageable) {
++        return releaseRepository
++                .findAll(ReleaseSpecifications.overdue(Instant.now()), pageable)
++                .map(releaseMapper::toDto);
++    }
++
++    /** Open releases due within {@code daysThreshold} days from now. */
++    @Transactional(readOnly = true)
++    public Page<ReleaseDto> findAtRiskReleases(int daysThreshold, Pageable pageable) {
++        Instant now = Instant.now();
++        Instant deadline = now.plus(Duration.ofDays(daysThreshold));
++        return releaseRepository
++                .findAll(ReleaseSpecifications.atRisk(now, deadline), pageable)
++                .map(releaseMapper::toDto);
+     }
+ 
+     @Transactional(readOnly = true)
+@@ -62,21 +93,68 @@ public class ReleaseService {
+         release.setCode(code);
+         release.setDescription(cmd.description());
+         release.setStatus(ReleaseStatus.DRAFT);
++        release.setPlannedReleaseDate(cmd.plannedReleaseDate());
++        release.setReleaseOwner(cmd.releaseOwner());
+         release.setCreatedBy(cmd.createdBy());
+         release.setCreatedAt(Instant.now());
+         releaseRepository.save(release);
++        auditLog.info(
++                "CREATE release code={} product={} status={} plannedReleaseDate={} owner={} by={}",
++                code,
++                cmd.productCode(),
++                ReleaseStatus.DRAFT,
++                cmd.plannedReleaseDate(),
++                cmd.releaseOwner(),
++                cmd.createdBy());
+         return code;
+     }
+ 
++    /**
++     * Applies the update, enforcing the {@link ReleaseStatusTransitionValidator} state machine. Fields absent from the
++     * command ({@code null}) keep their current value, so a status-only update does not wipe the release plan.
++     *
++     * @throws InvalidStatusTransitionException if the requested status is not reachable from the current one
++     */
+     @Transactional
+     public void updateRelease(UpdateReleaseCommand cmd) {
+-        Release release = releaseRepository.findByCode(cmd.code()).orElseThrow();
++        Release release = releaseRepository
++                .findByCode(cmd.code())
++                .orElseThrow(() -> new ResourceNotFoundException("Release with code " + cmd.code() + " not found"));
++
++        ReleaseStatus currentStatus = release.getStatus();
++        ReleaseStatus newStatus = cmd.status();
++        if (newStatus != null && newStatus != currentStatus) {
++            if (!statusTransitionValidator.validateTransition(currentStatus, newStatus)) {
++                auditLog.warn(
++                        "REJECTED status change release code={} from={} to={} by={}",
++                        cmd.code(),
++                        currentStatus,
++                        newStatus,
++                        cmd.updatedBy());
++                throw new InvalidStatusTransitionException(
++                        currentStatus, newStatus, statusTransitionValidator.getValidNextStates(currentStatus));
++            }
++            release.setStatus(newStatus);
++            auditLog.info(
++                    "STATUS CHANGE release code={} from={} to={} by={}",
++                    cmd.code(),
++                    currentStatus,
++                    newStatus,
++                    cmd.updatedBy());
++        }
++
+         release.setDescription(cmd.description());
+-        release.setStatus(cmd.status());
+         release.setReleasedAt(cmd.releasedAt());
++        if (cmd.plannedReleaseDate() != null) {
++            release.setPlannedReleaseDate(cmd.plannedReleaseDate());
++        }
++        if (cmd.releaseOwner() != null) {
++            release.setReleaseOwner(cmd.releaseOwner());
++        }
+         release.setUpdatedBy(cmd.updatedBy());
+         release.setUpdatedAt(Instant.now());
+         releaseRepository.save(release);
++        auditLog.info("UPDATE release code={} status={} by={}", cmd.code(), release.getStatus(), cmd.updatedBy());
+     }
+ 
+     @Transactional
+@@ -86,5 +164,6 @@ public class ReleaseService {
+         }
+         featureRepository.unsetRelease(code);
+         releaseRepository.deleteByCode(code);
++        auditLog.info("DELETE release code={}", code);
+     }
+ }
 diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java
 new file mode 100644
-index 0000000..17b7a31
+index 0000000..f005bb0
 --- /dev/null
 +++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseSpecifications.java
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,61 @@
 +package com.sivalabs.ft.features.domain;
 +
 +import com.sivalabs.ft.features.domain.entities.Release;
 +import com.sivalabs.ft.features.domain.models.ReleaseSearchCriteria;
 +import com.sivalabs.ft.features.domain.models.ReleaseStatus;
++import jakarta.persistence.criteria.CriteriaBuilder;
 +import jakarta.persistence.criteria.Predicate;
++import jakarta.persistence.criteria.Root;
 +import java.time.Instant;
 +import java.util.ArrayList;
 +import java.util.List;
@@ -45,10 +229,12 @@ index 0000000..17b7a31
 +        };
 +    }
 +
-+    /** Releases whose planned release date has passed while the release is still open. */
++    /**
++     * Releases whose planned release date has passed while the release is still open. Releases without a planned date
++     * are never overdue.
++     */
 +    static Specification<Release> overdue(Instant now) {
-+        return (root, query, cb) ->
-+                cb.and(cb.lessThan(root.get("plannedReleaseDate"), now), notClosed(root, cb));
++        return (root, query, cb) -> cb.and(cb.lessThan(root.get("plannedReleaseDate"), now), notClosed(root, cb));
 +    }
 +
 +    /** Open releases whose planned release date falls within {@code [now, deadline]}. */
@@ -57,8 +243,7 @@ index 0000000..17b7a31
 +                cb.and(cb.between(root.get("plannedReleaseDate"), now, deadline), notClosed(root, cb));
 +    }
 +
-+    private static Predicate notClosed(
-+            jakarta.persistence.criteria.Root<Release> root, jakarta.persistence.criteria.CriteriaBuilder cb) {
++    private static Predicate notClosed(Root<Release> root, CriteriaBuilder cb) {
 +        return cb.not(root.get("status").in(CLOSED_STATUSES));
 +    }
 +}

@@ -7,6 +7,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -159,21 +160,128 @@ class RippleCheckpointRecorderTest {
         assertEquals(mapOf(0 to "aaaa111", 1 to "aaaa111", 2 to "bbbb222", 10 to "cccc333"), trees)
     }
 
+    /**
+     * The metadata is the ONLY thing a probe cell reads to learn where its state sits, so every field a
+     * reader needs is asserted here: the measured `n`, the first write the edit phase is counted from,
+     * how many fractions it was cut into, and per checkpoint its ordinal, step, edit fraction,
+     * normalized position, tree, patch size and repetition marker.
+     */
     @Test
-    fun `metadata carries the measured n, the probed steps and every correction`() {
-        val plan = selectCheckpoints(n = 29) { step -> if (step < 8) "pristine" else "state-$step" }
-        val json = Json.parseToJsonElement(
-            RippleCheckpointRecorder.metadataJson(
-                case = RippleCheckpointCase.INSTANCE_ID, arm = "mcp",
-                model = "claude-opus-5", plan = plan,
-            )
-        ).jsonObject
-        assertEquals(29, json["actualSteps"]!!.jsonPrimitive.int)
+    fun `metadata carries the measured n, the edit phase and the state of every fraction`() {
+        val json = Json.parseToJsonElement(mcpArmMetadataJson()).jsonObject
+
+        assertEquals(RippleCheckpointCase.INSTANCE_ID, json["case"]!!.jsonPrimitive.content)
+        assertEquals("mcp", json["arm"]!!.jsonPrimitive.content)
+        assertEquals("claude-opus-5", json["model"]!!.jsonPrimitive.content)
+        assertEquals(26, json["n"]!!.jsonPrimitive.int)
+        assertEquals(15, json["firstWriteStep"]!!.jsonPrimitive.int)
+        assertEquals(10, json["fractions"]!!.jsonPrimitive.int)
+
         val checkpoints = json["checkpoints"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(plan.steps, checkpoints.map { it["step"]!!.jsonPrimitive.int })
-        assertEquals(listOf(2, 6, 10, 16, 22), checkpoints.map { it["nominalStep"]!!.jsonPrimitive.int })
-        assertEquals(plan.steps.first().toDouble() / 29.0, checkpoints[0]["position"]!!.jsonPrimitive.double, 1e-9)
-        assertEquals(plan.corrections.size, json["corrections"]!!.jsonArray.size)
+        assertEquals((1..10).toList(), checkpoints.map { it["index"]!!.jsonPrimitive.int })
+        assertEquals(
+            listOf(15, 16, 17, 18, 19, 21, 22, 23, 24, 25),
+            checkpoints.map { it["step"]!!.jsonPrimitive.int },
+        )
+        assertEquals(
+            listOf(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9),
+            checkpoints.map { it["editFraction"]!!.jsonPrimitive.double },
+        )
+        assertEquals(
+            listOf(
+                "tree-15", "tree-16", "tree-17", "tree-18", "tree-19",
+                "tree-19", "tree-19", "tree-19", "tree-24", "tree-24",
+            ),
+            checkpoints.map { it["tree"]!!.jsonPrimitive.content },
+        )
+        assertEquals(
+            listOf(2436, 3951, 4408, 5017, 37498, 37498, 37498, 37498, 37288, 37288),
+            checkpoints.map { it["patchChars"]!!.jsonPrimitive.int },
+        )
+    }
+
+    /**
+     * A repeated tree must reach the published file as a NAMED repetition rather than as a duplicate
+     * nobody notices, and a first sighting must reach it as JSON `null` rather than as a step number of
+     * zero — a zero would read as "the pristine tree", a state no fraction of the edit phase can hold,
+     * and would quietly make every flat stretch look one checkpoint longer than it was.
+     */
+    @Test
+    fun `a repeated tree is published as the earliest step holding it, and a first sighting as null`() {
+        val checkpoints = Json.parseToJsonElement(mcpArmMetadataJson()).jsonObject["checkpoints"]!!
+            .jsonArray.map { it.jsonObject }
+
+        assertEquals(JsonNull, checkpoints[4]["sameStateAs"])
+        assertEquals(19, checkpoints[5]["sameStateAs"]!!.jsonPrimitive.int)
+        assertEquals(19, checkpoints[7]["sameStateAs"]!!.jsonPrimitive.int)
+        assertEquals(JsonNull, checkpoints[8]["sameStateAs"])
+        assertEquals(24, checkpoints[9]["sameStateAs"]!!.jsonPrimitive.int)
+    }
+
+    /**
+     * Positions are published at four decimals and fractions at three, which is what the probe echoes
+     * back on its verdict line. Not a cosmetic choice: `15/26` has no finite decimal expansion, so a raw
+     * double would publish 0.5769230769230769 and no two tools rounding it differently would agree on
+     * which row of the table a verdict belongs to.
+     */
+    @Test
+    fun `positions are published at the four decimals the ground truth carries`() {
+        val checkpoints = Json.parseToJsonElement(mcpArmMetadataJson()).jsonObject["checkpoints"]!!
+            .jsonArray.map { it.jsonObject }
+
+        assertEquals(0.5769, checkpoints[0]["position"]!!.jsonPrimitive.double)
+        assertEquals(0.9615, checkpoints.last()["position"]!!.jsonPrimitive.double)
+    }
+
+    /**
+     * The published shape, pinned field for field and in order.
+     *
+     * Pinned against a literal and NOT against the committed `checkpoints.json`, although that file is
+     * the ground truth every probe cell reads. The committed states are regenerated from this writer
+     * whenever the axis changes, so between the change and the regeneration the two disagree by
+     * construction — a test comparing them would be red for exactly as long as it takes to re-export,
+     * and green afterwards for the wrong reason. What must not drift silently is the CONTRACT: a reader
+     * keyed on field order rather than on name is not hypothetical (the pilot's own plotting is one).
+     */
+    @Test
+    fun `the emitted shape is field-for-field the published contract`() {
+        val emitted = Json.parseToJsonElement(mcpArmMetadataJson()).jsonObject
+
+        assertEquals(
+            listOf("case", "arm", "model", "n", "firstWriteStep", "fractions", "checkpoints"),
+            emitted.keys.toList(),
+        )
+        assertEquals(
+            listOf("index", "step", "editFraction", "position", "tree", "patchChars", "sameStateAs"),
+            emitted["checkpoints"]!!.jsonArray.first().jsonObject.keys.toList(),
+        )
+    }
+
+    /**
+     * The mcp arm's real shape, as [selectCheckpoints] sees it: nothing written before tool call 15, and
+     * two flat stretches inside the edit phase — the agent paused between its 19th and 24th call, and
+     * again after the 24th. Equal trees carry equal patch sizes, because that is what a repeated state
+     * means.
+     */
+    private fun mcpArmMetadataJson(): String {
+        val plan = selectCheckpoints(n = 26) { step ->
+            when {
+                step < 15 -> "pristine"
+                step in 19..23 -> "tree-19"
+                step >= 24 -> "tree-24"
+                else -> "tree-$step"
+            }
+        }
+        return RippleCheckpointRecorder.metadataJson(
+            case = RippleCheckpointCase.INSTANCE_ID,
+            arm = "mcp",
+            model = "claude-opus-5",
+            plan = plan,
+            patchChars = mapOf(
+                15 to 2436, 16 to 3951, 17 to 4408, 18 to 5017, 19 to 37498,
+                21 to 37498, 22 to 37498, 23 to 37498, 24 to 37288, 25 to 37288,
+            ),
+        )
     }
 
     private data class HookRun(val exitCode: Int, val stdout: String, val stderr: String)

@@ -11,25 +11,27 @@ import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * The `PostToolUse` hook that turns a capture run into a counted, snapshotted trajectory.
  *
- * Counting AND snapshotting happen on every tool call. The pilot's checkpoint positions are
- * `round(n·(i/6)^1.5)` of the run's MEASURED length, and `n` is only known once the run is over — so a
- * hook that snapshots a schedule computed in advance can only be right by luck. It was not: the two
- * captures of 2026-08-18 came in at 23 and 51 tool calls against an assumed 32, which left the mcp arm
- * without its fifth state (the run ended before that step) and put every published position at a
- * percentage nobody had chosen. Recording every step decouples the instrument from the guess:
- * [RippleCheckpointRecorder.plan] picks the five positions afterwards, from the length that actually
- * happened, and it can also see WHICH steps changed the work tree, so no two checkpoints of a curve
- * are the same state.
+ * Counting AND snapshotting happen on every tool call. The pilot's grid is cut over the run's MEASURED
+ * edit phase — the [RIPPLE_CHECKPOINT_FRACTIONS] even fractions between the first write and the final
+ * state — and neither `n` nor the first write is known until it is over, so a hook that snapshots a
+ * schedule computed in advance can only be right by luck. It was not: the two captures of 2026-08-18
+ * came in at 23 and 51 tool calls against an assumed 32, which left the mcp arm without its fifth state
+ * (the run ended before that step) and put every published position at a percentage nobody had chosen.
+ * Recording every step decouples the instrument from the guess: [RippleCheckpointRecorder.plan] cuts the
+ * grid afterwards, over the phase that actually happened, and it reads WHICH steps changed the work
+ * tree — which is both how the first write is found and how a flat stretch of the trajectory is
+ * published as such instead of being mistaken for progress.
  *
  * Three properties are non-negotiable, and each of them cost a real failure somewhere to learn:
  *
@@ -122,6 +124,15 @@ class RippleCheckpointRecorder(
     private val scriptPath: String = "$checkpointDir/snapshot.sh"
 
     /**
+     * How large each exported patch turned out to be, remembered so [exportMetadata] can publish it.
+     *
+     * `patchChars` is what tells a reader of `checkpoints.json` which checkpoints hold the pristine
+     * tree without diffing anything, and re-reading each patch out of the container to measure it would
+     * be one more whole-tree exec per checkpoint inside the capture build's wall time.
+     */
+    private val exportedPatchChars: MutableMap<Int, Int> = linkedMapOf()
+
+    /**
      * Prepares the shadow repository, tags the pristine tree as `step-0`, and hands the hook to
      * [claude] — in that order, because the hook may fire on the agent's very first tool call and a
      * snapshot taken before `step-0` exists would have nothing to be a diff against.
@@ -206,6 +217,7 @@ class RippleCheckpointRecorder(
 
         val patch = diff.stdout
         container.writeFileInContainer("$checkpointDir/${patchFileName(step)}", patch)
+        exportedPatchChars[step] = patch.length
         println("[CHECKPOINT] exported $tag: ${patch.length} chars -> $checkpointDir/${patchFileName(step)}")
         return patch
     }
@@ -213,13 +225,28 @@ class RippleCheckpointRecorder(
     /**
      * Writes `checkpoints.json` next to [gitDir] and returns it, so the patches are never read without
      * the step count they have to be normalized by.
+     *
+     * Any planned step whose patch has not been exported yet is exported HERE, before the metadata is
+     * written. The two artifacts are only meaningful together — the metadata names states, the patches
+     * are those states — and a directory holding one without the other is exactly the half-copied shape
+     * `checkpointResourceProblems` refuses. Making the completion the recorder's own job means no caller
+     * can publish a metadata file naming a state nobody can start from.
      */
     fun exportMetadata(plan: CheckpointPlan): String {
         require(case.isNotBlank() && arm.isNotBlank() && model.isNotBlank()) {
             "metadata needs the capture identity: construct RippleCheckpointRecorder with case, arm " +
                 "and model (got case='$case', arm='$arm', model='$model')"
         }
-        val json = metadataJson(case = case, arm = arm, model = model, plan = plan)
+        // distinct(), because two fractions of a short edit phase round onto the same step: exporting
+        // that step twice would be a second whole-tree `git diff` over Keycloak for identical bytes.
+        plan.steps.distinct().filterNot { it in exportedPatchChars }.forEach { exportPatch(it) }
+        val json = metadataJson(
+            case = case,
+            arm = arm,
+            model = model,
+            plan = plan,
+            patchChars = exportedPatchChars.filterKeys { it in plan.steps },
+        )
         container.writeFileInContainer("$checkpointDir/$METADATA_FILE_NAME", json)
         println("[CHECKPOINT] exported $checkpointDir/$METADATA_FILE_NAME for n=${plan.n}")
         return json
@@ -246,13 +273,14 @@ class RippleCheckpointRecorder(
     }
 
     /**
-     * The checkpoints of THIS run: five positions of [nActual], each holding a state no earlier
-     * checkpoint held.
+     * The checkpoints of THIS run: the [RIPPLE_CHECKPOINT_FRACTIONS] even fractions of its edit phase,
+     * each carrying the state it holds.
      *
      * The gap check is the reason this is not a one-liner over [selectCheckpoints]. The hook's counter
      * is a read-modify-write, so two tool calls finishing in the same instant can share a number and
-     * cost one snapshot; a missing `step-N` would then make the selection compare against the wrong
-     * state and publish a position for a state it never saw. Reported, never guessed around.
+     * cost one snapshot; a missing `step-N` would then make the plan publish a state it never saw.
+     * Reported, never guessed around — and checked over the WHOLE trajectory rather than over the grid
+     * alone, because a gap anywhere means the counter drifted and every later step number is suspect.
      */
     fun plan(nActual: Int): CheckpointPlan {
         val trees = stepTreeIds()
@@ -265,8 +293,16 @@ class RippleCheckpointRecorder(
         val plan = selectCheckpoints(nActual) { step ->
             trees.getValue(step)
         }
-        println("[CHECKPOINT] plan for n=$nActual: steps=${plan.steps} nominal=${plan.checkpoints.map { it.nominalStep }}")
-        plan.corrections.forEach { println("[CHECKPOINT]   correction: $it") }
+        println(
+            "[CHECKPOINT] plan for n=$nActual firstWriteStep=${plan.firstWriteStep} " +
+                "fractions=${plan.fractions}: steps=${plan.steps}"
+        )
+        plan.checkpoints.filter { it.sameStateAs != null }.forEach {
+            println(
+                "[CHECKPOINT]   step ${it.step} holds the tree of step ${it.sameStateAs} — the agent " +
+                    "wrote nothing in between, which is a measurement of this run and not a defect"
+            )
+        }
         return plan
     }
 
@@ -348,44 +384,68 @@ class RippleCheckpointRecorder(
             .toMap()
 
         /**
-         * What the recording means, as JSON: the measured length of the trajectory, the steps probed,
-         * and where along the trajectory each of them fell.
+         * What the recording means, as JSON: the measured length of the trajectory, the edit phase the
+         * fractions were cut over, and what each fraction held.
          *
-         * Both the nominal position and the probed step are written, together with the plan's
-         * [CheckpointPlan.corrections]. A checkpoint that had to move (its nominal step held a state
-         * already probed) sits deeper in the trajectory than the schedule intended, and a curve read
-         * without that fact would look like the schedule everyone expects while measuring something
-         * else. The corrections are also how a report shows a curve of fewer than five points without
-         * anyone having to diff patches to find out why.
+         * [CheckpointPlan.firstWriteStep] and [CheckpointPlan.fractions] are written even though the
+         * checkpoint list implies them, because a reader must be able to tell where this run stopped
+         * reading and started writing: every published `editFraction` is measured from that boundary,
+         * and it is unfalsifiable from a bare list of steps.
+         *
+         * [patchChars] is keyed by step and must cover every planned step; a missing entry throws rather
+         * than publishing a zero, because zero is a real and meaningful value here — it is the pristine
+         * tree — and an unknown size printed as one would invent a measurement.
          */
         fun metadataJson(
             case: String,
             arm: String,
             model: String,
             plan: CheckpointPlan,
+            patchChars: Map<Int, Int>,
         ): String {
             require(plan.n > 0) { "a trajectory of ${plan.n} steps has no positions to normalize" }
             val metadata = buildJsonObject {
                 put("case", case)
                 put("arm", arm)
                 put("model", model)
-                put("actualSteps", plan.n)
+                put("n", plan.n)
+                put("firstWriteStep", plan.firstWriteStep)
+                put("fractions", plan.fractions)
                 putJsonArray("checkpoints") {
                     plan.checkpoints.forEach { checkpoint ->
                         addJsonObject {
                             put("index", checkpoint.index)
-                            put("nominalStep", checkpoint.nominalStep)
                             put("step", checkpoint.step)
-                            put("position", checkpoint.position)
-                            put("patch", patchFileName(checkpoint.step))
+                            put("editFraction", checkpoint.editFraction)
+                            put("position", publishedPosition(checkpoint.position))
+                            put("tree", checkpoint.stateId)
+                            put(
+                                "patchChars",
+                                patchChars[checkpoint.step] ?: error(
+                                    "no patch was exported for step ${checkpoint.step}, so its size is " +
+                                        "unknown and cannot be published"
+                                ),
+                            )
+                            put("sameStateAs", checkpoint.sameStateAs)
                         }
                     }
-                }
-                putJsonArray("corrections") {
-                    plan.corrections.forEach { add(it) }
                 }
             }
             return checkpointJson.encodeToString(JsonObject.serializer(), metadata)
         }
+
+        /**
+         * `step/n` at the four decimals the published files carry.
+         *
+         * Rounded rather than printed raw because most of these fractions are non-terminating, and a
+         * position is a JOIN KEY: the probe echoes it on its verdict line and the aggregator refuses a
+         * checkpoint that reports two different positions. Two readers rounding a raw double their own
+         * way would split one measured state into two rows of the published table.
+         */
+        private fun publishedPosition(position: Double): Double =
+            BigDecimal(position).setScale(POSITION_DECIMALS, RoundingMode.HALF_UP).toDouble()
+
+        /** Four decimals resolve every step of a trajectory shorter than 10 000 tool calls. */
+        private const val POSITION_DECIMALS: Int = 4
     }
 }

@@ -151,9 +151,11 @@ fun runCheckpointHookPreflight() {
         // The whole planning path on real data, including the distinct-state rule. A capture is the
         // wrong place to discover that this throws.
         val plan = recorder.plan(steps)
-        println("[CHECKPOINT-PREFLIGHT] plan: steps=${plan.steps} corrections=${plan.corrections}")
+        println(
+            "[CHECKPOINT-PREFLIGHT] plan: firstWriteStep=${plan.firstWriteStep} steps=${plan.steps}"
+        )
         assertTrue(plan.checkpoints.isNotEmpty()) {
-            "Planning a $steps-step recording produced no checkpoints at all: ${plan.corrections}"
+            "Planning a $steps-step recording produced no checkpoints at all"
         }
 
         val patch = recorder.exportPatch(plan.steps.last())
@@ -171,9 +173,9 @@ fun runCheckpointHookPreflight() {
 /**
  * Seven ordered instructions, so a working hook must have counted at least seven calls.
  *
- * Seven and not three: `rippleCheckpointSteps` needs more than [RIPPLE_CHECKPOINT_COUNT] steps to place
- * five distinct pre-final positions, so a shorter preflight could not run the planning path it is here
- * to protect.
+ * Seven and not three: the prompt writes on its first, third and fifth call, so the recording carries a
+ * first write followed by an edit phase several steps long — short enough that several fractions round
+ * onto one step, which is exactly the [selectCheckpoints] path a capture must not be the first to run.
  */
 private const val PREFLIGHT_MIN_STEPS: Int = 7
 

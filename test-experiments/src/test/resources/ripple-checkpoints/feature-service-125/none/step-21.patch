@@ -1,17 +1,3 @@
-diff --git a/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java b/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java
-index 0e0b5e6..15801d3 100644
---- a/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java
-+++ b/src/main/java/com/sivalabs/ft/features/domain/models/ReleaseStatus.java
-@@ -2,5 +2,8 @@ package com.sivalabs.ft.features.domain.models;
- 
- public enum ReleaseStatus {
-     DRAFT,
--    RELEASED
-+    PLANNED,
-+    IN_PROGRESS,
-+    COMPLETED,
-+    CANCELLED
- }
 diff --git a/src/main/resources/db/migration/V5__add_release_planning_columns.sql b/src/main/resources/db/migration/V5__add_release_planning_columns.sql
 new file mode 100644
 index 0000000..a92044a

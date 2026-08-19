@@ -1,3 +1,316 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/api/GlobalExceptionHandler.java b/src/main/java/com/sivalabs/ft/features/api/GlobalExceptionHandler.java
+index 0c15088..36f5f32 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/GlobalExceptionHandler.java
++++ b/src/main/java/com/sivalabs/ft/features/api/GlobalExceptionHandler.java
+@@ -3,6 +3,7 @@ package com.sivalabs.ft.features.api;
+ import static org.springframework.http.HttpStatus.*;
+ 
+ import com.sivalabs.ft.features.domain.exceptions.BadRequestException;
++import com.sivalabs.ft.features.domain.exceptions.InvalidStatusTransitionException;
+ import com.sivalabs.ft.features.domain.exceptions.ResourceNotFoundException;
+ import java.time.Instant;
+ import org.slf4j.Logger;
+@@ -34,6 +35,18 @@ class GlobalExceptionHandler {
+         return problemDetail;
+     }
+ 
++    @ExceptionHandler(InvalidStatusTransitionException.class)
++    ProblemDetail handle(InvalidStatusTransitionException e) {
++        log.warn("Invalid release status transition: {}", e.getMessage());
++        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(BAD_REQUEST, e.getMessage());
++        problemDetail.setTitle("Invalid status transition");
++        problemDetail.setProperty("timestamp", Instant.now());
++        problemDetail.setProperty("currentStatus", e.getCurrentStatus());
++        problemDetail.setProperty("targetStatus", e.getTargetStatus());
++        problemDetail.setProperty("allowedTransitions", e.getAllowedTransitions());
++        return problemDetail;
++    }
++
+     @ExceptionHandler(BadRequestException.class)
+     ProblemDetail handle(BadRequestException e) {
+         log.error("Bad Request", e);
+diff --git a/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java b/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java
+index 2b8eb90..89f5e94 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java
++++ b/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java
+@@ -7,19 +7,27 @@ import com.sivalabs.ft.features.domain.Commands.CreateReleaseCommand;
+ import com.sivalabs.ft.features.domain.Commands.UpdateReleaseCommand;
+ import com.sivalabs.ft.features.domain.ReleaseService;
+ import com.sivalabs.ft.features.domain.dtos.ReleaseDto;
++import com.sivalabs.ft.features.domain.exceptions.BadRequestException;
++import com.sivalabs.ft.features.domain.models.ReleaseSearchCriteria;
++import com.sivalabs.ft.features.domain.models.ReleaseStatus;
+ import io.swagger.v3.oas.annotations.Operation;
+ import io.swagger.v3.oas.annotations.headers.Header;
+-import io.swagger.v3.oas.annotations.media.ArraySchema;
+ import io.swagger.v3.oas.annotations.media.Content;
+ import io.swagger.v3.oas.annotations.media.Schema;
+ import io.swagger.v3.oas.annotations.responses.ApiResponse;
+ import io.swagger.v3.oas.annotations.tags.Tag;
+ import jakarta.validation.Valid;
+ import java.net.URI;
+-import java.util.List;
++import java.time.Instant;
++import java.util.Locale;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
++import org.springframework.data.domain.Page;
++import org.springframework.data.domain.PageRequest;
++import org.springframework.data.domain.Pageable;
++import org.springframework.data.domain.Sort;
+ import org.springframework.http.ResponseEntity;
++import org.springframework.util.StringUtils;
+ import org.springframework.web.bind.annotation.DeleteMapping;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PathVariable;
+@@ -36,6 +44,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+ @Tag(name = "Releases API")
+ class ReleaseController {
+     private static final Logger log = LoggerFactory.getLogger(ReleaseController.class);
++
++    /** Upper bound on the requested page size, to keep a single request from pulling the whole table. */
++    private static final int MAX_PAGE_SIZE = 100;
++
++    private static final int DEFAULT_PAGE_SIZE = 20;
++    private static final int DEFAULT_DAYS_THRESHOLD = 7;
++
+     private final ReleaseService releaseService;
+ 
+     ReleaseController(ReleaseService releaseService) {
+@@ -44,19 +59,121 @@ class ReleaseController {
+ 
+     @GetMapping("")
+     @Operation(
+-            summary = "Find releases by product code",
+-            description = "Find releases by product code",
++            summary = "Find releases",
++            description = "Find releases, optionally filtered by product, status, owner and planned release date range",
+             responses = {
+                 @ApiResponse(
+                         responseCode = "200",
+                         description = "Successful response",
+-                        content =
+-                                @Content(
+-                                        mediaType = "application/json",
+-                                        array = @ArraySchema(schema = @Schema(implementation = ReleaseDto.class))))
++                        content = @Content(mediaType = "application/json")),
++                @ApiResponse(responseCode = "400", description = "Invalid request")
++            })
++    Page<ReleaseDto> getReleases(
++            @RequestParam(required = false) String productCode,
++            @RequestParam(required = false) String status,
++            @RequestParam(required = false) String owner,
++            @RequestParam(required = false) Instant startDate,
++            @RequestParam(required = false) Instant endDate,
++            @RequestParam(defaultValue = "0") int page,
++            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
++            @RequestParam(required = false) String sort,
++            @RequestParam(required = false) String direction) {
++        validateDateRange(startDate, endDate);
++        var criteria =
++                new ReleaseSearchCriteria(productCode, parseStatus(status), emptyToNull(owner), startDate, endDate);
++        return releaseService.findReleases(criteria, toPageable(page, size, sort, direction));
++    }
++
++    @GetMapping("/overdue")
++    @Operation(
++            summary = "Find overdue releases",
++            description = "Find releases whose planned release date has passed and that are not COMPLETED or CANCELLED",
++            responses = {@ApiResponse(responseCode = "200", description = "Successful response")})
++    Page<ReleaseDto> getOverdueReleases(
++            @RequestParam(defaultValue = "0") int page,
++            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
++            @RequestParam(required = false) String sort,
++            @RequestParam(required = false) String direction) {
++        return releaseService.findOverdueReleases(toPageable(page, size, sort, direction));
++    }
++
++    @GetMapping("/at-risk")
++    @Operation(
++            summary = "Find at-risk releases",
++            description = "Find open releases whose planned release date falls within the given number of days",
++            responses = {
++                @ApiResponse(responseCode = "200", description = "Successful response"),
++                @ApiResponse(responseCode = "400", description = "Invalid request")
+             })
+-    List<ReleaseDto> getProductReleases(@RequestParam("productCode") String productCode) {
+-        return releaseService.findReleasesByProductCode(productCode);
++    Page<ReleaseDto> getAtRiskReleases(
++            @RequestParam(defaultValue = "" + DEFAULT_DAYS_THRESHOLD) int daysThreshold,
++            @RequestParam(defaultValue = "0") int page,
++            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
++            @RequestParam(required = false) String sort,
++            @RequestParam(required = false) String direction) {
++        if (daysThreshold < 0) {
++            throw new BadRequestException("daysThreshold must not be negative");
++        }
++        return releaseService.findAtRiskReleases(daysThreshold, toPageable(page, size, sort, direction));
++    }
++
++    @GetMapping("/by-status")
++    @Operation(
++            summary = "Find releases by status",
++            description = "Find releases by status",
++            responses = {
++                @ApiResponse(responseCode = "200", description = "Successful response"),
++                @ApiResponse(responseCode = "400", description = "Invalid status")
++            })
++    Page<ReleaseDto> getReleasesByStatus(
++            @RequestParam String status,
++            @RequestParam(defaultValue = "0") int page,
++            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
++            @RequestParam(required = false) String sort,
++            @RequestParam(required = false) String direction) {
++        var criteria = ReleaseSearchCriteria.byStatus(requireStatus(status));
++        return releaseService.findReleases(criteria, toPageable(page, size, sort, direction));
++    }
++
++    @GetMapping("/by-owner")
++    @Operation(
++            summary = "Find releases by owner",
++            description = "Find releases owned by the given user",
++            responses = {
++                @ApiResponse(responseCode = "200", description = "Successful response"),
++                @ApiResponse(responseCode = "400", description = "Invalid request")
++            })
++    Page<ReleaseDto> getReleasesByOwner(
++            @RequestParam String owner,
++            @RequestParam(defaultValue = "0") int page,
++            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
++            @RequestParam(required = false) String sort,
++            @RequestParam(required = false) String direction) {
++        if (!StringUtils.hasText(owner)) {
++            throw new BadRequestException("owner must not be empty");
++        }
++        var criteria = ReleaseSearchCriteria.byOwner(owner);
++        return releaseService.findReleases(criteria, toPageable(page, size, sort, direction));
++    }
++
++    @GetMapping("/by-date-range")
++    @Operation(
++            summary = "Find releases by planned release date range",
++            description = "Find releases whose planned release date falls within the given inclusive range",
++            responses = {
++                @ApiResponse(responseCode = "200", description = "Successful response"),
++                @ApiResponse(responseCode = "400", description = "Invalid date range")
++            })
++    Page<ReleaseDto> getReleasesByDateRange(
++            @RequestParam Instant startDate,
++            @RequestParam Instant endDate,
++            @RequestParam(defaultValue = "0") int page,
++            @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
++            @RequestParam(required = false) String sort,
++            @RequestParam(required = false) String direction) {
++        validateDateRange(startDate, endDate);
++        var criteria = ReleaseSearchCriteria.byPlannedDateRange(startDate, endDate);
++        return releaseService.findReleases(criteria, toPageable(page, size, sort, direction));
+     }
+ 
+     @GetMapping("/{code}")
+@@ -99,9 +216,15 @@ class ReleaseController {
+             })
+     ResponseEntity<Void> createRelease(@RequestBody @Valid CreateReleasePayload payload) {
+         var username = SecurityUtils.getCurrentUsername();
+-        var cmd = new CreateReleaseCommand(payload.productCode(), payload.code(), payload.description(), username);
++        var cmd = new CreateReleaseCommand(
++                payload.productCode(),
++                payload.code(),
++                payload.description(),
++                payload.plannedReleaseDate(),
++                payload.releaseOwner(),
++                username);
+         String code = releaseService.createRelease(cmd);
+-        log.info("Created release with code {}", code);
++        log.info("Created release with code {} by user {}", code, username);
+         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                 .path("/{code}")
+                 .buildAndExpand(code)
+@@ -112,18 +235,26 @@ class ReleaseController {
+     @PutMapping("/{code}")
+     @Operation(
+             summary = "Update an existing release",
+-            description = "Update an existing release",
++            description = "Update an existing release. Status changes must follow the release state machine.",
+             responses = {
+                 @ApiResponse(responseCode = "200", description = "Successful response"),
+-                @ApiResponse(responseCode = "400", description = "Invalid request"),
++                @ApiResponse(responseCode = "400", description = "Invalid request or status transition"),
+                 @ApiResponse(responseCode = "401", description = "Unauthorized"),
+                 @ApiResponse(responseCode = "403", description = "Forbidden"),
++                @ApiResponse(responseCode = "404", description = "Release not found"),
+             })
+     void updateRelease(@PathVariable String code, @RequestBody UpdateReleasePayload payload) {
+         var username = SecurityUtils.getCurrentUsername();
+-        var cmd =
+-                new UpdateReleaseCommand(code, payload.description(), payload.status(), payload.releasedAt(), username);
++        var cmd = new UpdateReleaseCommand(
++                code,
++                payload.description(),
++                payload.status(),
++                payload.plannedReleaseDate(),
++                payload.releaseOwner(),
++                payload.releasedAt(),
++                username);
+         releaseService.updateRelease(cmd);
++        log.info("Updated release with code {} by user {}", code, username);
+     }
+ 
+     @DeleteMapping("/{code}")
+@@ -135,12 +266,54 @@ class ReleaseController {
+                 @ApiResponse(responseCode = "400", description = "Invalid request"),
+                 @ApiResponse(responseCode = "401", description = "Unauthorized"),
+                 @ApiResponse(responseCode = "403", description = "Forbidden"),
++                @ApiResponse(responseCode = "404", description = "Release not found"),
+             })
+     ResponseEntity<Void> deleteRelease(@PathVariable String code) {
+         if (!releaseService.isReleaseExists(code)) {
+             return ResponseEntity.notFound().build();
+         }
+         releaseService.deleteRelease(code);
++        log.info("Deleted release with code {} by user {}", code, SecurityUtils.getCurrentUsername());
+         return ResponseEntity.ok().build();
+     }
++
++    private static Pageable toPageable(int page, int size, String sort, String direction) {
++        int pageNumber = Math.max(page, 0);
++        int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);
++        if (!StringUtils.hasText(sort)) {
++            return PageRequest.of(pageNumber, pageSize);
++        }
++        Sort.Direction sortDirection =
++                Sort.Direction.DESC.name().equalsIgnoreCase(direction) ? Sort.Direction.DESC : Sort.Direction.ASC;
++        return PageRequest.of(pageNumber, pageSize, Sort.by(sortDirection, sort));
++    }
++
++    private static void validateDateRange(Instant startDate, Instant endDate) {
++        if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
++            throw new BadRequestException("endDate must not be before startDate");
++        }
++    }
++
++    private static ReleaseStatus requireStatus(String status) {
++        ReleaseStatus parsed = parseStatus(status);
++        if (parsed == null) {
++            throw new BadRequestException("status must not be empty");
++        }
++        return parsed;
++    }
++
++    private static ReleaseStatus parseStatus(String status) {
++        if (!StringUtils.hasText(status)) {
++            return null;
++        }
++        try {
++            return ReleaseStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
++        } catch (IllegalArgumentException e) {
++            throw new BadRequestException("Invalid release status: " + status);
++        }
++    }
++
++    private static String emptyToNull(String value) {
++        return StringUtils.hasText(value) ? value : null;
++    }
+ }
 diff --git a/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java b/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
 index 37887ba..9a345a2 100644
 --- a/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
@@ -311,10 +624,10 @@ index 0000000..f005bb0
 +}
 diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
 new file mode 100644
-index 0000000..a0e7886
+index 0000000..2f4f0cd
 --- /dev/null
 +++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseStatusTransitionValidator.java
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,49 @@
 +package com.sivalabs.ft.features.domain;
 +
 +import com.sivalabs.ft.features.domain.models.ReleaseStatus;
@@ -333,15 +646,12 @@ index 0000000..a0e7886
 +@Component
 +public class ReleaseStatusTransitionValidator {
 +
-+    private static final Map<ReleaseStatus, Set<ReleaseStatus>> ALLOWED_TRANSITIONS =
-+            new EnumMap<>(Map.of(
-+                    ReleaseStatus.DRAFT, Set.of(ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
-+                    ReleaseStatus.PLANNED,
-+                            Set.of(ReleaseStatus.IN_PROGRESS, ReleaseStatus.DRAFT, ReleaseStatus.CANCELLED),
-+                    ReleaseStatus.IN_PROGRESS,
-+                            Set.of(ReleaseStatus.COMPLETED, ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
-+                    ReleaseStatus.COMPLETED, Set.of(),
-+                    ReleaseStatus.CANCELLED, Set.of()));
++    private static final Map<ReleaseStatus, Set<ReleaseStatus>> ALLOWED_TRANSITIONS = new EnumMap<>(Map.of(
++            ReleaseStatus.DRAFT, Set.of(ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
++            ReleaseStatus.PLANNED, Set.of(ReleaseStatus.IN_PROGRESS, ReleaseStatus.DRAFT, ReleaseStatus.CANCELLED),
++            ReleaseStatus.IN_PROGRESS, Set.of(ReleaseStatus.COMPLETED, ReleaseStatus.PLANNED, ReleaseStatus.CANCELLED),
++            ReleaseStatus.COMPLETED, Set.of(),
++            ReleaseStatus.CANCELLED, Set.of()));
 +
 +    /**
 +     * @return {@code true} if the release may move from {@code currentStatus} to {@code newStatus}. Staying in the same
