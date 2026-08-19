@@ -90,17 +90,6 @@ equal tool-call counts.
 Cell format: `<build id>:<Y|LOST>`. A row a capture's plan does not carry is struck through, not left
 blank — a blank reads as "not queued yet".
 
-## Totals
-
-| | value |
-|:---|:---|
-| capture builds (all stages) | 6 (4 in stage 1, 2 preflights in stage 2) |
-| probe builds queued | 0 |
-| probe builds graded | 0 |
-| instrument failures (LOST) | 0 |
-| wall-clock span | |
-| API spend | $4.43 (stage 1, discarded) |
-
 ## Stage 3 — case `dpaia__feature__service-125`, positions derived from the measured `n`
 
 Chosen for its incremental solution path, its working Testcontainers oracle, and a historical success
@@ -113,9 +102,28 @@ preflight below pinned it; a capture started from a later commit starts a NEW se
 
 | # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
 |---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
-| 1 | `hookPreflight` | 1035324252 | _running_ | | | | ≈$0 | n/a | | |
+| 1 | `hookPreflight` | 1035324252 | SUCCESS | 7 | 27 | n/a | ≈$0 | n/a | 1, 3, 5 | 4 (2 moved, 2 dropped) |
 | 2 | `captureMcpArm` | | | | | | | | | |
 | 3 | `captureShellArm` | | | | | | | | | |
+
+Preflight 1035324252 proves the instrument on THIS stage's configuration, and its first line is about
+the configuration rather than the hook: the build was started with
+`-Pripple.checkpoint.capture.method=hookPreflight` and nothing else, so the case default in
+`test-experiments/build.gradle.kts` is what selected
+`DpaiaFeatureService125CheckpointCaptureTest.hookPreflight`. A capture started the same way therefore
+records the case this stage means to record.
+
+What the hook did (11.5 min wall clock, no Opus): counted **7** tool calls and tagged every one of them;
+`step-1` and `step-2` share tree `354141df…` (the second call read, it did not write) while `step-3` is
+`de1ddf08…`; `plan(7)` returned steps **1, 3, 5** and stated all four corrections — nominal steps 2 and 3
+moved forward onto a differing state, nominal steps 4 and 5 dropped because the work tree stopped
+changing after step 5; the deepest planned patch exported non-empty (407 chars).
+
+Three checkpoints out of a 7-step recording is the correct answer, not a shortfall: a trajectory carries
+only as many distinct pre-final states as it produced. A paid capture is 20–80 steps, where five distinct
+states are expected — and if they do not exist, the plan says so instead of probing one state twice.
+
+Rejected captures stay in this table — a repeat is a new row, and the report shows every attempt.
 
 ### Probe stage — 2 arms × up to 5 checkpoints × 5 replicates
 
@@ -138,3 +146,15 @@ preflight below pinned it; a capture started from a later commit starts a NEW se
 | 3 | | | | | | | | | |
 | 4 | | | | | | | | | |
 | 5 | | | | | | | | | |
+
+## Totals
+
+| | value |
+|:---|:---|
+| capture builds, stage 1 (discarded) | 4 |
+| capture builds, stage 2 (abandoned case) | 2 preflights |
+| capture builds, stage 3 | 1 preflight |
+| probe builds queued | 0 |
+| probe builds graded | 0 |
+| instrument failures (LOST) | 0 |
+| API spend | $4.43, all of it stage 1; every preflight is a scripted agent and costs about nothing |
