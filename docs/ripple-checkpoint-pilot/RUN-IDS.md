@@ -57,141 +57,64 @@ distinct pre-final states as it actually produced.
 
 Rejected captures stay in this table — a repeat is a new row, and the report shows every attempt.
 
-### Probe stage — 2 arms × up to 5 checkpoints × 5 replicates
+### Probe stage — the axis is the FRACTION of the edit phase
 
-The checkpoint STEPS are not shared between arms and are not known before the captures: each arm's
-`checkpoints.json` names its own. Copy them here from the committed metadata, so a row can be read
-without the artifact. `V_mcp` and `V_shell` are compared at equal normalized positions `a_i/n`, never at
-equal tool-call counts.
+The first probe grid measured relative positions of the WHOLE run and could not compare the arms: the
+mcp agent read for 15 of its 26 turns and the shell agent for 17 of its 57, so the two spend nearly the
+same effort reading and then differ fourfold in the writing itself — 11 edit turns against 40. Dividing
+by `n` normalises away exactly that difference, and an absolute turn index compares turn 4 of an
+11-turn edit phase against turn 4 of a 40-turn one. Both are meaningless.
 
-`Y` is 1 only when FAIL_TO_PASS + PASS_TO_PASS pass and the agent did not tamper with the oracle.
-`LOST` means the instrument failed (patch did not apply, container died) and must NOT be read as `Y = 0`.
+So a checkpoint is now `editFraction = k/10`, `k = 0…9`, of the edit phase: step
+`firstWriteStep + round(k/10 · (n − firstWriteStep))`. `editFraction = 0` is the first write and
+`k = 9` stops short of the end, because the original run's own outcome is judged separately.
 
-#### arm = mcp (n = _fill_)
+The pristine tree is no longer a checkpoint of either arm — it is the same tree in both, and its 9
+recorded probes (6 successes) are the shared BASELINE the curves are read against: a bare Haiku solves
+this task unaided about two thirds of the time, so the range in which `V` can rise at all is 0.67 → 1.0.
 
-| checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
-|---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | | | | | | | | | |
-| 2 | | | | | | | | | |
-| 3 | | | | | | | | | |
-| 4 | | | | | | | | | |
-| 5 | | | | | | | | | |
+A fraction whose state repeats an earlier one is kept in the metadata as data — it records that the
+agent wrote nothing in that window — and is NOT probed: `sameStateAs` names the fraction whose verdict
+applies, and paying a second time for the same tree would buy noise, not a point.
 
-#### arm = none (n = _fill_)
+Probe builds pin `a301af63a`, the commit that carries the regenerated states.
 
-| checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
-|---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | | | | | | | | | |
-| 2 | | | | | | | | | |
-| 3 | | | | | | | | | |
-| 4 | | | | | | | | | |
-| 5 | | | | | | | | | |
 
-Cell format: `<build id>:<Y|LOST>`. A row a capture's plan does not carry is struck through, not left
-blank — a blank reads as "not queued yet".
+#### arm = mcp (n = 26, first write at step 15, 11 edit turns)
 
-## Stage 3 — case `dpaia__feature__service-125`, positions derived from the measured `n`
+| k | editFraction | step | patch chars | r1 | r2 | r3 | r4 | r5 |
+|---:|---:|---:|---:|:---|:---|:---|:---|:---|
+| 0 | 0.0 | 15 | 2436 | 1035498274* | 1035503876* | 1035503878* | 1035503880* | 1035503882* |
+| 1 | 0.1 | 16 | 3951 | 1035503884* | 1035674854 | 1035674856 | 1035503891* | 1035674858 |
+| 2 | 0.2 | 17 | 4408 | 1035503895* | 1035503897* | 1035674860 | 1035674862 | 1035503903* |
+| 3 | 0.3 | 18 | 6639 | 1035674868 | 1035674870 | 1035674872 | 1035674874 | 1035678846 |
+| 4 | 0.4 | 19 | 37498 | 1035678910 | 1035678912 | 1035678914 | 1035678916 | 1035678918 |
+| 5 | 0.5 | 21 | 37498 | — not probed: same tree as step 19 | | | | |
+| 6 | 0.6 | 22 | 37498 | — not probed: same tree as step 19 | | | | |
+| 7 | 0.7 | 23 | 37498 | — not probed: same tree as step 19 | | | | |
+| 8 | 0.8 | 24 | 37288 | 1035678920 | 1035678922 | 1035678924 | 1035678926 | 1035678928 |
+| 9 | 0.9 | 25 | 37288 | — not probed: same tree as step 24 | | | | |
 
-Chosen for its incremental solution path, its working Testcontainers oracle, and a historical success
-rate strictly between 0 and 1.
+#### arm = none (n = 57, first write at step 17, 40 edit turns)
 
-Series revision (`--revision`): `a1fd1ad04` for the preflight, `4e6c04735` for the two captures — every
-build of one series must pin the same commit, and these two differ by `git diff --stat a1fd1ad04 4e6c04735`
-= this file and `RUNBOOK.md` only. No measurement code, no build file and no case configuration changed
-between them, so the captures record what the preflight proved. Any build that pins a commit touching
-`test-experiments/` starts a NEW series.
+| k | editFraction | step | patch chars | r1 | r2 | r3 | r4 | r5 |
+|---:|---:|---:|---:|:---|:---|:---|:---|:---|
+| 0 | 0.0 | 17 | 712 | 1035503924* | 1035503926* | 1035674864 | 1035503931* | 1035674866 |
+| 1 | 0.1 | 21 | 712 | — not probed: same tree as step 17 | | | | |
+| 2 | 0.2 | 25 | 3511 | 1035678930 | 1035678932 | 1035678934 | 1035678936 | 1035678938 |
+| 3 | 0.3 | 29 | 8752 | 1035678940 | 1035678942 | 1035678944 | 1035678946 | 1035679598 |
+| 4 | 0.4 | 33 | 12669 | 1035679682 | 1035679684 | 1035679686 | 1035679688 | 1035679690 |
+| 5 | 0.5 | 37 | 21078 | 1035679692 | 1035679694 | 1035679696 | 1035679698 | 1035679700 |
+| 6 | 0.6 | 41 | 22484 | 1035679702 | 1035679704 | 1035679706 | 1035679708 | 1035679710 |
+| 7 | 0.7 | 45 | 25972 | 1035679712 | 1035679714 | 1035679716 | 1035679718 | 1035679720 |
+| 8 | 0.8 | 49 | 40196 | 1035679722 | 1035679724 | 1035679726 | 1035679728 | 1035679733 |
+| 9 | 0.9 | 53 | 40196 | — not probed: same tree as step 49 | | | | |
 
-### Capture stage
-
-| # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
-|---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
-| 1 | `hookPreflight` | 1035324252 | SUCCESS | 7 | 27 | n/a | ≈$0 | n/a | 1, 3, 5 | 4 (2 moved, 2 dropped) |
-| 2 | `captureMcpArm` | 1035363501 | SUCCESS | 26 | 944 | 152414 | $3.83 | true | 2, 15, 16, 17, 20 | 3 moved |
-| 3 | `captureShellArm` | 1035363503 | SUCCESS | 57 | 746 | 133589 | $3.68 | true | 4, 17, 22, 31, 43 | 2 moved |
-
-Both captures were graded SUCCESS by `ArenaVerifier` — the shell arm's agent ended on "107 tests, 0
-failures, 0 errors" across all five FAIL_TO_PASS classes — so admission needed only `n > 5`, which both
-clear. Representativeness was not judged in either, and both logs print that note: this case has no band
-measured on this model and this harness, and these two rows are the first of it.
-
-The two arms differ in a way that is itself a finding rather than noise. The shell arm spent **57** tool
-calls and its five states grow smoothly — 0, 711, 1243, 12587, 24299 patch chars at 7.0 %, 29.8 %,
-38.6 %, 54.4 %, 75.4 % of its trajectory. The mcp arm needed **26** and wrote nothing until step 15, so
-three nominal positions (5, 9, 14) all held the pristine tree and were moved forward onto the first
-differing state: its checkpoints land at 7.7 %, 57.7 %, 61.5 %, 65.4 %, 76.9 % with 0, 2435, 3950, 4407,
-37497 chars. The mcp curve is therefore measured over a much narrower and later window — a consequence of
-reading the project through MCP before writing to it, and the reason the two AUCs cannot be put side by
-side without naming the range each one covers.
-
-The committed states are the ones these two builds exported, copied out of `run-*/checkpoints/` inside
-the run-dir ZIP artifact — the unpacked artifact directory publishes only `video/` — into
-`test-experiments/src/test/resources/ripple-checkpoints/feature-service-125/`. Checkpoint 1 of each arm
-is a ZERO-length patch, i.e. the pristine tree: `GitDriver.applyPatch` treats a blank patch as "nothing
-to apply", so that cell measures the probe's unaided solve rate on this task and anchors the curve
-instead of being a broken export.
-
-Preflight 1035324252 proves the instrument on THIS stage's configuration, and its first line is about
-the configuration rather than the hook: the build was started with
-`-Pripple.checkpoint.capture.method=hookPreflight` and nothing else, so the case default in
-`test-experiments/build.gradle.kts` is what selected
-`DpaiaFeatureService125CheckpointCaptureTest.hookPreflight`. A capture started the same way therefore
-records the case this stage means to record.
-
-What the hook did (11.5 min wall clock, no Opus): counted **7** tool calls and tagged every one of them;
-`step-1` and `step-2` share tree `354141df…` (the second call read, it did not write) while `step-3` is
-`de1ddf08…`; `plan(7)` returned steps **1, 3, 5** and stated all four corrections — nominal steps 2 and 3
-moved forward onto a differing state, nominal steps 4 and 5 dropped because the work tree stopped
-changing after step 5; the deepest planned patch exported non-empty (407 chars).
-
-Three checkpoints out of a 7-step recording is the correct answer, not a shortfall: a trajectory carries
-only as many distinct pre-final states as it produced. A paid capture is 20–80 steps, where five distinct
-states are expected — and if they do not exist, the plan says so instead of probing one state twice.
-
-Rejected captures stay in this table — a repeat is a new row, and the report shows every attempt.
-
-### Probe stage — 2 arms × up to 5 checkpoints × 5 replicates
-
-Probe builds pin a LATER commit than the captures on purpose: a probe reads its state out of the
-committed resources, so it must pin the commit that carries them. The measurement code is identical
-between the two — the delta is the patches, this file and the resource READMEs.
-
-#### arm = mcp (n = 26)
-
-| checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
-|---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | 2 | 0.0769 | | | | | | | |
-| 2 | 15 | 0.5769 | | | | | | | |
-| 3 | 16 | 0.6154 | | | | | | | |
-| 4 | 17 | 0.6538 | | | | | | | |
-| 5 | 20 | 0.7692 | | | | | | | |
-
-#### arm = none (n = 57)
-
-| checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
-|---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
-| 1 | 4 | 0.0702 | | | | | | | |
-| 2 | 17 | 0.2982 | | | | | | | |
-| 3 | 22 | 0.3860 | | | | | | | |
-| 4 | 31 | 0.5439 | | | | | | | |
-| 5 | 43 | 0.7544 | | | | | | | |
-
-### Probe build ids
-
-All 50 cells pin `f51dd90e7`. `mcp/5/1` is the smoke probe queued first and confirmed before the
-other 49 were released; the grid otherwise carries no ordering.
-
-| arm | checkpoint | r1 | r2 | r3 | r4 | r5 |
-|:---|---:|---:|---:|---:|---:|---:|
-| mcp | 1 | 1035498264 | 1035498266 | 1035498268 | 1035498270 | 1035498272 |
-| mcp | 2 | 1035498274 | 1035503876 | 1035503878 | 1035503880 | 1035503882 |
-| mcp | 3 | 1035503884 | 1035503886 | 1035503889 | 1035503891 | 1035503893 |
-| mcp | 4 | 1035503895 | 1035503897 | 1035503899 | 1035503901 | 1035503903 |
-| mcp | 5 | 1035439557 | 1035503905 | 1035503907 | 1035503909 | 1035503911 |
-| none | 1 | 1035503913 | 1035503915 | 1035503917 | 1035503919 | 1035503922 |
-| none | 2 | 1035503924 | 1035503926 | 1035503928 | 1035503931 | 1035503933 |
-| none | 3 | 1035503935 | 1035503937 | 1035503939 | 1035503941 | 1035503943 |
-| none | 4 | 1035503945 | 1035503947 | 1035503949 | 1035503954 | 1035503956 |
-| none | 5 | 1035503958 | 1035503960 | 1035503962 | 1035503964 | 1035503966 |
+`*` marks a cell measured before the axis change and reused: its state is bit-identical, so its verdict
+carries over unchanged. 38 verdicts were recorded on the old grid; 13 of them sit on states this grid
+also visits, and the remaining 25 measured steps the fraction grid does not land on (mcp 2 and 20, none
+4, 22, 31, 43) — they stay in the log as extra points on the arm-internal `position` axis and are not
+part of the fraction curve.
 
 ## Totals
 
@@ -200,7 +123,7 @@ other 49 were released; the grid otherwise carries no ordering.
 | capture builds, stage 1 (discarded) | 4 |
 | capture builds, stage 2 (abandoned case) | 2 preflights |
 | capture builds, stage 3 | 1 preflight + 2 captures, both admitted |
-| probe builds queued | 50 |
+| probe builds queued | 50 on the discarded grid (12 cancelled), 57 on the fraction grid |
 | probe builds graded | 0 |
 | instrument failures (LOST) | 0 |
 | API spend | $11.94 — $4.43 stage 1 (discarded), $7.51 stage 3 ($3.83 mcp + $3.68 shell); a preflight is a scripted agent and costs about nothing |
