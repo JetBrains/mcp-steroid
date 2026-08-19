@@ -9,8 +9,8 @@ import com.jonnyzzz.mcpSteroid.integration.infra.IntelliJContainer
  * Every member does nothing by default, and [NONE] — the set an ordinary scenario carries — overrides
  * none of them. That is the whole design constraint: a checkpoint is only worth measuring if the
  * trajectory it was cut from is a trajectory this experiment really runs, so the recorded run has to be
- * the SAME run `DpaiaMicroshop18Test` performs. Copying the flow into a second file would have made the
- * two drift apart silently — the arena flow deploys, gates the deploy path, takes a whole-suite
+ * the SAME run `DpaiaFeatureService125Test` performs. Copying the flow into a second file would have
+ * made the two drift apart silently — the arena flow deploys, gates the deploy path, takes a whole-suite
  * baseline, normalizes formatting, snapshots the oracle, runs the agent, grades, reports and asserts,
  * and every one of those steps is load-bearing for comparability.
  *

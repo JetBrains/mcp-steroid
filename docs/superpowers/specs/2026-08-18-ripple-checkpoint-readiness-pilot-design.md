@@ -18,56 +18,72 @@ Non-goals: no cross-arm significance claim, no new cases, no prompt tuning, no c
 
 ## 2. Source trajectories
 
-Case: **`dpaia__spring__boot__microshop-18`** (RestTemplate → WebClient across 3 modules, 8 FAIL_TO_PASS
-test classes, run by `DpaiaMicroshop18Test` on `DpaiaScenarioBaseTest`), agent `claude`
-(`claude-opus-5`), **both arms** — `mcp` and `none`. Two source trajectories, each yielding up to five
-checkpoints.
+Case: **`dpaia__feature__service-125`** (incremental delivery of a release status transition validator,
+5 new query endpoints, and DB migration; 25 FAIL_TO_PASS tests for the validator, run by
+`DpaiaFeatureService125Test` on `DpaiaScenarioBaseTest`), agent `claude` (`claude-opus-5`),
+**both arms** — `mcp` and `none`. Two source trajectories, each yielding up to five checkpoints.
 
-### 2.0 Why not the semantic-ripple case it started with
+### 2.0 Why this case was chosen (three-case history)
 
-The pilot was first built on `ripple__keycloak__rename-method-wide` and that case cannot carry a
-readiness curve: its solution is ONE atomic edit. In the measured capture the work tree went from
-untouched to all 111 files renamed inside a single tool call, so every checkpoint before it holds the
-pristine tree and every checkpoint after it holds the finished solution. `V(x)` on such a case is a step
-function whose position measures *when the agent happened to run the rename*, not how readiness grows —
-and two of the five scheduled checkpoints were literally the same bytes.
+The pilot evaluated three cases before settling on one that satisfies all measurement requirements.
 
-`microshop-18` was selected on the opposite property: the migration proceeds service by service, each
-step leaving a tree that is measurably closer to done, and the objective verifier is a test suite
-(FAIL_TO_PASS + PASS_TO_PASS) that a partially migrated tree can pass partially. Second-best candidate,
-kept for the scale-up: `dpaia__spring__petclinic-71` (JPA → R2DBC, 286 FAIL_TO_PASS tests).
+1. `ripple__keycloak__rename-method-wide` was dropped because its solution is **ATOMIC**. In the measured
+   capture the work tree went from untouched to all 111 files renamed inside a single tool call, so
+   every checkpoint before it holds the pristine tree and every checkpoint after it holds the finished
+   solution. `V(x)` on such a case is a step function whose position measures *when the agent happened
+   to run the rename*, not how readiness grows.
+
+2. `dpaia__spring__boot__microshop-18` was dropped because it is **not solvable often enough** to
+   measure. Its recorded history is one success in six runs, every failure being the same exploration
+   loop, and it carries `dockerOracleWorks = false`, so its Testcontainers oracle never runs in the
+   arena container and the prompt lets an agent claim success on a compile alone. Probes over that case
+   would return zero everywhere, and a flat zero cannot be told apart from "readiness does not grow".
+
+3. `dpaia__feature__service-125` is what remains, and it is chosen for how **UNDETERMINED** its solution
+   path is. The reference solution is a set of independent deliverables (validator, query endpoints,
+   filtering, DB migration) which an agent can land in any order, so two states at the same trajectory
+   position are genuinely different amounts of the solution rather than the same edit seen twice. Its
+   history is non-degenerate: five recorded runs, one timeout and four passes (638s, 444s, 570s, 403s),
+   a success rate strictly between 0 and 1. And it is the one curated case with
+   `dockerOracleWorks = true`: the 25-test `ReleaseStatusTransitionValidatorTest` really executes in the
+   container, so the grade cannot be earned by compiling alone.
 
 Existing v3 traces (`docs/ripple-trajectory-spike/features-v3-claude+codex.csv`) describe the
-`rename-method-wide` case only; `microshop-18` has **no** historical sample, which is why the
+`rename-method-wide` case only. `feature-service-125` has a recorded arena history, but not a usable
+BAND: those runs were taken on another model and a much older harness, and they report wall time and
+tool-call totals rather than the `extractEndContextTokens` quantity the gate compares. So the
 representativeness gate runs in its "not judged" mode (section 2.1) and this pilot's own captures become
-the first rows of that sample.
+the first rows of the sample.
 
 ### 2.1 Representativeness gate (before any probe is launched)
 
-A capture run is usable only if it looks like a *typical* run of this case/arm. Reference numbers
-from v3 (claude, `rename-method-wide`):
+A capture run is usable only if it looks like a *typical* run of this case/arm. What is on record for
+this case (`claude` + MCP, DPAIA arena of 2026-04, `docs/dpaia-arena-results.md` and
+`docs/dpaia-arena-comparison-table.md`) is context, not a band:
 
-| arm  | runs | SUCCESS | steps med (min–max) | steps IQR | agent s med | s IQR   | end-context tok med |
-|:-----|-----:|--------:|--------------------:|:----------|------------:|:--------|--------------------:|
-| mcp  |    9 |     9/9 |          30 (22–41) | 25–38     |         685 | 629–882 |               73019 |
-| none |   10 |   10/10 |        37.5 (31–56) | 33–47     |         617 | 554–861 |               65728 |
+| series   | runs | SUCCESS | agent s          | tool calls | cost  |
+|:---------|-----:|--------:|:-----------------|-----------:|:------|
+| original |    2 |     1/2 | 900 (timeout), 638 |         72 | $2.72 |
+| pass 1–3 |    3 |     3/3 | 444, 570, 403    |         54 | $1.84 |
 
 Admission criteria for a capture run, all required:
 
-1. `SUCCESS: true` (both arms are historically 9/9 and 10/10 — a failed capture is not typical).
+1. `SUCCESS: true` (a failed capture is not typical for a successful DPAIA pass).
 2. the run is longer than the checkpoint count, so five distinct pre-final positions exist in it.
-3. tool-call steps inside the arm's v3 **min–max** range and within ±1σ of the v3 mean.
-4. agent wall time and end-of-run context tokens each within ±1σ of the v3 mean for that arm.
+3. tool-call steps inside the historical **min–max** range and within ±1σ of the mean.
+4. agent wall time and end-of-run context tokens each within ±1σ of the mean for that arm.
 
-Criteria 3 and 4 apply **only to a case with a measured sample**. For a case that has none — which
-includes `dpaia__spring__boot__microshop-18`, the case this pilot actually runs — `admitCapture` is
-called with `reference = null`: representativeness is not judged at all, and the missing sample is
-reported as a NOTE. Inventing a band would be worse than admitting the gap, because it would look
-objective while judging against numbers nobody measured. The capture's own `n`, seconds, context tokens
-and cost are recorded in `RUN-IDS.md` and become the first rows of that sample.
+Criteria 3 and 4 apply **only to a case with a measured sample of the same model and harness**. The
+pilot's case has none, so `admitCapture` is called with `reference = null`: representativeness is not
+judged at all, and the missing band is reported as a NOTE. Inventing one from the table above would be
+worse than admitting the gap — it would look objective while comparing a `claude-opus-5` run against
+numbers measured on another model, with tool-call totals in place of `extractEndContextTokens`. The
+capture's own `n`, seconds, context tokens and cost are recorded in `RUN-IDS.md` and become the first
+rows of the sample this gate will one day use.
 
 "End-of-run context tokens" means `input + cache_read + cache_creation + output` of the **last assistant
-message** (`extractEndContextTokens`) — the definition the v3 table above was built with. The terminal
+message** (`extractEndContextTokens`) — the definition the v3 band of the keycloak case was built with,
+and the one a future band for this case has to be built with too. The terminal
 `result` event reports cumulative traffic instead (its cache-read counter reached 969851 on a run whose
 context was ~75k), and `TokenUsage.totalTokens` is `input + output`; comparing either against this band
 rejects every run, which is exactly what happened on 2026-08-18.
@@ -218,9 +234,9 @@ source the v3 analysis used).
 | phase | builds | per build | note |
 |:---|---:|:---|:---|
 | hook preflight | 1 | ~35 min, ~$0 | no agent turn beyond a smoke prompt |
-| capture (2 arms, ≤3 attempts each) | 2–6 | ~50 min, ~$1.8 | Opus, v3 mean cost for this case |
+| capture (2 arms, ≤3 attempts each) | 2–6 | ~50 min, ~$2.7 | Opus, historical mean cost for this case |
 | probes | 50 | ~45–60 min, ~$0.2–0.5 | Haiku, 90-min cap |
-| **total** | **53–57** | | **≈ $20–35 API, ≈ 45 agent-hours of TC capacity** |
+| **total** | **53–57** | | **≈ $25–45 API, ≈ 45 agent-hours of TC capacity** |
 
 TeamCity runs them; local execution would serialize into ~2 days of machine time.
 

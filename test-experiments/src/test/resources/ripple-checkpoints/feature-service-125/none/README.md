@@ -1,7 +1,7 @@
-# `dpaia__spring__boot__microshop-18` — none (shell) arm checkpoints
+# `dpaia__feature__service-125` — none (shell) arm checkpoints
 
 The states `RippleCheckpointProbeTest.probe` restarts a bare Haiku from, captured by
-`DpaiaMicroshop18CheckpointCaptureTest.captureShellArm`.
+`DpaiaFeatureService125CheckpointCaptureTest.captureShellArm`.
 
 Expected contents once the capture has run and been admitted:
 

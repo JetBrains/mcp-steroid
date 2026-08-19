@@ -21,12 +21,17 @@ Kept as the record of what was spent and what it proved. Series revision:
 
 No probe build was queued from these captures.
 
-## Stage 2 — case `dpaia__spring__boot__microshop-18`, positions derived from the measured `n`
+## Stage 2 — case `dpaia__spring__boot__microshop-18` (ABANDONED)
+
+This case was abandoned after the preflights below. Reasoning: its historical success rate is too low
+(1/6) to measure a readiness curve (all failures being the same exploration loop), and its
+Testcontainers oracle does not work in the arena container (`dockerOracleWorks = false`), allowing
+success claims on compile alone.
 
 Series revision (`--revision`): _fill when the capture series starts_ — every build of one series must
 pin the same commit. The preflights below pinned `2e62eb6fd` and `2319fbfce`.
 
-### Capture stage
+### Capture stage (microshop-18)
 
 `n`, `agent s`, `end ctx tok` and `cost` are recorded for EVERY attempt, admitted or not: this case has
 no historical sample, so these rows are the sample the next stage's representativeness gate will use.
@@ -95,3 +100,41 @@ blank — a blank reads as "not queued yet".
 | instrument failures (LOST) | 0 |
 | wall-clock span | |
 | API spend | $4.43 (stage 1, discarded) |
+
+## Stage 3 — case `dpaia__feature__service-125`, positions derived from the measured `n`
+
+Chosen for its incremental solution path, its working Testcontainers oracle, and a historical success
+rate strictly between 0 and 1.
+
+Series revision (`--revision`): _fill when the capture series starts_ — every build of one series must
+pin the same commit.
+
+### Capture stage
+
+| # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
+|---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
+| 1 | `hookPreflight` | | | | | | | | | |
+| 2 | `captureMcpArm` | | | | | | | | | |
+| 3 | `captureShellArm` | | | | | | | | | |
+
+### Probe stage — 2 arms × up to 5 checkpoints × 5 replicates
+
+#### arm = mcp (n = _fill_)
+
+| checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
+|---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
+| 1 | | | | | | | | | |
+| 2 | | | | | | | | | |
+| 3 | | | | | | | | | |
+| 4 | | | | | | | | | |
+| 5 | | | | | | | | | |
+
+#### arm = none (n = _fill_)
+
+| checkpoint | step | position | r1 | r2 | r3 | r4 | r5 | successes | V |
+|---:|---:|---:|:---|:---|:---|:---|:---|---:|---:|
+| 1 | | | | | | | | | |
+| 2 | | | | | | | | | |
+| 3 | | | | | | | | | |
+| 4 | | | | | | | | | |
+| 5 | | | | | | | | | |

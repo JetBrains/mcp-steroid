@@ -170,8 +170,9 @@ fun Test.configureExperimentalTest() {
 /**
  * The capture classes of the solution-readiness pilot, keyed by the case they record.
  *
- * Two entries because two cases are captured with the same instrument: `microshop-18` is what the
- * pilot measures (its solution is built incrementally, so readiness can rise along the trajectory) and
+ * Two entries because two cases are captured with the same instrument: `feature-service-125` is what
+ * the pilot measures (its solution is a set of independently landable parts, so readiness can rise
+ * along the trajectory, and its Testcontainers oracle really runs in the arena container) and
  * `rename-method-wide` is kept as the already-measured second case, whose one atomic edit makes its
  * curve a step function.
  *
@@ -181,7 +182,7 @@ fun Test.configureExperimentalTest() {
  * selects.
  */
 val checkpointCaptureClasses = mapOf(
-    "microshop-18" to "DpaiaMicroshop18CheckpointCaptureTest",
+    "feature-service-125" to "DpaiaFeatureService125CheckpointCaptureTest",
     "rename-method-wide" to "KeycloakRenameMethodWideCheckpointCaptureTest",
 )
 
@@ -213,7 +214,7 @@ tasks.test {
             }
             val case = project.findProperty(checkpointCaptureCaseProperty)?.toString()
                 ?.takeIf { it.isNotBlank() }
-                ?: "microshop-18"
+                ?: "feature-service-125"
             val captureClass = checkpointCaptureClasses[case]
                 ?: error(
                     "-P$checkpointCaptureCaseProperty=$case has no capture class; " +

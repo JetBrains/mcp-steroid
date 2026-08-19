@@ -8,26 +8,28 @@ import org.junit.jupiter.api.Timeout
 import java.util.concurrent.TimeUnit
 
 /**
- * The CAPTURE half of the solution-readiness pilot: one recorded `microshop-18` run per arm, whose
- * intermediate states become the checkpoints a bare probe is later restarted from.
+ * The CAPTURE half of the solution-readiness pilot: one recorded `feature-service-125` run per arm,
+ * whose intermediate states become the checkpoints a bare probe is later restarted from.
  *
- * `microshop-18` and not the keycloak rename it started on, because a readiness CURVE needs a solution
- * that is built up gradually — see [RippleCheckpointCase] for the measurement that settled it.
+ * This case and neither of the two the pilot started on, because a readiness CURVE needs a solution
+ * that is assembled out of independently landable parts and an oracle that really runs — see
+ * [RippleCheckpointCase] for the two rejections that settled it.
  *
  * It does not extend [DpaiaScenarioBaseTest] on purpose. A subclass would inherit that class's four
  * graded `@Test` methods, so `--tests '*CheckpointCaptureTest*'` would spend four extra arena runs that
  * record nothing at all. Instead it HOLDS a scenario flow — an anonymous [DpaiaScenarioBaseTest], which
  * JUnit's own `IsPotentialTestContainer` never treats as a test class — and drives it through
  * [DpaiaScenarioBaseTest.runAgent] with a recorder attached through [DpaiaRunSeams]. The graded run is
- * therefore byte-identical to the one [DpaiaMicroshop18Test] performs, which is the whole point: a
+ * therefore byte-identical to the one [DpaiaFeatureService125Test] performs, which is the whole point: a
  * checkpoint is only meaningful if the trajectory it was cut from is a trajectory this experiment really
  * measures.
  *
  * Nothing here asserts admission. [admitCapture]'s verdict is printed, and a capture that fails it is
  * still a real measurement of this arm — the operator, not the test, decides whether another Opus run is
- * worth its price. There is no historical sample for this case, so [admitCapture] is called with no
- * reference at all and says so in its notes rather than judging representativeness against a band
- * borrowed from a different case.
+ * worth its price. The case does have a recorded history (one 900 s timeout and four passes at 638 s,
+ * 444 s, 570 s and 403 s), but it was taken on a different model and a much older harness, so
+ * [admitCapture] is called with no reference at all and says so in its notes rather than judging this
+ * run's representativeness against a band it is not from.
  *
  * The three test methods break the package's backticked-sentence naming convention on purpose: each is
  * selected INDIVIDUALLY by a TeamCity build (`-PtestFilter=*CheckpointCaptureTest.<method>`), and
@@ -35,23 +37,23 @@ import java.util.concurrent.TimeUnit
  * cannot be addressed from CI. A filter that fails to narrow would run all three methods in one build —
  * two Opus captures plus the preflight, well past the build's own timeout.
  */
-class DpaiaMicroshop18CheckpointCaptureTest {
+class DpaiaFeatureService125CheckpointCaptureTest {
 
     /**
      * The recorded mcp arm.
      *
-     * The 180-minute budget is the one [DpaiaScenarioBaseTest] already gives every arm of this case: the
-     * agent's own 90 minutes (`agentTimeoutSeconds = 5_400`), a 20-minute project-ready budget for a
-     * 23-module reactor, plus the pre-agent whole-suite baseline and the post-agent verification, neither
-     * of which is inside the agent's timer.
+     * The 120-minute budget covers what this case's arm really costs and nothing more: the agent's own
+     * 30 minutes (`agentTimeoutSeconds = 1_800`), a 10-minute project-ready budget, plus the pre-agent
+     * whole-suite baseline and the post-agent verification — neither of which is inside the agent's
+     * timer, and both of which run the Testcontainers oracle this case is chosen for.
      */
     @Test
-    @Timeout(value = 180, unit = TimeUnit.MINUTES)
+    @Timeout(value = 120, unit = TimeUnit.MINUTES)
     fun captureMcpArm() = capture(withMcp = true)
 
     /** The recorded shell arm — the positive control the mcp curve is read against. */
     @Test
-    @Timeout(value = 180, unit = TimeUnit.MINUTES)
+    @Timeout(value = 120, unit = TimeUnit.MINUTES)
     fun captureShellArm() = capture(withMcp = false)
 
     /**
@@ -78,13 +80,13 @@ class DpaiaMicroshop18CheckpointCaptureTest {
      */
     private fun capture(withMcp: Boolean) {
         val arm = if (withMcp) "mcp" else "none"
-        microshop18CaptureScenario(arm).runAgent("claude", withMcp)
+        captureScenario(arm).runAgent("claude", withMcp)
     }
 }
 
 /**
- * The recorded `microshop-18` scenario as an ANONYMOUS [DpaiaScenarioBaseTest], so JUnit can never
- * discover it.
+ * The recorded `feature-service-125` scenario as an ANONYMOUS [DpaiaScenarioBaseTest], so JUnit can
+ * never discover it.
  *
  * Anonymity is the mechanism, not an accident: JUnit Jupiter's `IsPotentialTestContainer` rejects
  * anonymous classes, so the four graded `@Test` methods this object inherits can never be collected and
@@ -92,7 +94,7 @@ class DpaiaMicroshop18CheckpointCaptureTest {
  * package-private JVM class that JUnit's private-class filter does NOT exclude — would be picked up by
  * classpath scanning.
  */
-private fun microshop18CaptureScenario(arm: String): DpaiaScenarioBaseTest = object : DpaiaScenarioBaseTest() {
+private fun captureScenario(arm: String): DpaiaScenarioBaseTest = object : DpaiaScenarioBaseTest() {
     override val instanceId: String = RippleCheckpointCase.INSTANCE_ID
 
     override val seams: DpaiaRunSeams = object : DpaiaRunSeams {
@@ -124,9 +126,10 @@ private fun microshop18CaptureScenario(arm: String): DpaiaScenarioBaseTest = obj
                 )
             }
             val admission = admitCapture(
-                // No historical sample exists for this case: the v3 bands belong to
-                // ripple__keycloak__rename-method-wide, this agent and this model, and borrowing them
-                // would reject or admit this capture against a distribution it is not from.
+                // No usable historical sample: the v3 bands belong to
+                // ripple__keycloak__rename-method-wide, and this case's own four recorded passes were
+                // measured on another model and an older harness. Either would reject or admit this
+                // capture against a distribution it is not from.
                 reference = null,
                 success = outcome.objectiveSuccess == true,
                 steps = steps,

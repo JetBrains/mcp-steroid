@@ -164,7 +164,7 @@ class RippleCheckpointRecorderTest {
         val plan = selectCheckpoints(n = 29) { step -> if (step < 8) "pristine" else "state-$step" }
         val json = Json.parseToJsonElement(
             RippleCheckpointRecorder.metadataJson(
-                case = "dpaia__spring__boot__microshop-18", arm = "mcp",
+                case = RippleCheckpointCase.INSTANCE_ID, arm = "mcp",
                 model = "claude-opus-5", plan = plan,
             )
         ).jsonObject

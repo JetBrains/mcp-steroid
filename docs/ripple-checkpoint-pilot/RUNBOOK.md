@@ -13,13 +13,15 @@ Design and plan:
 
 ## The case
 
-`dpaia__spring__boot__microshop-18` — RestTemplate → WebClient across 3 modules, 8 FAIL_TO_PASS test
-classes, graded by `ArenaVerifier.verify`.
+`dpaia__feature__service-125` — incremental delivery of a release status transition validator,
+5 new query endpoints, and DB migration; 25 FAIL_TO_PASS tests for the validator, graded by
+`ArenaVerifier.verify`.
 
-Chosen for one property the first case lacked: **its solution is assembled incrementally**. The pilot's
-first case, `ripple__keycloak__rename-method-wide`, is one atomic edit — its disk state jumped from
-"unchanged" to "all 111 files renamed" in a single step, which makes a readiness curve on it a step
-function and two of its five checkpoints byte-identical. A `V(x)` can only rise where the work does.
+Chosen for three properties: **its solution is assembled incrementally** (independent deliverables
+an agent can land in any order); its **oracle really executes** (`dockerOracleWorks = true`) in the
+arena container, so no Docker-surrender clause weakens the grade; and its **historical success rate**
+is strictly between 0 and 1 (5 recorded runs: one timeout, four passes), so its readiness curve can be
+informative.
 
 ## What is in place
 
@@ -31,7 +33,7 @@ function and two of its five checkpoints byte-identical. A `V(x)` can only rise 
 | per-step counter + a shadow-git snapshot of EVERY step | `RippleCheckpointRecorder.kt` |
 | representativeness gate (`reference = null` when a case has no sample) | `RippleCaptureAdmission.kt` |
 | end-of-run context, measured as v3 measured it | `extractEndContextTokens` in `AgentOutputMetrics.kt` |
-| capture run + hook preflight | `DpaiaMicroshop18CheckpointCaptureTest.kt` |
+| capture run + hook preflight | `DpaiaFeatureService125CheckpointCaptureTest.kt` |
 | bare-Haiku probe | `RippleCheckpointProbeTest.kt` |
 | verdicts → table, curve, AUC | `RippleCheckpointReport.kt` |
 | TeamCity capture/probe configurations | `mcp-steroid-teamcity` commit `67d178d` |
@@ -60,7 +62,7 @@ no differing state exists before the final one it is **dropped**, with the reaso
 The capture selector is the one parameter that is NOT silent. `-Pripple.checkpoint.capture.method` is
 mapped to a test filter in `test-experiments/build.gradle.kts`, and an unknown value fails the build's
 configuration phase instead of running whatever else the task would select. `-Pripple.checkpoint.capture.case`
-picks which capture class it selects and defaults to `microshop-18`; pass `rename-method-wide` to capture
+picks which capture class it selects and defaults to `feature-service-125`; pass `rename-method-wide` to capture
 the second, already-measured case. `RippleCheckpointCaptureFilterTest` loads every class and method that
 mapping names by reflection, so a rename on either side turns into a red unit test rather than a green
 build that measured the wrong case.
@@ -116,9 +118,12 @@ done
 Read the `[CHECKPOINT]` block. It reports `n`, the end-of-run context, the admission verdict with its
 reasons AND notes, the planned positions with their nominal counterparts, and every correction.
 
-`microshop-18` has **no historical sample**, so representativeness is not judged and the verdict says
-so: admission then requires only SUCCESS and `n > 5`. Record `n`, seconds, context tokens and cost in
-`RUN-IDS.md` regardless — those rows ARE the sample the next stage will judge against.
+`dpaia__feature__service-125` has an arena history (one timeout failure, four passes at 638s, 444s,
+570s, 403s) but **no band this gate can use**: those runs are another model on an older harness and
+report tool-call totals instead of `extractEndContextTokens`. So the capture is admitted with
+`reference = null` — representativeness is not judged, and the verdict says so in its notes; admission
+then requires only SUCCESS and `n > 5`. Record `n`, seconds, context tokens and cost in `RUN-IDS.md`
+regardless — those rows ARE the sample the next stage will judge against.
 
 Watch the corrections. A capture whose plan carries fewer than five checkpoints has told you that its
 work tree stopped changing; that is a fact about the trajectory, and it is the operator's call whether
@@ -129,8 +134,8 @@ to publish a shorter curve or spend another Opus run.
 Download the capture artifacts and commit the patches and the metadata **together**:
 
 ```
-test-experiments/src/test/resources/ripple-checkpoints/microshop-18/<arm>/step-<a_i>.patch
-test-experiments/src/test/resources/ripple-checkpoints/microshop-18/<arm>/checkpoints.json
+test-experiments/src/test/resources/ripple-checkpoints/feature-service-125/<arm>/step-<a_i>.patch
+test-experiments/src/test/resources/ripple-checkpoints/feature-service-125/<arm>/checkpoints.json
 ```
 
 The probe refuses to run when the committed patches and the metadata disagree — a mismatch means they

@@ -20,14 +20,14 @@ import org.junit.jupiter.api.Test
 class DpaiaRunSeamsTest {
     @Test
     fun `an ordinary dpaia scenario test carries the no-op seams`() {
-        assertSame(DpaiaRunSeams.NONE, DpaiaMicroshop18Test().seams) {
+        assertSame(DpaiaRunSeams.NONE, DpaiaFeatureService125Test().seams) {
             "a DPAIA scenario that never asked to be recorded must run the flow it always ran"
         }
     }
 
     @Test
     fun `the no-op seam leaves the agent prompt byte-identical`() {
-        val prompt = "Migrate every RestTemplate call to WebClient.\nARENA_FIX_APPLIED: yes"
+        val prompt = "Validate every release status transition.\nARENA_FIX_APPLIED: yes"
         assertEquals(prompt, DpaiaRunSeams.NONE.decoratePrompt(prompt))
     }
 
@@ -79,7 +79,7 @@ class DpaiaRunSeamsTest {
     private fun verification(passed: Boolean, tampered: Boolean) = ArenaVerificationResult(
         perClass = listOf(
             SurefireClassResult(
-                className = "com.example.OrderClientTest",
+                className = "com.sivalabs.ft.features.ReleaseStatusTransitionValidatorTest",
                 testsRun = 3,
                 failures = if (passed) 0 else 1,
                 errors = 0,
