@@ -175,6 +175,24 @@ between the two — the delta is the patches, this file and the resource READMEs
 | 4 | 31 | 0.5439 | | | | | | | |
 | 5 | 43 | 0.7544 | | | | | | | |
 
+### Probe build ids
+
+All 50 cells pin `f51dd90e7`. `mcp/5/1` is the smoke probe queued first and confirmed before the
+other 49 were released; the grid otherwise carries no ordering.
+
+| arm | checkpoint | r1 | r2 | r3 | r4 | r5 |
+|:---|---:|---:|---:|---:|---:|---:|
+| mcp | 1 | 1035498264 | 1035498266 | 1035498268 | 1035498270 | 1035498272 |
+| mcp | 2 | 1035498274 | 1035503876 | 1035503878 | 1035503880 | 1035503882 |
+| mcp | 3 | 1035503884 | 1035503886 | 1035503889 | 1035503891 | 1035503893 |
+| mcp | 4 | 1035503895 | 1035503897 | 1035503899 | 1035503901 | 1035503903 |
+| mcp | 5 | 1035439557 | 1035503905 | 1035503907 | 1035503909 | 1035503911 |
+| none | 1 | 1035503913 | 1035503915 | 1035503917 | 1035503919 | 1035503922 |
+| none | 2 | 1035503924 | 1035503926 | 1035503928 | 1035503931 | 1035503933 |
+| none | 3 | 1035503935 | 1035503937 | 1035503939 | 1035503941 | 1035503943 |
+| none | 4 | 1035503945 | 1035503947 | 1035503949 | 1035503954 | 1035503956 |
+| none | 5 | 1035503958 | 1035503960 | 1035503962 | 1035503964 | 1035503966 |
+
 ## Totals
 
 | | value |
@@ -182,7 +200,7 @@ between the two — the delta is the patches, this file and the resource READMEs
 | capture builds, stage 1 (discarded) | 4 |
 | capture builds, stage 2 (abandoned case) | 2 preflights |
 | capture builds, stage 3 | 1 preflight + 2 captures, both admitted |
-| probe builds queued | 0 |
+| probe builds queued | 50 |
 | probe builds graded | 0 |
 | instrument failures (LOST) | 0 |
 | API spend | $11.94 — $4.43 stage 1 (discarded), $7.51 stage 3 ($3.83 mcp + $3.68 shell); a preflight is a scripted agent and costs about nothing |
