@@ -23,8 +23,8 @@ No probe build was queued from these captures.
 
 ## Stage 2 — case `dpaia__spring__boot__microshop-18`, positions derived from the measured `n`
 
-Series revision (`--revision`): _fill when the series starts_ — every build of one series must pin the
-same commit.
+Series revision (`--revision`): _fill when the capture series starts_ — every build of one series must
+pin the same commit. The preflights below pinned `2e62eb6fd` and `2319fbfce`.
 
 ### Capture stage
 
@@ -33,9 +33,22 @@ no historical sample, so these rows are the sample the next stage's representati
 
 | # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
 |---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
-| 1 | `hookPreflight` | | | | | | | — | — | |
-| 2 | `captureMcpArm` | | | | | | | | | |
-| 3 | `captureShellArm` | | | | | | | | | |
+| 1 | `hookPreflight` | 1035242055 | SUCCESS | 3 | — | — | ≈0 | — | — | selector proven: the build ran `DpaiaMicroshop18CheckpointCaptureTest`, and `step-2` held exactly the agent's write |
+| 2 | `hookPreflight` | 1035267973 | SUCCESS | 7 | — | — | ≈0 | — | 1, 3, 5 | full instrument proven — see below |
+| 3 | `captureMcpArm` | | | | | | | | | |
+| 4 | `captureShellArm` | | | | | | | | | |
+
+Preflight 1035267973 is the one that exercises the rebuilt instrument end to end on live data:
+
+- the hook counted **7** tool calls and left a snapshot for every one of them (`step-0..step-7`);
+- consecutive trees differ exactly where the agent wrote — `step-1` and `step-2` share tree
+  `354141df…` (the second call was a directory listing), `step-3` is `de1ddf08…`;
+- `plan(7)` selected **1, 3, 5** with both corrections stated: nominal steps 2 and 4 held states already
+  probed and moved forward. This is the rule that the discarded stage lacked, running on real snapshots;
+- the deepest planned patch is non-empty.
+
+Three checkpoints rather than five is correct for a 7-step recording: a trajectory only carries as many
+distinct pre-final states as it actually produced.
 
 Rejected captures stay in this table — a repeat is a new row, and the report shows every attempt.
 
@@ -76,7 +89,7 @@ blank — a blank reads as "not queued yet".
 
 | | value |
 |:---|:---|
-| capture builds (all stages) | 4 so far (stage 1) |
+| capture builds (all stages) | 6 (4 in stage 1, 2 preflights in stage 2) |
 | probe builds queued | 0 |
 | probe builds graded | 0 |
 | instrument failures (LOST) | 0 |
