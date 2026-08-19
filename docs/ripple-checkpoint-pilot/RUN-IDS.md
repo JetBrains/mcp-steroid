@@ -124,8 +124,8 @@ naming:
 | cell | build | what happened | disposition |
 |:---|---:|:---|:---|
 | mcp/2/3 (step 16) | 1035674856 | agent spent all 1800 s, exit -1, no grade | now counted as `Y=0` — an exhausted budget IS a failure to finish, so it is folded into `V` and needs no re-run |
-| none/5/1 (step 33) | 1035679682 | Anthropic closed the connection 26 s in (9 reads, 0 edits) and it was published as `Y=0` | withheld as `LOST reason=api-transport-error`; re-queued as 1035939472 |
-| none/3/2 (step 25) | 1035678932 | build produced no `[CHECKPOINT-PROBE]` line at all | withheld; re-queued as 1035939474 |
+| none/5/1 (step 33) | 1035679682 | Anthropic closed the connection 26 s in (9 reads, 0 edits) and it was published as `Y=0` | withheld as `LOST reason=api-transport-error`; re-run 1035939472 returned `Y=1` ($0.709 / 778 s) |
+| none/3/2 (step 25) | 1035678932 | build produced no `[CHECKPOINT-PROBE]` line at all | withheld; re-run 1035939474 returned `Y=1` ($0.834 / 1067 s) |
 
 The first re-queue attempt (1035837025 / 1035837027 / 1035837029) never started: TeamCity answered
 `Cannot find modification in TeamCity database with revision a301af63a` and the snapshot dependency
@@ -136,8 +136,9 @@ re-queues above pin the full 40-character `dbac4260750ec72fac330c824fd86267ab110
 
 The measured curves, the AUC of each arm, the shared baseline and the threats to the result are in
 [RESULTS.md](RESULTS.md). Headline: over the fraction of the edit phase the mcp trajectory integrates to
-0.855 against the shell arm's 0.703 on almost the same range, above a shared 0.67 baseline measured on
-the pristine tree.
+0.847 against the shell arm's 0.713 on the identical range 0.0..0.8, above a shared 0.67 baseline
+measured on the pristine tree. Both numbers come from all 276 verdicts recovered out of the 74 probe
+builds, so they supersede any figure quoted earlier in this log.
 
 ## Totals
 
@@ -148,6 +149,6 @@ the pristine tree.
 | capture builds, stage 3 | 1 preflight + 2 captures, both admitted |
 | probe builds queued | 50 on the discarded grid (12 cancelled), 57 on the fraction grid |
 | probe builds graded | 55 of 57 on the fraction grid; 68 verdicts in total once the 13 reused cells are counted |
-| instrument failures (LOST) | 2 — one transport abort, one build with no verdict line; both re-queued |
+| instrument failures (LOST) | 2 — one transport abort, one build with no verdict line; both re-run, both then graded `Y=1` |
 | API spend | ≈ $46 — $4.43 stage 1 (discarded), $7.51 captures ($3.83 mcp + $3.68 shell), ≈ $34 for 95 haiku probe cells; a preflight is a scripted agent and costs about nothing |
 | TeamCity build time | ≈ 90 build-hours, i.e. ≈ 5 per curve point |
