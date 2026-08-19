@@ -95,16 +95,19 @@ blank — a blank reads as "not queued yet".
 Chosen for its incremental solution path, its working Testcontainers oracle, and a historical success
 rate strictly between 0 and 1.
 
-Series revision (`--revision`): `a1fd1ad04` — every build of one series must pin the same commit. The
-preflight below pinned it; a capture started from a later commit starts a NEW series.
+Series revision (`--revision`): `a1fd1ad04` for the preflight, `4e6c04735` for the two captures — every
+build of one series must pin the same commit, and these two differ by `git diff --stat a1fd1ad04 4e6c04735`
+= this file and `RUNBOOK.md` only. No measurement code, no build file and no case configuration changed
+between them, so the captures record what the preflight proved. Any build that pins a commit touching
+`test-experiments/` starts a NEW series.
 
 ### Capture stage
 
 | # | method | build id | status | n | agent s | end ctx tok | cost | admitted | plan (steps) | corrections |
 |---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
 | 1 | `hookPreflight` | 1035324252 | SUCCESS | 7 | 27 | n/a | ≈$0 | n/a | 1, 3, 5 | 4 (2 moved, 2 dropped) |
-| 2 | `captureMcpArm` | | | | | | | | | |
-| 3 | `captureShellArm` | | | | | | | | | |
+| 2 | `captureMcpArm` | 1035363501 | queued | | | | | | | |
+| 3 | `captureShellArm` | 1035363503 | queued | | | | | | | |
 
 Preflight 1035324252 proves the instrument on THIS stage's configuration, and its first line is about
 the configuration rather than the hook: the build was started with
