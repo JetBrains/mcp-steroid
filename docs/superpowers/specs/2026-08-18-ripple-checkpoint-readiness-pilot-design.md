@@ -21,7 +21,7 @@ Non-goals: no cross-arm significance claim, no new cases, no prompt tuning, no c
 Case: **`dpaia__feature__service-125`** (incremental delivery of a release status transition validator,
 5 new query endpoints, and DB migration; 25 FAIL_TO_PASS tests for the validator, run by
 `DpaiaFeatureService125Test` on `DpaiaScenarioBaseTest`), agent `claude` (`claude-opus-5`),
-**both arms** — `mcp` and `none`. Two source trajectories, each yielding up to five checkpoints.
+**both arms** — `mcp` and `none`. Two source trajectories, each yielding **ten** checkpoints.
 
 ### 2.0 Why this case was chosen (three-case history)
 
@@ -69,7 +69,7 @@ this case (`claude` + MCP, DPAIA arena of 2026-04, `docs/dpaia-arena-results.md`
 Admission criteria for a capture run, all required:
 
 1. `SUCCESS: true` (a failed capture is not typical for a successful DPAIA pass).
-2. the run is longer than the checkpoint count, so five distinct pre-final positions exist in it.
+2. the run is longer than the checkpoint count, so ten distinct pre-final positions exist in it.
 3. tool-call steps inside the historical **min–max** range and within ±1σ of the mean.
 4. agent wall time and end-of-run context tokens each within ±1σ of the mean for that arm.
 
@@ -96,49 +96,28 @@ A capture run that misses any criterion is discarded and repeated (max 3 attempt
 attempt's numbers are recorded in the report next to the reference table. This gate is the reason the
 capture phase is separate from the probe phase: probes are only launched against an admitted capture.
 
-## 3. Step definition and checkpoint positions
+## 3. The axis: Fraction of the edit phase
 
-**One step = one agent tool call** (the `PostToolUse` event), the same unit the trajectory spike's
-`steps` column counts.
+The turns before a capture's first tree change are the agent reading the material, and both arms spend
+nearly the same effort there: 15 of the mcp arm's 26 steps and 17 of the shell arm's 57. Normalizing by
+the WHOLE run count (`n`) would count reading time as trajectory, and an absolute turn index would
+compare "edit turn 4" of an 11-turn edit phase against "edit turn 4" of a 40-turn one.
+
+The axis is therefore the **FRACTION of the edit phase**:
 
 ```
-a_i = round(n * (i/6)^1.5),  i = 1..5      → ≈ 7%, 19%, 35%, 54%, 76% of n
+tau_k = k/10,  k = 0..9
+step_k = firstWriteStep + round(tau_k * (n - firstWriteStep))
 ```
 
-`n` is the **measured** length of the capture run — the hook counter's final value — so the positions are
-selected AFTER the run, not before it. This is the correction of the pilot's central instrument defect:
-the first implementation precomputed the five positions from an assumed `n̂ = 32` shared by both arms,
-and the two capture runs came in at 23 and 51 tool calls. The 23-step run therefore had **no state at
-all** at its `a_5 = 24`, and the 51-step run's deepest checkpoint landed at 47% of its trajectory while
-being labelled 76%. A schedule fixed in advance can only be the schedule of the run by luck.
+`tau = 0` is the first write; the grid deliberately stops before the end because the original run's
+own outcome is judged separately. This fractional axis is what makes the arms comparable: "mcp at 30%
+of its edits" and "shell at 30% of its edits" now name the same relative progress towards their
+respective final states.
 
-Consequence for arm comparison: the two arms are compared at equal **normalized** positions `a_i/n`, not
-at equal tool-call counts. A shared absolute schedule and the specification's `a_i = round(n(i/6)^1.5)`
-are simply not simultaneously satisfiable when the arms' lengths differ by a factor of 2.2, and the
-normalized position is the quantity the readiness curve is defined over.
-
-After rounding, positions must be unique and strictly increasing; a collision is resolved by pushing the
-later position up by the minimum amount that keeps the sequence strictly increasing and `< n`. The final
-state is never a checkpoint.
-
-### 3.1 No two checkpoints may hold the same state
-
-Rounded positions are distinct, but the STATES at them need not be. In the discarded mcp capture the
-agent finished the whole task at step 11 and touched no file afterwards, so `step-11.patch` and
-`step-17.patch` were byte-identical — five probe builds each, ten in total, to measure one state twice
-and publish it as two points of a curve.
-
-`selectCheckpoints(n, count, stateIdOf)` therefore compares the git **tree id** of each step (the tree,
-not the commit: consecutive `--allow-empty` snapshots of an unchanged work tree share a tree and differ
-as commits). A checkpoint whose nominal step repeats the previous checkpoint's state moves forward to the
-first differing step; when no differing state exists before the final one, the checkpoint is **dropped**
-and the reason is recorded in `CheckpointPlan.corrections`, which the metadata and the report both carry.
-A four-point curve with a stated reason is a measurement; a five-point curve with two identical points is
-not.
-
-Implemented as pure Kotlin (`rippleCheckpointSteps(n)`, `selectCheckpoints(...)`) with unit tests
-covering the worked examples, the collision rule on short trajectories, monotonicity for `n = 6..100`,
-the forward move on a repeated state, and the drop when a trajectory stops changing.
+A fraction whose nominal step repeats an earlier one's state is recorded as DATA but is not probed.
+The aggregator folds the verdict of the original state into the curve for every fraction that shares
+it.
 
 ## 4. Capture phase (2 TeamCity builds)
 
@@ -157,21 +136,22 @@ snapshotting:
    shell arm's. Snapshotting every step is what makes positions derivable from the measured `n`; its
    cost is one `add -A` per tool call over the case's tree, which is why the pilot's case is a
    Spring-sized repository and not the Keycloak monorepo.
-3. After the agent returns, the harness reads `n`, derives the plan (section 3), and exports one patch
-   per PLANNED checkpoint plus a `checkpoints.json` (case, arm, model, `n_actual`, and for each
-   checkpoint its `index`, `nominalStep`, `step`, `position = step/n_actual`, patch file name, plus the
-   plan's `corrections`) into the run dir, which TeamCity publishes. That file is the only source of
-   checkpoint positions for every downstream consumer.
+3. After the agent returns, the harness reads `n`, its first write step, and derives ten checkpoints
+   at even fractions of the edit phase (section 3). It exports the patches and a `checkpoints.json`
+   (case, arm, model, `n`, `firstWriteStep`, `fractions`, and the list of `checkpoints` — each with
+   `index`, `step`, `editFraction`, `position`, `tree`, `patchChars`, and `sameStateAs`).
+   That file is the only source of truth for every downstream consumer.
 4. Admitted patches are committed to the branch under
-   `test-experiments/src/test/resources/ripple-checkpoints/<case>/<arm>/step-<a_i>.patch`, so a probe
-   build needs no artifact plumbing and the pilot is reproducible from the revision alone.
+   `test-experiments/src/test/resources/ripple-checkpoints/<case>/<arm>/step-<n>.patch`.
 
 Preflight (cheap, before the real capture): a single container run asserting the hook fires and the
 shadow commits appear — the hook contract is the only unproven external dependency.
 
-## 5. Probe phase (50 TeamCity builds)
+## 5. Probe phase (up to 100 TeamCity builds)
 
-One build = one `(arm, checkpoint, replicate)`. Order inside the container:
+One build = one `(arm, checkpoint, replicate)`. Coordinates: 10 fractions × 5 replicates × 2 arms.
+Fractions whose `sameStateAs` is non-null are **not probed** — they reuse the verdict of their original
+state.
 
 1. Container, clone, `testPatch`, Maven import, gate environment — unchanged.
 2. **Pre-agent baseline on the pristine tree** (unchanged, `baselineSnapshotAtBaseCommit`). Before the
@@ -184,12 +164,11 @@ One build = one `(arm, checkpoint, replicate)`. Order inside the container:
    detection measures the probe only.
 5. Probe agent: `claude` with `claude.model = <haiku>`, **`withMcp = false` in every probe, including
    probes of the `mcp` capture** — the probe is a bare agent by design. Same agent timeout (90 min)
-   and identical settings in all 50 runs.
-6. Grading is the case's own objective verifier, `ArenaVerifier.verify`: the FAIL_TO_PASS classes plus
-   PASS_TO_PASS, with the tamper check against the pre-agent snapshot.
-   `Y = verification.objectiveSuccess && !verification.failToPassTampered`. It is independent of the
-   agent session by construction — it reads the tree and the snapshot, nothing else — which is exactly
-   what makes a state produced by one agent gradeable after a different agent continues from it.
+   and identical settings in all probe runs.
+6. Grading is the case's own objective verifier, `ArenaVerifier.verify`.
+   `Y = verification.objectiveSuccess && !verification.failToPassTampered`.
+   Additionally, a probe that passes records the **price of finishing**: `usd`, `agentSeconds`,
+   and `tokens` spent by the Haiku continuation.
 
 A probe that fails because the INSTRUMENT failed (the checkpoint patch did not apply, the container
 died) is reported as `LOST`, never as `Y = 0`: a zero is a statement about the state's readiness, and
@@ -210,13 +189,16 @@ no step count, no percentage, no arm name, and no summary of prior actions.
 
 ## 6. Metric and report
 
-`V(s_i) = (1/5) Σ_j Y_{i,j}`, so `V ∈ {0, .2, .4, .6, .8, 1}`.
+`V(tau_k) = (1/5) Σ_j Y_{k,j}`, so `V ∈ {0, .2, .4, .6, .8, 1}`.
 
-Report table per arm: checkpoint, `a_i`, `a_i/n`, successes, runs, `V(s_i)`; plus the curve
-`(a_i/n, V)` and `AUC_V` by the trapezoidal rule over the **observed** range `[a_1/n, a_5/n]` only —
-using real normalized positions, never the nominal 7/19/35/54/76%, and with no extrapolation to 0 or
-beyond the last checkpoint. The integration range is printed with the AUC. Because the two arms have
-different `n`, their AUCs are also reported normalized by their own integration width.
+Because a bare Haiku solves this task unaided 67% of the time (`V_baseline = 0.67`), `V` saturates at
+1.0 mid-trajectory and stops discriminating. The pilot's second signal is the **COST OF FINISHING**:
+median `usd`, `agentSeconds` and `tokens` over the successful replicates of a checkpoint. The price
+continues to move after `V` has hit its ceiling.
+
+Report table per arm: `editFraction` (tau_k), `step`, `position`, successes, `V`, and median cost.
+The curve `(tau_k, V)` and `AUC_V` are integrated by the trapezoidal rule over the **measured**
+`editFraction` range only (typically 0.0 to 0.9), with no extrapolation to 1.0.
 
 The `a_i` column is IDENTICAL in both arms' tables (section 3), so `V_mcp(a_i)` and `V_shell(a_i)` can be
 compared row by row at equal agent effort; the normalized `a_i/n` differs between the arms only because
@@ -233,10 +215,10 @@ source the v3 analysis used).
 
 | phase | builds | per build | note |
 |:---|---:|:---|:---|
-| hook preflight | 1 | ~35 min, ~$0 | no agent turn beyond a smoke prompt |
-| capture (2 arms, ≤3 attempts each) | 2–6 | ~50 min, ~$2.7 | Opus, historical mean cost for this case |
-| probes | 50 | ~45–60 min, ~$0.2–0.5 | Haiku, 90-min cap |
-| **total** | **53–57** | | **≈ $25–45 API, ≈ 45 agent-hours of TC capacity** |
+| hook preflight | 1 | ~35 min, ~$0 | |
+| capture (2 arms) | 2–6 | ~50 min, ~$3 | Opus |
+| probes | up to 100 | ~4–60 min, ~$0.15–1.40 | Haiku |
+| **total** | **≈ 60–100** | | **≈ $15–60 API** |
 
 TeamCity runs them; local execution would serialize into ~2 days of machine time.
 

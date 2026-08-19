@@ -23,6 +23,16 @@ data class ArenaRunMetrics(
      * because the checkpoint pilot's representativeness band is measured this way — see [admitCapture].
      */
     val endContextTokens: Long? = null,
+    /**
+     * The message of a transport-level abort of the agent's API connection, as
+     * [extractApiTransportError] defines it — null for every run that reached its own end, however
+     * badly.
+     *
+     * A NAMED value rather than a flag: the reader that acts on it (the checkpoint probe) has to print
+     * WHAT went wrong, because the operator's next move is to re-queue the cell and a cell re-queued
+     * without a stated cause is indistinguishable from a flaky one.
+     */
+    val apiTransportError: String? = null,
 )
 
 /**
@@ -50,6 +60,7 @@ fun collectRunMetrics(runDir: File, agentName: String, fallbackStdout: String): 
             ?.let { extractDecodedLogMetrics(it.readText()) },
         toolCallStats = extractToolCallStats(rawOutput),
         endContextTokens = extractEndContextTokens(rawOutput),
+        apiTransportError = extractApiTransportError(rawOutput),
     )
 }
 

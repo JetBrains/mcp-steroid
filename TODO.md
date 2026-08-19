@@ -549,3 +549,18 @@
   the build ids, medians, spreads, exclusions and the selected outcome number — and change nothing
   above it. If outcome 2 fires, raise the replacement showcase as a SEPARATE task; do not start it
   in this track.
+- [ ] **Re-queue the checkpoint-probe cells already published as a zero under a dropped connection.**
+  The probe now prints `LOST reason=api-transport-error` and fails the cell instead of publishing
+  `Y=0` (`extractApiTransportError` → `DpaiaRunOutcome.apiTransportError` → the probe seam), but the
+  verdicts recorded BEFORE that are already in the aggregate. The one confirmed by hand is build
+  `1035679682` (`arm=none checkpoint=5 step=33 replicate=1`, `Y=0 usd=0.0672 agentSeconds=26
+  tokens=0`, 26 s, 9 Reads, 0 Edits, exit 1). Re-read every published probe log for a
+  `"model":"<synthetic>"` + `API Error:` turn or a top-level `"error":"server_error"`, drop those
+  verdicts and re-queue the cells — a group short of five replicates renders INCOMPLETE until it
+  fills, which is the correct intermediate state.
+- [ ] **The capture arm still ignores the same signal.** The capture seam
+  (`DpaiaFeatureService125CheckpointCaptureTest.afterAgentRun`, and `RippleScenarioBaseTest`) now sees
+  `DpaiaRunOutcome.apiTransportError` but hands `admitCapture` only its primitives, so nothing acts on
+  it: a capture whose stream was cut mid-response would be judged on a trajectory it never finished,
+  and every probe cell of that arm would then start from states nobody meant to record. Decide what an
+  aborted capture is before the next capture round.

@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
+import com.jonnyzzz.mcpSteroid.testHelper.process.PROCESS_TIMEOUT_STDERR_MARKER
 import com.jonnyzzz.mcpSteroid.testHelper.process.ProcessResult
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import javax.xml.parsers.DocumentBuilderFactory
@@ -528,7 +529,7 @@ class ArenaVerifier(
         val perClass = parseSurefireSuiteIndex(readSurefireIndex(dir))
         // A harness timeout does not throw — it returns exit=-1 with this marker on stderr. Left
         // undetected it would look like a completed suite that simply reported fewer classes.
-        val timedOut = mvn.stderr.contains("Terminated by timeout")
+        val timedOut = mvn.stderr.contains(PROCESS_TIMEOUT_STDERR_MARKER)
         println(
             "[ARENA-VERIFY] $label full suite: exit=${mvn.exitCode}, ${perClass.size} classes reported, " +
                 "${perClass.count { it.passed }} passing" + if (timedOut) " — TRUNCATED BY TIMEOUT" else ""

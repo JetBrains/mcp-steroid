@@ -104,7 +104,8 @@ fun committedCheckpointCount(arm: String): Int {
  *    good the probe's own tooling is, so the same bare agent reads every state. `withMcp = false` is
  *    what the flow already means by that — `AiMode.NONE` plus `McpConnectionMode.None`.
  * 4. The brief is [buildDpaiaCheckpointProbePrompt], which never names the arm the state came from.
- * 5. One extra log line, `[CHECKPOINT-PROBE] … Y=<0|1>`, which is what the aggregator reads.
+ * 5. One extra log line, `[CHECKPOINT-PROBE] … Y=<0|1>`, which is what the aggregator reads — or
+ *    `… LOST reason=<why>` for a cell the instrument, not the agent, failed.
  *
  * Nothing re-ingests the patched tree into the IDE, and nothing has to: the probe's agent is bare and the
  * grade comes from Maven over the files on disk, so no step of this flow reads the tree through PSI. The
@@ -308,12 +309,206 @@ class RippleCheckpointProbeTest {
         )
 
         val lost = line(null, null)
-        assertTrue(lost.contains("LOST")) { lost }
+        assertTrue(lost.contains("LOST reason=not-graded")) { lost }
         assertFalse(lost.contains("usd=")) { "a cell that never ran an agent has no price: $lost" }
         assertEquals(emptyList<ProbeVerdict>(), parseProbeVerdicts(lost)) {
             "an ungraded cell must not be foldable into V at all"
         }
     }
+
+    /**
+     * The measured defect: TeamCity build 1035679682 published `Y=0 usd=0.0672 agentSeconds=26
+     * tokens=0` for `arm=none checkpoint=5 step=33 replicate=1` after the Claude CLI's connection to
+     * Anthropic was closed mid-response — 26 seconds, 9 Reads, 0 Edits, exit 1. That zero says the
+     * recorded state was not ready enough for a haiku to finish from, which is not what happened: the
+     * probe never got a working agent. This pins the line such a cell prints instead.
+     *
+     * The cost fields stay ON the lost line even though the cell is not folded into `V`: the money was
+     * really spent and an operator re-queueing the cell needs to see it. It cannot leak into the cost
+     * medians, because [parseProbeVerdicts] requires a `Y=0|1` token that a lost line never carries.
+     */
+    @Test
+    fun `a transport abort prints LOST with its reason instead of a graded zero`() {
+        val coordinates = ProbeCoordinates("none", checkpoint = 5, replicate = 1)
+        val line = checkpointProbeLine(
+            coordinates = coordinates,
+            step = 33,
+            editFraction = 0.889,
+            position = 0.8250,
+            verdict = checkpointProbeVerdictFor(
+                probeOutcome(
+                    objectiveSuccess = false,
+                    apiTransportError = "API Error: Connection closed mid-response. The response " +
+                        "above may be incomplete.",
+                )
+            ),
+            cost = ProbeRunCost(usd = 0.0672, agentSeconds = 26, tokens = 0),
+        )
+
+        assertEquals(
+            "[CHECKPOINT-PROBE] arm=none checkpoint=5 step=33 editFraction=0.889 position=0.8250 " +
+                "replicate=1 LOST reason=api-transport-error usd=0.0672 agentSeconds=26 tokens=0",
+            line,
+        )
+        assertEquals(emptyList<ProbeVerdict>(), parseProbeVerdicts(line)) {
+            "a cell whose agent lost its connection must never be folded into V"
+        }
+    }
+
+    /**
+     * The rule is NOT widened to every unhappy run. A probe that received its state, edited files and
+     * then ran out of its own budget failed at the task, and that is precisely the measurement `V` is
+     * made of — see [AgentOutputTransportErrorTest] for the transcript shapes that are refused.
+     */
+    @Test
+    fun `a run that simply did not solve the task is still a graded zero`() {
+        val verdict = checkpointProbeVerdictFor(probeOutcome(objectiveSuccess = false))
+        assertEquals("Y=0", verdict)
+    }
+
+    /**
+     * A transport abort outranks the grade, including a passing one.
+     *
+     * A stream that died mid-response is a TRUNCATED run: whatever the verifier then found on disk is
+     * not the outcome of the trajectory the pilot meant to measure, and publishing it would put a
+     * one-off `Y=1` next to four full-length replicates in the same group. Re-queueing costs one cell
+     * and biases nothing in either direction.
+     */
+    @Test
+    fun `a passing grade under a broken connection is re-queued, not published`() {
+        val verdict = checkpointProbeVerdictFor(
+            probeOutcome(objectiveSuccess = true, apiTransportError = "API Error: Connection error.")
+        )
+        assertEquals("LOST reason=api-transport-error", verdict)
+    }
+
+    /** The verifier producing no grade at all keeps its own, distinguishable reason. */
+    @Test
+    fun `an ungraded cell names its own loss`() {
+        assertEquals("LOST reason=not-graded", checkpointProbeVerdictFor(probeOutcome(null)))
+    }
+
+    /**
+     * An agent that ran out of its own budget is an UNSUCCESS, even when nothing graded it.
+     *
+     * The measured cell is TeamCity build 1035674856 (`arm=mcp checkpoint=2 replicate=3`): 1800 s, exit
+     * -1, no grade, published as `LOST reason=not-graded`. Withholding that cell is wrong — spending the
+     * whole 30-minute budget every replicate shares WITHOUT finishing is exactly the outcome `V` is a
+     * fraction of, so it belongs in the denominator and in the numerator's complement.
+     */
+    @Test
+    fun `an agent that ran out of its own budget is a zero even without a grade`() {
+        assertEquals("Y=0", checkpointProbeVerdictFor(probeOutcome(null, agentTimedOut = true)))
+    }
+
+    /**
+     * The zero of the budget branch is an ORDINARY verdict: it folds into `V` and into the group's
+     * `runs` count exactly like a graded zero, which is what makes the re-queue unnecessary.
+     *
+     * The dollar figure is absent on purpose — a killed CLI never emits its terminal `result` event —
+     * and the parser must read that back as "never reported" while still counting the run.
+     */
+    @Test
+    fun `a budget-exhausted zero folds into V like any other verdict`() {
+        val line = checkpointProbeLine(
+            coordinates = ProbeCoordinates("mcp", checkpoint = 2, replicate = 3),
+            step = 11,
+            editFraction = 0.2,
+            position = 0.3667,
+            verdict = checkpointProbeVerdictFor(probeOutcome(null, agentTimedOut = true)),
+            cost = ProbeRunCost(usd = null, agentSeconds = 1800, tokens = null),
+        )
+
+        assertEquals(
+            "[CHECKPOINT-PROBE] arm=mcp checkpoint=2 step=11 editFraction=0.200 position=0.3667 " +
+                "replicate=3 Y=0 agentSeconds=1800",
+            line,
+        )
+        assertEquals(
+            listOf(
+                ProbeVerdict(
+                    "mcp", 2, 11, 0.3667, 3, success = false,
+                    editFraction = 0.2, usd = null, agentSeconds = 1800, tokens = null,
+                )
+            ),
+            parseProbeVerdicts(line),
+        )
+    }
+
+    /**
+     * A grade, once it exists, is not overruled by the budget having run out: an agent that edited its
+     * way to green and was killed a second later still left a tree the verifier measured.
+     */
+    @Test
+    fun `a graded run keeps its grade when the budget ran out`() {
+        assertEquals(
+            "Y=1",
+            checkpointProbeVerdictFor(probeOutcome(objectiveSuccess = true, agentTimedOut = true)),
+        )
+        assertEquals(
+            "Y=0",
+            checkpointProbeVerdictFor(probeOutcome(objectiveSuccess = false, agentTimedOut = true)),
+        )
+    }
+
+    /**
+     * A transport abort outranks the budget too. The two can co-occur — a dead connection leaves the CLI
+     * hanging until the harness kills it — and then the run measured the transport, not the budget.
+     */
+    @Test
+    fun `a transport abort outranks the agent running out of budget`() {
+        assertEquals(
+            "LOST reason=api-transport-error",
+            checkpointProbeVerdictFor(
+                probeOutcome(
+                    objectiveSuccess = null,
+                    apiTransportError = "API Error: Connection error.",
+                    agentTimedOut = true,
+                )
+            ),
+        )
+    }
+
+    /**
+     * One finished run as a seam sees it, with only the three fields these verdict tests turn on.
+     *
+     * The grade is built through a real [ArenaVerificationResult] rather than injected, because
+     * [DpaiaRunOutcome.objectiveSuccess] derives it — a hand-set boolean would pass while the
+     * derivation the probe actually reads did something else.
+     */
+    private fun probeOutcome(
+        objectiveSuccess: Boolean?,
+        apiTransportError: String? = null,
+        agentTimedOut: Boolean = false,
+    ): DpaiaRunOutcome = DpaiaRunOutcome(
+        instanceId = RippleCheckpointCase.INSTANCE_ID,
+        agentName = "claude",
+        modeLabel = "none",
+        agentDurationMs = 26_000,
+        endContextTokens = 0,
+        costUsd = 0.0672,
+        apiTransportError = apiTransportError,
+        agentTimedOut = agentTimedOut,
+        verification = objectiveSuccess?.let { success ->
+            ArenaVerificationResult(
+                perClass = listOf(
+                    SurefireClassResult(
+                        className = "org.example.OracleTest",
+                        testsRun = 1,
+                        failures = if (success) 0 else 1,
+                        errors = 0,
+                        skipped = 0,
+                    )
+                ),
+                failToPassTampered = false,
+                collateralTestFilesEdited = emptyList(),
+                regressions = emptyList(),
+                baselineAvailable = true,
+                verificationDurationMs = 0,
+            )
+        },
+        recorder = null,
+    )
 
     /**
      * A plan of [steps] as the recorder would publish it, used to build the metadata half of the
@@ -451,7 +646,11 @@ private fun checkpointProbeScenario(
                 println("[CHECKPOINT-PROBE]   supposed to be graded from. Cause: ${e::class.simpleName}: ${e.message}")
                 // No cost: the agent never started, so every price this cell could report is unknown —
                 // and unknown must reach the aggregator as an absent field, never as a zero.
-                println(checkpoint.probeLine(coordinates, verdict = CHECKPOINT_PROBE_LOST, cost = null))
+                println(checkpoint.probeLine(
+                    coordinates,
+                    verdict = checkpointProbeLostVerdict(LOST_PATCH_NOT_APPLIED),
+                    cost = null,
+                ))
                 throw IllegalStateException(
                     "MEASUREMENT LOST: the ${coordinates.arm} arm's checkpoint ${coordinates.checkpoint} " +
                         "(step ${checkpoint.step}) did not apply to ${RippleCheckpointCase.INSTANCE_ID}. " +
@@ -465,27 +664,61 @@ private fun checkpointProbeScenario(
         override fun decoratePrompt(prompt: String): String = buildDpaiaCheckpointProbePrompt(prompt)
 
         override fun afterAgentRun(outcome: DpaiaRunOutcome) {
-            val verdict = checkpointProbeVerdict(outcome.objectiveSuccess)
             // The three prices the arena already measured for this run — the agent's own timer, the
             // dollar figure Claude Code reports on its terminal `result` event, and the end-of-run
             // context. Read off the outcome rather than recomputed, so the probe's cost columns and the
-            // arena's own run summary can never disagree about the same run.
+            // arena's own run summary can never disagree about the same run. They stay on a LOST line
+            // too: the money was really spent, and only a `Y=0|1` line can reach the cost medians.
             println(checkpoint.probeLine(
                 coordinates,
-                verdict = verdict,
+                verdict = checkpointProbeVerdictFor(outcome),
                 cost = ProbeRunCost(
                     usd = outcome.costUsd,
                     agentSeconds = outcome.agentDurationMs / 1000,
                     tokens = outcome.endContextTokens,
                 ),
             ))
+
+            val transportError = outcome.apiTransportError
+            if (transportError != null) {
+                println("[CHECKPOINT-PROBE] MEASUREMENT LOST: the agent's own connection to the model")
+                println("[CHECKPOINT-PROBE]   was aborted mid-run, so this cell measured the transport")
+                println("[CHECKPOINT-PROBE]   and not the state it was supposed to be graded from.")
+                println("[CHECKPOINT-PROBE]   Cause: $transportError")
+                fail<Unit>(
+                    "MEASUREMENT LOST: the ${coordinates.arm} arm's checkpoint ${coordinates.checkpoint} " +
+                        "replicate ${coordinates.replicate} lost its API connection ($transportError), " +
+                        "so the run it published was never the run this cell paid for. Re-queue the " +
+                        "cell — the group stays INCOMPLETE until five graded replicates exist. This is " +
+                        "an instrument failure and not a verdict on the agent; a run that edited files " +
+                        "and then hit its OWN timeout is a real Y=0 and never reaches this branch."
+                )
+            }
+
             if (outcome.objectiveSuccess != null) return
+
+            if (outcome.agentTimedOut) {
+                // An unsuccess, not a loss: the agent worked inside the same budget every replicate
+                // shares and had nothing to show when it ran out — see [checkpointProbeVerdictFor]. Said
+                // out loud because the run flow's own "neither exited successfully nor claimed a fix"
+                // check reddens this cell moments later, and an operator reading that failure must not
+                // re-queue a cell whose verdict is already in the log.
+                println("[CHECKPOINT-PROBE] PUBLISHED AS Y=0: the agent spent its whole time budget")
+                println("[CHECKPOINT-PROBE]   without finishing, so nothing was left for the verifier to")
+                println("[CHECKPOINT-PROBE]   grade. That is the task failing, not the instrument.")
+                println("[CHECKPOINT-PROBE]   Do NOT re-queue this cell — its verdict counts towards V.")
+                return
+            }
+
             println("[CHECKPOINT-PROBE] MEASUREMENT LOST: the verifier produced no grade for this cell,")
-            println("[CHECKPOINT-PROBE]   so its readiness is UNKNOWN rather than zero.")
+            println("[CHECKPOINT-PROBE]   and the agent did not run out of its budget either, so its")
+            println("[CHECKPOINT-PROBE]   readiness is UNKNOWN rather than zero.")
             fail<Unit>(
                 "MEASUREMENT LOST: the ${coordinates.arm} arm's checkpoint ${coordinates.checkpoint} " +
                     "replicate ${coordinates.replicate} could not be graded — ArenaVerifier.verify did " +
-                    "not return a result. This is an instrument failure, not a verdict on the agent."
+                    "not return a result, and the agent still had budget left. This is an instrument " +
+                    "failure, not a verdict on the agent; an agent that DID exhaust its budget " +
+                    "publishes a real Y=0 and never reaches this branch."
             )
         }
     }
@@ -528,11 +761,42 @@ private data class LoadedCheckpoint(
  */
 private data class ProbeRunCost(val usd: Double?, val agentSeconds: Long?, val tokens: Long?)
 
-/** What a cell prints when it could not be graded at all — see [checkpointProbeVerdict]. */
+/** What a cell prints when it could not be graded at all — see [checkpointProbeVerdictFor]. */
 private const val CHECKPOINT_PROBE_LOST: String = "LOST"
 
+/** The token of a cell whose probe finished the task from the recorded state. */
+private const val CHECKPOINT_PROBE_SUCCESS: String = "Y=1"
+
 /**
- * The verdict token of one cell: `Y=1`, `Y=0`, or [CHECKPOINT_PROBE_LOST] when it was never graded.
+ * The token of a cell whose probe did NOT finish the task — a full measurement, folded into `V`.
+ *
+ * Printed for a graded failure AND for an agent that spent its whole budget without being graded; see
+ * [checkpointProbeVerdictFor] for why the second one is an unsuccess rather than a loss.
+ */
+private const val CHECKPOINT_PROBE_UNSUCCESS: String = "Y=0"
+
+/** The cell never received its recorded state: `git apply` refused the committed patch. */
+private const val LOST_PATCH_NOT_APPLIED: String = "patch-not-applied"
+
+/** The agent's own connection to the model died mid-run — see [extractApiTransportError]. */
+private const val LOST_API_TRANSPORT: String = "api-transport-error"
+
+/** The run happened, but [ArenaVerifier.verify] produced no grade for it. */
+private const val LOST_NOT_GRADED: String = "not-graded"
+
+/**
+ * The token a cell prints instead of a verdict, naming WHY it was lost.
+ *
+ * The reason is on the line rather than only in the prose above it because the line is the machine-
+ * readable record: an operator re-queues by grepping the build logs, and `LOST` alone cannot tell a
+ * cell that needs its patch repaired from one that only needs running again on a healthy connection.
+ * It is safe to append here — `parseProbeVerdicts` keys on `Y=([01])`, which no lost line carries.
+ */
+private fun checkpointProbeLostVerdict(reason: String): String = "$CHECKPOINT_PROBE_LOST reason=$reason"
+
+/**
+ * The verdict token of one cell: `Y=1`, `Y=0`, or a [checkpointProbeLostVerdict] when it was never
+ * graded.
  *
  * The null branch is the whole reason this is a function. `V` is the fraction of probes that FINISHED,
  * counted over the cells that were graded; a lost cell printed as `Y=0` would pull every readiness value
@@ -540,9 +804,48 @@ private const val CHECKPOINT_PROBE_LOST: String = "LOST"
  * so that an ungraded cell stays out of the aggregate instead.
  */
 private fun checkpointProbeVerdict(objectiveSuccess: Boolean?): String = when (objectiveSuccess) {
-    true -> "Y=1"
-    false -> "Y=0"
-    null -> CHECKPOINT_PROBE_LOST
+    true -> CHECKPOINT_PROBE_SUCCESS
+    false -> CHECKPOINT_PROBE_UNSUCCESS
+    null -> checkpointProbeLostVerdict(LOST_NOT_GRADED)
+}
+
+/**
+ * The verdict of one FINISHED run — the grade, unless the run itself never really happened.
+ *
+ * Four branches, in this order, each one pinned by a test in [RippleCheckpointProbeTest]:
+ *  1. [DpaiaRunOutcome.apiTransportError] → `LOST reason=api-transport-error`;
+ *  2. a grade exists → `Y=1` / `Y=0`;
+ *  3. no grade, but [DpaiaRunOutcome.agentTimedOut] → `Y=0`;
+ *  4. no grade and no budget exhaustion → `LOST reason=not-graded`.
+ *
+ * Branch 1 outranks the grade, including a passing one, because a stream cut mid-response is a TRUNCATED
+ * run: the tree the verifier then graded is not the end of the trajectory the cell was paid for. The
+ * measured case is TeamCity build 1035679682 (`arm=none checkpoint=5 step=33 replicate=1`), which
+ * published `Y=0 usd=0.0672 agentSeconds=26 tokens=0` — 26 seconds, 9 Reads, ZERO Edits, exit 1 — after
+ * Anthropic closed the connection. Read as a zero, that says the recorded state was too far from a
+ * solution; it says nothing of the sort.
+ *
+ * Branch 3 is the opposite ruling, and the reason `LOST` cannot simply mean "no grade". An agent that
+ * spent the whole budget every replicate shares and still had nothing to show FAILED AT THE TASK, which
+ * is precisely the outcome `V` is a fraction of — so the cell is an unsuccess and folds into the
+ * aggregate, no re-queue needed. Its measured case is TeamCity build 1035674856 (`arm=mcp checkpoint=2
+ * replicate=3`): 1800 s of budget spent, exit -1, no grade, published as `LOST reason=not-graded` and
+ * thereby dropped out of the sample for that checkpoint without leaving a hole anyone could see. Note
+ * the cell's Gradle test still fails afterwards, on the flow's own "neither exited successfully nor
+ * claimed a fix" check — the `Y=0` line is already in the log by then and an operator must NOT re-queue
+ * a cell whose log carries a `Y=` token.
+ *
+ * `LOST` therefore stays reserved for the INSTRUMENT failing: the patch not applying, the container or
+ * the verifier dying (branch 4), and the transport abort. A `tool_result` marked `is_error` is not one
+ * either — a continuation that kept breaking its own commands failed at the task. See
+ * [extractApiTransportError] for the two transcript shapes that qualify and the ones that never will,
+ * and [agentRunTimedOut] for why the budget signal is the runner's own report and not a wall-clock guess.
+ */
+private fun checkpointProbeVerdictFor(outcome: DpaiaRunOutcome): String = when {
+    outcome.apiTransportError != null -> checkpointProbeLostVerdict(LOST_API_TRANSPORT)
+    outcome.objectiveSuccess != null -> checkpointProbeVerdict(outcome.objectiveSuccess)
+    outcome.agentTimedOut -> CHECKPOINT_PROBE_UNSUCCESS
+    else -> checkpointProbeLostVerdict(LOST_NOT_GRADED)
 }
 
 /**

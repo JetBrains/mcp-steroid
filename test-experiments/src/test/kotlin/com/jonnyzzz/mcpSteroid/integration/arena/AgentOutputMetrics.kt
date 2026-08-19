@@ -2,7 +2,9 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -173,6 +175,72 @@ fun extractTokenUsage(rawOutput: String): TokenUsage? {
         numTurns = turns,
         durationApiMs = null,
     )
+}
+
+/**
+ * The literal `model` Claude Code stamps on an assistant turn IT wrote rather than one the API
+ * returned. No real model id can collide with it, which is what makes it usable as a marker.
+ */
+private const val SYNTHETIC_MODEL: String = "<synthetic>"
+
+/** The prefix of the CLI's own transport-failure text, e.g. `API Error: Connection closed mid-response.` */
+private const val API_ERROR_TEXT_PREFIX: String = "API Error:"
+
+/**
+ * The message of a TRANSPORT-level abort of the agent's own API connection, or null for every other
+ * run — including every run that simply failed at its task.
+ *
+ * This exists because such a run is not a measurement of the agent at all, and the checkpoint pilot
+ * publishes one number per run. TeamCity build 1035679682 (`arm=none checkpoint=5 step=33
+ * replicate=1`) published `Y=0 usd=0.0672 agentSeconds=26 tokens=0`: after 26 seconds, 9 Reads and 0
+ * Edits, Anthropic closed the connection mid-response, the CLI injected a `"model":"<synthetic>"`
+ * assistant turn carrying `API Error: Connection closed mid-response. The response above may be
+ * incomplete.`, emitted a top-level `"error":"server_error"` and exited 1. That zero was read as "the
+ * recorded state was too far from a solution" and pulled the readiness value for that state down.
+ *
+ * Two shapes, both narrow on purpose:
+ *  1. an assistant event whose `model` is exactly [SYNTHETIC_MODEL] **and** whose text starts with
+ *     [API_ERROR_TEXT_PREFIX] — the model check is what separates the CLI's own injected turn from an
+ *     agent that merely quotes the words "API Error:" out of a log it read;
+ *  2. an event carrying a top-level `error` STRING (`"error":"server_error"`), which is how the stream
+ *     ends when it is cut before any synthetic turn is written.
+ *
+ * Deliberately NOT matched, because each of them is the agent's own problem and a real `Y=0`:
+ * a `tool_result` with `"is_error":true` (a command the agent ran failed — [extractToolCallStats]
+ * counts those), a terminal `"subtype":"error_during_execution"` without an `error` string, and a
+ * transcript that simply stops because the run hit its own timeout. Widening to any of those would
+ * start discarding runs that failed at the TASK, which is precisely what `V` is a fraction of.
+ *
+ * The descriptive message wins over the bare code when a stream carries both: `server_error` alone
+ * tells an operator nothing about what happened to the cell they now have to re-queue.
+ */
+fun extractApiTransportError(rawOutput: String): String? {
+    var bareErrorCode: String? = null
+    for (line in rawOutput.lines()) {
+        val json = parseJsonObjectOrNull(line) ?: continue
+        syntheticApiErrorText(json)?.let { return it }
+        if (bareErrorCode == null) {
+            bareErrorCode = (json["error"] as? JsonPrimitive)
+                ?.takeIf { it.isString }
+                ?.content
+                ?.ifBlank { null }
+        }
+    }
+    return bareErrorCode
+}
+
+/** The `API Error: …` text of a CLI-synthesized assistant turn, or null when [event] is not one. */
+private fun syntheticApiErrorText(event: JsonObject): String? {
+    if (event["type"]?.jsonPrimitive?.content != "assistant") return null
+    val message = event["message"] as? JsonObject ?: return null
+    if (message["model"]?.jsonPrimitive?.content != SYNTHETIC_MODEL) return null
+    val content = message["content"] as? JsonArray ?: return null
+    return content.mapNotNull { it as? JsonObject }.firstNotNullOfOrNull { block ->
+        (block["text"] as? JsonPrimitive)
+            ?.takeIf { it.isString }
+            ?.content
+            ?.takeIf { it.trimStart().startsWith(API_ERROR_TEXT_PREFIX) }
+    }
 }
 
 private fun parseJsonObjectOrNull(line: String): JsonObject? {

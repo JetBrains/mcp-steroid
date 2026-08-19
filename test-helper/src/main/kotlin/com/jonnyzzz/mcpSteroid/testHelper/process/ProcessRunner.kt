@@ -18,6 +18,20 @@ data class ProcessResultValue(
     override val stderr: String,
 ) : ProcessResult
 
+/**
+ * The exit code [StartedProcess.awaitForProcessFinish] reports for a process IT killed on the request's
+ * timeout, as opposed to any code the process chose to exit with.
+ *
+ * Named because callers have to tell the two apart: a run whose own budget ran out is a different
+ * measurement from one that failed by itself, and the only evidence is this code plus
+ * [PROCESS_TIMEOUT_STDERR_MARKER]. Kept next to the single line that produces both so no reader has to
+ * re-derive them from the runner's source.
+ */
+const val PROCESS_TIMEOUT_EXIT_CODE: Int = -1
+
+/** The text [StartedProcess.awaitForProcessFinish] prefixes stderr with when it kills a process. */
+const val PROCESS_TIMEOUT_STDERR_MARKER: String = "Terminated by timeout"
+
 
 private fun RunProcessRequest.withDefaultLogPrefix(prefix: String) = if (this.logPrefix.isNullOrEmpty()) withLogPrefix(prefix) else this
 
@@ -224,7 +238,11 @@ private class StartedProcessImpl(
             waitForThreads()
 
             println("[${logPrefix}] Process is terminated by timeout after ${request.timeout}")
-            return ProcessResultValue(-1, stdout, "Terminated by timeout\n${stderr}\n\n ERROR: Terminated by timeout")
+            return ProcessResultValue(
+                PROCESS_TIMEOUT_EXIT_CODE,
+                stdout,
+                "$PROCESS_TIMEOUT_STDERR_MARKER\n${stderr}\n\n ERROR: $PROCESS_TIMEOUT_STDERR_MARKER",
+            )
         } else {
             waitForThreads()
             val exitCode = process.exitValue()

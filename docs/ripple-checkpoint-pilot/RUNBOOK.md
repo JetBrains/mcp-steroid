@@ -1,8 +1,9 @@
 # Solution-readiness checkpoint pilot — launch runbook
 
-What is measured: `V(s_i)` is the empirical probability that a fixed weak probe agent (bare Haiku, no
-MCP) finishes the original task from the repository state the source Opus run reached after `a_i` tool
-calls. The result is the curve `V(a_i/n)` and its area over the OBSERVED range of positions.
+What is measured: `V(tau_k)` is the empirical probability that a fixed weak probe agent (bare Haiku, no
+MCP) finishes the original task from the repository state reached at `editFraction = tau_k` (k = 0..9)
+of the source Opus run's edit phase. The result is the curve `V(tau_k)` and its AUC, plus the median
+price of finishing (USD, seconds, tokens) over successful continuations.
 
 Design and plan:
 
@@ -27,28 +28,30 @@ informative.
 
 | Piece | Where |
 |:---|:---|
-| positions from the MEASURED `n`, distinct-state selection, `V`, observed-range AUC | `RippleCheckpointMath.kt` |
+| edit-fraction axis, k/10 selection, `V` + cost, measured-range AUC | `RippleCheckpointMath.kt` |
 | blind continuation prompt | `RippleCheckpointProbePrompt.kt` |
 | `--settings` seam on the Claude session | `test-helper/.../ClaudePromptArgs.kt`, `DockerClaudeSession.kt` |
 | per-step counter + a shadow-git snapshot of EVERY step | `RippleCheckpointRecorder.kt` |
 | representativeness gate (`reference = null` when a case has no sample) | `RippleCaptureAdmission.kt` |
 | end-of-run context, measured as v3 measured it | `extractEndContextTokens` in `AgentOutputMetrics.kt` |
 | capture run + hook preflight | `DpaiaFeatureService125CheckpointCaptureTest.kt` |
-| bare-Haiku probe | `RippleCheckpointProbeTest.kt` |
-| verdicts → table, curve, AUC | `RippleCheckpointReport.kt` |
+| bare-Haiku probe (10 fractions × 5 replicates) | `RippleCheckpointProbeTest.kt` |
+| verdicts → table (V + median cost), curve, AUC | `RippleCheckpointReport.kt` |
 | TeamCity capture/probe configurations | `mcp-steroid-teamcity` commit `67d178d` |
 
 **No checkpoint position exists before a capture run finishes.** The hook snapshots every tool call;
-`RippleCheckpointRecorder.plan(n)` then derives the five positions from the length that actually
-happened and writes them into the capture's `checkpoints.json`. That file is the ONLY source of
-positions — the probe reads the step and the normalized position of its checkpoint ordinal from it.
-Never reintroduce a constant schedule: the guess of `n̂ = 32` met runs of 23 and 51 tool calls, and the
-23-step run had no fifth state to probe at all.
+`RippleCheckpointRecorder.plan(n)` derives **ten** checkpoints from the edit phase (first write to `n`)
+and writes them into `checkpoints.json`. That file is the ONLY source of truths: the probe reads the
+step, the `editFraction` (k/10), and the normalized `position` (step/n) from it.
 
-Two checkpoints may not hold the same state. The selection compares git tree ids; a checkpoint whose
-nominal step repeats the previous checkpoint's state moves forward to the first differing step, and when
-no differing state exists before the final one it is **dropped**, with the reason recorded in
-`corrections` and rendered next to the shortened curve.
+Two checkpoints may not hold the same state. A fraction whose state repeats an earlier one is recorded
+with `sameStateAs` = the step whose verdict applies. Such checkpoints are **SKIPPED** during the probe
+phase to save cost — the aggregator folds the original state's verdict into the curve for every
+fraction that shares it.
+
+The pristine tree is not a checkpoint: its 9 recorded probes (6 successes) are the shared **BASELINE**
+the curves start from. Haiku solves this task unaided 67% of the time, so the metric only discriminates
+in the range 0.67..1.0.
 
 ## Prerequisites
 
@@ -125,12 +128,13 @@ reasons AND notes, the planned positions with their nominal counterparts, and ev
 570s, 403s) but **no band this gate can use**: those runs are another model on an older harness and
 report tool-call totals instead of `extractEndContextTokens`. So the capture is admitted with
 `reference = null` — representativeness is not judged, and the verdict says so in its notes; admission
-then requires only SUCCESS and `n > 5`. Record `n`, seconds, context tokens and cost in `RUN-IDS.md`
-regardless — those rows ARE the sample the next stage will judge against.
+then requires only SUCCESS and `n > firstWriteStep`. Record `n`, seconds, context tokens and cost in
+`RUN-IDS.md` regardless — those rows ARE the sample the next stage will judge against.
 
-Watch the corrections. A capture whose plan carries fewer than five checkpoints has told you that its
-work tree stopped changing; that is a fact about the trajectory, and it is the operator's call whether
-to publish a shorter curve or spend another Opus run.
+Watch the `checkpoints.json` metadata. A fraction whose state repeats an earlier one is recorded as
+data (it records that the agent wrote nothing in that window) and carries `sameStateAs` = the step
+whose verdict applies; such a fraction is **NOT probed**. mcp typically buys 5–6 distinct states and
+shell 8–9.
 
 ### 3. Commit the admitted states
 
@@ -148,15 +152,16 @@ come from two different capture runs, and no probe verdict from such a pair mean
 
 ```bash
 jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
-  -P ripple.checkpoint.arm=mcp -P ripple.checkpoint.index=5 -P ripple.checkpoint.replicate=1 --json
+  -P ripple.checkpoint.arm=mcp -P ripple.checkpoint.index=10 -P ripple.checkpoint.replicate=1 --json
 ```
 
 Confirm on that build that the coordinates arrived (in the build's resulting properties AND in the step
 log) and that the patch applied, before queueing the rest:
 
 ```bash
-for arm in mcp none; do for idx in 1 2 3 4 5; do for rep in 1 2 3 4 5; do
-  [ "$arm/$idx/$rep" = "mcp/5/1" ] && continue
+# Skip the ordinals whose sameStateAs is non-null in checkpoints.json
+for arm in mcp none; do for idx in 1 2 3 4 5 6 7 8 9 10; do for rep in 1 2 3 4 5; do
+  [ "$arm/$idx/$rep" = "mcp/10/1" ] && continue
   jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
     -P ripple.checkpoint.arm="$arm" -P ripple.checkpoint.index="$idx" \
     -P ripple.checkpoint.replicate="$rep" --json | tee -a /tmp/ripple-probe-runs.jsonl
@@ -165,7 +170,8 @@ done; done; done
 ```
 
 Queue in batches of 5–10: each build is a full Docker IDE container with a clone and a build-system
-import, and this token cannot reprioritise the queue. Skip the indices a capture's plan does not carry.
+import. **SKIP the ordinals whose `sameStateAs` is non-null.** Paying twice for the same tree buys
+noise, not data.
 
 ### 5. Aggregate
 
@@ -175,13 +181,13 @@ jb tc builds log <runId> -o /tmp/probe-<runId>.log
 cat /tmp/probe-*.log | grep '\[CHECKPOINT-PROBE\]' > /tmp/ripple-verdicts.txt
 ```
 
-Feed that file to `parseProbeVerdicts` / `renderCheckpointReport` (`RippleCheckpointReport.kt`). A
-checkpoint with fewer than 5 verdicts renders `INCOMPLETE` instead of a `V`, and `LOST` lines
-(instrument failures) are not verdicts — they never pull `V` down.
+Feed that file to `parseProbeVerdicts` / `renderCheckpointReport` (`RippleCheckpointReport.kt`). The
+report is keyed by `(arm, step)`, renders `V` plus the **MEDIAN** usd / agentSeconds / tokens over the
+SUCCESSFUL runs, and integrates the AUC over `editFraction` within the measured range only.
 
-The AUC is integrated between the FIRST and LAST measured position only, and the report prints that
-range next to the number. Nothing is extrapolated to 0 or to the end of the trajectory: readiness there
-was not measured.
+The AUC is integrated between the FIRST and LAST measured `editFraction` only, and the report prints
+that range next to the number. Nothing is extrapolated to 0 or to the end of the trajectory: readiness
+there was not measured.
 
 ## Cost expectation
 
@@ -189,10 +195,10 @@ was not measured.
 |:---|---:|:---|
 | preflight | 1 | ~35 min, ≈$0 |
 | capture | 2 (≤6 with retries) | ~50 min, ≈$1–3.5 (Opus) |
-| probes | up to 50 | ~45–60 min, ≈$0.2–0.5 (Haiku) |
+| probes | up to 100 (≈50–60 queued) | ~4–60 min, ≈$0.15–1.40 (Haiku) |
 
-The discarded first stage cost $4.43 and ~2.5 h of agent time; budget for the possibility of repeating
-a capture rather than assuming the first one is usable.
+The fraction grid is 13 distinct states × 5 replicates, of which some verdicts may carry over from
+earlier grids. Budget for about 50–60 queued builds.
 
 ## Record ids here
 

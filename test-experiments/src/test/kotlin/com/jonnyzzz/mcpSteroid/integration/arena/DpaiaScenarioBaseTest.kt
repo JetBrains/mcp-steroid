@@ -300,6 +300,23 @@ abstract class DpaiaScenarioBaseTest {
                 // say so instead of printing no token line at all — an absent line reads as an oversight.
                 println("[ARENA]   Tokens:         MISSING — the agent CLI emitted no usage event; cost is unrecoverable for this arm")
             }
+            val agentTimedOut = agentRunTimedOut(result.agentResult)
+            if (agentTimedOut) {
+                // The run ended because the harness killed it, not because the agent was done. Printed
+                // with the budget it was given: exit=-1 alone reads as a crash, and a reader comparing
+                // arms needs to see that this one used every second it had.
+                println(
+                    "[ARENA]   Agent budget:   EXHAUSTED — killed at the case's " +
+                        "${caseConfig.agentTimeoutSeconds}s limit"
+                )
+            }
+            if (metrics.apiTransportError != null) {
+                // Neither a grade nor the agent's doing: the CLI's connection to the model died under
+                // this run. Printed with the other run facts so ANY reader of the log can see that the
+                // row below measures a broken transport, not a trajectory — the checkpoint probe's
+                // seam is only the first consumer of that distinction.
+                println("[ARENA]   API transport:  ABORTED — ${metrics.apiTransportError}")
+            }
             if (metrics.testMetrics != null) {
                 println("[ARENA]   Tests:          ${metrics.testMetrics.testsRun} run, ${metrics.testMetrics.testsFail} fail, BUILD ${if (metrics.testMetrics.buildSuccess == true) "SUCCESS" else "FAILURE"}")
             }
@@ -335,6 +352,8 @@ abstract class DpaiaScenarioBaseTest {
                 agentDurationMs = result.agentDurationMs,
                 endContextTokens = metrics.endContextTokens,
                 costUsd = metrics.tokenUsage?.costUsd,
+                apiTransportError = metrics.apiTransportError,
+                agentTimedOut = agentTimedOut,
                 verification = verification,
                 recorder = recorder,
             ))

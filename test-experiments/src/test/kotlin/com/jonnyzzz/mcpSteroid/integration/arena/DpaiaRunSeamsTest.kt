@@ -54,6 +54,41 @@ class DpaiaRunSeamsTest {
     }
 
     /**
+     * A dead API connection is carried BESIDE the grade, never folded into it.
+     *
+     * [DpaiaRunOutcome.objectiveSuccess] answers "what does the tree look like now", which the verifier
+     * measured and which a transport abort cannot change retroactively. Whether such a run may be
+     * PUBLISHED is a different question, answered by the reader that grades cells — collapsing the two
+     * here would hide from every other seam that the connection died.
+     */
+    @Test
+    fun `a transport abort leaves the verifier's own grade untouched`() {
+        val aborted = outcome(
+            verification = verification(passed = false, tampered = false),
+            apiTransportError = "API Error: Connection closed mid-response.",
+        )
+        assertFalse(aborted.objectiveSuccess!!)
+        assertEquals("API Error: Connection closed mid-response.", aborted.apiTransportError)
+        assertNull(outcome(verification = verification(passed = true, tampered = false)).apiTransportError)
+    }
+
+    /**
+     * The agent's own budget running out is carried BESIDE the grade as well.
+     *
+     * Same reason as the transport abort: the verifier's answer to "what does the tree look like now" is
+     * unaffected by how the run ended, and the reader that grades cells is the one place allowed to turn
+     * an ungraded budget exhaustion into a zero. Folding it into [DpaiaRunOutcome.objectiveSuccess] here
+     * would make an ungraded timeout indistinguishable from a graded failure for every other seam.
+     */
+    @Test
+    fun `an exhausted agent budget leaves the verifier's own grade untouched`() {
+        val exhausted = outcome(verification = null, agentTimedOut = true)
+        assertNull(exhausted.objectiveSuccess)
+        assertTrue(exhausted.agentTimedOut)
+        assertFalse(outcome(verification = verification(passed = true, tampered = false)).agentTimedOut)
+    }
+
+    /**
      * The pilot's case id is spelled once and checked against the curated registry, because every other
      * place it appears — the capture, the probe, the committed resource directory — reads it from here.
      * A typo would deploy a case the dataset does not carry, hours into a build.
@@ -66,13 +101,19 @@ class DpaiaRunSeamsTest {
         }
     }
 
-    private fun outcome(verification: ArenaVerificationResult?) = DpaiaRunOutcome(
+    private fun outcome(
+        verification: ArenaVerificationResult?,
+        apiTransportError: String? = null,
+        agentTimedOut: Boolean = false,
+    ) = DpaiaRunOutcome(
         instanceId = RippleCheckpointCase.INSTANCE_ID,
         agentName = "claude",
         modeLabel = "mcp",
         agentDurationMs = 1_000L,
         endContextTokens = 60_927L,
         costUsd = 0.3278,
+        apiTransportError = apiTransportError,
+        agentTimedOut = agentTimedOut,
         verification = verification,
         recorder = null,
     )

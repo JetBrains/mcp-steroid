@@ -80,6 +80,29 @@ data class DpaiaRunOutcome(
      * three cost columns, and a free run is a real, different measurement from an unreported one.
      */
     val costUsd: Double?,
+    /**
+     * Why the agent's own API connection died under this run, or null when it did not — see
+     * [extractApiTransportError] for the exact two shapes and for the failures it refuses to claim.
+     *
+     * Carried on the outcome because it changes what the run IS, not merely how it went: a stream cut
+     * mid-response never gave the agent the chance the cell was paid for, so a reader that grades cells
+     * has to be able to tell it apart from a run that finished and failed. Its own field, next to
+     * [verification], because the two answer different questions — the verifier says what the tree
+     * looks like now, this says whether the run that produced it happened at all.
+     */
+    val apiTransportError: String?,
+    /**
+     * True when the agent spent its whole [DpaiaCuratedCases.CaseConfig.agentTimeoutSeconds] budget and
+     * the harness killed it — see [agentRunTimedOut] for the signal, which is the runner's own report
+     * and not a wall-clock guess.
+     *
+     * The OPPOSITE of [apiTransportError] in what it means for a reader, which is why the two are
+     * separate fields rather than one "how did it end" enum: an exhausted budget is the agent failing at
+     * the task within the same limit every replicate shares, so a cell that ends this way is a real
+     * unsuccess and must be published as one. Carried here rather than recomputed downstream because
+     * only the run flow sees the process result.
+     */
+    val agentTimedOut: Boolean,
     val verification: ArenaVerificationResult?,
     /** The recorder that watched this run, or null when it was not recorded. */
     val recorder: RippleCheckpointRecorder?,
