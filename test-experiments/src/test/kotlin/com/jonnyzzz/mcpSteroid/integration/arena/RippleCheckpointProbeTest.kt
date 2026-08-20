@@ -50,8 +50,9 @@ fun probeCoordinates(
     replicate: String?,
     checkpointsInArm: (String) -> Int = ::committedCheckpointCount,
 ): ProbeCoordinates {
-    require(arm != null && arm in RIPPLE_CHECKPOINT_ARMS) {
-        "the probe arm must be one of $RIPPLE_CHECKPOINT_ARMS, got '$arm' — no other arm was captured"
+    val arms = rippleCheckpointArms(RippleCheckpointCase.RESOURCE_DIR)
+    require(arm != null && arm in arms) {
+        "the probe arm must be one of $arms, got '$arm' — no other arm was captured"
     }
     val available = checkpointsInArm(arm)
     val checkpoint = index?.toIntOrNull()
@@ -74,13 +75,25 @@ fun probeCoordinates(
  * be started from: a plan may name ten fractions while the directory holds the states of nine distinct
  * steps, and it is the directory that decides which cells are addressable.
  */
-fun committedCheckpointCount(arm: String): Int {
+fun committedCheckpointCount(arm: String): Int = committedCheckpointCountOrNull(arm)
+    ?: error(
+        "${checkpointResourceDir(RippleCheckpointCase.RESOURCE_DIR, arm)}/" +
+            "${RippleCheckpointRecorder.METADATA_FILE_NAME} is missing, so nothing says how many " +
+            "checkpoints the $arm arm committed and no probe cell can be addressed at all"
+    )
+
+/**
+ * The same count, or `null` for a registered arm whose capture has not landed yet.
+ *
+ * An arm can legitimately exist in the registry with an empty directory — `mcp2` and `none2` did,
+ * between the commit that named them and the capture that filled them. That state must stay green in
+ * the resource tests and must still refuse every probe cell, which is exactly the difference between
+ * this function and [committedCheckpointCount].
+ */
+fun committedCheckpointCountOrNull(arm: String): Int? {
     val metadataFile = checkpointResourceDir(RippleCheckpointCase.RESOURCE_DIR, arm)
         .resolve(RippleCheckpointRecorder.METADATA_FILE_NAME)
-    check(metadataFile.isFile) {
-        "${metadataFile.absolutePath} is missing, so nothing says how many checkpoints the $arm arm " +
-            "committed and no probe cell can be addressed at all"
-    }
+    if (!metadataFile.isFile) return null
     return checkpointEntries(metadataFile.readText()).size
 }
 
@@ -132,8 +145,15 @@ class RippleCheckpointProbeTest {
      */
     @Test
     fun `the last committed checkpoint of each arm is addressable and the next one is not`() {
-        RIPPLE_CHECKPOINT_ARMS.forEach { arm ->
-            val committed = committedCheckpointCount(arm)
+        rippleCheckpointArms(RippleCheckpointCase.RESOURCE_DIR).forEach { arm ->
+            val committed = committedCheckpointCountOrNull(arm)
+            if (committed == null) {
+                // A registered arm whose capture has not landed. Every cell of it must be refused, and
+                // loudly: a probe queued against an empty arm would otherwise fail an hour in, inside
+                // the container, instead of in the first milliseconds of the build.
+                assertThrows(IllegalStateException::class.java) { probeCoordinates(arm, "1", "1") }
+                return@forEach
+            }
             assertTrue(committed > 0) { "the $arm arm committed no checkpoint at all" }
             assertEquals(
                 ProbeCoordinates(arm, committed, 1),
@@ -143,6 +163,29 @@ class RippleCheckpointProbeTest {
                 probeCoordinates(arm, (committed + 1).toString(), "1")
             }
         }
+    }
+
+    /**
+     * The round is encoded in the arm token, so the registry is what decides which rounds are
+     * addressable at all — and it is per case, because the discarded keycloak case has no second
+     * capture and must not be asked for one.
+     */
+    @Test
+    fun `the second capture is addressable on the measured case and unknown to the discarded one`() {
+        assertEquals(
+            listOf("mcp", "none", "mcp2", "none2"),
+            rippleCheckpointArms(RippleCheckpointCase.RESOURCE_DIR),
+        )
+        assertEquals(
+            listOf("mcp", "none"),
+            rippleCheckpointArms(RippleCases.renameMethodWide.instanceId.substringAfterLast("__")),
+        )
+        assertThrows(IllegalStateException::class.java) { rippleCheckpointArms("a-case-nobody-captured") }
+
+        val committed = { _: String -> 4 }
+        assertEquals(ProbeCoordinates("mcp2", 3, 2), probeCoordinates("mcp2", "3", "2", committed))
+        assertEquals(ProbeCoordinates("none2", 4, 5), probeCoordinates("none2", "4", "5", committed))
+        assertThrows(IllegalArgumentException::class.java) { probeCoordinates("mcp3", "1", "1", committed) }
     }
 
     /**
@@ -169,8 +212,8 @@ class RippleCheckpointProbeTest {
      */
     @Test
     fun `every committed checkpoint patch is a readable diff its metadata accounts for`() {
-        RIPPLE_CHECKPOINT_CASE_DIRS.forEach { caseDir ->
-            RIPPLE_CHECKPOINT_ARMS.forEach { arm ->
+        RIPPLE_CHECKPOINT_CASE_ARMS.forEach { (caseDir, arms) ->
+            arms.forEach { arm ->
                 val dir = checkpointResourceDir(caseDir, arm)
                 assertTrue(dir.isDirectory) {
                     "$dir is missing. The probe reads its starting states from there, so the layout is " +
@@ -873,18 +916,6 @@ private fun checkpointProbeLine(
     cost?.agentSeconds?.let { append(" agentSeconds=$it") }
     cost?.tokens?.let { append(" tokens=$it") }
 }
-
-/**
- * Every case directory under `ripple-checkpoints/` whose layout has to stay valid.
- *
- * Two, and both on purpose: the case this pilot probes today, and the keycloak case that was already
- * measured. A published readiness curve is only readable next to the trajectory it came from, so the
- * measured case's states stay committed and checked even though no probe cell addresses them any more.
- */
-private val RIPPLE_CHECKPOINT_CASE_DIRS: List<String> = listOf(
-    RippleCheckpointCase.RESOURCE_DIR,
-    RippleCases.renameMethodWide.instanceId.substringAfterLast("__"),
-)
 
 /**
  * Where the committed checkpoints of one case's arm live.

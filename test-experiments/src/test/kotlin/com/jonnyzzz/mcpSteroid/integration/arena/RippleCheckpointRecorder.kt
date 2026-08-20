@@ -13,6 +13,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -33,13 +36,23 @@ import java.math.RoundingMode
  * tree — which is both how the first write is found and how a flat stretch of the trajectory is
  * published as such instead of being mistaken for progress.
  *
+ * The hook also PERSISTS ITS OWN STDIN, and that is the only way the round-2 denominators exist at all.
+ * The CLI hands a `PostToolUse` hook a JSON object naming the tool, its input, its response and the
+ * path of the session transcript; nothing else in a capture records WHICH tool a step was, and the
+ * streamed build log cannot be used as a substitute — summing the `usage` of every `assistant` event of
+ * the round-1 mcp capture (build `1035363501`) yields 642 output tokens against the 59 164 its terminal
+ * `result` event reports, so per-step upstream work is unrecoverable from the log. The record is
+ * truncated with `head -c` because a `tool_response` carrying a whole file would otherwise be written
+ * once per tool call.
+ *
  * Three properties are non-negotiable, and each of them cost a real failure somewhere to learn:
  *
  * - **The snapshots go to a SHADOW git dir.** The agent may run `git status`/`git diff` on the
  *   project itself, and a solution is graded from the project's own tree; an instrument that stages
  *   files or writes commits there would change the thing being measured.
  * - **Every byte goes to stderr.** The hook runs as a child of the agent CLI, whose stdout is the
- *   JSON-RPC channel — one stray stdout byte corrupts the protocol and kills the run.
+ *   JSON-RPC channel — one stray stdout byte corrupts the protocol and kills the run. The stdin record
+ *   obeys the same rule: it is redirected into a file, never echoed.
  * - **`exit 0` unconditionally.** A hook that fails hard would abort a $2 Opus run; a missing tag is
  *   visible later, in [RippleCheckpointRecorder.exportPatch], and is a far cheaper failure.
  *
@@ -54,14 +67,22 @@ fun checkpointHookScript(
     gitDir: String,
     workTree: String,
     counterFile: String,
+    recordDir: String = counterFile.substringBeforeLast('/'),
 ): String = """
     #!/bin/sh
-    # Count this tool call and snapshot the work tree under the tag of that step.
+    # Count this tool call, record what the CLI told the hook about it, and snapshot the work tree
+    # under the tag of that step.
     # The shadow git dir keeps the project's own repository untouched, everything goes to stderr so
     # no byte can reach the agent's JSON-RPC channel, and the exit code is always 0 so a broken
     # instrument cannot kill the agent run. See checkpointHookScript's docs for why.
     n=${'$'}(( ${'$'}(cat $counterFile 2>/dev/null || echo 0) + 1 ))
     echo "${'$'}n" > $counterFile
+
+    # The hook's stdin is the ONLY place the tool identity and the transcript path exist. Truncated,
+    # because a tool_response can hold a whole file; failures are announced on stderr rather than
+    # swallowed, and never abort the run.
+    head -c $HOOK_RECORD_MAX_BYTES > $recordDir/step-${'$'}n$HOOK_RECORD_SUFFIX ||
+        echo "checkpoint hook: could not record stdin of step ${'$'}n" >&2
 
     cd $workTree || exit 0
     git --git-dir=$gitDir --work-tree=$workTree add -A >&2
@@ -69,6 +90,19 @@ fun checkpointHookScript(
     git --git-dir=$gitDir --work-tree=$workTree tag "step-${'$'}n" >&2
     exit 0
 """.trimIndent() + "\n"
+
+/**
+ * How much of the hook's stdin is kept per tool call.
+ *
+ * A `tool_response` can carry a whole file, and the record is written once per tool call of a 60-step
+ * run, so the payload is capped. 20 000 bytes keeps the fields the analysis reads — `session_id`,
+ * `transcript_path`, `cwd`, `hook_event_name`, `tool_name` and the head of `tool_input` — which the CLI
+ * emits before the response.
+ */
+const val HOOK_RECORD_MAX_BYTES: Int = 20_000
+
+/** The suffix of a per-step hook record, shared by the script that writes one and the code that reads it. */
+const val HOOK_RECORD_SUFFIX: String = ".hook.json"
 
 /**
  * The Claude Code settings file that runs [scriptPath] after every tool call.
@@ -223,6 +257,87 @@ class RippleCheckpointRecorder(
     }
 
     /**
+     * A patch for EVERY step the hook snapshotted, not only for the grid.
+     *
+     * Round 1 exported the ten grid fractions and nothing else, which fixed the checkpoint set to a
+     * schedule chosen before the trajectory existed. Round 2 selects its states by a pre-registered rule
+     * over the whole trajectory (`REPLICATION-2.md`), and that rule can only be applied to steps whose
+     * state was exported. The case is a single Spring service, so a whole-tree diff per tool call is
+     * cheap — this is not affordable on Keycloak and is not done there.
+     *
+     * Steps the counter saw but no snapshot exists for are REPORTED and skipped rather than throwing:
+     * the last tool call of a killed run can leave a counter increment without a tag, and losing a paid
+     * capture over its final step would be the expensive kind of correctness.
+     */
+    fun exportEveryStepPatch(nActual: Int): List<Int> {
+        val snapshotted = stepTreeIds().keys.filter { it in 1..nActual }.sorted()
+        val missing = (1..nActual).filterNot { it in snapshotted }
+        if (missing.isNotEmpty()) {
+            println(
+                "[CHECKPOINT] no snapshot for steps $missing of $nActual — those states cannot be " +
+                    "exported and every rule computed over the trajectory must treat them as absent"
+            )
+        }
+        snapshotted.forEach { exportPatch(it) }
+        println("[CHECKPOINT] exported ${snapshotted.size} of $nActual step patches")
+        return snapshotted
+    }
+
+    /** The steps the hook left a stdin record for, read in ONE `ls` of the checkpoint directory. */
+    fun hookRecordSteps(): Set<Int> {
+        val listing = exec(
+            "ls $checkpointDir",
+            listOf("sh", "-c", "ls $checkpointDir"),
+        )
+        // An empty directory is not an error here: the caller decides what a recording with no hook
+        // records means, and for the preflight that decision is a hard failure.
+        return parseHookRecordSteps(listing.stdout)
+    }
+
+    /**
+     * Publishes the CLI's own session transcript next to the patches, and reports what it published.
+     *
+     * The transcript is where the per-message `usage` lives, and it is the only exact source of the
+     * upstream denominator round 2 is built on: cumulative Opus OUTPUT tokens before a state. Its path
+     * is not guessable — the CLI names it per session — so it is read out of the hook records, which is
+     * the whole reason those records exist.
+     *
+     * Never throws. A capture that produced states but no transcript is still a capture worth keeping;
+     * it is the free preflight, not a $3.8 run, that must fail when this comes back empty.
+     */
+    fun exportStepRecords(): List<String> {
+        val steps = hookRecordSteps()
+        if (steps.isEmpty()) {
+            println("[CHECKPOINT] no hook records in $checkpointDir — no transcript can be published")
+            return emptyList()
+        }
+        // First and last only: one capture is one session, so every record names the same transcript,
+        // and reading all 60 records back through `docker exec` would cost more than it can tell.
+        val transcripts = listOf(steps.min(), steps.max()).distinct()
+            .mapNotNull { step -> parseTranscriptPath(container.readFromContainer(recordPath(step))) }
+            .distinct()
+        if (transcripts.isEmpty()) {
+            println(
+                "[CHECKPOINT] the hook records of ${steps.size} steps name no transcript_path, so the " +
+                    "per-message usage of this capture cannot be published"
+            )
+            return emptyList()
+        }
+        return transcripts.mapIndexedNotNull { index, path ->
+            val name = transcriptFileName(index)
+            val copy = exec("cp $path", listOf("cp", path, "$checkpointDir/$name"))
+            if (copy.exitCode != 0) {
+                println("[CHECKPOINT] could not publish the transcript $path: ${copy.stderr}")
+                return@mapIndexedNotNull null
+            }
+            println("[CHECKPOINT] published transcript $path -> $checkpointDir/$name")
+            name
+        }
+    }
+
+    private fun recordPath(step: Int): String = "$checkpointDir/${hookRecordFileName(step)}"
+
+    /**
      * Writes `checkpoints.json` next to [gitDir] and returns it, so the patches are never read without
      * the step count they have to be normalized by.
      *
@@ -367,6 +482,52 @@ class RippleCheckpointRecorder(
 
         /** The name [exportPatch] writes the snapshot of [step] under. */
         fun patchFileName(step: Int): String = "step-$step.patch"
+
+        /** The name the hook writes its stdin record of [step] under. */
+        fun hookRecordFileName(step: Int): String = "step-$step$HOOK_RECORD_SUFFIX"
+
+        /** The name [exportStepRecords] publishes the [index]-th session transcript under. */
+        fun transcriptFileName(index: Int): String = "transcript-$index.jsonl"
+
+        /**
+         * The steps a directory listing shows a hook record for.
+         *
+         * Parsed from a listing rather than probed per step, and pinned by a unit test because the same
+         * directory holds `step-N.patch` files whose names differ only by suffix: a parser that
+         * confused the two would report a complete set of records for a capture that recorded none.
+         */
+        fun parseHookRecordSteps(listing: String): Set<Int> = listing.lines()
+            .mapNotNull { line ->
+                val name = line.trim().substringAfterLast('/')
+                if (!name.endsWith(HOOK_RECORD_SUFFIX)) return@mapNotNull null
+                name.removeSuffix(HOOK_RECORD_SUFFIX).removePrefix("step-").toIntOrNull()
+            }
+            .toSet()
+
+        /**
+         * The `transcript_path` a hook record names, or `null` when it names none.
+         *
+         * Records are TRUNCATED at [HOOK_RECORD_MAX_BYTES], so a record whose `tool_response` is large
+         * is not valid JSON at all. The field is emitted by the CLI near the head of the payload, well
+         * inside the cap, so a truncated record still carries it — hence the fallback: parse as JSON
+         * first, and only when that fails read the field out of the text. Returning `null` from the
+         * fallback would publish no transcript for exactly the busiest captures.
+         */
+        fun parseTranscriptPath(record: String): String? {
+            val parsed = try {
+                Json.parseToJsonElement(record).jsonObject[TRANSCRIPT_PATH_FIELD]?.jsonPrimitive?.contentOrNull
+            } catch (e: Exception) {
+                println("[CHECKPOINT] hook record is not valid JSON (${e.message}), reading its head instead")
+                null
+            }
+            val path = parsed ?: TRUNCATED_TRANSCRIPT_PATH.find(record)?.groupValues?.get(1)
+            return path?.takeIf { it.isNotBlank() }
+        }
+
+        /** The field of a `PostToolUse` payload that names the CLI's session transcript. */
+        private const val TRANSCRIPT_PATH_FIELD: String = "transcript_path"
+
+        private val TRUNCATED_TRANSCRIPT_PATH = Regex("\"$TRANSCRIPT_PATH_FIELD\"\\s*:\\s*\"([^\"]*)\"")
 
         /**
          * Parses `<tag> <tree id>` lines into `step -> tree id`.

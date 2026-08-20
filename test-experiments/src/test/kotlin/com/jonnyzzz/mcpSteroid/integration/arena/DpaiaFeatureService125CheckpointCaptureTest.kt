@@ -147,6 +147,25 @@ private fun captureScenario(arm: String): DpaiaScenarioBaseTest = object : Dpaia
             admission.reasons.forEach { println("[CHECKPOINT]   rejected: $it") }
             admission.notes.forEach { println("[CHECKPOINT]   note: $it") }
 
+            // Round 2's upstream denominators: which tool each step was, and how many output tokens the
+            // model had spent by then. Neither is derivable from the build log — summing the streamed
+            // `usage` of capture 1 gives 642 output tokens against the 59 164 its result event reports —
+            // so the hook records and the CLI's own transcript are published as artifacts. Printed
+            // rather than asserted: a capture that recorded states but no transcript is still worth
+            // keeping, and the free preflight is what refuses that shape before any money is spent.
+            val hookRecords = recorder.hookRecordSteps()
+            println(
+                "[CHECKPOINT] hook records for ${hookRecords.size} of $steps steps" +
+                    (if (hookRecords.size == steps) "" else "; missing ${(1..steps) - hookRecords}")
+            )
+            println("[CHECKPOINT] transcripts: ${recorder.exportStepRecords()}")
+
+            // A patch for EVERY step, not only for the grid: round 2 selects its probed states by a rule
+            // over the whole trajectory (REPLICATION-2.md), which can only see states that were
+            // exported. The grid below stays exactly as round 1 published it, so the two rounds remain
+            // comparable on the editFraction axis.
+            recorder.exportEveryStepPatch(steps)
+
             // The fractions are derived HERE, from the edit phase that actually happened — see
             // selectCheckpoints. A capture whose work tree stopped changing publishes the repetition as
             // data (sameStateAs) instead of moving a checkpoint to a state the agent never held, and

@@ -176,6 +176,47 @@ fun firstWriteStepOf(n: Int, stateIdOf: (Int) -> String): Int {
 val RIPPLE_CHECKPOINT_ARMS: List<String> = listOf("mcp", "none")
 
 /**
+ * The same two arms, captured a SECOND time — round 2's independent trajectories.
+ *
+ * The round is encoded in the arm token, and that is a deliberate choice over a fourth coordinate. A
+ * probe build addresses a cell by `arm`, `index` and `replicate` only, all three declared in a separate
+ * repository's TeamCity DSL; a `capture` coordinate would need a cross-repo commit before a single cell
+ * could run, while a new token needs nothing — round 1 already proved TeamCity forwards a prompted value
+ * outside its `select` options (it ran indices 6..10 against options 1..5). Round 1's committed states
+ * also stay byte-identical this way, which `RESIDUAL-DIFFICULTY.md`'s numbers depend on.
+ *
+ * See `docs/ripple-checkpoint-pilot/REPLICATION-2.md` for what the second capture is for.
+ */
+val RIPPLE_CHECKPOINT_ROUND2_ARMS: List<String> = listOf("mcp2", "none2")
+
+/**
+ * Which arms exist PER CASE, and therefore which resource directories the layout must hold.
+ *
+ * Per case rather than globally, because the two cases are at different stages: `feature-service-125` is
+ * the measured one and carries both rounds, while the keycloak case was discarded after stage 1 (its
+ * solution is atomic — see [RippleCheckpointCase]) and only its round-1 states remain, committed so the
+ * discarded measurement stays checkable. A global arm list would demand `mcp2`/`none2` directories the
+ * keycloak case will never have, and the resource test would then be red for a capture nobody intends
+ * to run.
+ */
+val RIPPLE_CHECKPOINT_CASE_ARMS: Map<String, List<String>> = mapOf(
+    RippleCheckpointCase.RESOURCE_DIR to RIPPLE_CHECKPOINT_ARMS + RIPPLE_CHECKPOINT_ROUND2_ARMS,
+    RippleCases.renameMethodWide.instanceId.substringAfterLast("__") to RIPPLE_CHECKPOINT_ARMS,
+)
+
+/**
+ * The arms of one case, refusing an unknown case rather than defaulting to the global list.
+ *
+ * A default would silently accept a typo in a case directory and then report "no checkpoints committed"
+ * for a case that has plenty — the failure would look like a missing capture instead of a missing entry.
+ */
+fun rippleCheckpointArms(caseDir: String): List<String> = RIPPLE_CHECKPOINT_CASE_ARMS[caseDir]
+    ?: error(
+        "no arms are registered for the case directory '$caseDir' — the known ones are " +
+            "${RIPPLE_CHECKPOINT_CASE_ARMS.keys}"
+    )
+
+/**
  * `V(s_i)` for one checkpoint: the fraction of probes that finished the task from that state.
  *
  * Both bounds are required rather than clamped, because a count outside them can only come from a

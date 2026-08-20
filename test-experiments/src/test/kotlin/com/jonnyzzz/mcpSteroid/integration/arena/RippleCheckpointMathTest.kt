@@ -38,6 +38,32 @@ class RippleCheckpointMathTest {
     }
 
     /**
+     * The registry is what decides which capture ROUNDS exist, and it is per case for a reason: the
+     * keycloak case was discarded after stage 1 and will never carry a second capture, so a global arm
+     * list would demand directories nobody intends to fill.
+     */
+    @Test
+    fun `the measured case carries both capture rounds and the discarded one only the first`() {
+        assertEquals(listOf("mcp2", "none2"), RIPPLE_CHECKPOINT_ROUND2_ARMS)
+        assertEquals(
+            RIPPLE_CHECKPOINT_ARMS + RIPPLE_CHECKPOINT_ROUND2_ARMS,
+            RIPPLE_CHECKPOINT_CASE_ARMS.getValue(RippleCheckpointCase.RESOURCE_DIR),
+        )
+        assertEquals(
+            RIPPLE_CHECKPOINT_ARMS,
+            RIPPLE_CHECKPOINT_CASE_ARMS.getValue(
+                RippleCases.renameMethodWide.instanceId.substringAfterLast("__")
+            ),
+        )
+        // Round 1's tokens must never change meaning: a second capture is a NEW arm, not a redefinition
+        // of an existing one, because every number in RESIDUAL-DIFFICULTY.md is keyed by `mcp`/`none`.
+        assertEquals(listOf("mcp", "none"), RIPPLE_CHECKPOINT_ARMS)
+        assertTrue(RIPPLE_CHECKPOINT_CASE_ARMS.values.all { it.distinct() == it }) {
+            "an arm listed twice would probe the same directory under two names: $RIPPLE_CHECKPOINT_CASE_ARMS"
+        }
+    }
+
+    /**
      * The whole point of the axis: the arms' edit phases differ by nearly a factor of four, so only the
      * fraction lines them up. Both plans carry the very same ten coordinates while their steps have
      * nothing to do with each other — which is what lets the report draw the two curves over one another.

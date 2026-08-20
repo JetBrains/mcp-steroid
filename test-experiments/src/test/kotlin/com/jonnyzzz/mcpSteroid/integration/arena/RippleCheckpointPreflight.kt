@@ -41,14 +41,20 @@ fun IntelliJContainer.checkpointGitDir(): String = "${guestRunDir()}/checkpoints
  * Everything about a recording that can be checked without paying for one, expressed over the snapshot
  * tree ids the shadow repository holds.
  *
- * Pure, so the three shapes it must recognise are decided by unit tests instead of by a container run:
+ * Pure, so the four shapes it must recognise are decided by unit tests instead of by a container run:
  * a gap (some step has no snapshot — `RippleCheckpointRecorder.plan` refuses such a recording, and
  * finding out at that point means the Opus run is already paid for), a recording whose snapshots never
  * differ (the hook fires, the counter advances, and the shadow repository never sees the agent's
- * writes — a capture like that yields five checkpoints that are all the pristine tree), and a missing
- * `step-0` (nothing for a patch to be a diff against).
+ * writes — a capture like that yields five checkpoints that are all the pristine tree), a missing
+ * `step-0` (nothing for a patch to be a diff against), and a step with no HOOK RECORD.
+ *
+ * The last one is new in round 2 and is the reason the round exists: without the hook's own stdin there
+ * is no tool identity and no transcript path for a step, and therefore no upstream denominator —
+ * exactly the hole that makes capture 1 unusable for the round-2 question. [hookRecords] is the set of
+ * steps a record was found for; passing it explicitly rather than defaulting it keeps a caller from
+ * silently opting out of the check.
  */
-fun preflightProblems(steps: Int, trees: Map<Int, String>): List<String> = buildList {
+fun preflightProblems(steps: Int, trees: Map<Int, String>, hookRecords: Set<Int>): List<String> = buildList {
     if (0 !in trees) {
         add("there is no step-0 snapshot, so no checkpoint patch could be a diff against the pristine tree")
     }
@@ -64,6 +70,14 @@ fun preflightProblems(steps: Int, trees: Map<Int, String>): List<String> = build
             "every snapshot holds the same tree ${trees.values.firstOrNull()}, so the shadow repository " +
                 "never changed — the recording would hand every probe the pristine tree while looking " +
                 "healthy in the log"
+        )
+    }
+    val unrecorded = (1..steps).filterNot { it in hookRecords }
+    if (unrecorded.isNotEmpty()) {
+        add(
+            "the hook counted $steps tool calls but wrote no stdin record for $unrecorded — those steps " +
+                "have no tool identity and no transcript path, so no upstream work can be attributed " +
+                "to them"
         )
     }
 }
@@ -142,7 +156,9 @@ fun runCheckpointHookPreflight() {
 
         val trees = recorder.stepTreeIds()
         println("[CHECKPOINT-PREFLIGHT] snapshot trees: $trees")
-        val problems = preflightProblems(steps = steps, trees = trees)
+        val hookRecords = recorder.hookRecordSteps()
+        println("[CHECKPOINT-PREFLIGHT] hook records for steps: ${hookRecords.sorted()}")
+        val problems = preflightProblems(steps = steps, trees = trees, hookRecords = hookRecords)
         problems.forEach { println("[CHECKPOINT-PREFLIGHT] problem: $it") }
         assertTrue(problems.isEmpty()) {
             "The recording is not usable for a capture:\n${problems.joinToString("\n")}"
@@ -164,6 +180,17 @@ fun runCheckpointHookPreflight() {
             "The deepest planned snapshot is an empty diff, so the shadow repository never saw the " +
                 "files the agent wrote. A capture run would hand the probe an unchanged tree and every " +
                 "checkpoint would look like step 0."
+        }
+
+        // The transcript is the exact source of the upstream denominator of round 2, and its path is
+        // only knowable through the hook records. A capture that publishes states but no transcript
+        // measures nothing this round needs, so the gate for it belongs here — where it is free.
+        val transcripts = recorder.exportStepRecords()
+        println("[CHECKPOINT-PREFLIGHT] published transcripts: $transcripts")
+        assertTrue(transcripts.isNotEmpty()) {
+            "The hook records name no session transcript that could be copied, so a capture would " +
+                "publish no per-message usage and the cumulative output tokens before each state " +
+                "would be unrecoverable — the exact hole that makes capture 1 unusable for round 2."
         }
     } finally {
         lifetime.closeAllStacks()

@@ -19,6 +19,7 @@ class RippleCheckpointPreflightTest {
         val problems = preflightProblems(
             steps = 3,
             trees = mapOf(0 to "empty", 1 to "written", 2 to "written", 3 to "written"),
+            hookRecords = setOf(1, 2, 3),
         )
         assertTrue(problems.isEmpty()) { problems.toString() }
     }
@@ -33,6 +34,7 @@ class RippleCheckpointPreflightTest {
         val problems = preflightProblems(
             steps = 3,
             trees = mapOf(0 to "empty", 1 to "written", 3 to "written"),
+            hookRecords = setOf(1, 2, 3),
         )
         assertEquals(1, problems.size) { problems.toString() }
         assertTrue(problems.single().contains("[2]")) { problems.toString() }
@@ -49,6 +51,7 @@ class RippleCheckpointPreflightTest {
         val problems = preflightProblems(
             steps = 3,
             trees = mapOf(0 to "empty", 1 to "empty", 2 to "empty", 3 to "empty"),
+            hookRecords = setOf(1, 2, 3),
         )
         assertEquals(1, problems.size) { problems.toString() }
         assertTrue(problems.single().contains("never changed")) { problems.toString() }
@@ -56,7 +59,25 @@ class RippleCheckpointPreflightTest {
 
     @Test
     fun `the pristine snapshot must exist for a patch to be a diff against anything`() {
-        val problems = preflightProblems(steps = 1, trees = mapOf(1 to "written"))
+        val problems = preflightProblems(steps = 1, trees = mapOf(1 to "written"), hookRecords = setOf(1))
         assertTrue(problems.any { it.contains("step-0") }) { problems.toString() }
+    }
+
+    /**
+     * The round-2 case: every snapshot is there, the trees differ, and the hook still recorded nothing
+     * about WHAT each step was. Such a recording produces a perfectly usable readiness curve and no
+     * upstream denominator at all — which is exactly the state capture 1 was published in, discovered
+     * only after both Opus runs were paid for.
+     */
+    @Test
+    fun `a step without a hook record is reported even when its snapshot is perfect`() {
+        val problems = preflightProblems(
+            steps = 3,
+            trees = mapOf(0 to "empty", 1 to "written", 2 to "more", 3 to "more"),
+            hookRecords = setOf(1, 3),
+        )
+        assertEquals(1, problems.size) { problems.toString() }
+        assertTrue(problems.single().contains("[2]")) { problems.toString() }
+        assertTrue(problems.single().contains("no tool identity")) { problems.toString() }
     }
 }

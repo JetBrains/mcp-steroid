@@ -45,6 +45,32 @@ class RippleCheckpointReportTest {
     }
 
     /**
+     * A second capture is addressed by a new arm token (`mcp2` / `none2`, see
+     * `RIPPLE_CHECKPOINT_CASE_ARMS`), and the aggregator has to read it without any change: the whole
+     * point of encoding the round in the arm is that nothing downstream — not the TeamCity DSL, not this
+     * parser, not the report's grouping key `(arm, step)` — needs to learn about rounds at all.
+     */
+    @Test
+    fun `a second capture's verdict parses under its own arm token`() {
+        val line = "[CHECKPOINT-PROBE] arm=mcp2 checkpoint=3 step=21 editFraction=0.250 " +
+            "position=0.7000 replicate=4 Y=1 usd=0.5100 agentSeconds=705 tokens=88012"
+        val verdict = parseProbeVerdicts(line).single()
+
+        assertEquals(
+            ProbeVerdict(
+                arm = "mcp2", checkpoint = 3, step = 21, position = 0.7000, replicate = 4, success = true,
+                editFraction = 0.250, usd = 0.5100, agentSeconds = 705, tokens = 88012,
+            ),
+            verdict,
+        )
+        // Round 1's rows must not be folded into round 2's: the grouping key is (arm, step), and the two
+        // captures are different arms precisely so that the same step number cannot merge them.
+        val round1 = "[CHECKPOINT-PROBE] arm=mcp checkpoint=3 step=21 editFraction=0.500 " +
+            "position=0.8077 replicate=4 Y=1"
+        assertEquals(2, parseProbeVerdicts("$line\n$round1").map { it.arm to it.step }.distinct().size)
+    }
+
+    /**
      * The 38 verdicts TeamCity recorded before the line carried a fraction or a price. They measure real
      * states and must keep folding into `V`; what they never learned stays NULL, because a zero dollar
      * cost or a zero fraction would be a number nobody measured and would drag every median with it.

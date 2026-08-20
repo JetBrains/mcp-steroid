@@ -50,6 +50,25 @@ class RippleCheckpointRecorderTest {
         assertFalse(script.contains("git -C /work/project")) { "the project's own .git must stay untouched" }
     }
 
+    /**
+     * The stdin record is the whole reason round 2 can measure upstream work, so its three properties
+     * are pinned here: it is written per STEP (not once per run, which would leave 59 of 60 tool calls
+     * unattributed), it is truncated (a `tool_response` can hold a whole file), and it goes to a FILE
+     * — a hook that echoed the payload would corrupt the agent's JSON-RPC channel on its first call.
+     */
+    @Test
+    fun `hook script records the stdin of every call under that step's own name`() {
+        val script = checkpointHookScript(
+            gitDir = "/checkpoints/.git", workTree = "/work/project",
+            counterFile = "/checkpoints/steps", recordDir = "/checkpoints",
+        )
+        assertTrue(script.contains("head -c $HOOK_RECORD_MAX_BYTES")) { "the record must be capped: $script" }
+        assertTrue(script.contains("> /checkpoints/step-\$n$HOOK_RECORD_SUFFIX")) {
+            "the record must be named after the step the hook just counted: $script"
+        }
+        assertFalse(script.contains("cat -")) { "the payload must never be echoed: $script" }
+    }
+
     @Test
     fun `hook script never writes stdout and never fails the run`() {
         val script = checkpointHookScript(
@@ -110,11 +129,11 @@ class RippleCheckpointRecorderTest {
         script.writeText(checkpointHookScript(gitDir, work.toString(), counterFile))
         script.toFile().setExecutable(true)
 
-        val runs = mutableListOf(runHook(script, tmp))
+        val runs = mutableListOf(runHook(script, tmp, hookPayload("Bash")))
         work.resolve("a.txt").writeText("after the first tool call\n")
-        runs += runHook(script, tmp)
+        runs += runHook(script, tmp, hookPayload("Edit"))
         work.resolve("b.txt").writeText("written after the snapshot\n")
-        runs += runHook(script, tmp)
+        runs += runHook(script, tmp, hookPayload("Write"))
 
         runs.forEachIndexed { index, run ->
             assertEquals(0, run.exitCode) { "call ${index + 1} failed the run: ${run.stderr}" }
@@ -139,7 +158,86 @@ class RippleCheckpointRecorderTest {
         assertEquals("", git(work, "diff", "--cached", "--name-only").trim()) {
             "the instrument staged files in the project's own repository"
         }
+
+        // Round 2's upstream denominator: which tool each step was, and where the transcript is.
+        val records = (1..3).map { checkpoints.resolve(RippleCheckpointRecorder.hookRecordFileName(it)) }
+        records.forEachIndexed { index, record ->
+            assertTrue(Files.exists(record)) { "step ${index + 1} left no hook record: $record" }
+        }
+        assertEquals(
+            listOf("Bash", "Edit", "Write"),
+            records.map { Json.parseToJsonElement(it.readText()).jsonObject["tool_name"]!!.jsonPrimitive.content },
+        )
+        assertEquals(
+            "/home/agent/.claude/projects/session.jsonl",
+            RippleCheckpointRecorder.parseTranscriptPath(records.first().readText()),
+        )
     }
+
+    /**
+     * A record larger than the cap must still be a record: it is truncated in the middle of the
+     * payload, and the fields the analysis reads sit before the cut.
+     */
+    @Test
+    fun `an oversized payload is truncated and still names its tool and transcript`(@TempDir tmp: Path) {
+        val checkpoints = tmp.resolve("checkpoints").createDirectories()
+        val counterFile = checkpoints.resolve("steps").toString()
+        val work = tmp.resolve("work").createDirectories()
+        val script = checkpoints.resolve("snapshot.sh")
+        // No shadow repository here on purpose: the git half of the hook fails, and the record must be
+        // written anyway — the two halves may not depend on each other.
+        script.writeText(
+            checkpointHookScript(
+                gitDir = checkpoints.resolve("absent.git").toString(),
+                workTree = work.toString(),
+                counterFile = counterFile,
+                recordDir = checkpoints.toString(),
+            )
+        )
+        script.toFile().setExecutable(true)
+
+        val huge = hookPayload("Read", response = "x".repeat(HOOK_RECORD_MAX_BYTES * 2))
+        val run = runHook(script, tmp, huge)
+
+        assertEquals(0, run.exitCode) { "a hook must never fail a paid run: ${run.stderr}" }
+        assertEquals("", run.stdout) { "the payload reached the agent's protocol channel" }
+        val record = checkpoints.resolve(RippleCheckpointRecorder.hookRecordFileName(1)).readText()
+        assertEquals(HOOK_RECORD_MAX_BYTES, record.length) { "the record was not capped" }
+        assertEquals(
+            "/home/agent/.claude/projects/session.jsonl",
+            RippleCheckpointRecorder.parseTranscriptPath(record),
+        ) { "a truncated record is not valid JSON, and the transcript must still be readable from it" }
+    }
+
+    @Test
+    fun `hook records are told apart from the patches that share their directory`() {
+        val steps = RippleCheckpointRecorder.parseHookRecordSteps(
+            """
+            checkpoints.json
+            step-1.hook.json
+            step-1.patch
+            step-12.hook.json
+            step-2.patch
+            steps
+            transcript-0.jsonl
+            """.trimIndent()
+        )
+        assertEquals(setOf(1, 12), steps)
+    }
+
+    @Test
+    fun `a record naming no transcript yields null instead of an invented path`() {
+        assertEquals(null, RippleCheckpointRecorder.parseTranscriptPath("""{"tool_name":"Bash"}"""))
+        assertEquals(null, RippleCheckpointRecorder.parseTranscriptPath("""{"transcript_path":""}"""))
+        assertEquals(null, RippleCheckpointRecorder.parseTranscriptPath(""))
+    }
+
+    /** The shape Claude Code hands a `PostToolUse` hook, with the fields the analysis reads. */
+    private fun hookPayload(tool: String, response: String = "ok"): String = """
+        {"session_id":"abc","transcript_path":"/home/agent/.claude/projects/session.jsonl",
+        "cwd":"/home/agent/project","hook_event_name":"PostToolUse","tool_name":"$tool",
+        "tool_input":{"command":"ls"},"tool_response":"$response"}
+    """.trimIndent().replace("\n", "")
 
     /**
      * The states a plan is built from come out of the shadow repository as tree ids, and equal tree ids
@@ -286,12 +384,20 @@ class RippleCheckpointRecorderTest {
 
     private data class HookRun(val exitCode: Int, val stdout: String, val stderr: String)
 
-    /** Both streams go to files: reading two pipes in sequence deadlocks as soon as one of them fills. */
-    private fun runHook(script: Path, workingDir: Path): HookRun {
+    /**
+     * Both streams go to files: reading two pipes in sequence deadlocks as soon as one of them fills.
+     *
+     * [stdin] is a file too, for the same reason — the hook reads the whole payload, and a pipe the
+     * test writes into while the process is running is one more deadlock waiting for a large record.
+     */
+    private fun runHook(script: Path, workingDir: Path, stdin: String = ""): HookRun {
+        val input = Files.createTempFile("checkpoint-hook-stdin", ".json")
+        input.writeText(stdin)
         val stdout = Files.createTempFile("checkpoint-hook-stdout", ".txt")
         val stderr = Files.createTempFile("checkpoint-hook-stderr", ".txt")
         val exitCode = ProcessBuilder(script.toString())
             .directory(workingDir.toFile())
+            .redirectInput(input.toFile())
             .redirectOutput(stdout.toFile())
             .redirectError(stderr.toFile())
             .start()
