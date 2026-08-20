@@ -1,0 +1,61 @@
+{
+  "case": "dpaia__feature__service-125",
+  "arm": "none2",
+  "model": "claude-opus-5",
+  "n": 48,
+  "firstWriteStep": 16,
+  "fractions": [
+    0.0,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9
+  ],
+  "checkpoints": [
+    {
+      "index": 1,
+      "step": 16,
+      "editFraction": 0.0,
+      "position": 0.3333,
+      "tree": "sha1:2ff4d37fbb28ac334b513c1e16b0a63797c2a03c",
+      "patchChars": 456,
+      "sameStateAs": null,
+      "milestone": "M0"
+    },
+    {
+      "index": 2,
+      "step": 40,
+      "editFraction": 0.75,
+      "position": 0.8333,
+      "tree": "sha1:6c13bf80713018adc3f626d72cbb5a81f8915d19",
+      "patchChars": 25044,
+      "sameStateAs": null,
+      "milestone": "Mapi-1"
+    },
+    {
+      "index": 3,
+      "step": 41,
+      "editFraction": 0.7812,
+      "position": 0.8542,
+      "tree": "sha1:afca92dbfb77b1be494faed06c8e44ecbd90180e",
+      "patchChars": 37711,
+      "sameStateAs": null,
+      "milestone": "Mapi"
+    },
+    {
+      "index": 4,
+      "step": 44,
+      "editFraction": 0.875,
+      "position": 0.9167,
+      "tree": "sha1:447ff160ea4e01c58e3c3a90d6863832c63f40f3",
+      "patchChars": 39152,
+      "sameStateAs": null,
+      "milestone": "last-distinct"
+    }
+  ]
+}

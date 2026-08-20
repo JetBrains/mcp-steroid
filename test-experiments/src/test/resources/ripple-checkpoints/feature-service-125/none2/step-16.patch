@@ -1,0 +1,10 @@
+diff --git a/src/main/resources/db/migration/V5__add_release_planning_columns.sql b/src/main/resources/db/migration/V5__add_release_planning_columns.sql
+new file mode 100644
+index 0000000..75b8625
+--- /dev/null
++++ b/src/main/resources/db/migration/V5__add_release_planning_columns.sql
+@@ -0,0 +1,4 @@
++alter table releases
++    add column planned_release_date timestamp,
++    add column release_owner varchar(255),
++    add column release_version integer;

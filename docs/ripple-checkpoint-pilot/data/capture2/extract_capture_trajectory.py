@@ -82,8 +82,15 @@ def transcript_steps(text):
     The hook fires after every tool call and counts them in order, so the k-th tool call of the
     transcript is step k. Usage is attributed per assistant MESSAGE: a message that issues two tool calls
     has its output counted once, at the first of them, because the model produced those tokens once.
+
+    **Deduplication by message id is what makes the denominator exact.** The CLI writes an assistant
+    message more than once — 48 lines for 27 messages in the round-2 mcp capture — and each copy repeats
+    the same final `usage`. Summed naively they overcount; summed once per id they reproduce the run's
+    reported output tokens EXACTLY (45 702 / 45 702 mcp, 41 528 / 41 528 shell), which is the check that
+    licenses using this number as upstream work at all.
     """
     out, cum_tokens, cum_chars, start = [], 0, 0, None
+    seen, tools_seen = set(), set()
     for line in text.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -98,23 +105,33 @@ def transcript_steps(text):
         message = entry.get("message") or {}
         if entry.get("type") != "assistant" or not isinstance(message, dict):
             continue
-        usage = message.get("usage") or {}
-        cum_tokens += usage.get("output_tokens", 0)
+        identifier = message.get("id")
         blocks = message.get("content") or []
-        if isinstance(blocks, list):
+        if not isinstance(blocks, list):
+            continue
+        if identifier not in seen:
+            seen.add(identifier)
+            cum_tokens += (message.get("usage") or {}).get("output_tokens", 0)
             for block in blocks:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") in ("text", "thinking"):
+                if isinstance(block, dict) and block.get("type") in ("text", "thinking"):
                     cum_chars += len(block.get("text") or block.get("thinking") or "")
-            for block in blocks:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    out.append(dict(
-                        tool=block.get("name"),
-                        cumOutputTokens=cum_tokens,
-                        cumOutputCharsProxy=cum_chars,
-                        seconds=elapsed(start, stamp),
-                    ))
+        # Tool calls are deduplicated by their OWN id, not by the message's. A repeated copy of a
+        # message carries the same `usage` — hence the dedup above — but the copies are not identical:
+        # the tool_use blocks of the mcp capture appear only on the later copy, so skipping a whole
+        # repeated message would have lost 18 of its 26 tool calls and left every state after step 8
+        # without an upstream denominator.
+        for block in blocks:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            if block.get("id") in tools_seen:
+                continue
+            tools_seen.add(block.get("id"))
+            out.append(dict(
+                tool=block.get("name"),
+                cumOutputTokens=cum_tokens,
+                cumOutputCharsProxy=cum_chars,
+                seconds=elapsed(start, stamp),
+            ))
     return out
 
 

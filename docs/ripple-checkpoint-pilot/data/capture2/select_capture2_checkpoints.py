@@ -28,7 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extract_capture_trajectory import Artifact, STEP_PATCH  # noqa: E402
-from gold_layers import coverage, transition_step  # noqa: E402
+from gold_layers import coverage, milestones, transition_step  # noqa: E402
 
 CASE = "dpaia__feature__service-125"
 MODEL = "claude-opus-5"
@@ -37,13 +37,38 @@ MODEL = "claude-opus-5"
 FRACTIONS = [round(k / 10, 1) for k in range(10)]
 
 
-def select(steps, trees, first_write, layer_cov):
-    """The four pre-registered states, as `(id, step)` pairs, deduplicated in trajectory order."""
+def select(steps, trees, first_write, layer_cov, layers):
+    """The four probed states, as `(id, step)` pairs, deduplicated in trajectory order.
+
+    **Documented deviation from the pre-registration, decided before any probe was queued and recorded
+    in `REPLICATION-2.md`.** The frozen anchor was `T`, the largest single-step increase in `layerCov`
+    with ties resolved to the earliest step. On both round-2 trajectories that rule DEGENERATES onto the
+    first write: the mcp run's first write already covers 6 of 7 layers, and the shell run's increases
+    are all exactly one layer, so "largest, ties → earliest" returns step 16 of 48. Probing it would
+    measure the first write twice and never approach the state whose arrival the round is about.
+
+    The substitute is not invented here: `Mapi` — the first step touching the `api` layer — is itself
+    pre-registered in the same document, is computed arm-independently from the gold-patch taxonomy, and
+    is the milestone the confirmation rule is written in terms of. `T` is still reported everywhere; it
+    is only no longer the anchor of the probed set.
+    """
     t, _ = transition_step([(s, layer_cov[s]) for s in steps])
-    before = max([s for s in steps if s < t], default=None)
+    marks = milestones([(s, layer_cov[s], layers[s]) for s in steps], first_write)
+    api = marks["Mapi"]
+    before_api = max([s for s in steps if api is not None and s < api], default=None)
     final_tree = trees.get(steps[-1])
     last_distinct = max([s for s in steps if trees.get(s) != final_tree], default=None)
-    chosen = [("M0", first_write), ("T-1", before), ("T", t), ("last-distinct", last_distinct)]
+    chosen = [
+        ("M0", first_write),
+        ("Mapi-1", before_api),
+        ("Mapi", api),
+        ("last-distinct", last_distinct),
+    ]
+    # Where the substitution leaves fewer than four distinct states — the mcp arm writes its api layer
+    # one step after its first write — the ORIGINAL rule's `T - 1` fills the gap, so the count and the
+    # cost stay exactly what the pre-registration budgeted.
+    if len({s for _, s in chosen if s is not None}) < 4:
+        chosen.append(("T-1", max([s for s in steps if s < t], default=None)))
 
     picked, seen = [], set()
     for name, step in chosen:
@@ -88,13 +113,15 @@ def main():
             )
         trees = {s: listed.get(s, trees[s]) for s in steps}
 
-    layer_cov = {s: coverage(text[s])["layerCov"] for s in steps}
+    covered = {s: coverage(text[s]) for s in steps}
+    layer_cov = {s: covered[s]["layerCov"] for s in steps}
+    layers = {s: covered[s]["layers"] for s in steps}
     first_write = next((s for s in steps if text[s].strip()), None)
     if first_write is None:
         raise SystemExit("no step of this capture wrote anything — there is no edit phase to probe")
 
     n = max(steps)
-    picked, t = select(steps, trees, first_write, layer_cov)
+    picked, t = select(steps, trees, first_write, layer_cov, layers)
     print(f"{args.arm}: n={n} firstWrite={first_write} T={t} -> {[(k, s) for k, s in picked]}")
 
     os.makedirs(args.out, exist_ok=True)

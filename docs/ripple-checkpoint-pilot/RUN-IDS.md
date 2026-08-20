@@ -186,7 +186,9 @@ touched again.
 |---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
 | 1 | `hookPreflight` | 1037066974 | SUCCESS | 7 | — | — | ≈0 | — | **7/7** | `transcript-0.jsonl` |
 | 2 | `captureMcpArm` | 1037073445 | FAILURE (artifacts) | 23 | 786 | 43715 | $3.05 | **true** | **23/23** | published, then LOST |
-| 3 | `captureShellArm` | 1037073447 | | | | | | | | |
+| 3 | `captureShellArm` | 1037073447 | FAILURE (artifacts) | 70 | 1203 | 55797 | $5.36 | — | **70/70** | published, then LOST |
+| 4 | `captureMcpArm` (re-run) | 1037157415 | | | | | | | | |
+| 5 | `captureShellArm` (re-run) | 1037157425 | | | | | | | | |
 
 **Attempt 1 of the mcp arm is void, and not because of the agent.** The measurement itself succeeded —
 admitted, 23 tool calls, a hook record for every one of them, a patch for every one of them, the
@@ -209,6 +211,17 @@ and the tree stops changing after step 18 — `step-17` is already 36 179 chars,
 essentially the whole solution in ONE call at `editFraction = 0`. Recorded here because it is a
 measurement of the arm's batching, and because it means a repeated mcp capture may again collapse `T`
 onto `M0`, which the pre-registered rule in [REPLICATION-2.md](REPLICATION-2.md) covers explicitly.
+
+**Attempt 1 of the shell arm is void for the identical reason** — the same `AccessDeniedException` on
+`checkpoints/transcript-0.jsonl`, 1195 entries this time. Its instrument was equally complete: `n = 70`,
+**70/70** hook records, a patch for every one of the 70 steps, the transcript located and copied. From
+its log alone: first write at step **21**, the final tree ≈32 700 chars, 55 797 output tokens in 1203 s
+for $5.36. Both arms were re-queued at `8f00b53f2` (rows 4–5), where the copy is `chmod 0644`.
+
+The two void attempts cost **$8.41** and bought no probeable state. They are kept in this table rather
+than deleted: an instrument that loses a paid capture to a file mode is exactly what a provenance file
+exists to record, and the trajectories they measured (mcp `n = 23`, first write 17; shell `n = 70`,
+first write 21) remain evidence about the arms' shapes even though no probe can start from them.
 
 `out tok` is the run's own OUTPUT tokens from the terminal `result` event — not the end-of-run context
 size round 1's tables printed under the name `tokens`.
