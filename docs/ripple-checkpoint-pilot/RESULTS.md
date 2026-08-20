@@ -1,5 +1,16 @@
 # Solution-readiness pilot — measured result
 
+> **Superseded in part.** A later pass over the same builds, this time per rollout rather than per cell,
+> corrects four things in the table below and adds the residual-work axis it lacks:
+> [RESIDUAL-DIFFICULTY.md](RESIDUAL-DIFFICULTY.md). In short: mcp 0.000 is 2/5 and not 1/4; five rollouts
+> were graded `Y=0` although they had rewritten the FAIL_TO_PASS oracle, which is a VOID grade and not a
+> failure to finish (four of them sit at `editFraction = 0.3`, i.e. on the dip this page reports); the
+> `tokens` column is the END-OF-RUN CONTEXT SIZE, not the work done, and the cumulative output tokens in
+> the same logs move 6× where it moves 1.5×; and the provenance sentence below ("276 verdicts / 74 probe
+> builds") does not match the artefacts — the branch ran 97 probe builds, 95 of which printed a verdict.
+> The AUC figures on this page were computed from the correct 14 cells and change to 0.875 / 0.775 once
+> the void grades are withdrawn.
+
 Case `dpaia__feature__service-125`, source agent `claude-opus-5`, probe agent bare `claude-haiku-4-5`
 with no MCP and no prior knowledge of the trajectory. Every probe is graded by the same
 `ArenaVerifier.verify` the source run was graded by: 5 FAIL_TO_PASS classes green, no regression against

@@ -222,13 +222,27 @@
   to shell text search before initialization completes. This is a client/harness readiness problem; add
   a regression in the agent launcher instead of another server prompt or MCP tool.
 
-- [ ] **Scale the solution-readiness pilot beyond one task** ([RESULTS.md](docs/ripple-checkpoint-pilot/RESULTS.md)).
-  The measured pilot on `dpaia__feature__service-125` gives AUC 0.855 (mcp) against 0.703 (shell) over the
-  fraction of the edit phase, but on ONE capture per arm and 5 replicates per point, which cannot separate
-  0.60 from 0.80. Before spending on 10 tasks, decide two things the pilot exposed: (a) the probe's unaided
-  baseline is 0.67 on this task, so pick cases whose baseline leaves room for `V` to move, and (b) the
-  cost-of-finishing metric (median $/s/turns over successful probes) discriminates where `V` saturates and
-  has a much narrower spread — it may be the cheaper primary signal.
+- [ ] **Repeat the solution-readiness pilot on a SECOND capture per arm, before any new task**
+  ([RESIDUAL-DIFFICULTY.md](docs/ripple-checkpoint-pilot/RESIDUAL-DIFFICULTY.md)). The per-rollout re-read
+  of the 97 probe builds settles the metric question: residual work (cumulative output tokens and tool
+  calls of the successful probes) has within-cell CV 0.19–0.22 and is monotone in `editFraction`
+  (Spearman −0.77 mcp / −0.90 shell), while the binary `V` needs `n ≈ 27` to separate 0.75 from 1.00 and
+  saturates at 1.00 halfway through both arms. So do NOT buy more replicates — buy a second capture of
+  each arm on the SAME case (~30 + ~40 probe cells, ≈ $56 and ≈ 70 build-hours at the measured $0.68 and
+  ≈ 1 build-hour per probe) and check whether each arm puts its integration-layer action at the same
+  phase twice. Pre-registered rule for going wider: mcp must land it ≥ 0.2 earlier in `editFraction`
+  than shell AND the residual-work collapse must be ≥ 2× on output tokens with non-overlapping bootstrap
+  intervals. Drop the partial verifier score from the design — it is saturated at both class and test
+  granularity on this case.
+
+- [ ] **Give `RippleCheckpointProbeTest` a TAMPERED outcome distinct from `Y=0`.** Five of the pilot's
+  rollouts rewrote a FAIL_TO_PASS test file, so `DpaiaRunOutcome.objectiveSuccess` (correctly) voided
+  their grade — but the verdict line has no way to say "void" and published them as failures to finish.
+  Three of the five had all five classes green with zero regressions, and four sit at one checkpoint, so
+  the confusion moved a published `V` cell from 0.75 to 0.60 and another from 0.50 to 0.20. Add
+  `TAMPERED` next to `LOST` in `checkpointProbeVerdict`/`parseProbeVerdicts`, and keep it out of `V`'s
+  denominator by default. Also record capture build ids in `RUN-IDS.md` when they are QUEUED — stage 3's
+  had to be recovered from TeamCity afterwards.
 
 - [ ] **Pin an exact semantic oracle for the Keycloak Authenticator hierarchy E2E**: the headless-agent
   discovery scenario currently gates the pinned checkout with a 70-FQN lower bound plus known indirect

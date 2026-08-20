@@ -1,0 +1,228 @@
+{
+ "seed": 20260820,
+ "rollouts": 97,
+ "inGrid": 72,
+ "outcomes": {
+  "solved": 72,
+  "failed": 17,
+  "tampered": 5,
+  "lost": 3
+ },
+ "baseline": {
+  "n": 9,
+  "solved": 6,
+  "V": 0.6667,
+  "lo": 0.3542,
+  "hi": 0.8794,
+  "outputTokens_mean": 23380.8,
+  "outputTokens_n": 4
+ },
+ "auc": {
+  "mcp": {
+   "auc": 0.7,
+   "normalised": 0.875
+  },
+  "none": {
+   "auc": 0.62,
+   "normalised": 0.775
+  }
+ },
+ "auc_tamper_as_fail": {
+  "mcp": {
+   "auc": 0.685,
+   "normalised": 0.8563
+  },
+  "none": {
+   "auc": 0.57,
+   "normalised": 0.7125
+  }
+ },
+ "permutation_tests": {
+  "mcp 0.3 vs 0.4 outputTokens": {
+   "p": 0.10114,
+   "n1": 3,
+   "n2": 3,
+   "mean1": 24189.7,
+   "mean2": 4017.3
+  },
+  "mcp 0.3 vs 0.4 endContextTokens": {
+   "p": 0.03627,
+   "n1": 3,
+   "n2": 5,
+   "mean1": 113313.3,
+   "mean2": 75103.4
+  },
+  "mcp 0.3 vs 0.4 toolCalls": {
+   "p": 0.01788,
+   "n1": 3,
+   "n2": 5,
+   "mean1": 85.3,
+   "mean2": 34.8
+  },
+  "mcp 0.3 vs 0.4 editsAndWrites": {
+   "p": 0.01707,
+   "n1": 3,
+   "n2": 5,
+   "mean1": 24.3,
+   "mean2": 0.8
+  },
+  "mcp<=0.3 vs mcp>=0.4 outputTokens": {
+   "p": 4e-05,
+   "n1": 9,
+   "n2": 8,
+   "mean1": 26434.1,
+   "mean2": 4576.2
+  },
+  "shell<=0.7 vs shell 0.8 outputTokens": {
+   "p": 4e-05,
+   "n1": 21,
+   "n2": 5,
+   "mean1": 20140.9,
+   "mean2": 5234.2
+  },
+  "mcp 0.4 vs shell 0.4 outputTokens": {
+   "p": 0.02784,
+   "n1": 3,
+   "n2": 4,
+   "mean1": 4017.3,
+   "mean2": 20528.2
+  },
+  "mcp 0.4 vs shell 0.4 toolCalls": {
+   "p": 0.01541,
+   "n1": 5,
+   "n2": 5,
+   "mean1": 34.8,
+   "mean2": 80.8
+  },
+  "mcp 0.4 vs shell 0.8 outputTokens": {
+   "p": 0.45099,
+   "n1": 3,
+   "n2": 5,
+   "mean1": 4017.3,
+   "mean2": 5234.2
+  },
+  "mcp 0.3 vs pristine tree outputTokens": {
+   "p": 1.0,
+   "n1": 3,
+   "n2": 4,
+   "mean1": 24189.7,
+   "mean2": 23380.8
+  },
+  "mcp 0.4 vs pristine tree outputTokens": {
+   "p": 0.1431,
+   "n1": 3,
+   "n2": 4,
+   "mean1": 4017.3,
+   "mean2": 23380.8
+  },
+  "shell 0.6 vs pristine tree outputTokens": {
+   "p": 0.80175,
+   "n1": 5,
+   "n2": 4,
+   "mean1": 21334.0,
+   "mean2": 23380.8
+  },
+  "shell 0.8 vs pristine tree outputTokens": {
+   "p": 0.05511,
+   "n1": 5,
+   "n2": 4,
+   "mean1": 5234.2,
+   "mean2": 23380.8
+  }
+ },
+ "censoring": {
+  "solved_total": 72,
+  "solved_without_usage": 12,
+  "solved_at_the_1800s_limit": 12,
+  "note": "a killed CLI emits no terminal result event, so usd/input/output/cache are NA exactly for the slowest runs; toolCalls and editsAndWrites come from the decoded transcript and survive"
+ },
+ "worst_case_imputation": {
+  "mcp 0.0": {
+   "n": 2,
+   "imputed": 0,
+   "mean": 25253.0
+  },
+  "mcp 0.1": {
+   "n": 3,
+   "imputed": 2,
+   "mean": 34830.3
+  },
+  "mcp 0.2": {
+   "n": 4,
+   "imputed": 1,
+   "mean": 30407.2
+  },
+  "mcp 0.3": {
+   "n": 3,
+   "imputed": 0,
+   "mean": 24189.7
+  },
+  "mcp 0.4": {
+   "n": 5,
+   "imputed": 2,
+   "mean": 17248.8
+  },
+  "mcp 0.8": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 4911.6
+  },
+  "none 0.0": {
+   "n": 3,
+   "imputed": 0,
+   "mean": 26663.0
+  },
+  "none 0.2": {
+   "n": 4,
+   "imputed": 2,
+   "mean": 29779.5
+  },
+  "none 0.3": {
+   "n": 1,
+   "imputed": 0,
+   "mean": 24664.0
+  },
+  "none 0.4": {
+   "n": 5,
+   "imputed": 1,
+   "mean": 23841.8
+  },
+  "none 0.5": {
+   "n": 2,
+   "imputed": 0,
+   "mean": 15525.5
+  },
+  "none 0.6": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 21334.0
+  },
+  "none 0.7": {
+   "n": 4,
+   "imputed": 0,
+   "mean": 13386.2
+  },
+  "none 0.8": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 5234.2
+  },
+  "_imputed_value": 37096
+ },
+ "monotonicity_spearman": {
+  "mcp": {
+   "V": 0.8827,
+   "outputTokens": -0.7714,
+   "toolCalls": -0.7714,
+   "partialVerifier": 0.7537,
+   "partialVerifierTests": 0.759
+  },
+  "none": {
+   "V": 0.5708,
+   "outputTokens": -0.9048,
+   "toolCalls": -0.881,
+   "partialVerifier": 0.6215,
+   "partialVerifierTests": 0.5455
+  }
+ }
+}

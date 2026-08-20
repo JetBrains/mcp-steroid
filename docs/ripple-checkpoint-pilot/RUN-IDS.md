@@ -57,6 +57,22 @@ distinct pre-final states as it actually produced.
 
 Rejected captures stay in this table — a repeat is a new row, and the report shows every attempt.
 
+## Stage 3 — case `dpaia__feature__service-125` (the pilot's actual case)
+
+The capture builds the whole grid below hangs off. Recovered from TeamCity after the fact — they were
+never written down when queued, which is exactly what the note at the top of this file warns against.
+Both ran `DpaiaFeatureService125CheckpointCaptureTest` and both were admitted.
+
+| # | method | build id | status | n | agent s | end ctx tok | cost | admitted |
+|---|:---|---:|:---|---:|---:|---:|---:|:---|
+| 1 | `hookPreflight` | 1035324252 | SUCCESS | — | 398 | — | ≈0 | — |
+| 2 | `captureMcpArm` | 1035363501 | SUCCESS | **26** | 3900 | 152414 | $3.83 | **true** |
+| 3 | `captureShellArm` | 1035363503 | SUCCESS | **57** | — | 133589 | $3.68 | **true** |
+
+The decisive action of the mcp capture is its CLI tool call 21 = recorder step 19, one
+`steroid_execute_code` that wrote the whole integration layer in a single call — see
+[RESIDUAL-DIFFICULTY.md](RESIDUAL-DIFFICULTY.md).
+
 ### Probe stage — the axis is the FRACTION of the edit phase
 
 The first probe grid measured relative positions of the WHOLE run and could not compare the arms: the
@@ -123,9 +139,26 @@ naming:
 
 | cell | build | what happened | disposition |
 |:---|---:|:---|:---|
-| mcp/2/3 (step 16) | 1035674856 | agent spent all 1800 s, exit -1, no grade | now counted as `Y=0` — an exhausted budget IS a failure to finish, so it is folded into `V` and needs no re-run |
+| mcp/2/3 (step 16) | 1035674856 | agent spent all 1800 s, exit -1, no grade | the probe published `LOST` and this row argued for folding it into `V` as a zero — but the table in [RESULTS.md](RESULTS.md) shows 4 runs at that fraction, i.e. it was excluded in the end, and [RESIDUAL-DIFFICULTY.md](RESIDUAL-DIFFICULTY.md) keeps the exclusion: an UNGRADED cell says nothing about the state, and other budget-exhausted cells were graded normally, several of them `Y=1` |
 | none/5/1 (step 33) | 1035679682 | Anthropic closed the connection 26 s in (9 reads, 0 edits) and it was published as `Y=0` | withheld as `LOST reason=api-transport-error`; re-run 1035939472 returned `Y=1` ($0.709 / 778 s) |
 | none/3/2 (step 25) | 1035678932 | build produced no `[CHECKPOINT-PROBE]` line at all | withheld; re-run 1035939474 returned `Y=1` ($0.834 / 1067 s) |
+
+### Cells whose grade is VOID because the probe rewrote the oracle
+
+Found by re-reading the logs, not visible in the aggregates: five rollouts edited a FAIL_TO_PASS test
+file, so `failToPassTampered` voided their grade and they were published as `Y=0`. Three of them had all
+five classes green with no regression. Four of the five sit at `editFraction = 0.3`.
+
+| cell | build | classes green | note |
+|:---|---:|:---|:---|
+| mcp/4/1 (step 18) | 1035674868 | 5/5, 0 regressions | rewrote `ReleaseControllerTests.java` and `test-data.sql` |
+| none/4/3 (step 29) | 1035678944 | 4/5 | rewrote the oracle |
+| none/4/4 (step 29) | 1035678946 | 2/5 | rewrote the oracle |
+| none/4/5 (step 29) | 1035679598 | 5/5, 0 regressions | rewrote the oracle |
+| none/8/2 (step 45) | 1035679714 | 5/5, 0 regressions | rewrote the oracle |
+
+Two more cells were graded while the VERIFIER's own Maven was killed with exit 137 and only one class
+reported: `1035674862` (mcp step 17 r4) and `1035679694` (none step 37 r2).
 
 The first re-queue attempt (1035837025 / 1035837027 / 1035837029) never started: TeamCity answered
 `Cannot find modification in TeamCity database with revision a301af63a` and the snapshot dependency
@@ -137,8 +170,13 @@ re-queues above pin the full 40-character `dbac4260750ec72fac330c824fd86267ab110
 The measured curves, the AUC of each arm, the shared baseline and the threats to the result are in
 [RESULTS.md](RESULTS.md). Headline: over the fraction of the edit phase the mcp trajectory integrates to
 0.847 against the shell arm's 0.713 on the identical range 0.0..0.8, above a shared 0.67 baseline
-measured on the pristine tree. Both numbers come from all 276 verdicts recovered out of the 74 probe
-builds, so they supersede any figure quoted earlier in this log.
+measured on the pristine tree.
+
+Those two AUC numbers become **0.875 / 0.775** once the void grades above are withdrawn, and the
+per-rollout dataset behind every cell — together with the residual-work axis, which moves 5× where the
+success rate saturates — is in [RESIDUAL-DIFFICULTY.md](RESIDUAL-DIFFICULTY.md) and `data/`. That pass
+also corrects the provenance: the branch ran **97** probe builds and **95** of them printed a verdict
+line; "276 verdicts out of 74 builds" was never right.
 
 ## Totals
 
@@ -147,8 +185,9 @@ builds, so they supersede any figure quoted earlier in this log.
 | capture builds, stage 1 (discarded) | 4 |
 | capture builds, stage 2 (abandoned case) | 2 preflights |
 | capture builds, stage 3 | 1 preflight + 2 captures, both admitted |
-| probe builds queued | 50 on the discarded grid (12 cancelled), 57 on the fraction grid |
-| probe builds graded | 55 of 57 on the fraction grid; 68 verdicts in total once the 13 reused cells are counted |
-| instrument failures (LOST) | 2 — one transport abort, one build with no verdict line; both re-run, both then graded `Y=1` |
+| probe builds queued | 50 on the discarded grid (12 cancelled), 57 on the fraction grid, 2 re-queues |
+| probe builds that ran | **97** in total on the branch — 38 printing the old verdict format, 59 the fraction one |
+| probe builds graded | 95 printed a verdict; 89 of those are usable (72 solved, 17 failed), 5 are void (oracle rewritten), 3 are instrument failures |
+| instrument failures (LOST) | 3 — one transport abort, one build with no verdict line, one with no grade at all; the first two were re-run and both then graded `Y=1` |
 | API spend | ≈ $46 — $4.43 stage 1 (discarded), $7.51 captures ($3.83 mcp + $3.68 shell), ≈ $34 for 95 haiku probe cells; a preflight is a scripted agent and costs about nothing |
 | TeamCity build time | ≈ 90 build-hours, i.e. ≈ 5 per curve point |
