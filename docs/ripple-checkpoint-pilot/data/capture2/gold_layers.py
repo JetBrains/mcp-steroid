@@ -85,12 +85,16 @@ def transition_step(steps):
     return best, best_delta
 
 
-def milestones(steps):
-    """`M0`, `M50`, `Mfull` and `Mapi` over an ordered `(step, layerCov, layers)` sequence."""
-    out = {"M0": None, "M50": None, "Mfull": None, "Mapi": None}
+def milestones(steps, first_write=None):
+    """`M0`, `M50`, `Mfull` and `Mapi` over an ordered `(step, layerCov, layers)` sequence.
+
+    `M0` is the first WRITE, and it is passed in rather than derived here: coverage cannot see it. A
+    step that reads a file, or one whose only change is outside `src/main/`, leaves `layerCov` at zero
+    while still being a recorded step, so taking the first entry of the sequence would place `M0` before
+    the agent had written anything at all.
+    """
+    out = {"M0": first_write, "M50": None, "Mfull": None, "Mapi": None}
     for step, cov, layers in steps:
-        if out["M0"] is None:
-            out["M0"] = step
         if out["M50"] is None and cov >= 0.5:
             out["M50"] = step
         if out["Mfull"] is None and cov >= 1.0:
@@ -124,7 +128,8 @@ def _capture1_table(root):
             )
             previous = cov["layerCov"]
         t, delta = transition_step([(s, c) for s, c, _ in rows])
-        print(f"  T = step {t} (delta {delta:+.3f}); milestones {milestones(rows)}")
+        first_write = next((s for s, _, layers in rows if layers), None)
+        print(f"  T = step {t} (delta {delta:+.3f}); milestones {milestones(rows, first_write)}")
 
 
 if __name__ == "__main__":

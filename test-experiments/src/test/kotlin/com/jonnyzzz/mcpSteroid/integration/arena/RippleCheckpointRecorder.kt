@@ -325,7 +325,15 @@ class RippleCheckpointRecorder(
         }
         return transcripts.mapIndexedNotNull { index, path ->
             val name = transcriptFileName(index)
-            val copy = exec("cp $path", listOf("cp", path, "$checkpointDir/$name"))
+            // chmod, and it is not optional: the CLI writes its transcript 0600 as the agent user, `cp`
+            // preserves that, and the run dir is a BIND MOUNT — so the TeamCity agent on the host reads
+            // the copy as a different uid, fails with AccessDeniedException while zipping, and loses the
+            // WHOLE artifact. Build 1037073445 published nothing but its video for exactly this reason,
+            // taking 23 step patches and a $3.05 capture with it.
+            val copy = exec(
+                "cp $path",
+                listOf("sh", "-c", "cp '$path' '$checkpointDir/$name' && chmod 0644 '$checkpointDir/$name'"),
+            )
             if (copy.exitCode != 0) {
                 println("[CHECKPOINT] could not publish the transcript $path: ${copy.stderr}")
                 return@mapIndexedNotNull null

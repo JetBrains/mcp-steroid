@@ -165,6 +165,96 @@ The first re-queue attempt (1035837025 / 1035837027 / 1035837029) never started:
 failed. The abbreviated SHA is not resolvable for a `--revision` once the branch has moved — the
 re-queues above pin the full 40-character `dbac4260750ec72fac330c824fd86267ab110156`.
 
+## Stage 4 — round 2: a second independent capture per arm (case `dpaia__feature__service-125`)
+
+Why a second capture rather than more probes: round 1 has `n = 1` source trajectory per arm, so its
+6× residual-work gap cannot be told apart from variance between two Opus runs. The design, its
+hypotheses and the decision rule are frozen in [REPLICATION-2.md](REPLICATION-2.md), committed before
+the first build below was queued.
+
+Series revision: `0e6f167fa2b90d8ce665584aa77d720ac2807ee9` — `cd646b679` plus the round-1 write-up, the
+pre-registration and the capture instrumentation. **Not a rebase**: the prompt, the MCP tool surface,
+the grading and the case configuration are the same objects round 1 measured.
+
+The round is encoded in the ARM: `mcp2` / `none2`, states under
+`ripple-checkpoints/feature-service-125/mcp2|none2/`. Round 1's `mcp` / `none` directories are never
+touched again.
+
+### Capture stage (round 2)
+
+| # | method | build id | status | n | agent s | out tok | cost | admitted | hook records | transcript |
+|---|:---|---:|:---|---:|---:|---:|---:|:---|:---|:---|
+| 1 | `hookPreflight` | 1037066974 | SUCCESS | 7 | — | — | ≈0 | — | **7/7** | `transcript-0.jsonl` |
+| 2 | `captureMcpArm` | 1037073445 | FAILURE (artifacts) | 23 | 786 | 43715 | $3.05 | **true** | **23/23** | published, then LOST |
+| 3 | `captureShellArm` | 1037073447 | | | | | | | | |
+
+**Attempt 1 of the mcp arm is void, and not because of the agent.** The measurement itself succeeded —
+admitted, 23 tool calls, a hook record for every one of them, a patch for every one of them, the
+transcript located and copied. TeamCity then failed to zip the run directory:
+
+```
+Error while closing archive '…-mcp.zip' with Optional[793] entries:
+  Error adding file '…/publish/bundle/checkpoints/transcript-0.jsonl'
+  java.nio.file.AccessDeniedException
+```
+
+The CLI writes its transcript `0600` as the agent user; `cp` preserved that, the run dir is a bind
+mount, and the TeamCity agent reads it back on the host as a different uid. One unreadable file aborts
+the WHOLE archive, so 23 patches, 23 hook records and `checkpoints.json` were lost with it and only the
+27 MB video survived. Fixed by `chmod 0644` on the copy in `RippleCheckpointRecorder.exportStepRecords`;
+the capture must be repeated because nothing of it is recoverable.
+
+What the lost trajectory still tells us, from the build log alone: `n = 23`, first write at step **17**,
+and the tree stops changing after step 18 — `step-17` is already 36 179 chars, i.e. this mcp run wrote
+essentially the whole solution in ONE call at `editFraction = 0`. Recorded here because it is a
+measurement of the arm's batching, and because it means a repeated mcp capture may again collapse `T`
+onto `M0`, which the pre-registered rule in [REPLICATION-2.md](REPLICATION-2.md) covers explicitly.
+
+`out tok` is the run's own OUTPUT tokens from the terminal `result` event — not the end-of-run context
+size round 1's tables printed under the name `tokens`.
+
+The preflight is the gate for the changed instrument, and it passed on all four counts: the counter
+reached 7, every step 0–7 has a snapshot, **every step 1–7 has a hook record**, and the CLI's session
+transcript was located through those records and published. Its own artifacts contain no `checkpoints/`
+directory — the preflight recorder writes to the container's `/tmp`, while a capture writes into the
+bind-mounted run dir — so the transcript's per-message `usage` is first readable in the capture
+artifacts below, not here.
+
+Environment recorded per capture, because the agent CLI is installed by `npm install -g` behind a daily
+cache-bust and therefore differs from round 1's `claude-code/2.1.197` by construction:
+
+| | capture 1 | capture 2 |
+|:---|:---|:---|
+| agent CLI | `claude-code/2.1.197` | |
+| plugin | `0.101.672-jb-4e6c047` | |
+| IDE | `2026.2.1` | |
+| capture model | `claude-opus-5` | |
+
+Both round-2 arms must share ONE image build. An arm captured against a different image is a different
+experiment and is recorded as such rather than compared.
+
+### Probe stage (round 2)
+
+Four pre-registered states per trajectory — `M0`, `T−1`, `T`, last-distinct-tree — five replicates each,
+plus three drift-control cells re-running a capture-1 state to quantify probe-side drift between rounds.
+
+| arm | index | step | editFraction | milestone | r1 | r2 | r3 | r4 | r5 |
+|:---|---:|---:|---:|:---|:---|:---|:---|:---|:---|
+| mcp2 | 1 | | | `M0` | | | | | |
+| mcp2 | 2 | | | `T−1` | | | | | |
+| mcp2 | 3 | | | `T` | | | | | |
+| mcp2 | 4 | | | last distinct | | | | | |
+| none2 | 1 | | | `M0` | | | | | |
+| none2 | 2 | | | `T−1` | | | | | |
+| none2 | 3 | | | `T` | | | | | |
+| none2 | 4 | | | last distinct | | | | | |
+
+| drift control | arm | index | step | build |
+|---:|:---|---:|---:|:---|
+| 1 | mcp | 5 | 19 | |
+| 2 | mcp | 5 | 19 | |
+| 3 | mcp | 5 | 19 | |
+
 ## Result
 
 The measured curves, the AUC of each arm, the shared baseline and the threats to the result are in
