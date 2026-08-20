@@ -189,6 +189,41 @@ The AUC is integrated between the FIRST and LAST measured `editFraction` only, a
 that range next to the number. Nothing is extrapolated to 0 or to the end of the trajectory: readiness
 there was not measured.
 
+## Round 2: a second capture is a new ARM, not a new coordinate
+
+From round 2 on ([REPLICATION-2.md](REPLICATION-2.md)), the capture ROUND is encoded in the arm token:
+
+| round | mcp arm | shell arm | states |
+|--:|:---|:---|:---|
+| 1 | `mcp` | `none` | `ripple-checkpoints/feature-service-125/mcp` / `none` — **never modified again** |
+| 2 | `mcp2` | `none2` | `…/mcp2` / `…/none2` |
+
+Why, and what it saves: the probe build forwards exactly three parameters — `ripple.checkpoint.arm`,
+`.index`, `.replicate` — and all three are declared in the separate `mcp-steroid-teamcity` DSL. A fourth
+`capture` parameter would need a DSL commit, a settings sync and a regeneration before ONE cell could
+run. A new arm token needs none of that, because **TeamCity forwards a prompted value that is not among
+its `select` options** — round 1 proved it by running indices 6..10 against a build whose options were
+1..5. The verdict regex is `arm=(\S+)` and the report keys rows by `(arm, step)`, so both rounds parse
+and aggregate side by side without a change, and round 1's committed patches stay byte-identical.
+
+Queue a round-2 cell exactly like a round-1 cell:
+
+```bash
+jb tc native run start "$PROBE" --branch "$BRANCH" --revision "$SHA" --no-push \
+  -P ripple.checkpoint.arm=mcp2 -P ripple.checkpoint.index=4 -P ripple.checkpoint.replicate=1 --json
+```
+
+Two guards make a mistake cheap. `probeCoordinates` validates the arm against **that case's** list
+(`RIPPLE_CHECKPOINT_CASE_ARMS`: the keycloak case has no second capture and rejects `mcp2`), and an arm
+whose `checkpoints.json` has not been committed yet fails in the first milliseconds of the build rather
+than an hour in, inside the container.
+
+Round 2 also probes FOUR pre-registered states per trajectory instead of the ten-fraction grid — `M0`,
+`T − 1`, `T` and the last state distinct from the final one, where `T` is the largest single-step jump in
+gold-layer coverage. The rule, and the layer taxonomy it reads, are frozen in
+[REPLICATION-2.md](REPLICATION-2.md) and executable as
+[`data/capture2/gold_layers.py`](data/capture2/gold_layers.py).
+
 ## Cost expectation
 
 | phase | builds | per build |
