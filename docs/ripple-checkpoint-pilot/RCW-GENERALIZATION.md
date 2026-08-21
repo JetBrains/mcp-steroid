@@ -396,6 +396,76 @@ The general lesson is recorded because it will recur: **on this harness a green 
 that the intended thing was measured.** Every capture is now checked against the case it was queued for
 by reading the agent's own summary and the arena instance id, before its probes are bought.
 
+**D4 — Gate 1 applied per ARM, not per CASE.** As written, Gate 1 fails a case unless BOTH of its
+captures yield three distinct states, and a failed case buys no probes. Applied literally, four of the
+five cheap cases would have been dropped whole. The reason they fail is one-sided and is itself the
+round's first finding: the mcp arm lands the entire change in one or two writes, while the shell arm of
+the same case walks through five to eighteen distinct trees. Dropping those cases would discard four
+perfectly measurable shell trajectories to punish their mcp partners.
+
+So the gate is applied per arm: an arm with ≥ 3 distinct states is probed, an arm below it is not. The
+decision was taken from the capture artifacts alone, before any probe of those arms was queued, and it
+is one-directional — it can only ADD arms relative to the literal rule, never remove one that would
+have qualified. The cost is to Q3, not Q1: on `petclinic-36`, `feature-service-25`, `jhipster-3` and
+`petclinic-rest-37` only one arm is measured, so those cases cannot contribute a within-case mcp-vs-shell
+RCW comparison. That restriction is stated again wherever Q3 is answered.
+
+**D5 — "distinct" resolved as distinct TREE, not distinct step number.** The pre-registration says
+collisions collapse through `sameStateAs` but does not say when. Round 3 forced the question: `jh3-mcp`
+records steps 7, 8 and 9 with byte-identical patches — one write followed by three build runs — and
+`fs25-mcp` does the same at 12 and 13. Counting step numbers would have called those four and three
+states and bought 15–20 probe cells to measure one or two trees. Distinctness is therefore evaluated on
+patch text at selection time, in `gate1_r3.py` and `commit_checkpoints_r3.py` alike, with the earliest
+step carrying a tree as its representative. This only ever reduces spend and never changes which STATES
+are measured.
+
 ## Results
 
-*(appended after the builds; nothing above this line changes)*
+### Stage 1 — captures and Gate 1
+
+Twelve captures on `6cf948cc8`, one per arm, each verified against the case it was queued for by reading
+the arena instance id and the agent's own summary of what it implemented. All twelve solved their task,
+so `V` at the final state is 1.00 everywhere and every trajectory is a SUCCESSFUL one — the same
+condition rounds 1 and 2 measured under.
+
+| arm | steps | distinct trees | `M0` | last distinct | states selected | Gate 1 |
+|:---|--:|--:|--:|--:|:---|:---|
+| `sb31-mcp` | 16 | 9 | 7 | 13 | 7, 10, 12, 13 | PASS |
+| `sb31-none` | 16 | 10 | 5 | 13 | 5, 9, 12, 13 | PASS |
+| `pc36-mcp` | 17 | **2** | 12 | 11 | 11, 12 | **FAIL** |
+| `pc36-none` | 20 | 5 | 11 | 15 | 11, 12, 13 | PASS |
+| `fs25-mcp` | 16 | **3** | 12 | 13 | 11, 12 | **FAIL** |
+| `fs25-none` | 42 | 18 | 10 | 38 | 10, 24, 30, 31, 38 | PASS |
+| `jh3-mcp` | 12 | **3** | 7 | 9 | 6, 7 | **FAIL** |
+| `jh3-none` | 25 | 8 | 13 | 18 | 13, 15, 16, 17, 18 | PASS |
+| `pcr37-mcp` | 24 | 5 | 8 | 20 | 7, 8, 20 | PASS |
+| `pcr37-none` | 10 | **3** | 7 | 7 | 6, 7 | **FAIL** |
+| `pc71-mcp`, `pc71-none` | | | | | | pending |
+
+**The first result of round 3 is about trajectories, not about RCW: three of five mcp arms have no
+measurable interior, against one of five shell arms.** The `distinct trees` column is the evidence and
+it is not a selection artifact — it counts every tree the whole capture passed through, independent of
+which states the rule picked. With semantic IDE access Opus batches the change into one or two writes
+(`jh3-mcp`: 12 steps, 3 trees, the complete cross-stack rename landing at step 7); the same model on
+shell tools walks the same task through 8 to 18 trees.
+
+This is consistent with, and sharpens, round 2's `Q3` finding. "MCP reduces environment interactions"
+also means **MCP produces coarser trajectories**, and a coarser trajectory has fewer intermediate states
+to measure — which is a limitation of what can be observed about an mcp run, not a defect of the metric.
+It also means the mcp arm is structurally harder to instrument for any progress metric that reads the
+work tree, RCW included.
+
+Two further observations from the captures, both recorded before any probe verdict:
+
+- **`petclinic-rest-37`'s gold patch is not a faithful description of its task.** The dataset entry is
+  38 KB across 23 file headers, but the file list repeats — the real change is one paginated endpoint,
+  and both arms solved it with a ≈ 2.7 KB patch touching only the `api` layer. `layerCov` therefore
+  never exceeds 0.333 in either arm and `Mlast` is unreachable, so `C4` falls to the coverage-peak
+  fallback. The case is retained with its shell arm failing Gate 1, and its `L_case` is flagged as
+  overstated wherever it is used.
+- **`petclinic-36` and `jhipster-3` have short edit phases** (5 and 8 trees on the measured arm), so
+  their curves have three to five points rather than the pilot's ten.
+
+### Stage 2 — probes
+
+*(appended as the waves complete)*
