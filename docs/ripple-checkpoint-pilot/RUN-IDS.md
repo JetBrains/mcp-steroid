@@ -333,27 +333,71 @@ Revision `93386219e80d7e6b913e80e04158cfbb1f0d7be2` on `worktree-semantic-ripple
 `origin` and `jb` before queuing — TeamCity pulls from `jb`, so a build started against an unpushed SHA
 measures the previous revision.
 
-## Captures
+## Captures, attempt 1 — VOID, every build recorded the wrong case
 
-`mcp_steroid_IntegrationTests_RippleCheckpointCapture`, one build per arm, selected by
-`-Pripple.checkpoint.capture.case` + `-Pripple.checkpoint.capture.method`. Queued in the
-pre-registered case order, so a partial round is still interpretable.
+Queued on `93386219e` with `-P ripple.checkpoint.capture.case=<case>` alongside
+`-P ripple.checkpoint.capture.method=<method>`. **The case never reached Gradle.** The build
+configuration templates its step as `-Pripple.checkpoint.capture.method=%…%` and nothing else, so
+TeamCity accepted the second parameter, dropped it, and `build.gradle.kts` fell back to its default
+case. The agent command line on the machine reads, in full:
 
-| case | arm token | method | build |
+```
+gradlew … -Pripple.checkpoint.capture.method=captureShellArm -Dtest.integration.ide.vm.xmx=4g …
+```
+
+All thirteen builds were green, their artifacts well-formed, and their checkpoint exports complete —
+they simply captured `feature-service-125`. What gave it away is the `[ARENA]` summary line: build
+1037524918, queued as `petclinic-36` (add `Owner.email`), reported *"Added release planning fields + V5
+migration, expanded ReleaseStatus with a transition-validating state machine"*, which is the pilot's
+task. Nine builds were cancelled mid-flight; four captures and the preflight had already finished.
+
+| case queued | method | build | outcome |
+|:---|:---|---:|:---|
+| — (instrument re-proof) | `hookPreflight` | 1037524914 | finished — valid as a preflight, it is case-independent |
+| `petclinic-36` | `captureMcpArm` | 1037524916 | cancelled |
+| `petclinic-36` | `captureShellArm` | 1037524918 | finished, **void** — recorded `feature-service-125` |
+| `feature-service-25` | `captureMcpArm` | 1037524920 | finished, **void** — recorded `feature-service-125` |
+| `feature-service-25` | `captureShellArm` | 1037524922 | finished, **void** |
+| `springboot3-1` | `captureMcpArm` | 1037524924 | finished, **void** — recorded `feature-service-125` |
+| `springboot3-1` | `captureShellArm` | 1037524926 | finished, **void** |
+| `jhipster-3` | `captureMcpArm` / `captureShellArm` | 1037524928 / 1037524930 | cancelled |
+| `petclinic-rest-37` | `captureMcpArm` | 1037524932 | finished, **void** |
+| `petclinic-rest-37` | `captureShellArm` | 1037524934 | cancelled |
+| `petclinic-71` | `captureMcpArm` / `captureShellArm` | 1037524936 / 1037524938 | cancelled |
+
+None of these six finished captures is used for anything. They are extra `feature-service-125`
+trajectories recorded under arm tokens that mean other cases, so publishing them would corrupt the
+pilot's own dataset; they are listed here only so the spend is accounted for. Cost of the mistake:
+≈ $25 and ≈ 4 build-hours.
+
+Fixed in `6cf948cc8` by moving the case INTO the forwarded parameter as `<case>:<method>`, with two
+regression tests in `RippleCheckpointCaptureFilterTest`. Recorded as deviation D3 in
+[RCW-GENERALIZATION.md](RCW-GENERALIZATION.md#deviations-from-the-pre-registration).
+
+## Captures, attempt 2
+
+`mcp_steroid_IntegrationTests_RippleCheckpointCapture` on `6cf948cc8731506a7b96ef7f65df895c2f602bd8`,
+one build per arm, selected by the single parameter
+`-P ripple.checkpoint.capture.method=<case>:<method>`. Queued in the pre-registered case order, so a
+partial round is still interpretable.
+
+| case | arm token | selector | build |
 |:---|:---|:---|---:|
-| — (instrument re-proof) | — | `hookPreflight` (on `petclinic-36`) | 1037524914 |
-| `petclinic-36` | `pc36-mcp` | `captureMcpArm` | 1037524916 |
-| `petclinic-36` | `pc36-none` | `captureShellArm` | 1037524918 |
-| `feature-service-25` | `fs25-mcp` | `captureMcpArm` | 1037524920 |
-| `feature-service-25` | `fs25-none` | `captureShellArm` | 1037524922 |
-| `springboot3-1` | `sb31-mcp` | `captureMcpArm` | 1037524924 |
-| `springboot3-1` | `sb31-none` | `captureShellArm` | 1037524926 |
-| `jhipster-3` | `jh3-mcp` | `captureMcpArm` | 1037524928 |
-| `jhipster-3` | `jh3-none` | `captureShellArm` | 1037524930 |
-| `petclinic-rest-37` | `pcr37-mcp` | `captureMcpArm` | 1037524932 |
-| `petclinic-rest-37` | `pcr37-none` | `captureShellArm` | 1037524934 |
-| `petclinic-71` | `pc71-mcp` | `captureMcpArm` | 1037524936 |
-| `petclinic-71` | `pc71-none` | `captureShellArm` | 1037524938 |
+| `petclinic-36` | `pc36-mcp` | `petclinic-36:captureMcpArm` | 1037545756 |
+| `petclinic-36` | `pc36-none` | `petclinic-36:captureShellArm` | 1037545758 |
+| `feature-service-25` | `fs25-mcp` | `feature-service-25:captureMcpArm` | 1037545760 |
+| `feature-service-25` | `fs25-none` | `feature-service-25:captureShellArm` | 1037545762 |
+| `springboot3-1` | `sb31-mcp` | `springboot3-1:captureMcpArm` | 1037545764 |
+| `springboot3-1` | `sb31-none` | `springboot3-1:captureShellArm` | 1037545766 |
+| `jhipster-3` | `jh3-mcp` | `jhipster-3:captureMcpArm` | 1037545768 |
+| `jhipster-3` | `jh3-none` | `jhipster-3:captureShellArm` | 1037545770 |
+| `petclinic-rest-37` | `pcr37-mcp` | `petclinic-rest-37:captureMcpArm` | 1037545772 |
+| `petclinic-rest-37` | `pcr37-none` | `petclinic-rest-37:captureShellArm` | 1037545774 |
+| `petclinic-71` | `pc71-mcp` | `petclinic-71:captureMcpArm` | 1037547376 |
+| `petclinic-71` | `pc71-none` | `petclinic-71:captureShellArm` | 1037547378 |
+
+Each of these is checked against the case it was queued for before its probes are bought — the
+`[ARENA]` instance id and the repository in the agent's own summary, not the build's green status.
 
 ## Probes
 

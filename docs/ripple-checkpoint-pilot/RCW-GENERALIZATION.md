@@ -376,6 +376,26 @@ probe logs and reported an empty dataset rather than an error. The round-3 extra
 which is what the format section of this document already specified. No Kotlin change: the plugin never
 parses the token back.
 
+**D3 — the case coordinate did not reach the capture builds; twelve captures re-run.** The first batch
+was queued with `-P ripple.checkpoint.capture.case=<case>`, which the build configuration does not
+forward: its Gradle step is templated as `-Pripple.checkpoint.capture.method=%…%` and nothing else, so
+TeamCity accepted the parameter, dropped it, and every build fell back to the default case. All thirteen
+were green with complete, well-formed artifacts; they had simply captured `feature-service-125`. The
+`[ARENA]` summary is what exposed it — a build queued as `petclinic-36` reported implementing a release
+status machine. Nine were cancelled, six had finished; ≈ $25 and ≈ 4 build-hours lost, and none of those
+six is used, because a pilot trajectory stored under an arm token that means another case would corrupt
+the pilot's own dataset.
+
+The fix keeps the selection in this repository rather than in the TeamCity DSL repo: the case travels
+inside the forwarded parameter as `<case>:<method>`, the same device the arm token already uses for the
+probe side. Two regression tests pin it. **This is an infrastructure fix, not a design change** — no
+case, metric, milestone rule, checkpoint rule, replicate count or decision threshold moved, and the
+correction was made before any round-3 checkpoint was selected or any probe queued.
+
+The general lesson is recorded because it will recur: **on this harness a green build is not evidence
+that the intended thing was measured.** Every capture is now checked against the case it was queued for
+by reading the agent's own summary and the arena instance id, before its probes are bought.
+
 ## Results
 
 *(appended after the builds; nothing above this line changes)*
