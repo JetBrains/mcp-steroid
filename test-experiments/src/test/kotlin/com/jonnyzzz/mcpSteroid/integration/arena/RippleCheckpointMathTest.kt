@@ -50,16 +50,76 @@ class RippleCheckpointMathTest {
             RIPPLE_CHECKPOINT_CASE_ARMS.getValue(RippleCheckpointCase.RESOURCE_DIR),
         )
         assertEquals(
-            RIPPLE_CHECKPOINT_ARMS,
+            listOf("mcp-rmw", "none-rmw"),
             RIPPLE_CHECKPOINT_CASE_ARMS.getValue(
                 RippleCases.renameMethodWide.instanceId.substringAfterLast("__")
             ),
         )
         // Round 1's tokens must never change meaning: a second capture is a NEW arm, not a redefinition
         // of an existing one, because every number in RESIDUAL-DIFFICULTY.md is keyed by `mcp`/`none`.
+        // They belong to the MEASURED case, which is why the discarded keycloak one had to take
+        // distinct tokens — over directories that keep the names they were committed with.
         assertEquals(listOf("mcp", "none"), RIPPLE_CHECKPOINT_ARMS)
+        assertEquals(RIPPLE_CHECKPOINT_ARMS, rippleCheckpointCaseOfArm("mcp-rmw").armDirectories)
         assertTrue(RIPPLE_CHECKPOINT_CASE_ARMS.values.all { it.distinct() == it }) {
             "an arm listed twice would probe the same directory under two names: $RIPPLE_CHECKPOINT_CASE_ARMS"
+        }
+    }
+
+    /**
+     * The invariant the whole token scheme rests on: an arm token names exactly one case.
+     *
+     * A probe build forwards `arm`, `index` and `replicate` and nothing else — the three are declared
+     * in another repository's TeamCity DSL — so [rippleCheckpointCaseOfArm] is the only thing that can
+     * say which case a cell reads. Two cases sharing a token would not fail: the lookup would return
+     * the first one and fifty probe cells would grade one case's states against another case's oracle.
+     *
+     * The resource directories are checked for the same reason one level down. They are the keys of
+     * [RIPPLE_CHECKPOINT_CASE_ARMS], built with `associate`, which silently keeps the LAST duplicate —
+     * a repeated directory would drop a case's arms out of the layout test without a word.
+     */
+    @Test
+    fun `arm tokens and resource directories are unique across the whole registry`() {
+        val arms = RippleCheckpointCases.ALL.flatMap { it.arms }
+        assertEquals(arms.distinct(), arms) { "an arm token names two cases at once: $arms" }
+        assertEquals(arms, RIPPLE_CHECKPOINT_ALL_ARMS)
+
+        val dirs = RippleCheckpointCases.ALL.map { it.resourceDir }
+        assertEquals(dirs.distinct(), dirs) { "two cases claim one resource directory: $dirs" }
+        assertEquals(dirs.size, RIPPLE_CHECKPOINT_CASE_ARMS.size)
+
+        RippleCheckpointCases.ALL.forEach { case ->
+            assertEquals(case.arms.size, case.armDirectories.distinct().size) {
+                "${case.resourceDir}: two of its arms resolve to one directory, so one capture would " +
+                    "overwrite the other's states"
+            }
+            assertTrue(case.armDirs.keys.all { it in case.arms }) {
+                "${case.resourceDir}: ${case.armDirs.keys - case.arms.toSet()} is renamed but not " +
+                    "registered as an arm, so nothing addresses it"
+            }
+        }
+    }
+
+    /**
+     * Every DPAIA case of the registry must be a CURATED case.
+     *
+     * A case outside [DpaiaCuratedCases.CASE_CONFIGS] runs on the defaults — 900 s of agent budget, a
+     * 10-minute project-ready timeout and JDK 21 — which is exactly how a capture ends up timing out in
+     * both arms and publishing no states at all. The keycloak case is not a DPAIA one and carries its
+     * own configuration in [RippleCases], so it is excluded by the same `dpaia__` prefix the dataset
+     * uses.
+     */
+    @Test
+    fun `every dpaia case of the checkpoint registry is a curated case`() {
+        val dpaiaCases = RippleCheckpointCases.ALL.filter { it.instanceId.startsWith("dpaia__") }
+        assertEquals(RippleCheckpointCases.ALL.size - 1, dpaiaCases.size) {
+            "only the keycloak case is not a DPAIA one: ${RippleCheckpointCases.ALL.map { it.instanceId }}"
+        }
+        dpaiaCases.forEach { case ->
+            assertTrue(case.instanceId in DpaiaCuratedCases.CASE_CONFIGS) {
+                "${case.instanceId} (${case.resourceDir}) is not curated, so it would be captured on " +
+                    "the default budgets and JDK instead of its own"
+            }
         }
     }
 

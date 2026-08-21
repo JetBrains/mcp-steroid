@@ -170,11 +170,14 @@ fun Test.configureExperimentalTest() {
 /**
  * The capture classes of the solution-readiness pilot, keyed by the case they record.
  *
- * Two entries because two cases are captured with the same instrument: `feature-service-125` is what
- * the pilot measures (its solution is a set of independently landable parts, so readiness can rise
- * along the trajectory, and its Testcontainers oracle really runs in the arena container) and
- * `rename-method-wide` is kept as the already-measured second case, whose one atomic edit makes its
- * curve a step function.
+ * The first two are the pilot's own: `feature-service-125` is what rounds 1 and 2 measured (its
+ * solution is a set of independently landable parts, so readiness can rise along the trajectory, and
+ * its Testcontainers oracle really runs in the arena container) and `rename-method-wide` is kept as the
+ * already-measured second case, whose one atomic edit makes its curve a step function.
+ *
+ * The other six are round 3's, added because a curve measured on ONE case cannot be told apart from a
+ * property of that case. They mirror `RippleCheckpointCases.ALL` — the registry the probe side resolves
+ * an arm token through — and the keys are its `resourceDir` values.
  *
  * `RippleCheckpointCaptureFilterTest` loads every class and method named here by reflection, because a
  * rename on either side of this mapping would otherwise produce a filter matching nothing — and a
@@ -184,6 +187,12 @@ fun Test.configureExperimentalTest() {
 val checkpointCaptureClasses = mapOf(
     "feature-service-125" to "DpaiaFeatureService125CheckpointCaptureTest",
     "rename-method-wide" to "KeycloakRenameMethodWideCheckpointCaptureTest",
+    "petclinic-71" to "DpaiaPetclinic71CheckpointCaptureTest",
+    "petclinic-rest-37" to "DpaiaPetclinicRest37CheckpointCaptureTest",
+    "petclinic-36" to "DpaiaPetclinic36CheckpointCaptureTest",
+    "springboot3-1" to "DpaiaSpringboot31CheckpointCaptureTest",
+    "jhipster-3" to "DpaiaJhipster3CheckpointCaptureTest",
+    "feature-service-25" to "DpaiaFeatureService25CheckpointCaptureTest",
 )
 
 val checkpointCaptureMethods = listOf("hookPreflight", "captureMcpArm", "captureShellArm")

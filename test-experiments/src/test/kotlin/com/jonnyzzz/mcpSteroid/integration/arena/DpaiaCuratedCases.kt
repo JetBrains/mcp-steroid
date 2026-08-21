@@ -203,6 +203,12 @@ object DpaiaCuratedCases {
             taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,
         ),
         "dpaia__spring__petclinic__rest-37" to CaseConfig(
+            // 23 files, 37 KB of patch and 352 FAIL_TO_PASS tests do not land inside the default 900 s
+            // in either arm, and a case that times out in BOTH is unusable for the checkpoint harness:
+            // an agent killed before it finished leaves no edit phase to cut fractions of, so the
+            // capture publishes no states and the probe has nothing to be restarted from. 1800 s is what
+            // feature-service-125 — a smaller task on the same instrument — already needs.
+            agentTimeoutSeconds = 1_800L,
             taskType = TaskType.IMPLEMENT_SCRATCH, mcpBenefit = McpBenefit.LOW,
         ),
         "dpaia__spring__petclinic-71" to CaseConfig(

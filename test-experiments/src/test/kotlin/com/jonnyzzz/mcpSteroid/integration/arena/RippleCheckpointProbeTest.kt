@@ -32,9 +32,13 @@ data class ProbeCoordinates(val arm: String, val checkpoint: Int, val replicate:
 /**
  * Read one probe cell's coordinates, rejecting anything the pilot did not capture.
  *
- * [arm] must name a captured arm and [index] one of the checkpoints that arm really committed — a third
- * arm or a checkpoint past the end of the committed set has no state to start from, and discovering
- * that after the container, the clone and the Maven import would waste most of a build.
+ * [arm] must name a captured arm and [index] one of the checkpoints that arm really committed — an
+ * unregistered arm or a checkpoint past the end of the committed set has no state to start from, and
+ * discovering that after the container, the clone and the Maven import would waste most of a build.
+ *
+ * The arm is validated against EVERY registered token rather than against one case's list, because the
+ * token is also what names the case: a probe build forwards nothing but these three coordinates, so
+ * [rippleCheckpointCaseOfArm] is the only thing that can say which case's states this cell reads.
  *
  * The upper bound comes from [checkpointsInArm], i.e. from the arm's own `checkpoints.json`, and is not
  * a constant. It cannot be one: the number of checkpoints follows the axis, which has already changed
@@ -50,7 +54,7 @@ fun probeCoordinates(
     replicate: String?,
     checkpointsInArm: (String) -> Int = ::committedCheckpointCount,
 ): ProbeCoordinates {
-    val arms = rippleCheckpointArms(RippleCheckpointCase.RESOURCE_DIR)
+    val arms = RIPPLE_CHECKPOINT_ALL_ARMS
     require(arm != null && arm in arms) {
         "the probe arm must be one of $arms, got '$arm' — no other arm was captured"
     }
@@ -77,7 +81,7 @@ fun probeCoordinates(
  */
 fun committedCheckpointCount(arm: String): Int = committedCheckpointCountOrNull(arm)
     ?: error(
-        "${checkpointResourceDir(RippleCheckpointCase.RESOURCE_DIR, arm)}/" +
+        "${checkpointArmDir(arm)}/" +
             "${RippleCheckpointRecorder.METADATA_FILE_NAME} is missing, so nothing says how many " +
             "checkpoints the $arm arm committed and no probe cell can be addressed at all"
     )
@@ -91,7 +95,7 @@ fun committedCheckpointCount(arm: String): Int = committedCheckpointCountOrNull(
  * this function and [committedCheckpointCount].
  */
 fun committedCheckpointCountOrNull(arm: String): Int? {
-    val metadataFile = checkpointResourceDir(RippleCheckpointCase.RESOURCE_DIR, arm)
+    val metadataFile = checkpointArmDir(arm)
         .resolve(RippleCheckpointRecorder.METADATA_FILE_NAME)
     if (!metadataFile.isFile) return null
     return checkpointEntries(metadataFile.readText()).size
@@ -101,12 +105,13 @@ fun committedCheckpointCountOrNull(arm: String): Int? {
  * A bare Haiku, handed the tree as one recorded Opus trajectory left it, asked to finish the job.
  *
  * `V(s_i)` — the fraction of such runs that finish — is the pilot's whole measurement, so the probe runs
- * the SAME flow the graded case runs: it holds an anonymous [DpaiaScenarioBaseTest] for
- * [RippleCheckpointCase.INSTANCE_ID] and drives it through [DpaiaScenarioBaseTest.runAgent], reaching
- * into it only through [DpaiaRunSeams]. Grading is deliberately NOT one of the differences —
- * [ArenaVerifier.verify] decides `Y` exactly as it decides a graded arm, over the same FAIL_TO_PASS
- * classes, the same measured whole-suite regression baseline and the same tamper check, because a probe
- * graded any other way could not be compared to the capture it came from.
+ * the SAME flow the graded case runs: it holds an anonymous [DpaiaScenarioBaseTest] for the instance id
+ * the cell's arm token resolves to (see [rippleCheckpointCaseOfArm]) and drives it through
+ * [DpaiaScenarioBaseTest.runAgent], reaching into it only through [DpaiaRunSeams]. Grading is
+ * deliberately NOT one of the differences — [ArenaVerifier.verify] decides `Y` exactly as it decides a
+ * graded arm, over the same FAIL_TO_PASS classes, the same measured whole-suite regression baseline and
+ * the same tamper check, because a probe graded any other way could not be compared to the capture it
+ * came from.
  *
  * The five differences, all of them inside the seams:
  *
@@ -142,10 +147,14 @@ class RippleCheckpointProbeTest {
      * The guard against the REAL committed set, which is the only thing that can prove the bound moves
      * with the axis. A hardcoded number here would have to be edited every time the grid changes, and
      * would be edited to whatever makes the build green rather than to what was captured.
+     *
+     * Over EVERY registered arm and not one case's, because the arm token is the only case coordinate a
+     * probe build carries: a token whose directory holds nothing must be refused in the first
+     * milliseconds of the build whichever case it belongs to.
      */
     @Test
     fun `the last committed checkpoint of each arm is addressable and the next one is not`() {
-        rippleCheckpointArms(RippleCheckpointCase.RESOURCE_DIR).forEach { arm ->
+        RIPPLE_CHECKPOINT_ALL_ARMS.forEach { arm ->
             val committed = committedCheckpointCountOrNull(arm)
             if (committed == null) {
                 // A registered arm whose capture has not landed. Every cell of it must be refused, and
@@ -166,25 +175,61 @@ class RippleCheckpointProbeTest {
     }
 
     /**
-     * The round is encoded in the arm token, so the registry is what decides which rounds are
-     * addressable at all — and it is per case, because the discarded keycloak case has no second
-     * capture and must not be asked for one.
+     * Both the ROUND and the CASE are encoded in the arm token, so the registry is what decides which
+     * cells are addressable at all — and it is per case, because the discarded keycloak case has no
+     * second capture and must not be asked for one.
+     *
+     * The measured case keeps the four tokens every published number is keyed by (`mcp`, `none`,
+     * `mcp2`, `none2`); the keycloak case is addressed as `mcp-rmw`/`none-rmw` while its committed
+     * directories keep the names `mcp`/`none` — see [RippleCheckpointCaseSpec] for why the token space
+     * had to become flat and the layout did not.
      */
     @Test
-    fun `the second capture is addressable on the measured case and unknown to the discarded one`() {
+    fun `every arm token names exactly one case and an unregistered one is refused`() {
         assertEquals(
             listOf("mcp", "none", "mcp2", "none2"),
             rippleCheckpointArms(RippleCheckpointCase.RESOURCE_DIR),
         )
         assertEquals(
-            listOf("mcp", "none"),
+            listOf("mcp-rmw", "none-rmw"),
             rippleCheckpointArms(RippleCases.renameMethodWide.instanceId.substringAfterLast("__")),
         )
         assertThrows(IllegalStateException::class.java) { rippleCheckpointArms("a-case-nobody-captured") }
 
+        listOf("mcp", "none", "mcp2", "none2").forEach { arm ->
+            val case = rippleCheckpointCaseOfArm(arm)
+            assertEquals(RippleCheckpointCase.RESOURCE_DIR, case.resourceDir) { arm }
+            assertEquals(RippleCheckpointCase.INSTANCE_ID, case.instanceId) { arm }
+            assertEquals(arm, case.armDir(arm)) { "the measured case's directories ARE its tokens" }
+        }
+        listOf("mcp-rmw", "none-rmw").forEach { arm ->
+            val case = rippleCheckpointCaseOfArm(arm)
+            assertEquals(
+                RippleCases.renameMethodWide.instanceId.substringAfterLast("__"),
+                case.resourceDir,
+            ) { arm }
+            assertEquals(RippleCases.renameMethodWide.instanceId, case.instanceId) { arm }
+        }
+        // The discarded case's committed states are NOT moved: its directories keep the names they
+        // were committed under, and only the tokens addressing them were made unique.
+        assertEquals("mcp", rippleCheckpointCaseOfArm("mcp-rmw").armDir("mcp-rmw"))
+        assertEquals("none", rippleCheckpointCaseOfArm("none-rmw").armDir("none-rmw"))
+
+        assertEquals("petclinic-71", rippleCheckpointCaseOfArm("pc71-mcp").resourceDir)
+        assertEquals("pc71-mcp", rippleCheckpointCaseOfArm("pc71-mcp").armDir("pc71-mcp"))
+        assertThrows(IllegalStateException::class.java) { rippleCheckpointCaseOfArm("mcp3") }
+
         val committed = { _: String -> 4 }
         assertEquals(ProbeCoordinates("mcp2", 3, 2), probeCoordinates("mcp2", "3", "2", committed))
         assertEquals(ProbeCoordinates("none2", 4, 5), probeCoordinates("none2", "4", "5", committed))
+        assertEquals(
+            ProbeCoordinates("pc71-mcp", 1, 1),
+            probeCoordinates("pc71-mcp", "1", "1", committed),
+        )
+        assertEquals(
+            ProbeCoordinates("none-rmw", 2, 3),
+            probeCoordinates("none-rmw", "2", "3", committed),
+        )
         assertThrows(IllegalArgumentException::class.java) { probeCoordinates("mcp3", "1", "1", committed) }
     }
 
@@ -212,17 +257,17 @@ class RippleCheckpointProbeTest {
      */
     @Test
     fun `every committed checkpoint patch is a readable diff its metadata accounts for`() {
-        RIPPLE_CHECKPOINT_CASE_ARMS.forEach { (caseDir, arms) ->
-            arms.forEach { arm ->
-                val dir = checkpointResourceDir(caseDir, arm)
+        RippleCheckpointCases.ALL.forEach { case ->
+            case.arms.forEach { arm ->
+                val dir = checkpointArmDir(arm)
                 assertTrue(dir.isDirectory) {
                     "$dir is missing. The probe reads its starting states from there, so the layout is " +
                         "part of the instrument and not something a capture run creates on the fly."
                 }
                 val patches = patchFilesIn(dir)
                 println(
-                    "[CHECKPOINT-RESOURCES] $caseDir/$arm: ${patches.size} committed patch(es) — " +
-                        "${patches.map { it.name }}"
+                    "[CHECKPOINT-RESOURCES] ${case.resourceDir}/${case.armDir(arm)} (arm=$arm): " +
+                        "${patches.size} committed patch(es) — ${patches.map { it.name }}"
                 )
                 val problems = checkpointResourceProblems(
                     location = dir.path,
@@ -649,7 +694,10 @@ private fun checkpointProbeScenario(
     coordinates: ProbeCoordinates,
     checkpoint: LoadedCheckpoint,
 ): DpaiaScenarioBaseTest = object : DpaiaScenarioBaseTest() {
-    override val instanceId: String = RippleCheckpointCase.INSTANCE_ID
+    // The arm token is the ONLY case coordinate a probe build carries, so the case it names is what
+    // this cell runs. A constant here would silently grade every case's states against one case's
+    // oracle — see RippleCheckpointCaseSpec for why the case rides on the token.
+    override val instanceId: String = rippleCheckpointCaseOfArm(coordinates.arm).instanceId
 
     override val seams: DpaiaRunSeams = object : DpaiaRunSeams {
         override fun prepareTree(session: IntelliJContainer, projectDir: String, testCase: DpaiaTestCase) {
@@ -696,9 +744,9 @@ private fun checkpointProbeScenario(
                 ))
                 throw IllegalStateException(
                     "MEASUREMENT LOST: the ${coordinates.arm} arm's checkpoint ${coordinates.checkpoint} " +
-                        "(step ${checkpoint.step}) did not apply to ${RippleCheckpointCase.INSTANCE_ID}. " +
-                        "This is an instrument failure — the probe never received the state — and is not " +
-                        "a verdict on the agent.",
+                        "(step ${checkpoint.step}) did not apply to ${testCase.instanceId}. This is an " +
+                        "instrument failure — the probe never received the state — and is not a verdict " +
+                        "on the agent.",
                     e,
                 )
             }
@@ -925,8 +973,19 @@ private fun checkpointProbeLine(
  * copies in from a capture run's artifacts, and reading it where it was committed keeps that copy
  * verifiable with `git diff`.
  */
-private fun checkpointResourceDir(caseDir: String, arm: String): File =
-    File("src/test/resources/ripple-checkpoints/$caseDir/$arm")
+private fun checkpointResourceDir(caseDir: String, armDir: String): File =
+    File("src/test/resources/ripple-checkpoints/$caseDir/$armDir")
+
+/**
+ * Where one ARM TOKEN's committed states live, resolved through the registry.
+ *
+ * Two lookups in one, and both are needed: the token names the case, and inside that case it may name a
+ * directory called something else — the discarded keycloak case kept its committed `mcp`/`none`
+ * directories while being registered as `mcp-rmw`/`none-rmw`. See [RippleCheckpointCaseSpec] for why
+ * the token space had to go flat while the layout did not.
+ */
+private fun checkpointArmDir(arm: String): File = rippleCheckpointCaseOfArm(arm)
+    .let { checkpointResourceDir(it.resourceDir, it.armDir(arm)) }
 
 /** Every committed patch of one arm, in schedule order (`step-2` before `step-11`, not lexicographic). */
 private fun patchFilesIn(dir: File): List<File> =
@@ -1009,7 +1068,7 @@ private fun checkpointEntries(metadataJson: String) =
  * on the curve.
  */
 private fun loadCheckpoint(coordinates: ProbeCoordinates): LoadedCheckpoint {
-    val dir = checkpointResourceDir(RippleCheckpointCase.RESOURCE_DIR, coordinates.arm)
+    val dir = checkpointArmDir(coordinates.arm)
     val metadataFile = dir.resolve(RippleCheckpointRecorder.METADATA_FILE_NAME)
     check(metadataFile.isFile) {
         "${metadataFile.absolutePath} is missing, so neither the step this checkpoint sits at nor the " +

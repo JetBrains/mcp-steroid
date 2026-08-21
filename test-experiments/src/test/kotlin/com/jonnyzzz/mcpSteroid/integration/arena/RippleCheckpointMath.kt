@@ -190,19 +190,21 @@ val RIPPLE_CHECKPOINT_ARMS: List<String> = listOf("mcp", "none")
 val RIPPLE_CHECKPOINT_ROUND2_ARMS: List<String> = listOf("mcp2", "none2")
 
 /**
- * Which arms exist PER CASE, and therefore which resource directories the layout must hold.
+ * Which arm TOKENS exist per case, keyed by the case's resource directory.
  *
- * Per case rather than globally, because the two cases are at different stages: `feature-service-125` is
- * the measured one and carries both rounds, while the keycloak case was discarded after stage 1 (its
- * solution is atomic — see [RippleCheckpointCase]) and only its round-1 states remain, committed so the
- * discarded measurement stays checkable. A global arm list would demand `mcp2`/`none2` directories the
- * keycloak case will never have, and the resource test would then be red for a capture nobody intends
- * to run.
+ * Per case rather than globally, because the cases are at different stages: `feature-service-125` is
+ * the measured one and the only one carrying both rounds, while the keycloak case was discarded after
+ * stage 1 (its solution is atomic — see [RippleCheckpointCase]) and only its round-1 states remain,
+ * committed so the discarded measurement stays checkable. A global arm list would demand `mcp2`/`none2`
+ * directories the other cases will never have, and the resource test would then be red for a capture
+ * nobody intends to run.
+ *
+ * DERIVED from [RippleCheckpointCases] rather than listed here, so a case is added in one place. The
+ * values are TOKENS and not directory names — the two differ for the keycloak case alone, and a caller
+ * that needs a path must go through [RippleCheckpointCaseSpec.armDir].
  */
-val RIPPLE_CHECKPOINT_CASE_ARMS: Map<String, List<String>> = mapOf(
-    RippleCheckpointCase.RESOURCE_DIR to RIPPLE_CHECKPOINT_ARMS + RIPPLE_CHECKPOINT_ROUND2_ARMS,
-    RippleCases.renameMethodWide.instanceId.substringAfterLast("__") to RIPPLE_CHECKPOINT_ARMS,
-)
+val RIPPLE_CHECKPOINT_CASE_ARMS: Map<String, List<String>> =
+    RippleCheckpointCases.ALL.associate { it.resourceDir to it.arms }
 
 /**
  * The arms of one case, refusing an unknown case rather than defaulting to the global list.
