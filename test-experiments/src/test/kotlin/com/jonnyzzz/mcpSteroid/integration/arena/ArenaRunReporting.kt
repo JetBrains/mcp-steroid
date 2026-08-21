@@ -46,13 +46,8 @@ data class ArenaRunMetrics(
  * drops the usage and result events these metrics parse — and falls back to [fallbackStdout].
  */
 fun collectRunMetrics(runDir: File, agentName: String, fallbackStdout: String): ArenaRunMetrics {
-    val decodedLogName = when (agentName) {
-        "claude" -> "claude-code"
-        "codex" -> "codex"
-        "gemini" -> "gemini"
-        else -> agentName
-    }
-    val rawOutput = findRawNdjsonFile(runDir, agentName = decodedLogName)?.readText() ?: fallbackStdout
+    val decodedLogName = agentLogName(agentName)
+    val rawOutput = resolveAgentRawOutput(runDir, agentName = agentName, fallbackStdout = fallbackStdout)
     return ArenaRunMetrics(
         tokenUsage = extractTokenUsage(rawOutput),
         testMetrics = extractTestMetrics(rawOutput),
@@ -62,6 +57,32 @@ fun collectRunMetrics(runDir: File, agentName: String, fallbackStdout: String): 
         endContextTokens = extractEndContextTokens(rawOutput),
         apiTransportError = extractApiTransportError(rawOutput),
     )
+}
+
+/**
+ * The agent's own UNFILTERED output for [agentName], which is the only text any of these parsers may
+ * be pointed at.
+ *
+ * Extracted from [collectRunMetrics] so that a caller wanting one more fact out of the same run — the
+ * final response, say — cannot reach for a DIFFERENT source and get a different answer. Reading the
+ * captured process stdout instead is the specific mistake this function exists to prevent: that stream
+ * is console-filtered, and the filter removes exactly the terminal `result` event that carries both the
+ * usage totals and the agent's final message. A parser fed the filtered stream does not fail loudly; it
+ * reports "no result", which reads as an agent that produced nothing.
+ *
+ * [fallbackStdout] is still honoured, because a run that died before the driver persisted its
+ * transcript has nothing else — and a partial answer beats none when the alternative is discarding a
+ * paid run.
+ */
+fun resolveAgentRawOutput(runDir: File, agentName: String, fallbackStdout: String): String =
+    findRawNdjsonFile(runDir, agentName = agentLogName(agentName))?.readText() ?: fallbackStdout
+
+/** Maps a driver's agent name onto the prefix its persisted logs are written under. */
+fun agentLogName(agentName: String): String = when (agentName) {
+    "claude" -> "claude-code"
+    "codex" -> "codex"
+    "gemini" -> "gemini"
+    else -> agentName
 }
 
 /**

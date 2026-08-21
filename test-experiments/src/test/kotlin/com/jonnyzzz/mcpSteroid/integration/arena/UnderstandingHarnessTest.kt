@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 
 /**
  * The contract of the repository-understanding instrument, pinned where it is free to pin.
@@ -271,6 +273,44 @@ class UnderstandingHarnessTest {
                 "the downstream brief must not mention '$leak' — a probe that knows it is being compared " +
                     "can behave differently:\n$prompt"
             }
+        }
+    }
+
+    // ── where the note is read from ──────────────────────────────────────────
+
+    /**
+     * The regression of the first research wave: eight paid Opus runs, every one of them holding a
+     * finished note, all reported as "the research run produced no final message".
+     *
+     * The note travels in the terminal `result` event, and the captured process stdout is
+     * console-filtered — the filter drops precisely that event. Nothing about the filtered stream looks
+     * broken: it parses, it is not empty, it simply has no result in it, so the failure reads as an
+     * agent that said nothing rather than as a harness reading the wrong file.
+     */
+    @Test
+    fun `the run's own transcript wins over the console-filtered stdout`(@TempDir tempDir: File) {
+        val runDir = File(tempDir, "run").also { it.mkdirs() }
+        File(runDir, "agent-claude-code-1-raw.ndjson").writeText(
+            """{"type":"result","subtype":"success","result":"<NOTE>\nthe real note\n</NOTE>"}"""
+        )
+        val filteredStdout = "[assistant] Let me look at the protocol factory.\n"
+
+        val raw = resolveAgentRawOutput(runDir, agentName = "claude", fallbackStdout = filteredStdout)
+        val note = extractUnderstandingNote(decodeAgentFinalResponse(raw), limitChars = 1_000)
+
+        assertEquals("the real note", note.text)
+        assertFalse(note.markersMissing, "the markers survive the round trip through the transcript")
+    }
+
+    @Test
+    fun `a run whose transcript never landed still falls back to whatever stdout held`(@TempDir tempDir: File) {
+        val runDir = File(tempDir, "empty").also { it.mkdirs() }
+
+        val raw = resolveAgentRawOutput(runDir, agentName = "claude", fallbackStdout = "only this")
+
+        assertEquals("only this", raw) {
+            "a run that died before its transcript was persisted has nothing else; discarding it would " +
+                "throw away a paid run over a missing file"
         }
     }
 

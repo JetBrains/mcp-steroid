@@ -188,8 +188,19 @@ fun runUnderstandingResearch(
         val usage = gate.usage()
         val tools = gate.toolLog()
         val pristine = readUnderstandingPristineVerdict(session.scope, projectDir)
+        // The SAME text the metrics above were parsed from, and deliberately not the captured stdout:
+        // that stream is console-filtered and the filter drops the terminal `result` event the note
+        // travels in. Reading it cost this experiment its whole first research wave — eight paid Opus
+        // runs that had each written a perfectly good note reported "no final message" (builds
+        // 1038399360..374).
         val note = extractUnderstandingNote(
-            finalMessage = decodeAgentFinalResponse(agentResult.stdout),
+            finalMessage = decodeAgentFinalResponse(
+                resolveAgentRawOutput(
+                    runDir = session.runDirInContainer,
+                    agentName = "claude",
+                    fallbackStdout = agentResult.stdout,
+                )
+            ),
             limitChars = noteLimitChars,
         )
 
