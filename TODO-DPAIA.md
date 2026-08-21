@@ -51,6 +51,16 @@
   same milestone; indistinguishable residual work afterwards, `p = 0.56`). Spending ≈ $340 on 500 runs of
   a comparison whose sign flips with the choice of x-axis is not worth it. The follow-ups that ARE worth
   it are in `TODO.md` (a round-trip-limited comparison, and reusing `C(s)` as an instrument).
+- [ ] Decide what to do with two statements in `RCW-GENERALIZATION.md` that its own frozen code does not
+  reproduce. Both were found while verifying the round-3 pipeline against round 2's committed artifacts,
+  before any round-3 verdict existed, and both are recorded in
+  `docs/ripple-checkpoint-pilot/data/round3/README.md`. (1) The validation table gives `T` = 40 (+0.714)
+  for `none2`; `rcw_layers.transition_step` over that capture returns **16** (+0.143), which is what
+  `REPLICATION-2.md` says too — every shell step raises `layerCov` by exactly one layer, so ties resolve
+  to the first write. (2) "Applied retrospectively the rule selects `{13,14,15,23}` / `{16,40,41,44}`" is
+  four of five: `select_checkpoints()` also returns the new positional `C2` (step 18 / step 30), which
+  round 3 adds and round 2 never had. Neither affects a probed round-3 state — `Mlast` reproduces exactly
+  — so the choice is between a deviations-section note and leaving the table as written.
 - [ ] Generalize the arena prompt's Docker escape hatch from a whitelist of literal error strings
   (`Could not find a valid Docker environment`, `BadRequestException`, `HTTP 400`, `docker.sock`,
   `DockerClientException`) to any Docker/Testcontainers infrastructure failure.

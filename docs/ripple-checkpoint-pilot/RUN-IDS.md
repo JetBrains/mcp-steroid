@@ -323,3 +323,43 @@ Round 2's verdict, and why the branch stops there, is in [REPLICATION-2.md](REPL
 residual-work collapse replicated on both new trajectories (3.02× and 2.87×, `p ≈ 0.008`), while the
 claim that semantic access CAUSES it did not — mcp reaches the same state at 40 175 of its own output
 tokens against shell's 25 176, and the states are statistically indistinguishable afterwards.
+
+# Round 3 — does RCW generalize across tasks?
+
+Pre-registered in [RCW-GENERALIZATION.md](RCW-GENERALIZATION.md), which was committed **before** the
+first build below was queued. Six new DPAIA cases, none of them the pilot; rounds 1 and 2 stay untouched.
+
+Revision `93386219e80d7e6b913e80e04158cfbb1f0d7be2` on `worktree-semantic-ripple-pilot`, pushed to both
+`origin` and `jb` before queuing — TeamCity pulls from `jb`, so a build started against an unpushed SHA
+measures the previous revision.
+
+## Captures
+
+`mcp_steroid_IntegrationTests_RippleCheckpointCapture`, one build per arm, selected by
+`-Pripple.checkpoint.capture.case` + `-Pripple.checkpoint.capture.method`. Queued in the
+pre-registered case order, so a partial round is still interpretable.
+
+| case | arm token | method | build |
+|:---|:---|:---|---:|
+| — (instrument re-proof) | — | `hookPreflight` (on `petclinic-36`) | 1037524914 |
+| `petclinic-36` | `pc36-mcp` | `captureMcpArm` | 1037524916 |
+| `petclinic-36` | `pc36-none` | `captureShellArm` | 1037524918 |
+| `feature-service-25` | `fs25-mcp` | `captureMcpArm` | 1037524920 |
+| `feature-service-25` | `fs25-none` | `captureShellArm` | 1037524922 |
+| `springboot3-1` | `sb31-mcp` | `captureMcpArm` | 1037524924 |
+| `springboot3-1` | `sb31-none` | `captureShellArm` | 1037524926 |
+| `jhipster-3` | `jh3-mcp` | `captureMcpArm` | 1037524928 |
+| `jhipster-3` | `jh3-none` | `captureShellArm` | 1037524930 |
+| `petclinic-rest-37` | `pcr37-mcp` | `captureMcpArm` | 1037524932 |
+| `petclinic-rest-37` | `pcr37-none` | `captureShellArm` | 1037524934 |
+| `petclinic-71` | `pc71-mcp` | `captureMcpArm` | 1037524936 |
+| `petclinic-71` | `pc71-none` | `captureShellArm` | 1037524938 |
+
+## Probes
+
+`mcp_steroid_IntegrationTests_RippleCheckpointProbe`, addressed by `-Pripple.checkpoint.arm` /
+`.index` / `.replicate`. The arm token now carries the case as well — see
+[RCW-GENERALIZATION.md § Addressing](RCW-GENERALIZATION.md#addressing) — so no fourth coordinate and no
+TeamCity DSL change was needed.
+
+*(appended per case as its Gate 1 passes and its cells are queued)*

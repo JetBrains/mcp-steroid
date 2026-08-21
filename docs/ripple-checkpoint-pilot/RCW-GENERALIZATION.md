@@ -181,18 +181,23 @@ Milestones, computed identically in both arms:
 
 ### The rule validated against rounds 1 and 2 before round 3 runs
 
-The generalized taxonomy was run, blind, over the four committed trajectories of the pilot. It
-reproduces the hand-authored round-2 table exactly, and it recovers the two states at which round 2
-measured the collapse **without being told where they are**:
+The generalized taxonomy was run, blind, over the committed trajectories of the pilot. It recovers the
+two states at which round 2 measured the collapse **without being told where they are**:
 
-| trajectory | `T` (Δ`layerCov`) | `Mlast` | round 2 published | agreement |
-|:---|:---|--:|:---|:---|
-| capture 1 `mcp` | 19 (+0.571) | 19 | `T` = 19, `Mfull` = 19 | exact |
-| capture 1 `none` | 25 (+0.286) | 45 | `T` = 25, `Mfull` = 45 | exact |
-| capture 2 `mcp2` | 14 (+0.857) | **15** | `Mapi` = 15 — the 3.02× collapse is 14 → 15 | exact |
-| capture 2 `none2` | 40 (+0.714) | **41** | `Mapi` = 41 — the 2.87× collapse is 40 → 41 | exact |
+| trajectory | `Mlast` | round 2 published | agreement |
+|:---|--:|:---|:---|
+| capture 1 `mcp` | 19 | `Mfull` = 19 | exact |
+| capture 1 `none` | 45 | `Mfull` = 45 | exact |
+| capture 2 `mcp2` | **15** | `Mapi` = 15 — the 3.02× collapse is 14 → 15 | exact |
+| capture 2 `none2` | **41** | `Mapi` = 41 — the 2.87× collapse is 40 → 41 | exact |
 
 `|L_case| = 7` for the pilot under the general rule, the same count its bespoke taxonomy had.
+
+`Mlast` is the quantity the checkpoint rule actually consumes, and it reproduces on every trajectory.
+`T` is deliberately NOT tabulated here: it is an anchor only in the fallback branch where `layerCov`
+never reaches 1.0, and on a trajectory that adds exactly one layer per write — which is what the pilot's
+shell arm does — "largest single-step increase, ties to the earliest" degenerates to "the first write".
+See [Deviations](#deviations-from-the-pre-registration) for the erratum this replaces.
 
 That is a real check and not a self-congratulation: the taxonomy was written to cover six new repositories
 whose layouts differ (petclinic keeps entities as `owner/Owner.java` with no `model` package; jhipster
@@ -217,8 +222,13 @@ Two ids landing on the same step is **data** about the trajectory's shape, publi
 probed once; the aggregator folds the shared verdict through `sameStateAs`, exactly as rounds 1 and 2 did.
 
 **No downstream probe result may enter this rule**, and no checkpoint may be added or moved after any
-RCW value for that case is known. Applied retrospectively to round 2 the rule selects
-`{13, 14, 15, 23}` for `mcp2` and `{16, 40, 41, 44}` for `none2` — precisely the states round 2 probed.
+RCW value for that case is known.
+
+Applied retrospectively to round 2's full step artifacts, the rule selects `{13, 14, 15, 18, 23}` for
+`mcp2` and `{16, 30, 40, 41, 44}` for `none2`. That is **every state round 2 probed, plus one**: round 2
+measured four states per arm, and the extra one is the new positional anchor `C2` (step 18 and step 30),
+which round 2 had no equivalent of. The rule therefore RECOVERS round 2's selection rather than
+reproducing it exactly, and the difference is in the direction of measuring more of the trajectory.
 
 ## Probe protocol
 
@@ -341,7 +351,30 @@ measured.
 
 ## Deviations from the pre-registration
 
-*(none yet — appended as they occur, before the affected numbers are read wherever possible)*
+**D1 — erratum in the round-1/2 validation table, corrected before any round-3 verdict was read.**
+As first committed, the "rule validated" table carried a `T` column reading `mcp` 19 (+0.571),
+`none` 25 (+0.286), `mcp2` 14 (+0.857), `none2` 40 (+0.714), and the checkpoint section claimed the rule
+reproduces round 2's probed sets exactly. Both were computed against the **committed checkpoint
+directories**, which hold only the 4–10 states round 2 chose to probe — not the full per-step artifacts.
+Re-run against the complete captures:
+
+- `T` for `none2` is step 16 (+0.143), not step 40. Every write in that arm adds exactly one of seven
+  layers, so "largest increase, earliest tie" lands on the first write. This matches `REPLICATION-2.md`'s
+  own text and changes no selected state, because `T` is only an anchor when `layerCov` never reaches
+  1.0. The `T` column has been withdrawn from the table rather than restated.
+- the retrospective selection is `{13, 14, 15, 18, 23}` and `{16, 30, 40, 41, 44}` — round 2's states plus
+  the new `C2` positional anchor, which round 2 did not have. The text now says "recovers, plus one"
+  instead of "precisely".
+
+`Mlast`, the quantity the rule consumes, reproduced exactly on all four trajectories and is unchanged.
+No case, metric, checkpoint rule or decision threshold moved.
+
+**D2 — verdict-parsing regex widened, before any round-3 probe ran.** Round 2's extractor matched the
+arm token with `arm=(\w+)`, which cannot match a hyphen. Every round-3 token contains one (`pc36-mcp`,
+`sb31-none`, …), so the round-2 script would have silently found zero verdict lines in all ~300 round-3
+probe logs and reported an empty dataset rather than an error. The round-3 extractor uses `arm=(\S+)`,
+which is what the format section of this document already specified. No Kotlin change: the plugin never
+parses the token back.
 
 ## Results
 
