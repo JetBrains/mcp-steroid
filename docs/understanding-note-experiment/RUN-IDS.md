@@ -102,7 +102,76 @@ is the cleaner test of the hypothesis.
 
 ## Phase 1 — downstream cells
 
-Not queued.
+**A green build is NOT a solved task.** The cell's JUnit test passes whenever the instrument worked; the
+verdict lives in the run's own log line, `[UNDERSTANDING-DOWN] … Y=0|1 …`, and every number below was
+read from there. Build 1038465462 is the standing counter-example: `SUCCESS`, `Tests passed: 1`, `Y=0`.
 
-| build id | condition | replicate | outcome | graded | downstream tokens | usd |
-|---:|:---|---:|:---|:---|---:|---:|
+### Note limit 5000 — queued 2026-08-21 23:45 UTC, 20 cells
+
+| condition | Y | downstream usd (median) | agent s (median) | output tokens (median) |
+|:---|:---:|---:|---:|---:|
+| `mcp-b5-l5000-r1` | **5/5** | 0.359 | 239 | 9 417 |
+| `none-b5-l5000-r1` | **5/5** | 0.269 | 209 | 7 568 |
+| `mcp-b10-l5000-r1` | **5/5** | 0.272 | 189 | 8 609 |
+| `none-b10-l5000-r1` | **5/5** | 0.257 | 166 | 8 418 |
+
+Build ids 1038427554…592 in the order (mcp-b5 r1..r5, none-b5 r1..r5, mcp-b10 r1..r5, none-b10 r1..r5).
+
+Twenty cells out of twenty. At this length the condition is saturated and the two arms are indis­tinguish­able
+by construction — no amount of replication can separate 5/5 from 5/5. Against a baseline of 0/5 this is
+still the experiment's largest single effect: **the note itself is worth the whole task.**
+
+### Note limit 1000 — queued 2026-08-22 00:52 UTC, 20 cells + 2 baseline
+
+| condition | Y | downstream usd (median) | agent s (median) | output tokens (median) |
+|:---|:---:|---:|---:|---:|
+| `mcp-b5-l1000-r1` | 1/5 | 0.331 | 246 | 10 522 |
+| `none-b5-l1000-r1` | 2/4 | 0.330 | 206 | 9 025 |
+| **`mcp-b10-l1000-r1`** | **5/5** | 0.397 | 328 | 10 801 |
+| **`none-b10-l1000-r1`** | **0/5** | 0.258 | 199 | 8 003 |
+| `baseline` (r4, r5) | 0/2 | 0.449 | 913 | 9 526 |
+
+Build ids 1038465422…464. One cell of `none-b5-l1000-r1` (1038465434, replicate 2) was still running when
+this table was written and is excluded from its denominator.
+
+This is the separating condition. At a budget of ten interactions and a note of a thousand characters the
+mcp arm's note carries the weak agent to **5/5** and the shell arm's note to **0/5**, against a baseline
+of 0/5 — a one-sided Fisher exact p = 1/252 ≈ 0.004 for that single comparison. Both notes were produced
+under the same budget, the same limit, the same model and the same prompt except for the tool paragraph;
+both were cut by the limit; the downstream agent, tree and grading are identical.
+
+Two things this table does **not** yet establish, and the next wave is aimed at both:
+
+- **One note per condition is pseudo-replication.** Five downstream runs of ONE note measure the note,
+  not the arm. Replicates r2 and r3 of the research cell are queued for both arms at (10, 1000).
+- **The budget-5 row is noise at this n.** 1/5 versus 2/4 says nothing; if the curve really rises between
+  five and ten interactions, that is what the intermediate note lengths have to show.
+
+With baseline now at 0/5 and the 5000 condition at 20/20, the instrument's dynamic range is confirmed:
+the outcome is neither floored nor ceilinged by the task.
+
+### Note limits 2000 and 3000, plus the (10, 1000) research replicates
+
+Queued 2026-08-22 02:31 UTC after the transcript-parsing fix (`c897a99f2`): eight research cells at the
+two intermediate lengths and four replicate notes at the separating point.
+
+| build id | arm | budget | limit | replicate |
+|---:|:---|---:|---:|---:|
+| 1038522104 | mcp | 5 | 2000 | 1 |
+| 1038522106 | mcp | 10 | 2000 | 1 |
+| 1038522108 | none | 5 | 2000 | 1 |
+| 1038522110 | none | 10 | 2000 | 1 |
+| 1038522112 | mcp | 5 | 3000 | 1 |
+| 1038522114 | mcp | 10 | 3000 | 1 |
+| 1038522116 | none | 5 | 3000 | 1 |
+| 1038522118 | none | 10 | 3000 | 1 |
+| 1038522120 | mcp | 10 | 1000 | 2 |
+| 1038522122 | mcp | 10 | 1000 | 3 |
+| 1038522124 | none | 10 | 1000 | 2 |
+| 1038522126 | none | 10 | 1000 | 3 |
+
+An earlier attempt at the same eight cells (1038466374…488) is void: four were refused before spending
+anything because 2000 was not yet a registered limit, and four spent an Opus run each and then threw on
+the note extraction. Their notes are recoverable from the build logs but are NOT used — they were
+produced by the same prompt, so re-running costs less than arguing about whether a recovered note is the
+same artifact.

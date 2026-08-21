@@ -1,6 +1,7 @@
 /* Copyright 2025-2026 Eugene Petrenko (mcp@jonnyzzz.com); Copyright 2025-2026 JetBrains. Use of this source code is governed by the Apache 2.0 license. */
 package com.jonnyzzz.mcpSteroid.integration.arena
 
+import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -336,6 +337,33 @@ class UnderstandingHarnessTest {
         val note = extractUnderstandingNote(decodeAgentFinalResponse(raw), limitChars = 1_000)
 
         assertEquals("prefixed note", note.text)
+    }
+
+    /**
+     * The guard for the mistake itself, not for its symptom.
+     *
+     * `AiProcessResult.stdout` is the console-filtered stream and `rawStdout` is the agent's real
+     * output; the two differ by exactly the terminal `result` event, so reading the wrong one produces
+     * a plausible, quiet, wrong answer. Nothing in the type system separates them — both are `String`
+     * on the same object — so the only way to keep this fixed is to forbid the spelling.
+     */
+    @Test
+    fun `the experiment never reads the console-filtered stdout of an agent run`() {
+        val source = ProjectHomeDirectory.requireProjectHomeDirectory()
+            .resolve("test-experiments/src/test/kotlin/com/jonnyzzz/mcpSteroid/integration/arena")
+            .resolve("UnderstandingRun.kt")
+            .toFile()
+        assertTrue(source.isFile) { "cannot find $source to check it" }
+
+        val offenders = source.readLines()
+            .withIndex()
+            .filter { (_, line) -> Regex("""agentResult\.stdout\b""").containsMatchIn(line) }
+            .map { (index, line) -> "${index + 1}: ${line.trim()}" }
+
+        assertTrue(offenders.isEmpty()) {
+            "an agent run's `stdout` is filtered and has no final `result` event; use `rawStdout`. " +
+                "Offending lines:\n" + offenders.joinToString("\n")
+        }
     }
 
     @Test

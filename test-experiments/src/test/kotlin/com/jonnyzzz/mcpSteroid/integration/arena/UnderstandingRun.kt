@@ -180,27 +180,27 @@ fun runUnderstandingResearch(
             .awaitForProcessFinish()
         val durationMs = System.currentTimeMillis() - startMs
 
+        // `rawStdout`, never `stdout`. `AiProcessResult` carries both: `stdout` has been through
+        // `AgentProgressOutputFilter`, which turns the NDJSON into a human-readable console stream and
+        // drops the terminal `result` event — the one event that carries the final message. Every other
+        // parser in the arena already reads `rawStdout` (`ArenaTestRunner.evaluate` does); this phase
+        // did not, and that alone cost twenty paid Opus runs across two waves, each reporting "the
+        // research run produced no final message" while its note sat complete in the build log.
+        val rawStdout = resolveAgentRawOutput(
+            runDir = session.runDirInContainer,
+            agentName = "claude",
+            fallbackStdout = agentResult.rawStdout,
+        )
         val metrics = collectRunMetrics(
             runDir = session.runDirInContainer,
             agentName = "claude",
-            fallbackStdout = agentResult.stdout,
+            fallbackStdout = agentResult.rawStdout,
         )
         val usage = gate.usage()
         val tools = gate.toolLog()
         val pristine = readUnderstandingPristineVerdict(session.scope, projectDir)
-        // The SAME text the metrics above were parsed from, and deliberately not the captured stdout:
-        // that stream is console-filtered and the filter drops the terminal `result` event the note
-        // travels in. Reading it cost this experiment its whole first research wave — eight paid Opus
-        // runs that had each written a perfectly good note reported "no final message" (builds
-        // 1038399360..374).
         val note = extractUnderstandingNote(
-            finalMessage = decodeAgentFinalResponse(
-                resolveAgentRawOutput(
-                    runDir = session.runDirInContainer,
-                    agentName = "claude",
-                    fallbackStdout = agentResult.stdout,
-                )
-            ),
+            finalMessage = decodeAgentFinalResponse(rawStdout),
             limitChars = noteLimitChars,
         )
 
@@ -366,7 +366,7 @@ fun runUnderstandingDownstream(
         val metrics = collectRunMetrics(
             runDir = session.runDirInContainer,
             agentName = "claude",
-            fallbackStdout = result.agentResult.stdout,
+            fallbackStdout = result.agentResult.rawStdout,
         )
         val success = verification?.let { it.objectiveSuccess && !it.failToPassTampered }
         val verdict = when {

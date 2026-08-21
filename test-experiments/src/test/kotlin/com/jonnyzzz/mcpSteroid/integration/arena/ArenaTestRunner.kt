@@ -532,7 +532,17 @@ class ArenaTestRunner(
  */
 data class ArenaTestResult(
     val testCase: DpaiaTestCase,
-    val agentResult: ProcessResult,
+    /**
+     * The agent's result as [AiProcessResult] and not as the wider [ProcessResult], so a caller can
+     * reach `rawStdout`.
+     *
+     * The narrower type is the point: `stdout` on this object has been through
+     * `AgentProgressOutputFilter` and no longer contains the terminal `result` event, so any parser
+     * given it silently sees an agent that finished without saying anything. Exposing only the
+     * filtered stream is what made the understanding experiment's research phase discard twenty paid
+     * runs before the cause was found.
+     */
+    val agentResult: AiProcessResult,
     val evaluation: ArenaEvaluation,
     /** Wall-clock milliseconds spent inside [agent.runPrompt] (excludes git clone and patch apply). */
     val agentDurationMs: Long = 0L,
