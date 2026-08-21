@@ -10,6 +10,13 @@
 > builds") does not match the artefacts — the branch ran 97 probe builds, 95 of which printed a verdict.
 > The AUC figures on this page were computed from the correct 14 cells and change to 0.875 / 0.775 once
 > the void grades are withdrawn.
+>
+> **Round 2 has since answered the question this page opens.** Two fresh Opus trajectories per arm
+> ([REPLICATION-2.md](REPLICATION-2.md)) replicate the residual-work collapse — 3.02× and 2.87× at the
+> moment the integration layer lands, `p ≈ 0.008` — but **refute** the reading that semantic access
+> causes it: measured in the model's own output tokens, mcp reaches that state at 40 175 against shell's
+> 25 176, and the two states leave their successors indistinguishable amounts of work (`p = 0.56`). The
+> mcp advantage on this page is an advantage in TOOL CALLS and WALL CLOCK, not in model work.
 
 Case `dpaia__feature__service-125`, source agent `claude-opus-5`, probe agent bare `claude-haiku-4-5`
 with no MCP and no prior knowledge of the trajectory. Every probe is graded by the same

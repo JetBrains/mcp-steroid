@@ -187,8 +187,8 @@ touched again.
 | 1 | `hookPreflight` | 1037066974 | SUCCESS | 7 | — | — | ≈0 | — | **7/7** | `transcript-0.jsonl` |
 | 2 | `captureMcpArm` | 1037073445 | FAILURE (artifacts) | 23 | 786 | 43715 | $3.05 | **true** | **23/23** | published, then LOST |
 | 3 | `captureShellArm` | 1037073447 | FAILURE (artifacts) | 70 | 1203 | 55797 | $5.36 | — | **70/70** | published, then LOST |
-| 4 | `captureMcpArm` (re-run) | 1037157415 | | | | | | | | |
-| 5 | `captureShellArm` (re-run) | 1037157425 | | | | | | | | |
+| 4 | `captureMcpArm` (re-run) | 1037157415 | SUCCESS | 25 | 970 | 45702 | $3.33 | **true** | **25/25** | published ✓ |
+| 5 | `captureShellArm` (re-run) | 1037157425 | SUCCESS | 48 | 1366 | 41528 | $4.21 | **true** | **48/48** | published ✓ |
 
 **Attempt 1 of the mcp arm is void, and not because of the agent.** The measurement itself succeeded —
 admitted, 23 tool calls, a hook record for every one of them, a patch for every one of them, the
@@ -234,39 +234,59 @@ bind-mounted run dir — so the transcript's per-message `usage` is first readab
 artifacts below, not here.
 
 Environment recorded per capture, because the agent CLI is installed by `npm install -g` behind a daily
-cache-bust and therefore differs from round 1's `claude-code/2.1.197` by construction:
+cache-bust and could therefore have differed from round 1's `claude-code/2.1.197`. It did not — the
+image resolved the same version, so the two rounds are comparable on the CLI and the drift-control
+probes budgeted for that risk were not needed:
 
 | | capture 1 | capture 2 |
 |:---|:---|:---|
-| agent CLI | `claude-code/2.1.197` | |
-| plugin | `0.101.672-jb-4e6c047` | |
-| IDE | `2026.2.1` | |
-| capture model | `claude-opus-5` | |
+| agent CLI | `claude-code/2.1.197` | `claude-code/2.1.197` — identical, no drift |
+| plugin | `0.101.672-jb-4e6c047` | `0.101.679-jb-9e5a174` |
+| IDE | `2026.2.1` | `2026.2.1` |
+| capture model | `claude-opus-5` | `claude-opus-5` |
+
+The re-run pair is the measured one. Both arms came off the SAME image build, both were admitted, and
+for the first time in this pilot every step of both trajectories carries a hook record, a patch and a
+session transcript whose per-message `usage` sums EXACTLY to the run's reported output tokens
+(45 702 / 45 702 and 41 528 / 41 528). That equality is what licenses using cumulative output tokens as
+the upstream denominator; it is checked by `data/capture2/extract_capture_trajectory.py` on every run.
 
 Both round-2 arms must share ONE image build. An arm captured against a different image is a different
 experiment and is recorded as such rather than compared.
 
 ### Probe stage (round 2)
 
-Four pre-registered states per trajectory — `M0`, `T−1`, `T`, last-distinct-tree — five replicates each,
-plus three drift-control cells re-running a capture-1 state to quantify probe-side drift between rounds.
+Four states per trajectory, five replicates each. The anchor of the set is `Mapi` (first step touching
+the `api` layer) and not the pre-registered `T` — `T` degenerated onto the first write in both arms, and
+the substitution is recorded as a deviation in [REPLICATION-2.md](REPLICATION-2.md).
 
-| arm | index | step | editFraction | milestone | r1 | r2 | r3 | r4 | r5 |
-|:---|---:|---:|---:|:---|:---|:---|:---|:---|:---|
-| mcp2 | 1 | | | `M0` | | | | | |
-| mcp2 | 2 | | | `T−1` | | | | | |
-| mcp2 | 3 | | | `T` | | | | | |
-| mcp2 | 4 | | | last distinct | | | | | |
-| none2 | 1 | | | `M0` | | | | | |
-| none2 | 2 | | | `T−1` | | | | | |
-| none2 | 3 | | | `T` | | | | | |
-| none2 | 4 | | | last distinct | | | | | |
+| arm | idx | step | editFr | milestone | r1 | r2 | r3 | r4 | r5 |
+|:---|---:|---:|--:|:---|:---|:---|:---|:---|:---|
+| mcp2 | 1 | 13 | −0.09 | pristine (`T−1`) | 1037248658 Y=1 | 1037248660 Y=0 | 1037248662 Y=0 | 1037248664 Y=1 | 1037248666 Y=0 |
+| mcp2 | 2 | 14 | 0.00 | `M0` | 1037248668 Y=1 | 1037248670 **Y=0 TAMPERED** | 1037248672 Y=1 | 1037248674 Y=1 | 1037267676 Y=1 |
+| mcp2 | 3 | 15 | 0.09 | `Mapi` | 1037267678 Y=1 | 1037267680 Y=1 | 1037267682 Y=1 | 1037267684 Y=1 | 1037267686 Y=1 |
+| mcp2 | 4 | 23 | 0.82 | last distinct | 1037248648 Y=1 | 1037267688 Y=1 | 1037267690 Y=1 | 1037267692 Y=1 | 1037267694 Y=1 |
+| none2 | 1 | 16 | 0.00 | `M0` | 1037267696 Y=1 | 1037267698 Y=1 | 1037267700 Y=1 | 1037267702 Y=0 | 1037267704 Y=1 |
+| none2 | 2 | 40 | 0.75 | `Mapi−1` | 1037267706 Y=1 | 1037267708 Y=1 | 1037267710 Y=1 | 1037267712 Y=1 | 1037267714 Y=1 |
+| none2 | 3 | 41 | 0.78 | `Mapi` | 1037267716 Y=1 | 1037267718 Y=1 | 1037267720 Y=1 | 1037267722 Y=1 | 1037267730 Y=1 |
+| none2 | 4 | 44 | 0.88 | last distinct | 1037267732 Y=1 | 1037267734 Y=1 | 1037267736 Y=1 | 1037267738 Y=1 | 1037267740 Y=1 |
+
+40 cells, 40 verdicts, **zero LOST** — no re-queue was needed. `1037248648` was queued first as a smoke
+cell and is a normal replicate of its group. Eight of these builds are red in TeamCity while carrying a
+valid verdict: a `Y=0` by budget exhaustion reddens the run flow, and six others died in the video
+re-encode AFTER publishing their verdict. Build status is therefore not a grade — the verdict line is.
+
+One cell is **TAMPERED**: `1037248670` edited a FAIL_TO_PASS oracle file, so its grade is void rather
+than a failure. It is excluded from `V` (mcp2 step 14 is 4/4, not 4/5) and reported in
+`checkpoints-r2.csv` as `tampered = 1`, exactly as round 1 treats its five tamper cells.
+
+Five verdicts were initially invisible to the extractor: the state before the first write has a
+legitimately NEGATIVE `editFraction` (−0.091) and the parser matched the field unsigned. Fixed in
+`data/extract_rollouts.py`; no round-1 row changes.
 
 | drift control | arm | index | step | build |
 |---:|:---|---:|---:|:---|
-| 1 | mcp | 5 | 19 | |
-| 2 | mcp | 5 | 19 | |
-| 3 | mcp | 5 | 19 | |
+| 1–3 | mcp | 5 | 19 | **not queued** — they were budgeted to price a CLI change between rounds, and the CLI turned out to be identical (`claude-code/2.1.197` both times) |
 
 ## Result
 
@@ -288,9 +308,18 @@ line; "276 verdicts out of 74 builds" was never right.
 | capture builds, stage 1 (discarded) | 4 |
 | capture builds, stage 2 (abandoned case) | 2 preflights |
 | capture builds, stage 3 | 1 preflight + 2 captures, both admitted |
+| capture builds, stage 4 (round 2) | 1 preflight + 4 captures — 2 void (artifact zip), 2 admitted and measured |
 | probe builds queued | 50 on the discarded grid (12 cancelled), 57 on the fraction grid, 2 re-queues |
 | probe builds that ran | **97** in total on the branch — 38 printing the old verdict format, 59 the fraction one |
 | probe builds graded | 95 printed a verdict; 89 of those are usable (72 solved, 17 failed), 5 are void (oracle rewritten), 3 are instrument failures |
+| probe builds, stage 4 (round 2) | 40 queued, **40 graded, 0 LOST** — 35 solved, 4 failed, 1 void (oracle rewritten) |
 | instrument failures (LOST) | 3 — one transport abort, one build with no verdict line, one with no grade at all; the first two were re-run and both then graded `Y=1` |
 | API spend | ≈ $46 — $4.43 stage 1 (discarded), $7.51 captures ($3.83 mcp + $3.68 shell), ≈ $34 for 95 haiku probe cells; a preflight is a scripted agent and costs about nothing |
+| API spend, stage 4 (round 2) | ≈ $36 — $8.41 on the two void captures, $7.54 on the two measured ones, ≈ $20 on 40 probe cells |
 | TeamCity build time | ≈ 90 build-hours, i.e. ≈ 5 per curve point |
+| TeamCity build time, stage 4 | ≈ 30 build-hours; the 40-cell sweep ran in ≈ 1.5 h wall clock because the farm parallelises it |
+
+Round 2's verdict, and why the branch stops there, is in [REPLICATION-2.md](REPLICATION-2.md): the
+residual-work collapse replicated on both new trajectories (3.02× and 2.87×, `p ≈ 0.008`), while the
+claim that semantic access CAUSES it did not — mcp reaches the same state at 40 175 of its own output
+tokens against shell's 25 176, and the states are statistically indistinguishable afterwards.

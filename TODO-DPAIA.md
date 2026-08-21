@@ -40,16 +40,17 @@
   pass 2. Cost here is context replay, not work done, and it is not MCP-specific (the `none` arms of the
   same scenario cost $11.92 and $11.66). Prompt-side fix, deliberately deferred: the whitepaper's
   Round 3 data is pinned against the current prompt, so changing it splits the dataset across two prompts.
-- [ ] Run the solution-readiness checkpoint pilot on TeamCity: 1 hook preflight → `captureMcpArm` +
-  `captureShellArm` → admission against the v3 band → commit the ten `step-<a_i>.patch` states →
-  1 smoke probe (`mcp`, checkpoint 5) → the remaining 49 bare-Haiku probes → `V(x)` curve and
-  observed-range AUC per arm. The harness is landed and unit-tested (`RippleCheckpointMath`,
-  `RippleCheckpointRecorder`, `RippleCaptureAdmission`, `RippleCheckpointProbeTest`,
-  `RippleCheckpointReport`); the runs are the whole remaining cost (~53 builds, ≈$20–35, ≈45 agent-hours).
-  Procedure and `jb tc` commands: `docs/ripple-checkpoint-pilot/RUNBOOK.md`. Local execution is blocked —
-  the `~/.anthropic` key returns 401 and this box gives Docker 8 GB.
-- [ ] Decide the scale-up only after that pilot's method verdict: 10 trajectories × 5 checkpoints ×
-  5 probes × 2 arms = 500 probe runs, testing `V_MCP(x) > V_shell(x)` and `AUC_MCP > AUC_shell`.
+- [x] Run the solution-readiness checkpoint pilot on TeamCity — done over two rounds, 137 probe builds
+  and 4 measured captures. Round 1: `docs/ripple-checkpoint-pilot/RESULTS.md` +
+  `RESIDUAL-DIFFICULTY.md`. Round 2 (independent replication, per-step upstream work instrumented):
+  `docs/ripple-checkpoint-pilot/REPLICATION-2.md`. Provenance for every build id: `RUN-IDS.md`.
+- [x] Decide the scale-up — **decided against it**, by the pre-registered rule. The 500-run design was
+  meant to test `V_MCP(x) > V_shell(x)`; round 1 already showed `V` saturates at 1.00 and cannot rank
+  states at `n = 5`, and round 2 showed the residual-work metric that CAN rank them puts the two arms in
+  the same place once the denominator is the model's own output tokens (mcp 40 175 vs shell 25 176 to the
+  same milestone; indistinguishable residual work afterwards, `p = 0.56`). Spending ≈ $340 on 500 runs of
+  a comparison whose sign flips with the choice of x-axis is not worth it. The follow-ups that ARE worth
+  it are in `TODO.md` (a round-trip-limited comparison, and reusing `C(s)` as an instrument).
 - [ ] Generalize the arena prompt's Docker escape hatch from a whitelist of literal error strings
   (`Could not find a valid Docker environment`, `BadRequestException`, `HTTP 400`, `docker.sock`,
   `DockerClientException`) to any Docker/Testcontainers infrastructure failure.

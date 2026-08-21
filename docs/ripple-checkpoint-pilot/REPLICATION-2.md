@@ -59,16 +59,21 @@ is not a replication, and mixing such captures would be worse than not running t
 > clean; the cross-round contrast (capture 1 vs capture 2) therefore carries a CLI difference and is
 > quantified, not assumed away, by three drift-control probes that re-run a capture-1 state now.
 
+*Annotation added after the captures, the pre-registered text above left as written:* the deviation did
+not materialise. Both round-2 captures resolved `claude-code/2.1.197` — the very version round 1 ran — so
+the rounds are comparable on the agent CLI after all. The drift-control probes were consequently not
+queued; see [Deviations](#deviations-from-the-pre-registration).
+
 Baseline environment recorded from the round-1 capture logs, for the drift comparison:
 
 | | capture 1 (round 1) | capture 2 (round 2) |
 |:---|:---|:---|
-| Agent CLI | `claude-code/2.1.197` | recorded at capture time |
-| MCP Steroid plugin | `0.101.672-jb-4e6c047` | recorded at capture time |
-| IDE | `2026.2.1` | recorded at capture time |
+| Agent CLI | `claude-code/2.1.197` | `claude-code/2.1.197` — **identical**, the feared drift did not happen |
+| MCP Steroid plugin | `0.101.672-jb-4e6c047` | `0.101.679-jb-9e5a174` |
+| IDE | `2026.2.1` | `2026.2.1` |
 | Model (capture) | `claude-opus-5` | `claude-opus-5` |
 | Model (probe) | `claude-haiku-4-5` | `claude-haiku-4-5` |
-| Capture build ids | `1035363501` (mcp), `1035363503` (shell) | see [RUN-IDS.md](RUN-IDS.md) stage 4 |
+| Capture build ids | `1035363501` (mcp), `1035363503` (shell) | `1037157415` (mcp2), `1037157425` (none2) |
 
 ### What capture 1 cannot tell us, and why round 2 is instrumented
 
@@ -280,15 +285,224 @@ capture-1 path stays byte-identical.
 
 ## Results
 
-*Appended after the captures and probes; empty by design at pre-registration time.*
+Everything below was produced after the design above was committed. Datasets:
+[`data/capture2/upstream-r2.csv`](data/capture2/upstream-r2.csv) (73 source steps),
+[`rollouts-r2.csv`](data/capture2/rollouts-r2.csv) (40 probe rollouts),
+[`checkpoints-r2.csv`](data/capture2/checkpoints-r2.csv),
+[`summary-r2.json`](data/capture2/summary-r2.json). Provenance: [RUN-IDS.md](RUN-IDS.md) stage 4.
+
+### Deviations from the pre-registration
+
+Three, all recorded before any verdict was read except the third, which is a parser fix:
+
+1. **The transition anchor `T` degenerated and was replaced by `Mapi`.** `T` = "largest single-step
+   increase in `layerCov`, ties → earliest" returns the FIRST WRITE on both round-2 trajectories: the
+   mcp run's first write already covers 6 of 7 layers (+0.857 in one step), and every shell increase is
+   exactly one layer, so the tie rule picks its first write too. Probing `T−1`/`T` would have measured
+   the first write twice and never approached the state the round is about. The substitute `Mapi` —
+   first step touching the `api` layer — is itself pre-registered in this document, is computed
+   arm-independently from the gold taxonomy, and is the milestone the confirmation rule is written in.
+   `T` is still reported everywhere. The mcp arm's fourth state is `T−1` (its pristine tree), because
+   `M0` and `Mapi` are adjacent there.
+2. **Drift-control probes were not run.** Three cells were budgeted to re-measure a capture-1 state
+   under the round-2 CLI. Their purpose was to price a CLI change that turned out not to exist — both
+   captures resolved the same `claude-code/2.1.197` as round 1 — so they were not queued. The probe-side
+   model snapshot is still unverified between rounds, and every cross-round number below is reported
+   with that caveat; the within-round contrast, which carries the verdict, is unaffected.
+3. **The verdict parser was fixed after the sweep**: `editFraction` was matched unsigned, and the mcp
+   arm's pre-write state legitimately has `editFraction = −0.091`, so five real verdicts were being
+   dropped as "no probe line". The fix (`-?[\d.]+`) changes no round-1 row.
+
+### The two round-2 trajectories
+
+| | mcp2 | none2 |
+|:---|--:|--:|
+| build | `1037157415` | `1037157425` |
+| tool calls `n` | 25 | 48 |
+| turns | 27 | 55 |
+| first write | step 14, at 388 s | step 16, at 744 s |
+| own output tokens | 45 702 | 41 528 |
+| agent seconds | 970 | 1366 |
+| cost | $3.33 | $4.21 |
+| admitted | true | true |
+| `Mapi` (all 7 layers) | **step 15** (`editFraction` 0.09) | **step 41** (`editFraction` 0.78) |
+| tool at `Mapi` | `steroid_execute_code` | `Write` |
+| final `fileCov` / `layerCov` | 0.85 / 1.00 | 0.92 / 1.00 |
+
+The round-1 pattern reappears on the phase axis: the mcp arm completes the layer set at 9 % of its edit
+phase, the shell arm at 78 %. It also reappears in kind — mcp's decisive step is again ONE batched
+`steroid_execute_code`, writing 19 828 chars at step 14 and 36 107 by step 15, while the shell arm gets
+there through 25 further tool calls.
+
+### Residual completion work per probed state
+
+40 rollouts, 5 per cell, `C_tokens` = output tokens of a successful rollout, bootstrap 95 % CI over the
+individual observations, `V` with Wilson 95 %.
+
+| arm | step | milestone | `editFr` | upstream tok | upstream calls | `V` (Wilson) | `C_tokens` | 95 % CI | `C_tools` | `C_edits` |
+|:---|--:|:---|--:|--:|--:|:---|--:|:---|--:|--:|
+| mcp2 | 13 | pristine (`T−1`) | −0.09 | 12 246 | 13 | 0.40 (0.12–0.77) | `NA` (both successes censored) | — | 115.0 | 33.5 |
+| mcp2 | 14 | `M0` | 0.00 | 33 574 | 14 | 1.00 (0.51–1.00) | 17 175 | 14 225–21 733 | 69.3 | 15.5 |
+| **mcp2** | **15** | **`Mapi`** | **0.09** | **40 175** | **15** | 1.00 (0.57–1.00) | **5 685** | 4 105–7 265 | 34.8 | 0.8 |
+| mcp2 | 23 | last distinct | 0.82 | 43 013 | 23 | 1.00 (0.57–1.00) | 4 639 | 3 880–5 399 | 33.0 | 0.6 |
+| none2 | 16 | `M0` | 0.00 | 17 430 | 16 | 0.80 (0.38–0.96) | 28 220 | 25 419–31 404 | 101.8 | 31.5 |
+| none2 | 40 | `Mapi−1` | 0.75 | 25 087 | 40 | 1.00 (0.57–1.00) | 14 254 | 13 032–15 544 | 63.2 | 10.6 |
+| **none2** | **41** | **`Mapi`** | **0.78** | **25 176** | **41** | 1.00 (0.57–1.00) | **4 964** | 3 418–6 510 | 32.2 | 0.6 |
+| none2 | 44 | last distinct | 0.88 | 29 508 | 44 | 1.00 (0.57–1.00) | 5 673 | 5 114–6 231 | 35.6 | 0.6 |
+
+Raw observations are in the dataset and drawn as individual points in every figure; e.g. mcp2 `Mapi` =
+3 308 / 4 460 / 4 987 / 7 664 / 8 006 and none2 `Mapi` = 2 877 / 3 170 / 4 998 / 6 346 / 7 431.
+
+### What replicated
+
+**The metric.** Residual completion work collapses at the integration layer, in BOTH arms, by almost the
+same factor, and it does so on three independent measurements:
+
+| arm | transition | `C_tokens` | `p` | `C_tools` | `p` | `C_edits` | `p` |
+|:---|:---|:---|--:|:---|--:|:---|--:|
+| mcp2 | 14 → 15 | 17 175 → 5 685 (**3.02×**) | 0.008 | 69.3 → 34.8 (1.99×) | 0.016 | 15.5 → 0.8 (19.4×) | 0.008 |
+| none2 | 40 → 41 | 14 254 → 4 964 (**2.87×**) | 0.008 | 63.2 → 32.2 (1.96×) | 0.016 | 10.6 → 0.6 (17.7×) | 0.008 |
+
+Two-sided permutation tests on the difference of means, 100 000 relabelings, seed 20260820. The
+bootstrap intervals do not overlap in either arm. Round 1's headline — a residual-work collapse when the
+last missing implementation layer lands — is therefore **confirmed on two fresh trajectories**, and the
+pre-registered milestone rule located it without being told where to look.
+
+`V` again saturates and again decides nothing: every state from the first write onwards has `V = 1.00`
+with a Wilson interval reaching down to 0.51, so the binary metric cannot tell a 17 175-token state from
+a 4 964-token one. That is the round's second replication.
+
+### What did NOT replicate: the arm difference
+
+The round exists to test causation, and here the answer is negative under the honest denominator.
+
+| | mcp2 | none2 | who is earlier |
+|:---|--:|--:|:---|
+| `Mapi` at edit fraction | 0.09 | 0.78 | **mcp** by 0.69 |
+| `Mapi` at tool calls | 15 | 41 | **mcp** by 26 |
+| `Mapi` at agent seconds | 451 | 877 | **mcp** by 426 s |
+| `Mapi` at cumulative Opus OUTPUT tokens | **40 175** | **25 176** | **shell**, by 15 000 |
+| residual work after `Mapi` | 5 685 | 4 964 | indistinguishable, `p = 0.56` |
+| **total model tokens to a low-residual state** | **45 860** | **30 140** | **shell**, 34 % cheaper |
+
+Read on tool calls, wall clock or phase fraction, mcp reaches the decisive state far earlier — round 1's
+picture. Read on the model's own output tokens — the denominator this round was built to measure, and
+the one that actually prices the work — **the ordering reverses**. The same is true of the state that
+each arm's transition produces: after `Mapi` the two arms leave their successors statistically identical
+amounts of work (`p = 0.56` on tokens, `p = 0.77` on tool calls). The mcp arm buys its earlier arrival
+with its own tokens, roughly 1.6 upstream tokens per tool call saved, and hands over a state that is not
+measurably better.
+
+This is not a small-margin miss. It is a sign flip on the pre-registered primary denominator.
+
+### Leverage, and where it actually appears
+
+The exploratory `η = ΔC / ΔU` (downstream tokens removed per upstream token spent):
+
+| arm | step pair | ΔU | ΔC | η |
+|:---|:---|--:|--:|--:|
+| mcp2 | 13 → 14 | 21 328 | `NA` (censored cell) | `NA` |
+| mcp2 | 14 → 15 | 6 601 | 11 490 | **1.74** |
+| mcp2 | 15 → 23 | 2 838 | 1 046 | 0.37 |
+| none2 | 16 → 40 | 7 657 | 13 965 | 1.82 |
+| none2 | 40 → 41 | **89** | **9 290** | **104.4** |
+| none2 | 41 → 44 | 4 332 | −708 | −0.16 |
+
+The single most leveraged action in round 2 is a SHELL action: a 89-token `Write` that adds the
+controller and removes 9 290 downstream tokens. Leverage turns out to be a property of *where in the
+solution structure* an action lands, not of the tool that performs it — and the last row shows η going
+negative, which is the noise the pre-registration warned about. `η` is reported and not promoted.
+
+### Censoring
+
+Six of the 35 successes hit the 1800 s budget; a killed CLI emits no terminal `result` event, so their
+token and cost fields are `NA`. The distribution is informative: **both** successes of the pristine mcp2
+state are censored, which is why its `C_tokens` is `NA` rather than a number, and one of the five at mcp2
+step 23. Worst-case imputation at the maximum observed value (32 876 output tokens):
+
+| cell | successes | imputed | worst-case mean | vs measured |
+|:---|--:|--:|--:|:---|
+| mcp2 13 | 2 | 2 | 32 876 | no measured value exists |
+| mcp2 15 (`Mapi`) | 5 | 0 | 5 685 | unchanged |
+| mcp2 23 | 5 | 1 | 10 287 | still below step 14's 17 175 |
+| none2 41 (`Mapi`) | 5 | 0 | 4 964 | unchanged |
+
+Neither transition depends on a censored value: the four cells that carry the two collapses have zero
+censored successes. The conclusion survives the substitution.
+
+### The batching confound, tested
+
+Round 1 could not separate "semantic access" from "one giant batched write". Round 2 can, and the answer
+is that batching is the mechanism: the mcp arm's `Mapi` is again a single `steroid_execute_code`
+(36 107 chars of state by step 15), and normalising by the bytes it wrote removes the arm difference
+entirely — at `Mapi` the two arms hold 36 107 and 37 711 chars of patch, within 4 % of each other, and
+leave 5 685 and 4 964 residual tokens, within their overlapping intervals. **Same state, same residual
+work, reached by a different number of tool calls at a different token price.** What differs between the
+arms is the granularity of the trajectory, not the usefulness of the state it passes through.
+
+### Figures
+
+| figure | what it shows |
+|:---|:---|
+| [`fig-r2-a-residual-vs-upstream.png`](fig-r2-a-residual-vs-upstream.png) | the sign flip: mcp is left of shell on tool calls, seconds and edit fraction, and RIGHT of it on cumulative output tokens |
+| [`fig-r2-b-capture1-vs-capture2.png`](fig-r2-b-capture1-vs-capture2.png) | both rounds on one axis; round 1 redrawn from its untouched dataset |
+| [`fig-r2-c-state-space.png`](fig-r2-c-state-space.png) | `V` against residual work — the vertical collapse at saturated `V` |
+| [`fig-r2-d-coverage-trajectory.png`](fig-r2-d-coverage-trajectory.png) | `layerCov` / `fileCov` per step with the milestones and the probed states |
+| [`fig-r2-e-delta-efficiency.png`](fig-r2-e-delta-efficiency.png) | ΔC and η, including the negative bar |
+
+### Gate 2: the pre-registered rule, evaluated verbatim
+
+**Confirmation** required all three of:
+
+| clause | threshold | measured | verdict |
+|:---|:---|:---|:---|
+| `Mapi` at least 0.2 earlier in mcp | Δ`editFraction` ≥ 0.2 | 0.09 vs 0.78 → **0.69** | ✅ met |
+| collapse ≥ 2× on output tokens, non-overlapping CIs | ≥ 2× | 3.02× (mcp2), 2.87× (none2), CIs disjoint | ✅ met |
+| same ordering on a censoring-immune metric | tools or edits | tools 1.99×/1.96×, edits 19×/18× | ✅ met |
+
+**Refutation** required any one of four. One fires:
+
+| clause | measured | verdict |
+|:---|:---|:---|
+| ordering reverses | **yes, on denominator B**: shell reaches its low-residual state at 25 176 upstream output tokens, mcp at 40 175 | ❌ triggered |
+| collapse disappears after normalising by upstream tokens | no — it survives in both arms | not triggered |
+| transition explained by the size of one batched write | partially: at `Mapi` both arms hold ≈ 36–38 k chars and leave indistinguishable residual work | ❌ triggered |
+| milestone rule not applicable arm-independently | no — `Mapi` applied identically; `T` degenerated and was replaced, also identically | not triggered |
+
+**Verdict: refutation of H1 as stated, confirmation of the metric.**
+
+- The **causal claim is not supported.** Semantic IDE access does not make the agent reach a
+  low-residual-work state at a lower cost in model work; on this case it costs 34 % more total output
+  tokens to get there, and the state it produces is indistinguishable from the shell arm's.
+- The **weaker operational claim survives and is worth stating separately**: mcp reaches that state in
+  15 tool calls and 449 seconds against 41 and 869. If the scarce resource is round trips or wall clock
+  — which it is for an interactive agent — that is a real advantage. If the scarce resource is model
+  tokens, it is not.
+- The **progress metric replicated cleanly** and is the durable result of this branch: `C(s)` collapses
+  at an identifiable structural event, on four independent trajectories now, with `p ≈ 0.008` at `n = 5`,
+  while `V(s)` saturates and sees nothing.
+
+Per the pre-registered rule, the branch **stops here** rather than scaling to more cases. There is no
+point buying a second case to test a hypothesis whose sign has flipped on its own primary denominator.
+
+### What would be worth doing instead (costed, not launched)
+
+1. **Round-trip-limited comparison — ≈ $14, ≈ 20 build-hours.** If the operational claim is the one worth
+   having, measure it directly: cap both arms at the same number of tool calls and compare what they
+   deliver, instead of measuring how quickly each arrives at a state.
+2. **Drift controls — ≈ $2, 3 builds.** The three cells this round skipped, needed before any capture-1
+   number is compared with a capture-2 number.
+3. **The metric on its own merits — ≈ $27 per case.** `C(s)` is now a validated progress measure; its
+   next use is as an instrument for OTHER questions (curriculum construction, reward shaping, early
+   stopping), not as another attempt to make one arm win.
 
 ### Key comparison table (schema fixed in advance)
 
-| capture | arm | upstream tokens to `T` | tool calls to `T` | step | `editFraction` | milestone | residual before | residual after |
+| capture | arm | upstream tokens to transition | tool calls | step | `editFraction` | milestone | residual before | residual after |
 |--:|:---|--:|--:|--:|--:|:---|--:|--:|
-| 1 | mcp | `NA` (unrecoverable) | 19 | 19 | 0.4 | last layer | 24 190 | 4 017 |
-| 1 | shell | `NA` (unrecoverable) | 49 | 49 | 0.8 | last layer | 13 386 | 5 234 |
-| 2 | mcp2 | | | | | | | |
-| 2 | none2 | | | | | | | |
+| 1 | mcp | `NA` (unrecoverable) | 19 | 19 | 0.40 | last layer | 24 190 | 4 017 |
+| 1 | shell | `NA` (unrecoverable) | 49 | 49 | 0.80 | last layer | 13 386 | 5 234 |
+| 2 | mcp2 | 40 175 | 15 | 15 | 0.09 | `Mapi` | 17 175 | 5 685 |
+| 2 | none2 | 25 176 | 41 | 41 | 0.78 | `Mapi` | 14 254 | 4 964 |
 
 Unknown cells stay `NA`. No value in this table is filled by assumption.

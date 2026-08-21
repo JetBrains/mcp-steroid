@@ -1,0 +1,178 @@
+{
+ "seed": 20260820,
+ "rollouts": 40,
+ "outcomes": {
+  "solved": 35,
+  "failed": 4,
+  "tampered": 1,
+  "lost": 0
+ },
+ "brackets": {
+  "mcp2": {
+   "before": 14,
+   "after": 15
+  },
+  "none2": {
+   "before": 40,
+   "after": 41
+  }
+ },
+ "upstream_at_milestones": {
+  "mcp2": {
+   "T-1": {
+    "step": 13,
+    "editFraction": -0.0909,
+    "cumOutputTokens": 12246.0,
+    "cumToolCalls": 13.0
+   },
+   "M0": {
+    "step": 14,
+    "editFraction": 0.0,
+    "cumOutputTokens": 33574.0,
+    "cumToolCalls": 14.0
+   },
+   "Mapi": {
+    "step": 15,
+    "editFraction": 0.0909,
+    "cumOutputTokens": 40175.0,
+    "cumToolCalls": 15.0
+   },
+   "last-distinct": {
+    "step": 23,
+    "editFraction": 0.8182,
+    "cumOutputTokens": 43013.0,
+    "cumToolCalls": 23.0
+   }
+  },
+  "none2": {
+   "M0": {
+    "step": 16,
+    "editFraction": 0.0,
+    "cumOutputTokens": 17430.0,
+    "cumToolCalls": 16.0
+   },
+   "Mapi-1": {
+    "step": 40,
+    "editFraction": 0.75,
+    "cumOutputTokens": 25087.0,
+    "cumToolCalls": 40.0
+   },
+   "Mapi": {
+    "step": 41,
+    "editFraction": 0.7812,
+    "cumOutputTokens": 25176.0,
+    "cumToolCalls": 41.0
+   },
+   "last-distinct": {
+    "step": 44,
+    "editFraction": 0.875,
+    "cumOutputTokens": 29508.0,
+    "cumToolCalls": 44.0
+   }
+  }
+ },
+ "permutation_tests": {
+  "mcp2 14->15 outputTokens": {
+   "p": 0.00789,
+   "n1": 4,
+   "n2": 5,
+   "mean_before": 17175.2,
+   "mean_after": 5685.0,
+   "ratio": 3.021
+  },
+  "mcp2 14->15 toolCalls": {
+   "p": 0.01618,
+   "n1": 4,
+   "n2": 5,
+   "mean_before": 69.2,
+   "mean_after": 34.8,
+   "ratio": 1.99
+  },
+  "mcp2 14->15 editsAndWrites": {
+   "p": 0.00775,
+   "n1": 4,
+   "n2": 5,
+   "mean_before": 15.5,
+   "mean_after": 0.8,
+   "ratio": 19.375
+  },
+  "none2 40->41 outputTokens": {
+   "p": 0.0083,
+   "n1": 5,
+   "n2": 5,
+   "mean_before": 14254.4,
+   "mean_after": 4964.4,
+   "ratio": 2.871
+  },
+  "none2 40->41 toolCalls": {
+   "p": 0.01623,
+   "n1": 5,
+   "n2": 5,
+   "mean_before": 63.2,
+   "mean_after": 32.2,
+   "ratio": 1.963
+  },
+  "none2 40->41 editsAndWrites": {
+   "p": 0.00771,
+   "n1": 5,
+   "n2": 5,
+   "mean_before": 10.6,
+   "mean_after": 0.6,
+   "ratio": 17.667
+  },
+  "mcp2 vs none2 at Mapi outputTokens": {
+   "p": 0.5571,
+   "n1": 5,
+   "n2": 5
+  },
+  "mcp2 vs none2 at Mapi toolCalls": {
+   "p": 0.76869,
+   "n1": 5,
+   "n2": 5
+  }
+ },
+ "worst_case_censoring": {
+  "mcp2 step 13": {
+   "n": 2,
+   "imputed": 2,
+   "mean": 32876.0
+  },
+  "mcp2 step 14": {
+   "n": 4,
+   "imputed": 0,
+   "mean": 17175.2
+  },
+  "mcp2 step 15": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 5685.0
+  },
+  "mcp2 step 23": {
+   "n": 5,
+   "imputed": 1,
+   "mean": 10286.6
+  },
+  "none2 step 16": {
+   "n": 4,
+   "imputed": 0,
+   "mean": 28219.8
+  },
+  "none2 step 40": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 14254.4
+  },
+  "none2 step 41": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 4964.4
+  },
+  "none2 step 44": {
+   "n": 5,
+   "imputed": 0,
+   "mean": 5672.6
+  },
+  "_imputed_value": 32876
+ },
+ "round1_rollouts": 97
+}

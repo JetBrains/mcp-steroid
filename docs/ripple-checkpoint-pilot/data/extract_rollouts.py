@@ -17,15 +17,18 @@ LOGS = os.environ.get("RIPPLE_LOG_DIR", "/tmp/rd/logs")
 STRIP = re.compile(r"^.*?\[:test-experiments:test\]\s?")
 
 # Two grid generations print the same line: the first one had no `editFraction` and no cost fields.
+# `editFraction` is matched with a SIGN. Round 2 probes a state taken before the first write, whose
+# fraction of the edit phase is legitimately negative (-0.091); an unsigned pattern silently dropped
+# all five of those verdicts and reported them as builds with no probe line at all.
 VERDICT = re.compile(
     r"\[CHECKPOINT-PROBE\] arm=(?P<arm>\w+) checkpoint=(?P<cp>\d+) step=(?P<step>\d+) "
-    r"(?:editFraction=(?P<ef>[\d.]+) )?position=(?P<pos>[\d.]+) replicate=(?P<rep>\d+) "
+    r"(?:editFraction=(?P<ef>-?[\d.]+) )?position=(?P<pos>[\d.]+) replicate=(?P<rep>\d+) "
     r"(?P<verdict>Y=[01]|LOST(?: reason=[\w-]+)?)"
     r"(?: usd=(?P<usd>[\d.]+))?(?: agentSeconds=(?P<sec>\d+))?(?: tokens=(?P<tok>\d+))?"
 )
 CELL = re.compile(
     r"\[CHECKPOINT-PROBE\] cell arm=(?P<arm>\w+) checkpoint=(?P<cp>\d+) step=(?P<step>\d+) "
-    r"(?:editFraction=(?P<ef>[\d.]+) )?position=(?P<pos>[\d.]+) replicate=(?P<rep>\d+) "
+    r"(?:editFraction=(?P<ef>-?[\d.]+) )?position=(?P<pos>[\d.]+) replicate=(?P<rep>\d+) "
     r"patch=(?P<patch>\d+) chars"
 )
 

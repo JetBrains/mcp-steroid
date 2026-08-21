@@ -1,5 +1,14 @@
 # Residual difficulty of an intermediate state
 
+> **Answered by round 2.** The "minimal next experiment" proposed at the end of this document was run:
+> [REPLICATION-2.md](REPLICATION-2.md). Its result splits this document's two findings apart. The metric
+> **replicated** — residual work collapses ≈ 3× at the moment the integration layer lands, on both new
+> trajectories, `p ≈ 0.008`, while `V` stays saturated at 1.00 and sees nothing. The causal reading
+> **did not**: with per-step upstream tokens finally instrumented, mcp reaches the decisive state at
+> 40 175 of its own output tokens against shell's 25 176, and the two states leave their successors
+> statistically indistinguishable amounts of work (`p = 0.56`). Read what follows as evidence about the
+> METRIC, not about the arms.
+
 Second reading of the same 97 probe builds [RESULTS.md](RESULTS.md) reports, this time at the level of
 the individual rollout rather than the checkpoint average, and asking a different question. `V(s)` says
 how OFTEN a weak agent finishes from state `s`. This document asks how MUCH WORK finishing costs it —

@@ -222,18 +222,29 @@
   to shell text search before initialization completes. This is a client/harness readiness problem; add
   a regression in the agent launcher instead of another server prompt or MCP tool.
 
-- [ ] **Repeat the solution-readiness pilot on a SECOND capture per arm, before any new task**
-  ([RESIDUAL-DIFFICULTY.md](docs/ripple-checkpoint-pilot/RESIDUAL-DIFFICULTY.md)). The per-rollout re-read
-  of the 97 probe builds settles the metric question: residual work (cumulative output tokens and tool
-  calls of the successful probes) has within-cell CV 0.19–0.22 and is monotone in `editFraction`
-  (Spearman −0.77 mcp / −0.90 shell), while the binary `V` needs `n ≈ 27` to separate 0.75 from 1.00 and
-  saturates at 1.00 halfway through both arms. So do NOT buy more replicates — buy a second capture of
-  each arm on the SAME case (~30 + ~40 probe cells, ≈ $56 and ≈ 70 build-hours at the measured $0.68 and
-  ≈ 1 build-hour per probe) and check whether each arm puts its integration-layer action at the same
-  phase twice. Pre-registered rule for going wider: mcp must land it ≥ 0.2 earlier in `editFraction`
-  than shell AND the residual-work collapse must be ≥ 2× on output tokens with non-overlapping bootstrap
-  intervals. Drop the partial verifier score from the design — it is saturated at both class and test
-  granularity on this case.
+- [x] **Repeat the solution-readiness pilot on a SECOND capture per arm** — done, and it settled the
+  question against us ([REPLICATION-2.md](docs/ripple-checkpoint-pilot/REPLICATION-2.md), 2 captures +
+  40 probe cells, ≈ $36). The **metric replicated**: residual completion work collapses 3.02× (mcp2) and
+  2.87× (none2) exactly when the integration layer lands, `p ≈ 0.008`, corroborated on tool calls (≈ 2×)
+  and edits (≈ 18×), while `V` sits at 1.00 throughout and distinguishes nothing. The **causal claim did
+  not**: with per-step upstream tokens finally instrumented, mcp reaches that state at 40 175 of its own
+  output tokens against shell's 25 176 (45 860 vs 30 140 in total model work), and the two states leave
+  their successors indistinguishable amounts of work (`p = 0.56`). mcp's advantage is real but is in
+  ROUND TRIPS and WALL CLOCK — 15 tool calls / 451 s against 41 / 877 s — not in model work. Per the
+  pre-registered rule the branch stops instead of scaling to more cases.
+
+- [ ] **If the round-trip claim is worth having, measure it directly** (≈ $14, ≈ 20 build-hours). Round 2
+  showed the only surviving mcp advantage is tool calls and wall clock, which the current design measures
+  only incidentally. The clean experiment caps both arms at the SAME number of tool calls and compares
+  what each delivers, instead of asking how fast each reaches a state. Do not re-run the residual-work
+  comparison on a second case — its sign already flipped on its own primary denominator.
+
+- [ ] **Reuse `C(s)` as an instrument, not as an argument.** Residual completion work is now a validated
+  progress measure on four independent trajectories (`docs/ripple-checkpoint-pilot/data/capture2/`), it
+  moves where the binary success rate saturates, and the machinery to compute it (per-step hook records,
+  session transcript with exact per-message usage, gold-layer coverage) is committed and preflight-gated.
+  Candidate uses: curriculum construction, early-stopping signals, reward shaping — anything that needs
+  "how much work is left from here" rather than "will it finish".
 
 - [ ] **Give `RippleCheckpointProbeTest` a TAMPERED outcome distinct from `Y=0`.** Five of the pilot's
   rollouts rewrote a FAIL_TO_PASS test file, so `DpaiaRunOutcome.objectiveSuccess` (correctly) voided
