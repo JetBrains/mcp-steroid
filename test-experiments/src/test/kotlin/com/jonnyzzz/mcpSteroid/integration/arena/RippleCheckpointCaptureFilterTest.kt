@@ -62,6 +62,55 @@ class RippleCheckpointCaptureFilterTest {
         }
     }
 
+    /**
+     * The case must travel inside the parameter that actually reaches Gradle.
+     *
+     * Round 3 learned this the expensive way. The build configuration templates its Gradle step as
+     * `-Pripple.checkpoint.capture.method=%…%` and nothing else, so a `ripple.checkpoint.capture.case`
+     * supplied as a TeamCity parameter is accepted by the server, never appears on the command line,
+     * and Gradle falls back to the default case. Twelve capture builds were queued for six new cases
+     * and every one of them recorded the pilot instead — the builds were green, the artifacts were
+     * well-formed, and only the agent's summary of what it had implemented gave it away.
+     *
+     * So the selector accepts `<case>:<method>`, and this test pins that it does. A regression here is
+     * invisible at runtime: the filter still matches a real test, the build still passes, and the
+     * result is a trajectory of the wrong repository published under the right arm token.
+     */
+    @Test
+    fun `the capture selector carries the case in the parameter the build config forwards`() {
+        val script = buildFile.readText()
+        assertTrue(script.contains("val separator = selector.indexOf(':')")) {
+            "the capture selector no longer splits '<case>:<method>', so the case coordinate cannot " +
+                "reach Gradle — the build configuration forwards only the method parameter"
+        }
+        assertTrue(script.contains("selectedCase == null || propertyCase == null")) {
+            "the selector no longer refuses a disagreeing case; a silent precedence rule between the " +
+                "two spellings spends an Opus capture on the wrong case"
+        }
+    }
+
+    /**
+     * Every case the probe side can be addressed for must also be capturable.
+     *
+     * [RippleCheckpointCases] is the registry a probe resolves an arm token through. A case registered
+     * there but missing from the build script's map has states nothing can produce; the mismatch would
+     * surface as a probe build asking for a checkpoint directory that no capture ever filled.
+     */
+    @Test
+    fun `every registered checkpoint case is selectable by the capture build`() {
+        val declared = declaredCaptureClasses().keys
+        RippleCheckpointCases.ALL.forEach { case ->
+            assertTrue(case.resourceDir in declared) {
+                "case '${case.resourceDir}' is in the checkpoint registry but not in the build " +
+                    "script's capture map, so its arms ${case.arms} can never be captured"
+            }
+        }
+        assertTrue(declared.size == RippleCheckpointCases.ALL.size) {
+            "the build script declares $declared, the registry declares " +
+                "${RippleCheckpointCases.ALL.map { it.resourceDir }} — the two must not drift"
+        }
+    }
+
     private fun declaredCaptureClasses(): Map<String, String> =
         Regex("""^\s*"([\w-]+)"\s+to\s+"(\w*CheckpointCaptureTest)"""", RegexOption.MULTILINE)
             .findAll(buildFile.readText())

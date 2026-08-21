@@ -215,19 +215,40 @@ tasks.test {
     // invalid value is a hard configuration failure rather than a default: a capture build costs a full
     // Opus run, and the failure mode this replaces is silent — Gradle ignores an unknown `-P`, so a
     // misspelled method used to leave the build running whatever else the configuration selected.
+    //
+    // The value is `<case>:<method>`, and a bare `<method>` still means the default case. The case
+    // BELONGS in this parameter because it is the only one that arrives: the TeamCity configuration
+    // templates its Gradle step as `-P<method property>=%…%` and nothing else, so round 3's first
+    // twelve capture builds were started with `-P$checkpointCaptureCaseProperty` set as a TeamCity
+    // parameter, saw it dropped on the way to Gradle, and all recorded the DEFAULT case instead of the
+    // six they were queued for. Adding the coordinate to the forwarded parameter keeps the selection in
+    // this repository, where it is unit-tested, instead of in a build configuration in another one.
+    //
+    // $checkpointCaptureCaseProperty is still honoured, so an operator running Gradle by hand can pass
+    // it separately — but the two must AGREE. Disagreement is a configuration failure and never a
+    // precedence rule: a silent winner here spends an Opus run on the wrong repository.
     project.findProperty(checkpointCaptureMethodProperty)?.toString()?.takeIf { it.isNotBlank() }
-        ?.let { method ->
+        ?.let { selector ->
+            val separator = selector.indexOf(':')
+            val method = if (separator < 0) selector else selector.substring(separator + 1)
+            val selectedCase = if (separator < 0) null else selector.substring(0, separator)
             require(method in checkpointCaptureMethods) {
-                "-P$checkpointCaptureMethodProperty=$method is not a capture method; " +
-                    "expected one of $checkpointCaptureMethods"
+                "-P$checkpointCaptureMethodProperty=$selector selects the method '$method', " +
+                    "which is not a capture method; expected one of $checkpointCaptureMethods, " +
+                    "optionally prefixed with '<case>:'"
             }
-            val case = project.findProperty(checkpointCaptureCaseProperty)?.toString()
+            val propertyCase = project.findProperty(checkpointCaptureCaseProperty)?.toString()
                 ?.takeIf { it.isNotBlank() }
-                ?: "feature-service-125"
+            require(selectedCase == null || propertyCase == null || selectedCase == propertyCase) {
+                "-P$checkpointCaptureMethodProperty=$selector selects the case '$selectedCase' but " +
+                    "-P$checkpointCaptureCaseProperty=$propertyCase selects '$propertyCase'; " +
+                    "pass one or make them agree"
+            }
+            val case = selectedCase ?: propertyCase ?: "feature-service-125"
             val captureClass = checkpointCaptureClasses[case]
                 ?: error(
-                    "-P$checkpointCaptureCaseProperty=$case has no capture class; " +
-                        "expected one of ${checkpointCaptureClasses.keys}"
+                    "-P$checkpointCaptureMethodProperty=$selector names the case '$case', which has " +
+                        "no capture class; expected one of ${checkpointCaptureClasses.keys}"
                 )
             filter { includeTestsMatching("*$captureClass.$method") }
         }
