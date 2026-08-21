@@ -1,0 +1,9 @@
+arm,step,layerCov,RCW_tools_mean,RCW_edits_mean,censoredSuccesses
+sb31-mcp,7,0.1429,33.2,13.8,0
+sb31-mcp,10,0.5714,25.4,7.2,0
+sb31-mcp,12,0.8571,30.8,6.0,0
+sb31-mcp,13,1.0,27.2,2.8,0
+sb31-none,5,0.0,36.8,15.0,0
+sb31-none,9,0.2857,31.8,7.8,0
+sb31-none,12,0.5714,23.2,2.4,0
+sb31-none,13,0.7143,22.2,1.0,0

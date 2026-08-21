@@ -1,0 +1,5 @@
+arm,fromStep,toStep,landsOn,deltaRCW,p,upstreamTokensSpent,eta
+jh3-none,13,15,Mmid|T,1549.5,0.19742,543.0,2.8536
+jh3-none,15,16,,353.3,0.5002,0.0,
+jh3-none,16,17,Mlast,298.7,0.61001,338.0,0.8837
+jh3-none,17,18,,-1103.25,0.4272,1279.0,-0.8626

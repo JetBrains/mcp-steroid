@@ -1,0 +1,4 @@
+arm,step,checkpointId,upstreamToolCalls,upstreamTokens,upstreamSeconds,layerCov,editFraction,RCW_tokens_mean,RCW_tokens_lo,RCW_tokens_hi,RCW_tokens_raw
+pcr37-mcp,7,C1,7.0,1850.0,30.0,0.0,-0.0625,4023.4,3593.8,4479.0,3317|3777|3946|4241|4836
+pcr37-mcp,8,C2,8.0,4156.0,54.0,0.3333,0.0,6563.25,4451.75,10451.0,4299|4664|4910|12380
+pcr37-mcp,20,C3,20.0,9877.0,234.0,0.3333,0.75,8599.5,8415.0,8784.0,8415|8784

@@ -1,0 +1,1866 @@
+{
+ "generated": "2026-08-21T11:00:28+00:00",
+ "seed": 20260821,
+ "bootstrapResamples": 10000,
+ "permutations": 100000,
+ "rollouts": 120,
+ "cells": 24,
+ "cases": [
+  "feature-service-25",
+  "jhipster-3",
+  "petclinic-36",
+  "petclinic-rest-37",
+  "springboot3-1"
+ ],
+ "outcomes": {
+  "budget-exhausted": 1,
+  "solved": 115,
+  "tampered": 4
+ },
+ "censoring": {
+  "censoredRollouts": 15,
+  "lostRollouts": 0,
+  "worstCaseImputationValue": 20143,
+  "cellsWithCensoredSuccess": 10
+ },
+ "perCase": {
+  "feature-service-25": {
+   "case": "feature-service-25",
+   "arms": [
+    "fs25-none"
+   ],
+   "perArm": {
+    "fs25-none": {
+     "cells": 5,
+     "criterion1_largestRatio": {
+      "ratio": 2.969,
+      "highStep": 10,
+      "lowStep": 38,
+      "highMean": 11265.5,
+      "lowMean": 3794.0,
+      "intervalsDisjoint": true,
+      "meetsThreshold": true,
+      "holds": true
+     },
+     "criterion2_largestDeltaTransition": {
+      "fromStep": 31,
+      "toStep": 38,
+      "delta": 2373.33,
+      "p": 0.02849,
+      "coincidesWithMilestone": false,
+      "landsOn": "",
+      "requiresTraceReview": true
+     },
+     "criterion3_spearmanRcwVsLayerCov": -0.9747,
+     "criterion3_holds": true,
+     "criterion5_proxies": {
+      "tools": {
+       "delta": 4.4,
+       "p": 0.34267,
+       "sameSign": true
+      },
+      "edits": {
+       "delta": 1.6,
+       "p": 0.25493,
+       "sameSign": true
+      }
+     },
+     "criterion5_holds": true,
+     "criterion6_worstCase": {
+      "imputedValue": 20143,
+      "perCell": {
+       "10": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 13041.0
+       },
+       "24": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 9727.8
+       },
+       "30": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 10577.6
+       },
+       "31": {
+        "n": 5,
+        "imputed": 2,
+        "mean": 11757.6
+       },
+       "38": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 7063.8
+       }
+      },
+      "headlineRatioAfterImputation": 0.9,
+      "originalPairRatioAfterImputation": 1.846,
+      "largestRatioAfterImputation": 1.846,
+      "imputedSuccesses": 5,
+      "holds": false
+     },
+     "headlineTransition": {
+      "fromStep": 30,
+      "toStep": 31,
+      "landsOn": "Mlast",
+      "tokens": {
+       "meanBefore": 8186.25,
+       "meanAfter": 6167.33,
+       "n1": 4,
+       "n2": 3,
+       "p": 0.08657,
+       "delta": 2018.92,
+       "ratio": 1.327
+      },
+      "tools": {
+       "meanBefore": 40.2,
+       "meanAfter": 35.8,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.34267,
+       "delta": 4.4,
+       "ratio": 1.123
+      },
+      "edits": {
+       "meanBefore": 5.6,
+       "meanAfter": 4.0,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.25493,
+       "delta": 1.6,
+       "ratio": 1.4
+      },
+      "intervalsDisjoint": true
+     },
+     "transitions": [
+      {
+       "fromStep": 10,
+       "toStep": 24,
+       "fromCheckpoint": "C1",
+       "toCheckpoint": "C2",
+       "tokens": {
+        "meanBefore": 11265.5,
+        "meanAfter": 9727.8,
+        "n1": 4,
+        "n2": 5,
+        "p": 0.08698,
+        "delta": 1537.7,
+        "ratio": 1.158
+       },
+       "tools": {
+        "meanBefore": 53.4,
+        "meanAfter": 44.6,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.01642,
+        "delta": 8.8,
+        "ratio": 1.197
+       },
+       "edits": {
+        "meanBefore": 13.2,
+        "meanAfter": 7.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.00749,
+        "delta": 5.4,
+        "ratio": 1.692
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 2422.0
+      },
+      {
+       "fromStep": 24,
+       "toStep": 30,
+       "fromCheckpoint": "C2",
+       "toCheckpoint": "C3",
+       "tokens": {
+        "meanBefore": 9727.8,
+        "meanAfter": 8186.25,
+        "n1": 5,
+        "n2": 4,
+        "p": 0.12636,
+        "delta": 1541.55,
+        "ratio": 1.188
+       },
+       "tools": {
+        "meanBefore": 44.6,
+        "meanAfter": 40.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.36638,
+        "delta": 4.4,
+        "ratio": 1.109
+       },
+       "edits": {
+        "meanBefore": 7.8,
+        "meanAfter": 5.6,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.16711,
+        "delta": 2.2,
+        "ratio": 1.393
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 1282.0
+      },
+      {
+       "fromStep": 30,
+       "toStep": 31,
+       "fromCheckpoint": "C3",
+       "toCheckpoint": "C4",
+       "tokens": {
+        "meanBefore": 8186.25,
+        "meanAfter": 6167.33,
+        "n1": 4,
+        "n2": 3,
+        "p": 0.08657,
+        "delta": 2018.92,
+        "ratio": 1.327
+       },
+       "tools": {
+        "meanBefore": 40.2,
+        "meanAfter": 35.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.34267,
+        "delta": 4.4,
+        "ratio": 1.123
+       },
+       "edits": {
+        "meanBefore": 5.6,
+        "meanAfter": 4.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.25493,
+        "delta": 1.6,
+        "ratio": 1.4
+       },
+       "intervalsDisjoint": true,
+       "landsOn": "Mlast",
+       "upstreamTokensSpent": 232.0
+      },
+      {
+       "fromStep": 31,
+       "toStep": 38,
+       "fromCheckpoint": "C4",
+       "toCheckpoint": "C5",
+       "tokens": {
+        "meanBefore": 6167.33,
+        "meanAfter": 3794.0,
+        "n1": 3,
+        "n2": 4,
+        "p": 0.02849,
+        "delta": 2373.33,
+        "ratio": 1.626
+       },
+       "tools": {
+        "meanBefore": 35.8,
+        "meanAfter": 26.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.02405,
+        "delta": 9.8,
+        "ratio": 1.377
+       },
+       "edits": {
+        "meanBefore": 4.0,
+        "meanAfter": 0.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.00811,
+        "delta": 4.0,
+        "ratio": null
+       },
+       "intervalsDisjoint": true,
+       "landsOn": "",
+       "upstreamTokensSpent": 2806.0
+      }
+     ]
+    }
+   },
+   "q2_constructValidity": {
+    "vTiedPairs": 10,
+    "separatedByRCW": 8,
+    "holds": true,
+    "examples": [
+     {
+      "stepA": 10,
+      "stepB": 30,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11265.5,
+      "RCW_B": 8186.25
+     },
+     {
+      "stepA": 10,
+      "stepB": 31,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11265.5,
+      "RCW_B": 6167.33
+     },
+     {
+      "stepA": 10,
+      "stepB": 38,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11265.5,
+      "RCW_B": 3794.0
+     },
+     {
+      "stepA": 24,
+      "stepB": 31,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 9727.8,
+      "RCW_B": 6167.33
+     },
+     {
+      "stepA": 24,
+      "stepB": 38,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 9727.8,
+      "RCW_B": 3794.0
+     },
+     {
+      "stepA": 30,
+      "stepB": 31,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 8186.25,
+      "RCW_B": 6167.33
+     },
+     {
+      "stepA": 30,
+      "stepB": 38,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 8186.25,
+      "RCW_B": 3794.0
+     },
+     {
+      "stepA": 31,
+      "stepB": 38,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 6167.33,
+      "RCW_B": 3794.0
+     }
+    ]
+   },
+   "criteria": {
+    "1_largeRatioWithDisjointIntervals": true,
+    "2_largestDeltaAtStructuralChange": false,
+    "3_spearmanNegativeOnBothArms": true,
+    "4_rcwSeparatesVTiedStates": true,
+    "5_censoringImmuneProxyAgrees": true,
+    "6_survivesWorstCaseCensoring": false
+   },
+   "criteriaAggregation": {
+    "1_largeRatioWithDisjointIntervals": "any arm",
+    "2_largestDeltaAtStructuralChange": "any arm (mechanical half only)",
+    "3_spearmanNegativeOnBothArms": "all arms, as the document words it",
+    "4_rcwSeparatesVTiedStates": "case-wide, over every pair of probed states",
+    "5_censoringImmuneProxyAgrees": "any arm",
+    "6_survivesWorstCaseCensoring": "any arm"
+   },
+   "allSix": false,
+   "especiallyStrong": false,
+   "criterion2Note": "the trace half of criterion 2 is not mechanical: open the transcript around the named steps and describe what it actually shows, or record it as unexplained"
+  },
+  "jhipster-3": {
+   "case": "jhipster-3",
+   "arms": [
+    "jh3-none"
+   ],
+   "perArm": {
+    "jh3-none": {
+     "cells": 5,
+     "criterion1_largestRatio": {
+      "ratio": 1.495,
+      "highStep": 13,
+      "lowStep": 17,
+      "highMean": 6647.0,
+      "lowMean": 4445.5,
+      "intervalsDisjoint": null,
+      "meetsThreshold": false,
+      "holds": false
+     },
+     "criterion2_largestDeltaTransition": {
+      "fromStep": 13,
+      "toStep": 15,
+      "delta": 1549.5,
+      "p": 0.19742,
+      "coincidesWithMilestone": true,
+      "landsOn": "Mmid|T",
+      "requiresTraceReview": true
+     },
+     "criterion3_spearmanRcwVsLayerCov": -0.527,
+     "criterion3_holds": true,
+     "criterion5_proxies": {
+      "tools": {
+       "delta": -2.2,
+       "p": 0.57768,
+       "sameSign": false
+      },
+      "edits": {
+       "delta": -0.4,
+       "p": 0.44453,
+       "sameSign": false
+      }
+     },
+     "criterion5_holds": false,
+     "criterion6_worstCase": {
+      "imputedValue": 20143,
+      "perCell": {
+       "13": {
+        "n": 4,
+        "imputed": 3,
+        "mean": 16769.0
+       },
+       "15": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 8106.6
+       },
+       "16": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 4744.2
+       },
+       "17": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 7585.0
+       },
+       "18": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 8467.6
+       }
+      },
+      "headlineRatioAfterImputation": 0.625,
+      "originalPairRatioAfterImputation": 2.211,
+      "largestRatioAfterImputation": 3.535,
+      "imputedSuccesses": 6,
+      "holds": null
+     },
+     "headlineTransition": {
+      "fromStep": 16,
+      "toStep": 17,
+      "landsOn": "Mlast",
+      "tokens": {
+       "meanBefore": 4744.2,
+       "meanAfter": 4445.5,
+       "n1": 5,
+       "n2": 4,
+       "p": 0.61001,
+       "delta": 298.7,
+       "ratio": 1.067
+      },
+      "tools": {
+       "meanBefore": 27.2,
+       "meanAfter": 29.4,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.57768,
+       "delta": -2.2,
+       "ratio": 0.925
+      },
+      "edits": {
+       "meanBefore": 0.0,
+       "meanAfter": 0.4,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.44453,
+       "delta": -0.4,
+       "ratio": null
+      },
+      "intervalsDisjoint": false
+     },
+     "transitions": [
+      {
+       "fromStep": 13,
+       "toStep": 15,
+       "fromCheckpoint": "C1",
+       "toCheckpoint": "C2",
+       "tokens": {
+        "meanBefore": 6647.0,
+        "meanAfter": 5097.5,
+        "n1": 1,
+        "n2": 4,
+        "p": 0.19742,
+        "delta": 1549.5,
+        "ratio": 1.304
+       },
+       "tools": {
+        "meanBefore": 36.25,
+        "meanAfter": 28.0,
+        "n1": 4,
+        "n2": 5,
+        "p": 0.06322,
+        "delta": 8.25,
+        "ratio": 1.295
+       },
+       "edits": {
+        "meanBefore": 6.5,
+        "meanAfter": 0.2,
+        "n1": 4,
+        "n2": 5,
+        "p": 0.00797,
+        "delta": 6.3,
+        "ratio": 32.5
+       },
+       "intervalsDisjoint": null,
+       "landsOn": "Mmid|T",
+       "upstreamTokensSpent": 543.0
+      },
+      {
+       "fromStep": 15,
+       "toStep": 16,
+       "fromCheckpoint": "C2",
+       "toCheckpoint": "C3",
+       "tokens": {
+        "meanBefore": 5097.5,
+        "meanAfter": 4744.2,
+        "n1": 4,
+        "n2": 5,
+        "p": 0.5002,
+        "delta": 353.3,
+        "ratio": 1.074
+       },
+       "tools": {
+        "meanBefore": 28.0,
+        "meanAfter": 27.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.80784,
+        "delta": 0.8,
+        "ratio": 1.029
+       },
+       "edits": {
+        "meanBefore": 0.2,
+        "meanAfter": 0.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 1.0,
+        "delta": 0.2,
+        "ratio": null
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 0.0
+      },
+      {
+       "fromStep": 16,
+       "toStep": 17,
+       "fromCheckpoint": "C3",
+       "toCheckpoint": "C4",
+       "tokens": {
+        "meanBefore": 4744.2,
+        "meanAfter": 4445.5,
+        "n1": 5,
+        "n2": 4,
+        "p": 0.61001,
+        "delta": 298.7,
+        "ratio": 1.067
+       },
+       "tools": {
+        "meanBefore": 27.2,
+        "meanAfter": 29.4,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.57768,
+        "delta": -2.2,
+        "ratio": 0.925
+       },
+       "edits": {
+        "meanBefore": 0.0,
+        "meanAfter": 0.4,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.44453,
+        "delta": -0.4,
+        "ratio": null
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "Mlast",
+       "upstreamTokensSpent": 338.0
+      },
+      {
+       "fromStep": 17,
+       "toStep": 18,
+       "fromCheckpoint": "C4",
+       "toCheckpoint": "C5",
+       "tokens": {
+        "meanBefore": 4445.5,
+        "meanAfter": 5548.75,
+        "n1": 4,
+        "n2": 4,
+        "p": 0.4272,
+        "delta": -1103.25,
+        "ratio": 0.801
+       },
+       "tools": {
+        "meanBefore": 29.4,
+        "meanAfter": 40.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.30856,
+        "delta": -11.4,
+        "ratio": 0.721
+       },
+       "edits": {
+        "meanBefore": 0.4,
+        "meanAfter": 0.4,
+        "n1": 5,
+        "n2": 5,
+        "p": 1.0,
+        "delta": 0.0,
+        "ratio": 1.0
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 1279.0
+      }
+     ]
+    }
+   },
+   "q2_constructValidity": {
+    "vTiedPairs": 6,
+    "separatedByRCW": 0,
+    "holds": false,
+    "examples": []
+   },
+   "criteria": {
+    "1_largeRatioWithDisjointIntervals": false,
+    "2_largestDeltaAtStructuralChange": true,
+    "3_spearmanNegativeOnBothArms": true,
+    "4_rcwSeparatesVTiedStates": false,
+    "5_censoringImmuneProxyAgrees": false,
+    "6_survivesWorstCaseCensoring": false
+   },
+   "criteriaAggregation": {
+    "1_largeRatioWithDisjointIntervals": "any arm",
+    "2_largestDeltaAtStructuralChange": "any arm (mechanical half only)",
+    "3_spearmanNegativeOnBothArms": "all arms, as the document words it",
+    "4_rcwSeparatesVTiedStates": "case-wide, over every pair of probed states",
+    "5_censoringImmuneProxyAgrees": "any arm",
+    "6_survivesWorstCaseCensoring": "any arm"
+   },
+   "allSix": false,
+   "especiallyStrong": false,
+   "criterion2Note": "the trace half of criterion 2 is not mechanical: open the transcript around the named steps and describe what it actually shows, or record it as unexplained"
+  },
+  "petclinic-36": {
+   "case": "petclinic-36",
+   "arms": [
+    "pc36-none"
+   ],
+   "perArm": {
+    "pc36-none": {
+     "cells": 3,
+     "criterion1_largestRatio": {
+      "ratio": 2.077,
+      "highStep": 11,
+      "lowStep": 13,
+      "highMean": 8715.0,
+      "lowMean": 4196.67,
+      "intervalsDisjoint": false,
+      "meetsThreshold": true,
+      "holds": false
+     },
+     "criterion2_largestDeltaTransition": {
+      "fromStep": 11,
+      "toStep": 12,
+      "delta": 3195.2,
+      "p": 0.30328,
+      "coincidesWithMilestone": true,
+      "landsOn": "Mmid|T",
+      "requiresTraceReview": true
+     },
+     "criterion3_spearmanRcwVsLayerCov": -1.0,
+     "criterion3_holds": true,
+     "criterion5_proxies": {
+      "tools": {
+       "delta": 7.0,
+       "p": 0.47471,
+       "sameSign": true
+      },
+      "edits": {
+       "delta": 4.6,
+       "p": 0.44373,
+       "sameSign": true
+      }
+     },
+     "criterion5_holds": true,
+     "criterion6_worstCase": {
+      "imputedValue": 20143,
+      "perCell": {
+       "11": {
+        "n": 5,
+        "imputed": 1,
+        "mean": 11000.6
+       },
+       "12": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 5519.8
+       },
+       "13": {
+        "n": 5,
+        "imputed": 2,
+        "mean": 10575.2
+       }
+      },
+      "headlineRatioAfterImputation": 0.522,
+      "originalPairRatioAfterImputation": 1.04,
+      "largestRatioAfterImputation": 1.993,
+      "imputedSuccesses": 3,
+      "holds": null
+     },
+     "headlineTransition": {
+      "fromStep": 12,
+      "toStep": 13,
+      "landsOn": "Mlast",
+      "tokens": {
+       "meanBefore": 5519.8,
+       "meanAfter": 4196.67,
+       "n1": 5,
+       "n2": 3,
+       "p": 0.49829,
+       "delta": 1323.13,
+       "ratio": 1.315
+      },
+      "tools": {
+       "meanBefore": 37.0,
+       "meanAfter": 30.0,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.47471,
+       "delta": 7.0,
+       "ratio": 1.233
+      },
+      "edits": {
+       "meanBefore": 4.6,
+       "meanAfter": 0.0,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.44373,
+       "delta": 4.6,
+       "ratio": null
+      },
+      "intervalsDisjoint": false
+     },
+     "transitions": [
+      {
+       "fromStep": 11,
+       "toStep": 12,
+       "fromCheckpoint": "C1",
+       "toCheckpoint": "C2",
+       "tokens": {
+        "meanBefore": 8715.0,
+        "meanAfter": 5519.8,
+        "n1": 4,
+        "n2": 5,
+        "p": 0.30328,
+        "delta": 3195.2,
+        "ratio": 1.579
+       },
+       "tools": {
+        "meanBefore": 47.0,
+        "meanAfter": 37.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.30058,
+        "delta": 10.0,
+        "ratio": 1.27
+       },
+       "edits": {
+        "meanBefore": 10.0,
+        "meanAfter": 4.6,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.14259,
+        "delta": 5.4,
+        "ratio": 2.174
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "Mmid|T",
+       "upstreamTokensSpent": 768.0
+      },
+      {
+       "fromStep": 12,
+       "toStep": 13,
+       "fromCheckpoint": "C2",
+       "toCheckpoint": "C3",
+       "tokens": {
+        "meanBefore": 5519.8,
+        "meanAfter": 4196.67,
+        "n1": 5,
+        "n2": 3,
+        "p": 0.49829,
+        "delta": 1323.13,
+        "ratio": 1.315
+       },
+       "tools": {
+        "meanBefore": 37.0,
+        "meanAfter": 30.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.47471,
+        "delta": 7.0,
+        "ratio": 1.233
+       },
+       "edits": {
+        "meanBefore": 4.6,
+        "meanAfter": 0.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.44373,
+        "delta": 4.6,
+        "ratio": null
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "Mlast",
+       "upstreamTokensSpent": 1409.0
+      }
+     ]
+    }
+   },
+   "q2_constructValidity": {
+    "vTiedPairs": 3,
+    "separatedByRCW": 0,
+    "holds": false,
+    "examples": []
+   },
+   "criteria": {
+    "1_largeRatioWithDisjointIntervals": false,
+    "2_largestDeltaAtStructuralChange": true,
+    "3_spearmanNegativeOnBothArms": true,
+    "4_rcwSeparatesVTiedStates": false,
+    "5_censoringImmuneProxyAgrees": true,
+    "6_survivesWorstCaseCensoring": false
+   },
+   "criteriaAggregation": {
+    "1_largeRatioWithDisjointIntervals": "any arm",
+    "2_largestDeltaAtStructuralChange": "any arm (mechanical half only)",
+    "3_spearmanNegativeOnBothArms": "all arms, as the document words it",
+    "4_rcwSeparatesVTiedStates": "case-wide, over every pair of probed states",
+    "5_censoringImmuneProxyAgrees": "any arm",
+    "6_survivesWorstCaseCensoring": "any arm"
+   },
+   "allSix": false,
+   "especiallyStrong": false,
+   "criterion2Note": "the trace half of criterion 2 is not mechanical: open the transcript around the named steps and describe what it actually shows, or record it as unexplained"
+  },
+  "petclinic-rest-37": {
+   "case": "petclinic-rest-37",
+   "arms": [
+    "pcr37-mcp"
+   ],
+   "perArm": {
+    "pcr37-mcp": {
+     "cells": 3,
+     "criterion1_largestRatio": {
+      "ratio": 2.137,
+      "highStep": 20,
+      "lowStep": 7,
+      "highMean": 8599.5,
+      "lowMean": 4023.4,
+      "intervalsDisjoint": true,
+      "meetsThreshold": true,
+      "holds": true
+     },
+     "criterion2_largestDeltaTransition": {
+      "fromStep": 7,
+      "toStep": 8,
+      "delta": -2539.85,
+      "p": 0.03219,
+      "coincidesWithMilestone": true,
+      "landsOn": "M0|T",
+      "requiresTraceReview": true
+     },
+     "criterion3_spearmanRcwVsLayerCov": 0.866,
+     "criterion3_holds": false,
+     "criterion5_proxies": {
+      "tools": {
+       "delta": -8.75,
+       "p": 0.09329,
+       "sameSign": true
+      },
+      "edits": {
+       "delta": -1.8,
+       "p": 0.40557,
+       "sameSign": true
+      }
+     },
+     "criterion5_holds": true,
+     "criterion6_worstCase": {
+      "imputedValue": 20143,
+      "perCell": {
+       "7": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 4023.4
+       },
+       "8": {
+        "n": 4,
+        "imputed": 0,
+        "mean": 6563.2
+       },
+       "20": {
+        "n": 2,
+        "imputed": 0,
+        "mean": 8599.5
+       }
+      },
+      "headlineRatioAfterImputation": 0.613,
+      "originalPairRatioAfterImputation": 2.137,
+      "largestRatioAfterImputation": 2.137,
+      "imputedSuccesses": 0,
+      "holds": true
+     },
+     "headlineTransition": {
+      "fromStep": 7,
+      "toStep": 8,
+      "landsOn": "M0|T",
+      "tokens": {
+       "meanBefore": 4023.4,
+       "meanAfter": 6563.25,
+       "n1": 5,
+       "n2": 4,
+       "p": 0.03219,
+       "delta": -2539.85,
+       "ratio": 0.613
+      },
+      "tools": {
+       "meanBefore": 16.0,
+       "meanAfter": 24.75,
+       "n1": 5,
+       "n2": 4,
+       "p": 0.09329,
+       "delta": -8.75,
+       "ratio": 0.646
+      },
+      "edits": {
+       "meanBefore": 2.2,
+       "meanAfter": 4.0,
+       "n1": 5,
+       "n2": 4,
+       "p": 0.40557,
+       "delta": -1.8,
+       "ratio": 0.55
+      },
+      "intervalsDisjoint": false
+     },
+     "transitions": [
+      {
+       "fromStep": 7,
+       "toStep": 8,
+       "fromCheckpoint": "C1",
+       "toCheckpoint": "C2",
+       "tokens": {
+        "meanBefore": 4023.4,
+        "meanAfter": 6563.25,
+        "n1": 5,
+        "n2": 4,
+        "p": 0.03219,
+        "delta": -2539.85,
+        "ratio": 0.613
+       },
+       "tools": {
+        "meanBefore": 16.0,
+        "meanAfter": 24.75,
+        "n1": 5,
+        "n2": 4,
+        "p": 0.09329,
+        "delta": -8.75,
+        "ratio": 0.646
+       },
+       "edits": {
+        "meanBefore": 2.2,
+        "meanAfter": 4.0,
+        "n1": 5,
+        "n2": 4,
+        "p": 0.40557,
+        "delta": -1.8,
+        "ratio": 0.55
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "M0|T",
+       "upstreamTokensSpent": 2306.0
+      },
+      {
+       "fromStep": 8,
+       "toStep": 20,
+       "fromCheckpoint": "C2",
+       "toCheckpoint": "C3",
+       "tokens": {
+        "meanBefore": 6563.25,
+        "meanAfter": 8599.5,
+        "n1": 4,
+        "n2": 2,
+        "p": 0.46755,
+        "delta": -2036.25,
+        "ratio": 0.763
+       },
+       "tools": {
+        "meanBefore": 24.75,
+        "meanAfter": 33.0,
+        "n1": 4,
+        "n2": 2,
+        "p": 0.40056,
+        "delta": -8.25,
+        "ratio": 0.75
+       },
+       "edits": {
+        "meanBefore": 4.0,
+        "meanAfter": 5.0,
+        "n1": 4,
+        "n2": 2,
+        "p": 0.86577,
+        "delta": -1.0,
+        "ratio": 0.8
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 5721.0
+      }
+     ]
+    }
+   },
+   "q2_constructValidity": {
+    "vTiedPairs": 3,
+    "separatedByRCW": 1,
+    "holds": true,
+    "examples": [
+     {
+      "stepA": 7,
+      "stepB": 20,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 4023.4,
+      "RCW_B": 8599.5
+     }
+    ]
+   },
+   "criteria": {
+    "1_largeRatioWithDisjointIntervals": true,
+    "2_largestDeltaAtStructuralChange": true,
+    "3_spearmanNegativeOnBothArms": false,
+    "4_rcwSeparatesVTiedStates": true,
+    "5_censoringImmuneProxyAgrees": true,
+    "6_survivesWorstCaseCensoring": true
+   },
+   "criteriaAggregation": {
+    "1_largeRatioWithDisjointIntervals": "any arm",
+    "2_largestDeltaAtStructuralChange": "any arm (mechanical half only)",
+    "3_spearmanNegativeOnBothArms": "all arms, as the document words it",
+    "4_rcwSeparatesVTiedStates": "case-wide, over every pair of probed states",
+    "5_censoringImmuneProxyAgrees": "any arm",
+    "6_survivesWorstCaseCensoring": "any arm"
+   },
+   "allSix": false,
+   "especiallyStrong": false,
+   "criterion2Note": "the trace half of criterion 2 is not mechanical: open the transcript around the named steps and describe what it actually shows, or record it as unexplained"
+  },
+  "springboot3-1": {
+   "case": "springboot3-1",
+   "arms": [
+    "sb31-mcp",
+    "sb31-none"
+   ],
+   "perArm": {
+    "sb31-mcp": {
+     "cells": 4,
+     "criterion1_largestRatio": {
+      "ratio": 2.659,
+      "highStep": 7,
+      "lowStep": 13,
+      "highMean": 11048.8,
+      "lowMean": 4155.4,
+      "intervalsDisjoint": true,
+      "meetsThreshold": true,
+      "holds": true
+     },
+     "criterion2_largestDeltaTransition": {
+      "fromStep": 7,
+      "toStep": 10,
+      "delta": 5178.6,
+      "p": 0.01554,
+      "coincidesWithMilestone": true,
+      "landsOn": "Mmid",
+      "requiresTraceReview": true
+     },
+     "criterion3_spearmanRcwVsLayerCov": -0.8,
+     "criterion3_holds": true,
+     "criterion5_proxies": {
+      "tools": {
+       "delta": 3.6,
+       "p": 0.1418,
+       "sameSign": true
+      },
+      "edits": {
+       "delta": 3.2,
+       "p": 0.01622,
+       "sameSign": true
+      }
+     },
+     "criterion5_holds": true,
+     "criterion6_worstCase": {
+      "imputedValue": 20143,
+      "perCell": {
+       "7": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 11048.8
+       },
+       "10": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 5870.2
+       },
+       "12": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 7933.8
+       },
+       "13": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 4155.4
+       }
+      },
+      "headlineRatioAfterImputation": 1.909,
+      "originalPairRatioAfterImputation": 2.659,
+      "largestRatioAfterImputation": 2.659,
+      "imputedSuccesses": 0,
+      "holds": true
+     },
+     "headlineTransition": {
+      "fromStep": 12,
+      "toStep": 13,
+      "landsOn": "Mlast",
+      "tokens": {
+       "meanBefore": 7933.8,
+       "meanAfter": 4155.4,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.00804,
+       "delta": 3778.4,
+       "ratio": 1.909
+      },
+      "tools": {
+       "meanBefore": 30.8,
+       "meanAfter": 27.2,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.1418,
+       "delta": 3.6,
+       "ratio": 1.132
+      },
+      "edits": {
+       "meanBefore": 6.0,
+       "meanAfter": 2.8,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.01622,
+       "delta": 3.2,
+       "ratio": 2.143
+      },
+      "intervalsDisjoint": true
+     },
+     "transitions": [
+      {
+       "fromStep": 7,
+       "toStep": 10,
+       "fromCheckpoint": "C1",
+       "toCheckpoint": "C2",
+       "tokens": {
+        "meanBefore": 11048.8,
+        "meanAfter": 5870.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.01554,
+        "delta": 5178.6,
+        "ratio": 1.882
+       },
+       "tools": {
+        "meanBefore": 33.2,
+        "meanAfter": 25.4,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.19706,
+        "delta": 7.8,
+        "ratio": 1.307
+       },
+       "edits": {
+        "meanBefore": 13.8,
+        "meanAfter": 7.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.02425,
+        "delta": 6.6,
+        "ratio": 1.917
+       },
+       "intervalsDisjoint": true,
+       "landsOn": "Mmid",
+       "upstreamTokensSpent": 1020.0
+      },
+      {
+       "fromStep": 10,
+       "toStep": 12,
+       "fromCheckpoint": "C2",
+       "toCheckpoint": "C3",
+       "tokens": {
+        "meanBefore": 5870.2,
+        "meanAfter": 7933.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.07853,
+        "delta": -2063.6,
+        "ratio": 0.74
+       },
+       "tools": {
+        "meanBefore": 25.4,
+        "meanAfter": 30.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.04035,
+        "delta": -5.4,
+        "ratio": 0.825
+       },
+       "edits": {
+        "meanBefore": 7.2,
+        "meanAfter": 6.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.42013,
+        "delta": 1.2,
+        "ratio": 1.2
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 2894.0
+      },
+      {
+       "fromStep": 12,
+       "toStep": 13,
+       "fromCheckpoint": "C3",
+       "toCheckpoint": "C4",
+       "tokens": {
+        "meanBefore": 7933.8,
+        "meanAfter": 4155.4,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.00804,
+        "delta": 3778.4,
+        "ratio": 1.909
+       },
+       "tools": {
+        "meanBefore": 30.8,
+        "meanAfter": 27.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.1418,
+        "delta": 3.6,
+        "ratio": 1.132
+       },
+       "edits": {
+        "meanBefore": 6.0,
+        "meanAfter": 2.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.01622,
+        "delta": 3.2,
+        "ratio": 2.143
+       },
+       "intervalsDisjoint": true,
+       "landsOn": "Mlast",
+       "upstreamTokensSpent": 1284.0
+      }
+     ]
+    },
+    "sb31-none": {
+     "cells": 4,
+     "criterion1_largestRatio": {
+      "ratio": 4.065,
+      "highStep": 5,
+      "lowStep": 13,
+      "highMean": 12971.0,
+      "lowMean": 3190.8,
+      "intervalsDisjoint": true,
+      "meetsThreshold": true,
+      "holds": true
+     },
+     "criterion2_largestDeltaTransition": {
+      "fromStep": 5,
+      "toStep": 9,
+      "delta": 5016.0,
+      "p": 0.13421,
+      "coincidesWithMilestone": false,
+      "landsOn": "",
+      "requiresTraceReview": true
+     },
+     "criterion3_spearmanRcwVsLayerCov": -1.0,
+     "criterion3_holds": true,
+     "criterion5_proxies": {
+      "tools": {
+       "delta": 5.0,
+       "p": 0.49235,
+       "sameSign": true
+      },
+      "edits": {
+       "delta": 7.2,
+       "p": 0.03222,
+       "sameSign": true
+      }
+     },
+     "criterion5_holds": true,
+     "criterion6_worstCase": {
+      "imputedValue": 20143,
+      "perCell": {
+       "5": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 12971.0
+       },
+       "9": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 7955.0
+       },
+       "12": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 3824.8
+       },
+       "13": {
+        "n": 5,
+        "imputed": 0,
+        "mean": 3190.8
+       }
+      },
+      "headlineRatioAfterImputation": 1.631,
+      "originalPairRatioAfterImputation": 4.065,
+      "largestRatioAfterImputation": 4.065,
+      "imputedSuccesses": 0,
+      "holds": true
+     },
+     "headlineTransition": {
+      "fromStep": 5,
+      "toStep": 9,
+      "landsOn": "",
+      "tokens": {
+       "meanBefore": 12971.0,
+       "meanAfter": 7955.0,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.13421,
+       "delta": 5016.0,
+       "ratio": 1.631
+      },
+      "tools": {
+       "meanBefore": 36.8,
+       "meanAfter": 31.8,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.49235,
+       "delta": 5.0,
+       "ratio": 1.157
+      },
+      "edits": {
+       "meanBefore": 15.0,
+       "meanAfter": 7.8,
+       "n1": 5,
+       "n2": 5,
+       "p": 0.03222,
+       "delta": 7.2,
+       "ratio": 1.923
+      },
+      "intervalsDisjoint": false
+     },
+     "transitions": [
+      {
+       "fromStep": 5,
+       "toStep": 9,
+       "fromCheckpoint": "C1",
+       "toCheckpoint": "C2",
+       "tokens": {
+        "meanBefore": 12971.0,
+        "meanAfter": 7955.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.13421,
+        "delta": 5016.0,
+        "ratio": 1.631
+       },
+       "tools": {
+        "meanBefore": 36.8,
+        "meanAfter": 31.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.49235,
+        "delta": 5.0,
+        "ratio": 1.157
+       },
+       "edits": {
+        "meanBefore": 15.0,
+        "meanAfter": 7.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.03222,
+        "delta": 7.2,
+        "ratio": 1.923
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 3417.0
+      },
+      {
+       "fromStep": 9,
+       "toStep": 12,
+       "fromCheckpoint": "C2",
+       "toCheckpoint": "C3",
+       "tokens": {
+        "meanBefore": 7955.0,
+        "meanAfter": 3824.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.01606,
+        "delta": 4130.2,
+        "ratio": 2.08
+       },
+       "tools": {
+        "meanBefore": 31.8,
+        "meanAfter": 23.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.04623,
+        "delta": 8.6,
+        "ratio": 1.371
+       },
+       "edits": {
+        "meanBefore": 7.8,
+        "meanAfter": 2.4,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.00776,
+        "delta": 5.4,
+        "ratio": 3.25
+       },
+       "intervalsDisjoint": true,
+       "landsOn": "Mmid",
+       "upstreamTokensSpent": 3564.0
+      },
+      {
+       "fromStep": 12,
+       "toStep": 13,
+       "fromCheckpoint": "C3",
+       "toCheckpoint": "C4",
+       "tokens": {
+        "meanBefore": 3824.8,
+        "meanAfter": 3190.8,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.10313,
+        "delta": 634.0,
+        "ratio": 1.199
+       },
+       "tools": {
+        "meanBefore": 23.2,
+        "meanAfter": 22.2,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.66561,
+        "delta": 1.0,
+        "ratio": 1.045
+       },
+       "edits": {
+        "meanBefore": 2.4,
+        "meanAfter": 1.0,
+        "n1": 5,
+        "n2": 5,
+        "p": 0.00807,
+        "delta": 1.4,
+        "ratio": 2.4
+       },
+       "intervalsDisjoint": false,
+       "landsOn": "",
+       "upstreamTokensSpent": 0.0
+      }
+     ]
+    }
+   },
+   "q2_constructValidity": {
+    "vTiedPairs": 28,
+    "separatedByRCW": 18,
+    "holds": true,
+    "examples": [
+     {
+      "stepA": 7,
+      "stepB": 10,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11048.8,
+      "RCW_B": 5870.2
+     },
+     {
+      "stepA": 7,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11048.8,
+      "RCW_B": 4155.4
+     },
+     {
+      "stepA": 7,
+      "stepB": 12,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11048.8,
+      "RCW_B": 3824.8
+     },
+     {
+      "stepA": 7,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 11048.8,
+      "RCW_B": 3190.8
+     },
+     {
+      "stepA": 10,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 5870.2,
+      "RCW_B": 4155.4
+     },
+     {
+      "stepA": 10,
+      "stepB": 5,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 5870.2,
+      "RCW_B": 12971.0
+     },
+     {
+      "stepA": 10,
+      "stepB": 12,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 5870.2,
+      "RCW_B": 3824.8
+     },
+     {
+      "stepA": 10,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 5870.2,
+      "RCW_B": 3190.8
+     },
+     {
+      "stepA": 12,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 7933.8,
+      "RCW_B": 4155.4
+     },
+     {
+      "stepA": 12,
+      "stepB": 12,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 7933.8,
+      "RCW_B": 3824.8
+     },
+     {
+      "stepA": 12,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 7933.8,
+      "RCW_B": 3190.8
+     },
+     {
+      "stepA": 13,
+      "stepB": 5,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 4155.4,
+      "RCW_B": 12971.0
+     },
+     {
+      "stepA": 13,
+      "stepB": 9,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 4155.4,
+      "RCW_B": 7955.0
+     },
+     {
+      "stepA": 13,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 4155.4,
+      "RCW_B": 3190.8
+     },
+     {
+      "stepA": 5,
+      "stepB": 12,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 12971.0,
+      "RCW_B": 3824.8
+     },
+     {
+      "stepA": 5,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 12971.0,
+      "RCW_B": 3190.8
+     },
+     {
+      "stepA": 9,
+      "stepB": 12,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 7955.0,
+      "RCW_B": 3824.8
+     },
+     {
+      "stepA": 9,
+      "stepB": 13,
+      "V_A": 1.0,
+      "V_B": 1.0,
+      "RCW_A": 7955.0,
+      "RCW_B": 3190.8
+     }
+    ]
+   },
+   "criteria": {
+    "1_largeRatioWithDisjointIntervals": true,
+    "2_largestDeltaAtStructuralChange": true,
+    "3_spearmanNegativeOnBothArms": true,
+    "4_rcwSeparatesVTiedStates": true,
+    "5_censoringImmuneProxyAgrees": true,
+    "6_survivesWorstCaseCensoring": true
+   },
+   "criteriaAggregation": {
+    "1_largeRatioWithDisjointIntervals": "any arm",
+    "2_largestDeltaAtStructuralChange": "any arm (mechanical half only)",
+    "3_spearmanNegativeOnBothArms": "all arms, as the document words it",
+    "4_rcwSeparatesVTiedStates": "case-wide, over every pair of probed states",
+    "5_censoringImmuneProxyAgrees": "any arm",
+    "6_survivesWorstCaseCensoring": "any arm"
+   },
+   "allSix": true,
+   "especiallyStrong": true,
+   "criterion2Note": "the trace half of criterion 2 is not mechanical: open the transcript around the named steps and describe what it actually shows, or record it as unexplained"
+  }
+ },
+ "crossCase": {
+  "casesEvaluated": 5,
+  "casesMeetingAllSix": 1,
+  "which": [
+   "springboot3-1"
+  ],
+  "majorityThreshold": 4,
+  "q1Supported": false,
+  "especiallyStrong": [
+   "springboot3-1"
+  ],
+  "note": "Q1 needs >= 4 of the 6 round-3 cases; a run over fewer cases is reported as partial and decides nothing.",
+  "partial": true
+ },
+ "q3": {
+  "feature-service-25": {
+   "arms": {
+    "fs25-none": {
+     "steps": 42,
+     "MlastStep": 31,
+     "atMlast": {
+      "outputTokens": 11226.0,
+      "toolCalls": 31.0,
+      "wallClockSec": 125.0,
+      "editFraction": 0.6562
+     },
+     "atEnd": {
+      "outputTokens": 14895.0,
+      "toolCalls": 42.0,
+      "wallClockSec": 170.0,
+      "layerCov": 1.0,
+      "fileCov": 0.9167
+     }
+    }
+   },
+   "earlierAtMlast": {
+    "outputTokens": null,
+    "toolCalls": null,
+    "wallClockSec": null
+   }
+  },
+  "jhipster-3": {
+   "arms": {
+    "jh3-none": {
+     "steps": 25,
+     "MlastStep": 17,
+     "atMlast": {
+      "outputTokens": 7497.0,
+      "toolCalls": 17.0,
+      "wallClockSec": 95.0,
+      "editFraction": 0.3333
+     },
+     "atEnd": {
+      "outputTokens": 12654.0,
+      "toolCalls": 25.0,
+      "wallClockSec": 435.0,
+      "layerCov": 1.0,
+      "fileCov": 0.7778
+     }
+    }
+   },
+   "earlierAtMlast": {
+    "outputTokens": null,
+    "toolCalls": null,
+    "wallClockSec": null
+   }
+  },
+  "petclinic-36": {
+   "arms": {
+    "pc36-none": {
+     "steps": 20,
+     "MlastStep": 13,
+     "atMlast": {
+      "outputTokens": 4166.0,
+      "toolCalls": 13.0,
+      "wallClockSec": 59.0,
+      "editFraction": 0.2222
+     },
+     "atEnd": {
+      "outputTokens": 6293.0,
+      "toolCalls": 20.0,
+      "wallClockSec": 101.0,
+      "layerCov": 1.0,
+      "fileCov": 1.0
+     }
+    }
+   },
+   "earlierAtMlast": {
+    "outputTokens": null,
+    "toolCalls": null,
+    "wallClockSec": null
+   }
+  },
+  "petclinic-rest-37": {
+   "arms": {
+    "pcr37-mcp": {
+     "steps": 24,
+     "MlastStep": null,
+     "atMlast": null,
+     "atEnd": {
+      "outputTokens": 12456.0,
+      "toolCalls": 24.0,
+      "wallClockSec": 349.0,
+      "layerCov": 0.3333,
+      "fileCov": 0.0909
+     }
+    }
+   },
+   "earlierAtMlast": {
+    "outputTokens": null,
+    "toolCalls": null,
+    "wallClockSec": null
+   }
+  },
+  "springboot3-1": {
+   "arms": {
+    "sb31-mcp": {
+     "steps": 16,
+     "MlastStep": 13,
+     "atMlast": {
+      "outputTokens": 16382.0,
+      "toolCalls": 13.0,
+      "wallClockSec": 181.0,
+      "editFraction": 0.6667
+     },
+     "atEnd": {
+      "outputTokens": 19359.0,
+      "toolCalls": 16.0,
+      "wallClockSec": 215.0,
+      "layerCov": 1.0,
+      "fileCov": 0.0909
+     }
+    },
+    "sb31-none": {
+     "steps": 16,
+     "MlastStep": null,
+     "atMlast": null,
+     "atEnd": {
+      "outputTokens": 13754.0,
+      "toolCalls": 16.0,
+      "wallClockSec": 155.0,
+      "layerCov": 0.7143,
+      "fileCov": 0.0909
+     }
+    }
+   },
+   "earlierAtMlast": {
+    "outputTokens": null,
+    "toolCalls": null,
+    "wallClockSec": null
+   }
+  }
+ },
+ "plots": {
+  "rendered": false,
+  "files": {
+   "feature-service-25": [
+    "feature-service-25-a-rcw-vs-upstream.csv",
+    "feature-service-25-b-coverage-trajectory.csv",
+    "feature-service-25-c-state-space.csv",
+    "feature-service-25-d-delta-rcw.csv",
+    "feature-service-25-e-censoring-immune-proxies.csv"
+   ],
+   "jhipster-3": [
+    "jhipster-3-a-rcw-vs-upstream.csv",
+    "jhipster-3-b-coverage-trajectory.csv",
+    "jhipster-3-c-state-space.csv",
+    "jhipster-3-d-delta-rcw.csv",
+    "jhipster-3-e-censoring-immune-proxies.csv"
+   ],
+   "petclinic-36": [
+    "petclinic-36-a-rcw-vs-upstream.csv",
+    "petclinic-36-b-coverage-trajectory.csv",
+    "petclinic-36-c-state-space.csv",
+    "petclinic-36-d-delta-rcw.csv",
+    "petclinic-36-e-censoring-immune-proxies.csv"
+   ],
+   "petclinic-rest-37": [
+    "petclinic-rest-37-a-rcw-vs-upstream.csv",
+    "petclinic-rest-37-b-coverage-trajectory.csv",
+    "petclinic-rest-37-c-state-space.csv",
+    "petclinic-rest-37-d-delta-rcw.csv",
+    "petclinic-rest-37-e-censoring-immune-proxies.csv"
+   ],
+   "springboot3-1": [
+    "springboot3-1-a-rcw-vs-upstream.csv",
+    "springboot3-1-b-coverage-trajectory.csv",
+    "springboot3-1-c-state-space.csv",
+    "springboot3-1-d-delta-rcw.csv",
+    "springboot3-1-e-censoring-immune-proxies.csv"
+   ]
+  }
+ }
+}

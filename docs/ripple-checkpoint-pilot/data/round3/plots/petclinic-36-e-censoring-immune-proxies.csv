@@ -1,0 +1,4 @@
+arm,step,layerCov,RCW_tools_mean,RCW_edits_mean,censoredSuccesses
+pc36-none,11,0.3333,47.0,10.0,1
+pc36-none,12,0.6667,37.0,4.6,0
+pc36-none,13,1.0,30.0,0.0,2

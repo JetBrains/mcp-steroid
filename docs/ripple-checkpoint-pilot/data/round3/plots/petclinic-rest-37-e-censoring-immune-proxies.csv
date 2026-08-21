@@ -1,0 +1,4 @@
+arm,step,layerCov,RCW_tools_mean,RCW_edits_mean,censoredSuccesses
+pcr37-mcp,7,0.0,16.0,2.2,0
+pcr37-mcp,8,0.3333,24.75,4.0,0
+pcr37-mcp,20,0.3333,33.0,5.0,0

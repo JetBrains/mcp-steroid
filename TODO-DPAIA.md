@@ -51,16 +51,36 @@
   same milestone; indistinguishable residual work afterwards, `p = 0.56`). Spending ≈ $340 on 500 runs of
   a comparison whose sign flips with the choice of x-axis is not worth it. The follow-ups that ARE worth
   it are in `TODO.md` (a round-trip-limited comparison, and reusing `C(s)` as an instrument).
-- [ ] Decide what to do with two statements in `RCW-GENERALIZATION.md` that its own frozen code does not
-  reproduce. Both were found while verifying the round-3 pipeline against round 2's committed artifacts,
-  before any round-3 verdict existed, and both are recorded in
-  `docs/ripple-checkpoint-pilot/data/round3/README.md`. (1) The validation table gives `T` = 40 (+0.714)
-  for `none2`; `rcw_layers.transition_step` over that capture returns **16** (+0.143), which is what
-  `REPLICATION-2.md` says too — every shell step raises `layerCov` by exactly one layer, so ties resolve
-  to the first write. (2) "Applied retrospectively the rule selects `{13,14,15,23}` / `{16,40,41,44}`" is
-  four of five: `select_checkpoints()` also returns the new positional `C2` (step 18 / step 30), which
-  round 3 adds and round 2 never had. Neither affects a probed round-3 state — `Mlast` reproduces exactly
-  — so the choice is between a deviations-section note and leaving the table as written.
+- [x] Decide what to do with two statements in `RCW-GENERALIZATION.md` that its own frozen code does not
+  reproduce — **both corrected in the document as deviation D1**, before any round-3 verdict was read.
+  The `T` column was withdrawn from the validation table rather than restated (it is an anchor only in
+  the fallback branch, and on a trajectory that adds one layer per write it degenerates to the first
+  write), and the retrospective-selection claim now reads "recovers round 2's states, plus the new
+  positional `C2`" instead of "precisely". `Mlast`, the quantity the rule consumes, reproduced exactly on
+  all four pilot trajectories and is unchanged.
+- [x] **Round 3 — does RCW generalize across DPAIA cases? Answered: NO at this sample, and the branch
+  stops by its own pre-registered rule.** Six cases selected for diversity of change shape AND of prior
+  mcp-vs-shell outcome, pre-registered in `docs/ripple-checkpoint-pilot/RCW-GENERALIZATION.md`; 12
+  captures, 120 probe cells, ≈ $55. One of five measured cases (`springboot3-1`, on BOTH arms) meets all
+  six criteria against a bar of four of six. The pilot's *shape* — one large collapse at a decisive step
+  — did not transfer: `feature-service-25` is a clean monotone 2.97× defeated by the censoring rule,
+  `petclinic-36` is directionally right but underpowered at `n = 5`, `jhipster-3` is flat, and
+  `petclinic-rest-37` **inverts** (a weak agent finishes that small task more cheaply from the pristine
+  tree than from Opus's half-built endpoint — an inherited-context cost, not progress). Q2 is the durable
+  result: `V` = 1.00 in 23 of 24 cells while RCW separates 21 of 43 `V`-tied state pairs.
+- [ ] Fix the `petclinic-71` capture artifact publication. Both round-3 captures (1037547376 /
+  1037547378) ran correctly — `n = 37`, admitted, 37/37 hook records, transcript, 37 step patches — but
+  the build published only the `video` directory, so the `checkpoints` directory never left the agent and
+  the case could not be probed. Specific to the 5 400-second case; the other ten published normally.
+  It is the ONLY case in the catalog with a measured strong mcp advantage (0.64×), so it is the one whose
+  absence most limits any future arm comparison.
+- [ ] Before any further RCW round, fix the two design faults round 3 exposed, both cheap relative to
+  another six-case sweep. (1) **Power**: `n = 5` was calibrated on the pilot's 3× effect; the effects that
+  actually occur are 1.5–2×, and `petclinic-36` fails on variance rather than direction. (2) **Case
+  admissibility**: three of five mcp arms had too few distinct work trees to measure at all —
+  `gate1_r3.py` already computes this and should gate case SELECTION, not just spending. Related: mcp
+  trajectories are systematically COARSER (2–9 distinct trees against shell's 3–18), which is a real
+  finding about MCP and a structural obstacle to instrumenting mcp runs with any work-tree metric.
 - [ ] Generalize the arena prompt's Docker escape hatch from a whitelist of literal error strings
   (`Could not find a valid Docker environment`, `BadRequestException`, `HTTP 400`, `docker.sock`,
   `DockerClientException`) to any Docker/Testcontainers infrastructure failure.

@@ -419,6 +419,25 @@ patch text at selection time, in `gate1_r3.py` and `commit_checkpoints_r3.py` al
 step carrying a tree as its representative. This only ever reduces spend and never changes which STATES
 are measured.
 
+**D6 — criterion 6 was implemented against the wrong quantity; fixed after the numbers were read, and
+the fix is reported here because of that.** The analyzer evaluated "the effect survives the worst-case
+censoring imputation" by applying criterion 1's 2× threshold to the `Mlast` TRANSITION ratio. That is a
+different claim, and it produced a reading that cannot be right: three arms with **zero** censored
+successes were marked as not surviving censoring — `sb31-none` among them, whose ratio after imputation
+is arithmetically identical to before it, because there is nothing to impute. A criterion that fails on
+data it does not apply to is measuring the threshold, not the censoring.
+
+Corrected to: not applicable when criterion 1 did not hold (no effect to survive, and a second failure
+for one cause would double-count it); trivially true when no success was imputed; otherwise the SAME
+pair of states criterion 1 named must still clear the threshold under substituted means.
+
+**This changed the verdict, so the direction of the change matters.** Before: 0 of 5 cases met all six.
+After: 1 of 5 (`springboot3-1`). The pre-registered bar is 4 of 6, so **the round's conclusion is
+unaffected either way** — the fix makes the negative result less severe, not more convincing, and it
+leaves every genuinely censored case (`feature-service-25` 2.97 → 1.85) failing exactly as before. The
+bug and its correction are recorded rather than quietly patched because the fix was made with the data
+in hand, which is precisely the situation pre-registration exists to police.
+
 ## Results
 
 ### Stage 1 — captures and Gate 1
@@ -468,4 +487,190 @@ Two further observations from the captures, both recorded before any probe verdi
 
 ### Stage 2 — probes
 
-*(appended as the waves complete)*
+120 rollouts across 24 cells, 6 arms, 5 cases. 115 solved, 1 budget-exhausted, 4 tampered, **0 LOST**;
+15 rollouts censored (a success with no terminal `result` event). Raw data:
+[`data/round3/rollouts-r3.csv`](data/round3/rollouts-r3.csv) (one row per rollout),
+[`checkpoints-r3.csv`](data/round3/checkpoints-r3.csv) (one row per cell),
+[`upstream-r3.csv`](data/round3/upstream-r3.csv) (one row per captured step),
+[`summary-r3.json`](data/round3/summary-r3.json) (the criteria, evaluated mechanically).
+
+| case | arm | state | `layerCov` | `V` | `RCW_tokens` mean | bootstrap 95 % | tools | edits |
+|:---|:---|--:|--:|--:|--:|:---|--:|--:|
+| `springboot3-1` | `sb31-mcp` | 7 | 0.14 | 1.00 | 11 049 | 7 484 – 15 982 | 33.2 | 13.8 |
+| | | 10 | 0.57 | 1.00 | 5 870 | 5 272 – 6 634 | 25.4 | 7.2 |
+| | | 12 | 0.86 | 1.00 | 7 934 | 6 319 – 9 747 | 30.8 | 6.0 |
+| | | 13 | **1.00** | 1.00 | **4 155** | 3 705 – 4 650 | 27.2 | 2.8 |
+| | `sb31-none` | 5 | 0.00 | 1.00 | 12 971 | 8 950 – 16 992 | 36.8 | 15.0 |
+| | | 9 | 0.29 | 1.00 | 7 955 | 5 455 – 11 232 | 31.8 | 7.8 |
+| | | 12 | 0.57 | 1.00 | 3 825 | 3 470 – 4 255 | 23.2 | 2.4 |
+| | | 13 | 0.71 | 1.00 | **3 191** | 2 703 – 3 621 | 22.2 | 1.0 |
+| `feature-service-25` | `fs25-none` | 10 | 0.17 | 1.00 | 11 266 | 10 614 – 11 918 | 53.4 | 13.2 |
+| | | 24 | 0.67 | 1.00 | 9 728 | 8 571 – 10 699 | 44.6 | 7.8 |
+| | | 30 | 0.83 | 1.00 | 8 186 | 7 174 – 9 199 | 40.2 | 5.6 |
+| | | 31 | **1.00** | 1.00 | 6 167 | 5 260 – 6 660 | 35.8 | 4.0 |
+| | | 38 | 1.00 | 1.00 | **3 794** | 3 374 – 4 163 | 26.0 | 0.0 |
+| `petclinic-36` | `pc36-none` | 11 | 0.33 | 1.00 | 8 715 | 3 071 – 11 959 | 47.0 | 10.0 |
+| | | 12 | 0.67 | 1.00 | 5 520 | 3 422 – 7 693 | 37.0 | 4.6 |
+| | | 13 | **1.00** | 1.00 | 4 197 | 3 715 – 5 030 | 30.0 | 0.0 |
+| `jhipster-3` | `jh3-none` | 13 | 0.20 | 0.80 | 6 647 | *n = 1* | 36.3 | 6.5 |
+| | | 15 | 0.80 | 1.00 | 5 098 | 4 585 – 5 611 | 28.0 | 0.2 |
+| | | 16 | 0.80 | 1.00 | 4 744 | 4 108 – 5 380 | 27.2 | 0.0 |
+| | | 17 | **1.00** | 1.00 | 4 446 | 3 700 – 5 192 | 29.4 | 0.4 |
+| | | 18 | 1.00 | 1.00 | 5 549 | 4 165 – 7 362 | 40.8 | 0.4 |
+| `petclinic-rest-37` | `pcr37-mcp` | 7 | 0.00 | 1.00 | **4 023** | 3 594 – 4 479 | 16.0 | 2.2 |
+| | | 8 | 0.33 | 1.00 | 6 563 | 4 452 – 10 451 | 24.8 | 4.0 |
+| | | 20 | 0.33 | 1.00 | **8 600** | 8 415 – 8 784 | 33.0 | 5.0 |
+
+### The pre-registered decision
+
+| case | 1 ≥ 2× disjoint | 2 Δ at milestone | 3 Spearman < 0 | 4 separates `V`-ties | 5 proxy agrees | 6 survives censoring | all six |
+|:---|:--|:--|:--|:--|:--|:--|:--|
+| `springboot3-1` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **YES**, both arms |
+| `feature-service-25` | ✅ 2.97× | ❌ | ✅ −0.97 | ✅ 8/10 pairs | ✅ | ❌ 2.97 → 1.85 | no |
+| `petclinic-rest-37` | ✅ 2.14× | ✅ | ❌ **+0.87** | ✅ | ✅ | ✅ | no |
+| `petclinic-36` | ❌ 2.08×, CIs overlap | ✅ | ✅ −1.00 | ❌ | ✅ | — | no |
+| `jhipster-3` | ❌ 1.49× | ✅ | ✅ −0.53 | ❌ | ❌ | — | no |
+
+**`petclinic-71` could not be measured.** Both captures ran correctly inside the container — `n = 37`,
+admitted, 37/37 hook records, transcript published, per-step patches exported — but TeamCity published
+only the `video` directory as a build artifact; the `checkpoints` directory never left the agent. This is
+an artifact-publication failure specific to the 5 400-second case, not a capture failure, and it means
+the round's one strong-mcp-advantage case has no data. Recorded as an open item, not as a null result.
+
+**Q1 is therefore NOT supported.** The rule required all six criteria on ≥ 4 of 6 cases. One case of five
+measured meets them. Even a perfect `petclinic-71` could not have reached four. **The pre-registered
+stopping criterion applies and the branch stops here rather than scaling to more cases.**
+
+### What actually happened, case by case
+
+Reading the shape rather than the verdict, because the verdict compresses five different behaviours into
+one word.
+
+**`springboot3-1` — the pilot's result, reproduced on a different task and on both arms.** The mcp
+trajectory falls 11 049 → 4 155 (2.66×, disjoint intervals), the shell trajectory 12 971 → 3 191 (4.07×).
+The mcp arm's largest single drop, 7 934 → 4 155 (1.91×, `p = 0.008`), lands exactly on the step where
+`layerCov` reaches 1.0, and the trace says what that step is: a `Write` adding `application.properties`,
+the last of the seven gold layers. Edits corroborate at 2.14× (`p = 0.016`). `V = 1.00` in all eight
+cells — binary success sees nothing at all across a 2.7-to-4-fold change in the work remaining.
+
+**`feature-service-25` — the cleanest monotone curve of the round, defeated by censoring.** Five states,
+`RCW` 11 266 → 9 728 → 8 186 → 6 167 → 3 794, Spearman −0.97, tools 53.4 → 26.0, edits 13.2 → 0.0. The
+step-31 `Edit` that takes coverage to 1.0 adds the controller layer. But 5 of its 21 rollouts are
+censored and they concentrate in the LATE cells (2 of 3 successes at step 31), so worst-case imputation
+pulls the 2.97× down to 1.85× and criterion 6 fails as written. The effect is probably real; the
+pre-registration's own conservative rule says this dataset cannot establish it, and that ruling stands.
+
+**`petclinic-rest-37` — `RCW` increases along the trajectory, and this is the round's most interesting
+observation.** From the PRISTINE tree a probe finishes in 4 023 tokens; from the state after Opus writes
+the endpoint, 6 563; from twelve steps later, 8 600 — a 2.14× increase with disjoint intervals. The task
+is genuinely small (one paginated endpoint, a 2.7 KB final patch), so a weak agent solves it from scratch
+more cheaply than it can read, trust and finish someone else's half-built version. The trace supports
+this directly: after step 8 the tree does not change for thirteen consecutive steps while Opus runs the
+test suite. **`RCW` is measuring something real here — an inherited-context cost — and it is not
+"progress".** The pre-registration anticipated `RCW(s_{t+1}) > RCW(s_t)` as valid data, and this is the
+first case where it dominates a whole trajectory.
+
+**`petclinic-36` — right direction, insufficient power.** 8 715 → 5 520 → 4 197, Spearman −1.00, but the
+first cell's bootstrap interval is 3 071 – 11 959. Three states and `n = 5` cannot separate a 2.08×
+effect against that variance. This is a power failure, not a contradiction.
+
+**`jhipster-3` — nearly flat, and the one case where the trace does not support the metric.** 6 647 →
+5 098 → 4 744 → 4 446 → 5 549, a 1.49× total swing that ends by going back UP. The task is a
+repository-wide rename: the agent's step-17 `Write` adds the Liquibase changelog and completes coverage,
+but a rename has no "integration layer" whose arrival changes how hard finishing is — the remaining work
+after any of these states is to run the build and fix stragglers, which costs roughly the same
+everywhere. `RCW` correctly reports that there is no transition, which is a defensible reading, but the
+case contributes no evidence that `RCW` tracks progress.
+
+### Q2 — construct validity, the round's strongest result
+
+`V = 1.00` in **23 of 24 cells**. The single exception, `jh3-none` step 13, is 0.80 on one graded
+rollout. Binary success is saturated on every case, exactly as it was in rounds 1 and 2.
+
+Against that, `RCW` separates **21 of 43** pairs of `V`-tied states at disjoint bootstrap intervals:
+8/10 on `feature-service-25`, 6/6 on `sb31-mcp`, 5/6 on `sb31-none`, 2/3 on `pcr37-mcp`, 0/3 on
+`petclinic-36`, 0/10 on `jhipster-3`. On the two cases with clean curves it separates nearly every pair
+that pass/fail calls identical — including states 3.0× apart in the work a downstream agent needs.
+
+**This holds regardless of the Q1 verdict**: whatever `RCW` is measuring, it is not what the binary
+verifier measures, and the binary verifier is blind on all five tasks.
+
+### Q3 — mcp versus shell, reported without a thesis
+
+Only `springboot3-1` has both arms measured (D4), so this is one case, not five.
+
+| | mcp | shell |
+|:---|--:|--:|
+| upstream output tokens at `layerCov` = 1.0 | 16 382 | never reached (0.71 at end) |
+| upstream tool calls at that point | 13 | 13 |
+| upstream wall clock | 181 s | 134 s |
+| distinct trees over the capture | 9 | 10 |
+| `RCW` at the last measured state | 4 155 | 3 191 |
+
+On this greenfield task the mcp arm is **behind on every axis** — more output tokens, the same tool
+count, more wall clock — which is what its historical `mcpBenefit = LOW` (1.76×) predicted and what
+round 2's refutation of the model-compute claim would lead one to expect. There is no navigation to
+amortize when the repository is empty.
+
+The Gate-1 table is the more general Q3 observation, and it points the other way: across five cases the
+mcp arm needed 12–17 steps where the shell arm needed 16–42, and **produced 2–9 distinct trees where the
+shell arm produced 3–18**. MCP compresses the trajectory. For an operator that is a win; for anyone
+measuring internal progress it is a problem, because the states simply are not there to measure.
+
+The two arms also solved `springboot3-1` **differently**: mcp built the gold architecture (`UserRepository`
++ JPA entity), shell used an `InMemoryUserDetailsService` and never touched two of the seven gold layers
+while still passing the verifier. That is a real architectural divergence, and it exposes a limitation of
+the layer taxonomy — first-match-wins put shell's `security/User.java` in `security` rather than
+`domain-model`, so its `layerCov` caps at 0.71 for a solution that is complete.
+
+### Threats to validity, stated plainly
+
+1. **Five cases, one arm each on four of them.** D4 bought coverage at the cost of within-case arm
+   comparison.
+2. **`n = 5`.** Adequate for a 3× effect (the pilot's), underpowered for the 1.5–2× effects that turned
+   out to be typical. `petclinic-36` fails on variance, not on direction.
+3. **Censoring is not random.** 15 of 120 rollouts, concentrated in late cells on `fs25-none` and
+   `jh3-none`, i.e. exactly where the metric is smallest. The worst-case rule is deliberately brutal and
+   it broke the one otherwise-clean case.
+4. **`layerCov` depends on a taxonomy.** It reproduced round 2 exactly and needed no per-case tuning, but
+   `sb31-none` and `pcr37` both show it can cap below 1.0 for a complete solution.
+5. **Gold patches are not always the task.** `petclinic-rest-37`'s 38 KB entry describes a 2.7 KB change.
+6. **`petclinic-71` is missing**, and it is the one case selected for a strong mcp advantage.
+
+### Answers
+
+**Q1 — does RCW reproduce as a measure of semantic progress across tasks? Partially, and not enough to
+call it general.** It reproduces convincingly on 2 of 5 tasks (`springboot3-1` on both arms,
+`feature-service-25` up to a censoring rule), is directionally right but underpowered on a third, is flat
+on a fourth, and **inverts on a fifth**. The pre-registered bar of 4 of 6 is not met and the branch stops.
+The direction is more robust than the magnitude: Spearman against layer coverage is negative on 4 of 5
+cases and exactly −1.00 on three of them. What does not generalize is the pilot's *shape* — a single
+large collapse at one decisive step. That shape appeared on `springboot3-1` and nowhere else.
+
+**Q2 — does RCW add information over binary success? Yes, unambiguously, and this is the durable
+result.** `V` is saturated at 1.00 in 23 of 24 cells across all five tasks; `RCW` separates 21 of 43
+`V`-tied state pairs at disjoint intervals, with ratios up to 3.0×. Every task in this round is one where
+pass/fail says all states are equally good and RCW says they are not. That claim does not depend on Q1:
+even the inverted `petclinic-rest-37` distinguishes states that `V` calls identical.
+
+**Q3 — how do mcp and shell differ through RCW? On the one case with both arms, mcp is behind on model
+compute and wall clock and level on tool calls — no advantage, on a task chosen because it never had
+one.** The systematic difference visible across all five cases is not efficiency but **granularity**: mcp
+trajectories are shorter and pass through far fewer distinct states, to the point where three of five mcp
+arms had no measurable interior at all. Round 2's finding that MCP does not reduce model-output compute
+is not contradicted here, and nothing in this round supports the reverse.
+
+### What follows
+
+Per the pre-registered stopping rule, **do not scale this design to more cases.** Two specific things
+would have to change first, and both are cheap relative to another six-case round:
+
+- **Power.** `n = 5` was calibrated on a 3× effect. The effects that occur are 1.5–2×. Either raise `n`
+  on a small number of states or stop treating the 2× bar as the definition of "substantial".
+- **Case admissibility.** Three of five mcp arms and one shell arm had too few distinct states to
+  measure, and one case's gold patch misdescribed its task. A cheap pre-screen — capture first, count
+  distinct trees, only then buy probes — is already implemented as `gate1_r3.py` and should gate case
+  SELECTION, not just spending.
+
+The `petclinic-71` artifact-publication failure should be fixed regardless: it is the only case in the
+catalog with a measured strong mcp advantage, and it is currently unmeasurable.

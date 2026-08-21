@@ -1,0 +1,5 @@
+arm,fromStep,toStep,landsOn,deltaRCW,p,upstreamTokensSpent,eta
+fs25-none,10,24,,1537.7,0.08698,2422.0,0.6349
+fs25-none,24,30,,1541.55,0.12636,1282.0,1.2025
+fs25-none,30,31,Mlast,2018.92,0.08657,232.0,8.7022
+fs25-none,31,38,,2373.33,0.02849,2806.0,0.8458

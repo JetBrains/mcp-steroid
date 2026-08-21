@@ -1,0 +1,3 @@
+arm,fromStep,toStep,landsOn,deltaRCW,p,upstreamTokensSpent,eta
+pcr37-mcp,7,8,M0|T,-2539.85,0.03219,2306.0,-1.1014
+pcr37-mcp,8,20,,-2036.25,0.46755,5721.0,-0.3559

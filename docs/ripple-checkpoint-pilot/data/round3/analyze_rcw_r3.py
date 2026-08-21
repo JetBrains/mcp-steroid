@@ -393,10 +393,8 @@ def evaluate_case(case, cells, rollouts, upstream_rows, rng, worst_value):
 
         imputed = worst_case(arm_cells, rollouts, worst_value)
         imputed_means = {step: facts["mean"] for step, facts in imputed.items() if facts["mean"]}
-        # Three readings, because "the effect survives" can mean three things and only one of them is
-        # what the metrics section actually says. `headlineAfter` is it: the HEADLINE DROP recomputed.
-        # The other two are published next to it so the reader can see that the choice was not made to
-        # rescue the claim — a headline that only survives on one of the three is not a survival.
+        # Three readings, because "the effect survives" can mean three things. All three are published
+        # so the choice is auditable, but only ONE of them can decide the criterion.
         headline_after = None
         if headline and headline["toStep"] in imputed_means and headline["fromStep"] in imputed_means:
             headline_after = round(
@@ -406,7 +404,27 @@ def evaluate_case(case, cells, rollouts, upstream_rows, rng, worst_value):
             pair_after = round(imputed_means[ratio["highStep"]] / imputed_means[ratio["lowStep"]], 3)
         largest_after = (round(max(imputed_means.values()) / min(imputed_means.values()), 3)
                          if len(imputed_means) > 1 else None)
-        survives = headline_after if headline_after is not None else largest_after
+
+        # Criterion 6 asks whether the effect SURVIVES imputation, so it must recompute the quantity
+        # criterion 1 established — the same pair of states, under substituted means — and nothing else.
+        #
+        # The first implementation applied criterion 1's 2x threshold to the HEADLINE (`Mlast`)
+        # transition instead. That is a different claim, and it produced a nonsense reading: three arms
+        # with ZERO censored successes were marked as not surviving censoring, `sb31-none` among them,
+        # whose ratio after imputation is arithmetically identical to before it (4.065) because there is
+        # nothing to impute. A criterion that fails on data it does not apply to is measuring the
+        # threshold, not the censoring.
+        #
+        # So: not applicable when criterion 1 did not hold (there is no effect to survive, and reporting
+        # a second failure for one cause double-counts it); trivially true when nothing was imputed;
+        # otherwise the recomputed pair must still clear the threshold.
+        imputed_count = sum(facts["imputed"] for facts in imputed.values())
+        if not (ratio or {}).get("holds"):
+            survives = None
+        elif imputed_count == 0:
+            survives = True
+        else:
+            survives = pair_after is not None and pair_after >= RATIO_THRESHOLD
 
         per_arm[arm] = dict(
             cells=len(arm_cells),
@@ -425,7 +443,8 @@ def evaluate_case(case, cells, rollouts, upstream_rows, rng, worst_value):
                 headlineRatioAfterImputation=headline_after,
                 originalPairRatioAfterImputation=pair_after,
                 largestRatioAfterImputation=largest_after,
-                holds=None if survives is None else survives >= RATIO_THRESHOLD),
+                imputedSuccesses=imputed_count,
+                holds=survives),
             headlineTransition=headline and dict(
                 fromStep=headline["fromStep"], toStep=headline["toStep"],
                 landsOn=headline["landsOn"],

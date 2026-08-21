@@ -397,13 +397,47 @@ partial round is still interpretable.
 | `petclinic-71` | `pc71-none` | `petclinic-71:captureShellArm` | 1037547378 |
 
 Each of these is checked against the case it was queued for before its probes are bought — the
-`[ARENA]` instance id and the repository in the agent's own summary, not the build's green status.
+`[ARENA]` instance id and the repository in the agent's own summary, not the build's green status. All
+twelve passed that check and all twelve solved their task.
+
+**`petclinic-71` (1037547376 / 1037547378) produced no usable artifact.** Both builds are green and both
+captures ran correctly inside the container — the log carries
+`[CHECKPOINT] case=dpaia__spring__petclinic-71 arm=pc71-mcp n=37 … admitted=true`, `hook records for 37
+of 37 steps`, a published transcript and 37 exported step patches. But the build published only the
+`video` directory: `/app/rest/builds/id:1037547376/artifacts/children/run-…-pc71-mcp` lists `['video']`
+and nothing else, so the `checkpoints` directory never left the agent. The case therefore has no probes.
+This is specific to the 5 400-second case; the other ten captures published normally.
 
 ## Probes
 
-`mcp_steroid_IntegrationTests_RippleCheckpointProbe`, addressed by `-Pripple.checkpoint.arm` /
-`.index` / `.replicate`. The arm token now carries the case as well — see
+`mcp_steroid_IntegrationTests_RippleCheckpointProbe` on `9a16a5c22`, addressed by
+`-P ripple.checkpoint.arm` / `.index` / `.replicate`. The arm token carries the case as well — see
 [RCW-GENERALIZATION.md § Addressing](RCW-GENERALIZATION.md#addressing) — so no fourth coordinate and no
 TeamCity DSL change was needed.
 
-*(appended per case as its Gate 1 passes and its cells are queued)*
+Only arms passing Gate 1 were probed (deviation D4). 120 cells, 5 replicates each, all finished, 0 LOST.
+
+| wave | arms | states × replicates | build ids |
+|:---|:---|:---|:---|
+| 1 | `sb31-mcp`, `sb31-none` | 4 × 5 each = 40 | 1037574696 … 1037592049, listed in [`data/round3/probe-ids-sb31.txt`](data/round3/probe-ids-sb31.txt) |
+| 2 | `pc36-none` (3), `fs25-none` (5), `jh3-none` (5), `pcr37-mcp` (3) | 16 × 5 = 80 | listed in [`data/round3/probe-ids-wave2.txt`](data/round3/probe-ids-wave2.txt) |
+
+Both id files carry one line per cell as `<arm> <index> <replicate> <buildId>`, which is the only link
+between a build and the state it measured — the token has no `TAG_BUILD` permission.
+
+## Totals, round 3
+
+| | |
+|:---|:---|
+| capture builds | 25 — 13 void (attempt 1), 12 measured (attempt 2), of which 2 unusable (`petclinic-71`) |
+| probe cells | 120, all graded; 0 LOST, 15 censored, 4 tampered, 1 budget-exhausted |
+| cases with data | 5 of 6 |
+| arms with data | 6 of 12 (Gate 1) |
+| API spend | ≈ $55 — ≈ $25 on the void capture batch, ≈ $14 on the twelve measured captures, ≈ $16 on 120 probe cells |
+| TeamCity build time | ≈ 45 build-hours |
+
+The verdict is in [RCW-GENERALIZATION.md § Answers](RCW-GENERALIZATION.md#answers): Q1 not supported
+(1 of 5 measured cases meets all six criteria against a bar of 4 of 6), Q2 supported strongly (`V` is
+saturated at 1.00 in 23 of 24 cells while RCW separates 21 of 43 `V`-tied state pairs), Q3 shows no mcp
+advantage on the one case with both arms and a systematic mcp difference in trajectory GRANULARITY
+rather than efficiency.

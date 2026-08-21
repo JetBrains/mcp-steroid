@@ -1,0 +1,6 @@
+arm,step,layerCov,RCW_tools_mean,RCW_edits_mean,censoredSuccesses
+fs25-none,10,0.1667,53.4,13.2,1
+fs25-none,24,0.6667,44.6,7.8,0
+fs25-none,30,0.8333,40.2,5.6,1
+fs25-none,31,1.0,35.8,4.0,2
+fs25-none,38,1.0,26.0,0.0,1
