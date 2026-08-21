@@ -1,0 +1,46 @@
+{
+  "case": "dpaia__empty__maven__springboot3-1",
+  "arm": "sb31-mcp",
+  "model": "claude-opus-5",
+  "n": 16,
+  "firstWriteStep": 7,
+  "fractions": 10,
+  "checkpoints": [
+    {
+      "index": 1,
+      "step": 7,
+      "editFraction": 0.0,
+      "position": 0.4375,
+      "tree": "bd8fcf10037ea6a71fefcb5b3757b2dc4b2b6c8a",
+      "patchChars": 701,
+      "sameStateAs": null
+    },
+    {
+      "index": 2,
+      "step": 10,
+      "editFraction": 0.3,
+      "position": 0.625,
+      "tree": "d953b97f1d3b654140748d50b920cc6e0b157751",
+      "patchChars": 7887,
+      "sameStateAs": null
+    },
+    {
+      "index": 3,
+      "step": 12,
+      "editFraction": 0.6,
+      "position": 0.75,
+      "tree": "429d56294f2a66657e0040510bce677e1b9124cb",
+      "patchChars": 14123,
+      "sameStateAs": 12
+    },
+    {
+      "index": 4,
+      "step": 13,
+      "editFraction": 0.7,
+      "position": 0.8125,
+      "tree": "12f0dae5e1e13ed1515f35d3bee9bd114b987a55",
+      "patchChars": 17847,
+      "sameStateAs": null
+    }
+  ]
+}

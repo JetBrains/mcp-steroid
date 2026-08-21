@@ -1,0 +1,209 @@
+diff --git a/src/main/java/eval/sample/auth/AuthResponse.java b/src/main/java/eval/sample/auth/AuthResponse.java
+new file mode 100644
+index 0000000..325109d
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/AuthResponse.java
+@@ -0,0 +1,9 @@
++package eval.sample.auth;
++
++/**
++ * Successful authentication payload returned by {@code POST /api/auth/login}.
++ */
++public record AuthResponse(String tokenType, String token, String username) {
++
++    public static final String BEARER = "Bearer";
++}
+diff --git a/src/main/java/eval/sample/auth/JwtService.java b/src/main/java/eval/sample/auth/JwtService.java
+new file mode 100644
+index 0000000..c4adf02
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/JwtService.java
+@@ -0,0 +1,128 @@
++package eval.sample.auth;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Service;
++
++import javax.crypto.Mac;
++import javax.crypto.spec.SecretKeySpec;
++import java.nio.charset.StandardCharsets;
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.util.ArrayList;
++import java.util.Base64;
++import java.util.Collection;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++
++/**
++ * Issues and verifies compact HS256 JSON Web Tokens.
++ *
++ * <p>Verification is signature-first: the HMAC is recomputed over the received signing input and compared in
++ * constant time before any claim is trusted, so a tampered payload can never influence authentication.
++ */
++@Service
++public class JwtService {
++
++    private static final String HMAC_ALGORITHM = "HmacSHA256";
++    private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
++    private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
++
++    private final ObjectMapper objectMapper = new ObjectMapper();
++    private final SecretKeySpec signingKey;
++    private final long validitySeconds;
++
++    public JwtService(@Value("${app.jwt.secret}") String secret,
++                      @Value("${app.jwt.validity-seconds:3600}") long validitySeconds) {
++        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
++        if (keyBytes.length < 32) {
++            throw new IllegalStateException("app.jwt.secret must be at least 32 bytes long for HS256");
++        }
++        this.signingKey = new SecretKeySpec(keyBytes, HMAC_ALGORITHM);
++        this.validitySeconds = validitySeconds;
++    }
++
++    /**
++     * @param authorities granted authorities in their prefixed form (e.g. {@code ROLE_ADMIN})
++     */
++    public String generateToken(String username, Collection<String> authorities) {
++        long issuedAt = System.currentTimeMillis() / 1000L;
++
++        Map<String, Object> header = new LinkedHashMap<>();
++        header.put("alg", "HS256");
++        header.put("typ", "JWT");
++
++        Map<String, Object> claims = new LinkedHashMap<>();
++        claims.put("sub", username);
++        claims.put("authorities", List.copyOf(authorities));
++        claims.put("iat", issuedAt);
++        claims.put("exp", issuedAt + validitySeconds);
++
++        String signingInput = encode(toJson(header)) + "." + encode(toJson(claims));
++        return signingInput + "." + ENCODER.encodeToString(sign(signingInput));
++    }
++
++    /**
++     * @return the authenticated principal, or {@link Optional#empty()} if the token is malformed, has an invalid
++     * signature, or has expired
++     */
++    public Optional<JwtPrincipal> parseToken(String token) {
++        if (token == null || token.isBlank()) {
++            return Optional.empty();
++        }
++        String[] parts = token.split("\\.", -1);
++        if (parts.length != 3) {
++            return Optional.empty();
++        }
++        try {
++            byte[] presentedSignature = DECODER.decode(parts[2]);
++            if (!MessageDigest.isEqual(sign(parts[0] + "." + parts[1]), presentedSignature)) {
++                return Optional.empty();
++            }
++            JsonNode claims = objectMapper.readTree(DECODER.decode(parts[1]));
++            if (claims.path("exp").asLong() * 1000L <= System.currentTimeMillis()) {
++                return Optional.empty();
++            }
++            String username = claims.path("sub").asText("");
++            if (username.isBlank()) {
++                return Optional.empty();
++            }
++            List<String> authorities = new ArrayList<>();
++            claims.path("authorities").forEach(authority -> authorities.add(authority.asText("")));
++            return Optional.of(new JwtPrincipal(username, List.copyOf(authorities)));
++        } catch (IllegalArgumentException | java.io.IOException e) {
++            return Optional.empty();
++        }
++    }
++
++    private byte[] sign(String signingInput) {
++        try {
++            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
++            mac.init(signingKey);
++            return mac.doFinal(signingInput.getBytes(StandardCharsets.UTF_8));
++        } catch (GeneralSecurityException e) {
++            throw new IllegalStateException("Unable to compute the JWT signature", e);
++        }
++    }
++
++    private byte[] toJson(Map<String, Object> value) {
++        try {
++            return objectMapper.writeValueAsBytes(value);
++        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
++            throw new IllegalStateException("Unable to serialize the JWT", e);
++        }
++    }
++
++    private static String encode(byte[] value) {
++        return ENCODER.encodeToString(value);
++    }
++
++    /**
++     * Identity carried by a verified token.
++     */
++    public record JwtPrincipal(String username, List<String> authorities) {
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/User.java b/src/main/java/eval/sample/auth/User.java
+new file mode 100644
+index 0000000..b8f3a8e
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/User.java
+@@ -0,0 +1,16 @@
++package eval.sample.auth;
++
++import java.util.Set;
++
++/**
++ * Application user. Roles are stored without the {@code ROLE_} prefix (e.g. {@code USER}, {@code ADMIN}).
++ */
++public record User(long id, String username, String password, Set<String> roles) {
++
++    public User(long id, String username, String password, Set<String> roles) {
++        this.id = id;
++        this.username = username;
++        this.password = password;
++        this.roles = Set.copyOf(roles);
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/UserRepository.java b/src/main/java/eval/sample/auth/UserRepository.java
+new file mode 100644
+index 0000000..5129653
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/UserRepository.java
+@@ -0,0 +1,32 @@
++package eval.sample.auth;
++
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.stereotype.Repository;
++
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++import java.util.Set;
++import java.util.function.Function;
++import java.util.stream.Collectors;
++
++/**
++ * In-memory store of the predefined users. Passwords are encoded on startup, never kept in clear text.
++ */
++@Repository
++public class UserRepository {
++
++    private final Map<String, User> usersByUsername;
++
++    public UserRepository(PasswordEncoder passwordEncoder) {
++        this.usersByUsername = List.of(
++                        new User(1L, "admin", passwordEncoder.encode("admin123"), Set.of("USER", "ADMIN")),
++                        new User(2L, "user", passwordEncoder.encode("user123"), Set.of("USER")))
++                .stream()
++                .collect(Collectors.toUnmodifiableMap(User::username, Function.identity()));
++    }
++
++    public Optional<User> findByUsername(String username) {
++        return Optional.ofNullable(usersByUsername.get(username));
++    }
++}

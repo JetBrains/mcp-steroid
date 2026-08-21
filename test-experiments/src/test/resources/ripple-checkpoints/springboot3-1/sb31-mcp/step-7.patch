@@ -1,0 +1,22 @@
+diff --git a/src/main/java/eval/sample/auth/User.java b/src/main/java/eval/sample/auth/User.java
+new file mode 100644
+index 0000000..b8f3a8e
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/User.java
+@@ -0,0 +1,16 @@
++package eval.sample.auth;
++
++import java.util.Set;
++
++/**
++ * Application user. Roles are stored without the {@code ROLE_} prefix (e.g. {@code USER}, {@code ADMIN}).
++ */
++public record User(long id, String username, String password, Set<String> roles) {
++
++    public User(long id, String username, String password, Set<String> roles) {
++        this.id = id;
++        this.username = username;
++        this.password = password;
++        this.roles = Set.copyOf(roles);
++    }
++}

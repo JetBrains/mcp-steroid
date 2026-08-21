@@ -1,0 +1,286 @@
+diff --git a/pom.xml b/pom.xml
+index cf66b9b..ab1eeaa 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -27,7 +27,7 @@
+         <url/>
+     </scm>
+     <properties>
+-        <java.version>24</java.version>
++        <java.version>21</java.version>
+     </properties>
+     <dependencies>
+         <dependency>
+@@ -35,11 +35,27 @@
+             <artifactId>spring-boot-starter</artifactId>
+         </dependency>
+ 
++        <dependency>
++            <groupId>org.springframework.boot</groupId>
++            <artifactId>spring-boot-starter-web</artifactId>
++        </dependency>
++
++        <dependency>
++            <groupId>org.springframework.boot</groupId>
++            <artifactId>spring-boot-starter-security</artifactId>
++        </dependency>
++
+         <dependency>
+             <groupId>org.springframework.boot</groupId>
+             <artifactId>spring-boot-starter-test</artifactId>
+             <scope>test</scope>
+         </dependency>
++
++        <dependency>
++            <groupId>org.springframework.security</groupId>
++            <artifactId>spring-security-test</artifactId>
++            <scope>test</scope>
++        </dependency>
+     </dependencies>
+ 
+     <build>
+diff --git a/src/main/java/eval/sample/security/JwtAuthenticationFilter.java b/src/main/java/eval/sample/security/JwtAuthenticationFilter.java
+new file mode 100644
+index 0000000..86d39c5
+--- /dev/null
++++ b/src/main/java/eval/sample/security/JwtAuthenticationFilter.java
+@@ -0,0 +1,47 @@
++package eval.sample.security;
++
++import jakarta.servlet.FilterChain;
++import jakarta.servlet.ServletException;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import org.springframework.http.HttpHeaders;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.authority.SimpleGrantedAuthority;
++import org.springframework.security.core.context.SecurityContextHolder;
++import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
++import org.springframework.stereotype.Component;
++import org.springframework.web.filter.OncePerRequestFilter;
++
++import java.io.IOException;
++
++/**
++ * Populates the security context from a {@code Authorization: Bearer <jwt>} header.
++ */
++@Component
++public class JwtAuthenticationFilter extends OncePerRequestFilter {
++
++    private static final String BEARER_PREFIX = "Bearer ";
++
++    private final JwtService jwtService;
++
++    public JwtAuthenticationFilter(JwtService jwtService) {
++        this.jwtService = jwtService;
++    }
++
++    @Override
++    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
++            throws ServletException, IOException {
++        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
++        if (header != null && header.startsWith(BEARER_PREFIX)
++                && SecurityContextHolder.getContext().getAuthentication() == null) {
++            jwtService.parseToken(header.substring(BEARER_PREFIX.length()).trim())
++                    .ifPresent(claims -> {
++                        var authorities = claims.authorities().stream().map(SimpleGrantedAuthority::new).toList();
++                        var authentication = new UsernamePasswordAuthenticationToken(claims.username(), null, authorities);
++                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
++                        SecurityContextHolder.getContext().setAuthentication(authentication);
++                    });
++        }
++        filterChain.doFilter(request, response);
++    }
++}
+diff --git a/src/main/java/eval/sample/security/JwtService.java b/src/main/java/eval/sample/security/JwtService.java
+new file mode 100644
+index 0000000..898c105
+--- /dev/null
++++ b/src/main/java/eval/sample/security/JwtService.java
+@@ -0,0 +1,123 @@
++package eval.sample.security;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Service;
++
++import javax.crypto.Mac;
++import javax.crypto.spec.SecretKeySpec;
++import java.nio.charset.StandardCharsets;
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.util.ArrayList;
++import java.util.Base64;
++import java.util.Collection;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++
++/**
++ * Generates and validates compact JWTs signed with HMAC-SHA256.
++ */
++@Service
++public class JwtService {
++
++    private static final String ALGORITHM = "HmacSHA256";
++    private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
++    private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
++
++    private final ObjectMapper objectMapper = new ObjectMapper();
++    private final SecretKeySpec key;
++    private final long expirationMillis;
++
++    public JwtService(@Value("${security.jwt.secret}") String secret,
++                      @Value("${security.jwt.expiration-millis:3600000}") long expirationMillis) {
++        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
++        if (keyBytes.length < 32) {
++            throw new IllegalArgumentException("security.jwt.secret must be at least 32 bytes long");
++        }
++        this.key = new SecretKeySpec(keyBytes, ALGORITHM);
++        this.expirationMillis = expirationMillis;
++    }
++
++    /**
++     * Claims carried by an accepted token.
++     */
++    public record Claims(String username, List<String> authorities) {
++    }
++
++    public String generateToken(String username, Collection<String> authorities) {
++        long nowSeconds = System.currentTimeMillis() / 1000L;
++
++        Map<String, Object> header = new LinkedHashMap<>();
++        header.put("alg", "HS256");
++        header.put("typ", "JWT");
++
++        Map<String, Object> claims = new LinkedHashMap<>();
++        claims.put("sub", username);
++        claims.put("authorities", new ArrayList<>(authorities));
++        claims.put("iat", nowSeconds);
++        claims.put("exp", nowSeconds + expirationMillis / 1000L);
++
++        String signingInput = encode(toJson(header)) + "." + encode(toJson(claims));
++        return signingInput + "." + ENCODER.encodeToString(sign(signingInput));
++    }
++
++    /**
++     * @return the token claims, or {@link Optional#empty()} when the token is malformed,
++     * has an invalid signature or is expired.
++     */
++    public Optional<Claims> parseToken(String token) {
++        if (token == null || token.isBlank()) {
++            return Optional.empty();
++        }
++        String[] parts = token.split("\\.");
++        if (parts.length != 3) {
++            return Optional.empty();
++        }
++        try {
++            byte[] expected = sign(parts[0] + "." + parts[1]);
++            if (!MessageDigest.isEqual(expected, DECODER.decode(parts[2]))) {
++                return Optional.empty();
++            }
++            ObjectNode claims = (ObjectNode) objectMapper.readTree(DECODER.decode(parts[1]));
++            if (!claims.hasNonNull("sub") || !claims.hasNonNull("exp")) {
++                return Optional.empty();
++            }
++            if (claims.get("exp").asLong() <= System.currentTimeMillis() / 1000L) {
++                return Optional.empty();
++            }
++            List<String> authorities = new ArrayList<>();
++            if (claims.has("authorities")) {
++                claims.get("authorities").forEach(authority -> authorities.add(authority.asText()));
++            }
++            return Optional.of(new Claims(claims.get("sub").asText(), List.copyOf(authorities)));
++        } catch (Exception ex) {
++            return Optional.empty();
++        }
++    }
++
++    private byte[] sign(String signingInput) {
++        try {
++            Mac mac = Mac.getInstance(ALGORITHM);
++            mac.init(key);
++            return mac.doFinal(signingInput.getBytes(StandardCharsets.UTF_8));
++        } catch (GeneralSecurityException ex) {
++            throw new IllegalStateException("Unable to sign JWT", ex);
++        }
++    }
++
++    private String encode(byte[] json) {
++        return ENCODER.encodeToString(json);
++    }
++
++    private byte[] toJson(Map<String, Object> value) {
++        try {
++            return objectMapper.writeValueAsBytes(value);
++        } catch (Exception ex) {
++            throw new IllegalStateException("Unable to serialize JWT segment", ex);
++        }
++    }
++}
+diff --git a/src/main/java/eval/sample/security/User.java b/src/main/java/eval/sample/security/User.java
+new file mode 100644
+index 0000000..616e22d
+--- /dev/null
++++ b/src/main/java/eval/sample/security/User.java
+@@ -0,0 +1,57 @@
++package eval.sample.security;
++
++import java.util.LinkedHashSet;
++import java.util.Set;
++
++/**
++ * Application user. Roles are stored without the {@code ROLE_} prefix (e.g. {@code USER}, {@code ADMIN}).
++ */
++public class User {
++
++    private long id;
++    private String username;
++    private String password;
++    private Set<String> roles = new LinkedHashSet<>();
++
++    public User() {
++    }
++
++    public User(long id, String username, String password, Set<String> roles) {
++        this.id = id;
++        this.username = username;
++        this.password = password;
++        this.roles = new LinkedHashSet<>(roles);
++    }
++
++    public long getId() {
++        return id;
++    }
++
++    public void setId(long id) {
++        this.id = id;
++    }
++
++    public String getUsername() {
++        return username;
++    }
++
++    public void setUsername(String username) {
++        this.username = username;
++    }
++
++    public String getPassword() {
++        return password;
++    }
++
++    public void setPassword(String password) {
++        this.password = password;
++    }
++
++    public Set<String> getRoles() {
++        return roles;
++    }
++
++    public void setRoles(Set<String> roles) {
++        this.roles = new LinkedHashSet<>(roles);
++    }
++}

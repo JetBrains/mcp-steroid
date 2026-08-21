@@ -207,30 +207,72 @@ def _print_gold(dataset_path):
         )
 
 
+def read_steps(arm_dir):
+    """`{step: patch text}` of one capture's exported per-step patches.
+
+    A step's patch is the WHOLE-TREE diff against the pristine revision, so patch text is a faithful
+    identity for the work-tree state: two steps with equal text are the same state, and an empty one is
+    an untouched tree. That is what lets [first_write_step] and [last_distinct_step] be read off here
+    instead of trusting a recorder field or re-hashing trees.
+    """
+    steps = {}
+    for name in os.listdir(arm_dir):
+        if not name.endswith(".patch"):
+            continue
+        match = STEP_IN_NAME.search(name)
+        if match is None:
+            continue
+        with open(os.path.join(arm_dir, name), errors="replace") as fh:
+            steps[int(match.group(1))] = fh.read()
+    if not steps:
+        raise SystemExit(f"{arm_dir} holds no step-<n>.patch files")
+    return steps
+
+
+def first_write_step(steps):
+    """`M0` — the first step whose tree differs from the pristine one.
+
+    ANY change counts, not just one under a source root. `springboot3-1`'s shell arm opens by adding the
+    web and security starters to `pom.xml`: that is the first substantive act of the trajectory, it is
+    what the recorder's own `firstWriteStep` reports, and scoring it as "not yet started" because a POM
+    is not production Java would put `M0` two steps late and silently drop the state the pre-registration
+    calls the early anchor.
+    """
+    return min((step for step, patch in steps.items() if patch.strip()), default=min(steps))
+
+
+def last_distinct_step(steps):
+    """`C5` — the last step whose tree differs from the FINAL tree.
+
+    Captures end with verification: `springboot3-1`'s mcp arm runs the build at steps 14, 15 and 16 and
+    all three carry byte-identical patches. Probing any of them measures the finished solution, which is
+    the one state whose residual work is known in advance to be near zero.
+    """
+    final = steps[max(steps)]
+    return max((step for step, patch in steps.items() if patch != final), default=min(steps))
+
+
 def _print_trace(dataset_path, resource_dir, arm_dir):
     by_id = _load(dataset_path)
     instance_id = {**PILOT_CASE, **ROUND3_CASES}[resource_dir]
     case_layers, gold_files = gold_layers(by_id[instance_id])
-    names = sorted(
-        (f for f in os.listdir(arm_dir) if f.endswith(".patch")),
-        key=lambda s: int(STEP_IN_NAME.search(s).group(1)),
-    )
+    steps = read_steps(arm_dir)
     rows, previous = [], 0.0
-    for name in names:
-        step = int(STEP_IN_NAME.search(name).group(1))
-        with open(os.path.join(arm_dir, name), errors="replace") as fh:
-            cov = coverage(fh.read(), case_layers, gold_files)
+    for step in sorted(steps):
+        cov = coverage(steps[step], case_layers, gold_files)
         rows.append((step, cov["layerCov"]))
         print(
             f"  step {step:3d}  layerCov {cov['layerCov']:.3f}  d {cov['layerCov'] - previous:+.3f}"
-            f"  fileCov {cov['fileCov']:.2f}  {cov['layers']}"
+            f"  fileCov {cov['fileCov']:.2f}  chars {len(steps[step]):6d}  {cov['layers']}"
         )
         previous = cov["layerCov"]
-    first_write = next((s for s, c in rows if c > 0), rows[0][0] if rows else None)
+    first_write = first_write_step(steps)
+    last_distinct = last_distinct_step(steps)
     t, delta = transition_step(rows)
     print(f"  L_case={case_layers}")
-    print(f"  T = step {t} (delta {delta:+.3f}); milestones {milestones(rows, first_write)}")
-    picked = select_checkpoints(rows, first_write, rows[-1][0])
+    print(f"  M0={first_write} lastDistinct={last_distinct} T=step {t} ({delta:+.3f}) "
+          f"{milestones(rows, first_write)}")
+    picked = select_checkpoints(rows, first_write, last_distinct)
     print(f"  checkpoints {[(i, s) for i, s in picked]} -> distinct {sorted({s for _, s in picked})}")
 
 

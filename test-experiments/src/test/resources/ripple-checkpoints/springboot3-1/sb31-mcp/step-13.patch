@@ -1,0 +1,416 @@
+diff --git a/src/main/java/eval/sample/auth/AuthController.java b/src/main/java/eval/sample/auth/AuthController.java
+new file mode 100644
+index 0000000..50a7070
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/AuthController.java
+@@ -0,0 +1,75 @@
++package eval.sample.auth;
++
++import org.springframework.http.HttpHeaders;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++import org.springframework.security.authentication.AuthenticationManager;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.Authentication;
++import org.springframework.security.core.AuthenticationException;
++import org.springframework.security.core.GrantedAuthority;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestHeader;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import java.nio.charset.StandardCharsets;
++import java.util.Base64;
++import java.util.List;
++
++@RestController
++@RequestMapping("/api/auth")
++public class AuthController {
++
++    private static final String BASIC_PREFIX = "Basic ";
++
++    private final AuthenticationManager authenticationManager;
++    private final JwtService jwtService;
++
++    public AuthController(AuthenticationManager authenticationManager, JwtService jwtService) {
++        this.authenticationManager = authenticationManager;
++        this.jwtService = jwtService;
++    }
++
++    /**
++     * Exchanges HTTP Basic credentials for a JWT. Any failure — missing, malformed or rejected credentials — is
++     * answered with {@code 403} and no detail, so the endpoint cannot be used to probe which usernames exist.
++     */
++    @PostMapping("/login")
++    public ResponseEntity<AuthResponse> login(
++            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
++        String[] credentials = decodeBasic(authorizationHeader);
++        if (credentials == null) {
++            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
++        }
++        try {
++            Authentication authentication = authenticationManager.authenticate(
++                    new UsernamePasswordAuthenticationToken(credentials[0], credentials[1]));
++            List<String> authorities = authentication.getAuthorities().stream()
++                    .map(GrantedAuthority::getAuthority)
++                    .toList();
++            String token = jwtService.generateToken(authentication.getName(), authorities);
++            return ResponseEntity.ok(new AuthResponse(AuthResponse.BEARER, token, authentication.getName()));
++        } catch (AuthenticationException e) {
++            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
++        }
++    }
++
++    private static String[] decodeBasic(String authorizationHeader) {
++        if (authorizationHeader == null || !authorizationHeader.startsWith(BASIC_PREFIX)) {
++            return null;
++        }
++        String decoded;
++        try {
++            byte[] raw = Base64.getDecoder().decode(authorizationHeader.substring(BASIC_PREFIX.length()).trim());
++            decoded = new String(raw, StandardCharsets.UTF_8);
++        } catch (IllegalArgumentException e) {
++            return null;
++        }
++        int separator = decoded.indexOf(':');
++        if (separator < 0) {
++            return null;
++        }
++        return new String[]{decoded.substring(0, separator), decoded.substring(separator + 1)};
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/AuthResponse.java b/src/main/java/eval/sample/auth/AuthResponse.java
+new file mode 100644
+index 0000000..325109d
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/AuthResponse.java
+@@ -0,0 +1,9 @@
++package eval.sample.auth;
++
++/**
++ * Successful authentication payload returned by {@code POST /api/auth/login}.
++ */
++public record AuthResponse(String tokenType, String token, String username) {
++
++    public static final String BEARER = "Bearer";
++}
+diff --git a/src/main/java/eval/sample/auth/JwtAuthenticationFilter.java b/src/main/java/eval/sample/auth/JwtAuthenticationFilter.java
+new file mode 100644
+index 0000000..0ff286b
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/JwtAuthenticationFilter.java
+@@ -0,0 +1,50 @@
++package eval.sample.auth;
++
++import jakarta.servlet.FilterChain;
++import jakarta.servlet.ServletException;
++import jakarta.servlet.http.HttpServletRequest;
++import jakarta.servlet.http.HttpServletResponse;
++import org.springframework.http.HttpHeaders;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.authority.SimpleGrantedAuthority;
++import org.springframework.security.core.context.SecurityContextHolder;
++import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
++import org.springframework.web.filter.OncePerRequestFilter;
++
++import java.io.IOException;
++
++/**
++ * Populates the security context from a {@code Authorization: Bearer <jwt>} header.
++ *
++ * <p>An absent or invalid token is not an error here: the request simply stays unauthenticated and the
++ * authorization rules decide the outcome.
++ */
++public class JwtAuthenticationFilter extends OncePerRequestFilter {
++
++    private static final String BEARER_PREFIX = "Bearer ";
++
++    private final JwtService jwtService;
++
++    public JwtAuthenticationFilter(JwtService jwtService) {
++        this.jwtService = jwtService;
++    }
++
++    @Override
++    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
++            throws ServletException, IOException {
++        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
++        if (header != null && header.startsWith(BEARER_PREFIX)
++                && SecurityContextHolder.getContext().getAuthentication() == null) {
++            jwtService.parseToken(header.substring(BEARER_PREFIX.length()).trim())
++                    .ifPresent(principal -> {
++                        var authentication = new UsernamePasswordAuthenticationToken(
++                                principal.username(),
++                                null,
++                                principal.authorities().stream().map(SimpleGrantedAuthority::new).toList());
++                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
++                        SecurityContextHolder.getContext().setAuthentication(authentication);
++                    });
++        }
++        filterChain.doFilter(request, response);
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/JwtService.java b/src/main/java/eval/sample/auth/JwtService.java
+new file mode 100644
+index 0000000..c4adf02
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/JwtService.java
+@@ -0,0 +1,128 @@
++package eval.sample.auth;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Service;
++
++import javax.crypto.Mac;
++import javax.crypto.spec.SecretKeySpec;
++import java.nio.charset.StandardCharsets;
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.util.ArrayList;
++import java.util.Base64;
++import java.util.Collection;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++
++/**
++ * Issues and verifies compact HS256 JSON Web Tokens.
++ *
++ * <p>Verification is signature-first: the HMAC is recomputed over the received signing input and compared in
++ * constant time before any claim is trusted, so a tampered payload can never influence authentication.
++ */
++@Service
++public class JwtService {
++
++    private static final String HMAC_ALGORITHM = "HmacSHA256";
++    private static final Base64.Encoder ENCODER = Base64.getUrlEncoder().withoutPadding();
++    private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
++
++    private final ObjectMapper objectMapper = new ObjectMapper();
++    private final SecretKeySpec signingKey;
++    private final long validitySeconds;
++
++    public JwtService(@Value("${app.jwt.secret}") String secret,
++                      @Value("${app.jwt.validity-seconds:3600}") long validitySeconds) {
++        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
++        if (keyBytes.length < 32) {
++            throw new IllegalStateException("app.jwt.secret must be at least 32 bytes long for HS256");
++        }
++        this.signingKey = new SecretKeySpec(keyBytes, HMAC_ALGORITHM);
++        this.validitySeconds = validitySeconds;
++    }
++
++    /**
++     * @param authorities granted authorities in their prefixed form (e.g. {@code ROLE_ADMIN})
++     */
++    public String generateToken(String username, Collection<String> authorities) {
++        long issuedAt = System.currentTimeMillis() / 1000L;
++
++        Map<String, Object> header = new LinkedHashMap<>();
++        header.put("alg", "HS256");
++        header.put("typ", "JWT");
++
++        Map<String, Object> claims = new LinkedHashMap<>();
++        claims.put("sub", username);
++        claims.put("authorities", List.copyOf(authorities));
++        claims.put("iat", issuedAt);
++        claims.put("exp", issuedAt + validitySeconds);
++
++        String signingInput = encode(toJson(header)) + "." + encode(toJson(claims));
++        return signingInput + "." + ENCODER.encodeToString(sign(signingInput));
++    }
++
++    /**
++     * @return the authenticated principal, or {@link Optional#empty()} if the token is malformed, has an invalid
++     * signature, or has expired
++     */
++    public Optional<JwtPrincipal> parseToken(String token) {
++        if (token == null || token.isBlank()) {
++            return Optional.empty();
++        }
++        String[] parts = token.split("\\.", -1);
++        if (parts.length != 3) {
++            return Optional.empty();
++        }
++        try {
++            byte[] presentedSignature = DECODER.decode(parts[2]);
++            if (!MessageDigest.isEqual(sign(parts[0] + "." + parts[1]), presentedSignature)) {
++                return Optional.empty();
++            }
++            JsonNode claims = objectMapper.readTree(DECODER.decode(parts[1]));
++            if (claims.path("exp").asLong() * 1000L <= System.currentTimeMillis()) {
++                return Optional.empty();
++            }
++            String username = claims.path("sub").asText("");
++            if (username.isBlank()) {
++                return Optional.empty();
++            }
++            List<String> authorities = new ArrayList<>();
++            claims.path("authorities").forEach(authority -> authorities.add(authority.asText("")));
++            return Optional.of(new JwtPrincipal(username, List.copyOf(authorities)));
++        } catch (IllegalArgumentException | java.io.IOException e) {
++            return Optional.empty();
++        }
++    }
++
++    private byte[] sign(String signingInput) {
++        try {
++            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
++            mac.init(signingKey);
++            return mac.doFinal(signingInput.getBytes(StandardCharsets.UTF_8));
++        } catch (GeneralSecurityException e) {
++            throw new IllegalStateException("Unable to compute the JWT signature", e);
++        }
++    }
++
++    private byte[] toJson(Map<String, Object> value) {
++        try {
++            return objectMapper.writeValueAsBytes(value);
++        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
++            throw new IllegalStateException("Unable to serialize the JWT", e);
++        }
++    }
++
++    private static String encode(byte[] value) {
++        return ENCODER.encodeToString(value);
++    }
++
++    /**
++     * Identity carried by a verified token.
++     */
++    public record JwtPrincipal(String username, List<String> authorities) {
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/SecurityConfig.java b/src/main/java/eval/sample/auth/SecurityConfig.java
+new file mode 100644
+index 0000000..f67dcf6
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/SecurityConfig.java
+@@ -0,0 +1,64 @@
++package eval.sample.auth;
++
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.http.HttpStatus;
++import org.springframework.security.authentication.AuthenticationManager;
++import org.springframework.security.authentication.ProviderManager;
++import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
++import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
++import org.springframework.security.config.annotation.web.builders.HttpSecurity;
++import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
++import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
++import org.springframework.security.config.http.SessionCreationPolicy;
++import org.springframework.security.core.userdetails.UserDetailsService;
++import org.springframework.security.core.userdetails.UsernameNotFoundException;
++import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.security.web.SecurityFilterChain;
++import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
++import org.springframework.security.web.authentication.HttpStatusEntryPoint;
++
++@Configuration
++@EnableWebSecurity
++@EnableMethodSecurity
++public class SecurityConfig {
++
++    @Bean
++    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
++        return http
++                // Stateless token auth: no session to fixate and no browser-form flow, so CSRF tokens add nothing.
++                .csrf(AbstractHttpConfigurer::disable)
++                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
++                .authorizeHttpRequests(requests -> requests
++                        .requestMatchers("/api/auth/login").permitAll()
++                        .anyRequest().authenticated())
++                // Answer unauthenticated requests with 403 instead of an authentication challenge.
++                .exceptionHandling(exceptions -> exceptions
++                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.FORBIDDEN)))
++                .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class)
++                .build();
++    }
++
++    @Bean
++    AuthenticationManager authenticationManager(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
++        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
++        provider.setPasswordEncoder(passwordEncoder);
++        return new ProviderManager(provider);
++    }
++
++    @Bean
++    UserDetailsService userDetailsService(UserRepository userRepository) {
++        return username -> userRepository.findByUsername(username)
++                .map(user -> org.springframework.security.core.userdetails.User.withUsername(user.username())
++                        .password(user.password())
++                        .roles(user.roles().toArray(String[]::new))
++                        .build())
++                .orElseThrow(() -> new UsernameNotFoundException("Unknown user"));
++    }
++
++    @Bean
++    PasswordEncoder passwordEncoder() {
++        return new BCryptPasswordEncoder();
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/User.java b/src/main/java/eval/sample/auth/User.java
+new file mode 100644
+index 0000000..b8f3a8e
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/User.java
+@@ -0,0 +1,16 @@
++package eval.sample.auth;
++
++import java.util.Set;
++
++/**
++ * Application user. Roles are stored without the {@code ROLE_} prefix (e.g. {@code USER}, {@code ADMIN}).
++ */
++public record User(long id, String username, String password, Set<String> roles) {
++
++    public User(long id, String username, String password, Set<String> roles) {
++        this.id = id;
++        this.username = username;
++        this.password = password;
++        this.roles = Set.copyOf(roles);
++    }
++}
+diff --git a/src/main/java/eval/sample/auth/UserRepository.java b/src/main/java/eval/sample/auth/UserRepository.java
+new file mode 100644
+index 0000000..5129653
+--- /dev/null
++++ b/src/main/java/eval/sample/auth/UserRepository.java
+@@ -0,0 +1,32 @@
++package eval.sample.auth;
++
++import org.springframework.security.crypto.password.PasswordEncoder;
++import org.springframework.stereotype.Repository;
++
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++import java.util.Set;
++import java.util.function.Function;
++import java.util.stream.Collectors;
++
++/**
++ * In-memory store of the predefined users. Passwords are encoded on startup, never kept in clear text.
++ */
++@Repository
++public class UserRepository {
++
++    private final Map<String, User> usersByUsername;
++
++    public UserRepository(PasswordEncoder passwordEncoder) {
++        this.usersByUsername = List.of(
++                        new User(1L, "admin", passwordEncoder.encode("admin123"), Set.of("USER", "ADMIN")),
++                        new User(2L, "user", passwordEncoder.encode("user123"), Set.of("USER")))
++                .stream()
++                .collect(Collectors.toUnmodifiableMap(User::username, Function.identity()));
++    }
++
++    public Optional<User> findByUsername(String username) {
++        return Optional.ofNullable(usersByUsername.get(username));
++    }
++}
