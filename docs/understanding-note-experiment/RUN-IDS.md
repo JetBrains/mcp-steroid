@@ -65,10 +65,40 @@ never appears in an mcp-versus-shell comparison.
 
 ## Phase 1 — research notes
 
-Not queued. Requires the phase-0 verdict and a separate authorisation.
+Queued 2026-08-21 20:18 UTC, eight cells in parallel: both arms × budgets {5, 10} × note limits
+{1000, 5000}, one replicate each.
 
-| build id | arm | budget | note limit | replicate | note id | calls | denied | output tokens | pristine |
-|---:|:---|---:|---:|---:|:---|---:|---:|---:|:---|
+| build id | arm | budget | limit | note id | calls | denied | turns | output tokens | usd | s | note chars |
+|---:|:---|---:|---:|:---|---:|---:|---:|---:|---:|---:|---:|
+| 1038399360 | mcp | 5 | 1000 | `mcp-b5-l1000-r1` | 5 | 6 | 4 | 4 593 | 0.227 | 59 | 1 348 → 1 000 |
+| 1038399362 | mcp | 5 | 5000 | `mcp-b5-l5000-r1` | 5 | 5 | 5 | 12 178 | 0.461 | 154 | 6 053 → 5 000 |
+| 1038399364 | mcp | 10 | 1000 | `mcp-b10-l1000-r1` | 10 | 2 | 5 | 9 598 | 0.514 | 147 | 1 151 → 1 000 |
+| 1038399366 | mcp | 10 | 5000 | `mcp-b10-l5000-r1` | 10 | 5 | 4 | 11 165 | 0.428 | 148 | 6 090 → 5 000 |
+| 1038399368 | none | 5 | 1000 | `none-b5-l1000-r1` | 5 | 3 | 6 | 10 115 | 0.414 | 126 | 1 276 → 1 000 |
+| 1038399370 | none | 5 | 5000 | `none-b5-l5000-r1` | 5 | 4 | 3 | 9 996 | 0.360 | 125 | 6 176 → 5 000 |
+| 1038399372 | none | 10 | 1000 | `none-b10-l1000-r1` | 10 | 2 | 4 | 6 422 | 0.332 | 107 | 1 307 → 1 000 |
+| 1038399374 | none | 10 | 5000 | `none-b10-l5000-r1` | 10 | 3 | 3 | 8 439 | 0.330 | 126 | 5 962 → 5 000 |
+
+The budget hook did exactly what it is for: `calls` equals the budget in all eight cells, and `denied`
+counts how hard the agent pushed against the wall afterwards (2 to 6 refusals). No cell left the work
+tree dirty.
+
+**All eight builds are red, and every one of them nevertheless produced its note.** The research phase
+read the agent's final message off the captured process stdout, which is console-filtered; the filter
+removes the terminal `result` event, and that event is where the note travels. The harness reported "the
+research run produced no final message" and threw after the note had already been written. Fixed in
+commit `3a03b7ad` (`resolveAgentRawOutput` — the same source `collectRunMetrics` has always used); the
+notes above were recovered from the build logs rather than re-purchased, and the numbers in the table
+come from the same `result` events plus the `understanding/` artifacts.
+
+Both arms overran the limit in every cell and were cut, by 15–35 % at 1000 characters and by ~20 % at
+5000. The rule is symmetric and was fixed before the runs, but it has a consequence worth naming before
+reading any downstream result: at 1000 characters the cut deletes whatever the agent left for last.
+`mcp-b5-l1000-r1` ends mid-word at "Two registrations, easy to forget (I could not ve", i.e. the cut
+removed precisely the integration point the case is built around, while `none-b5-l1000-r1` had named
+both registrations earlier in its text and kept them. The 1000-character condition therefore measures
+prioritisation-under-a-limit at least as much as it measures understanding; the 5000-character condition
+is the cleaner test of the hypothesis.
 
 ## Phase 1 — downstream cells
 
