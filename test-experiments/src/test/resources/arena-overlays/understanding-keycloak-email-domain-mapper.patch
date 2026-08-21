@@ -1,0 +1,200 @@
+diff --git a/services/src/test/java/org/keycloak/protocol/oidc/EmailDomainMapperContractTest.java b/services/src/test/java/org/keycloak/protocol/oidc/EmailDomainMapperContractTest.java
+new file mode 100644
+--- /dev/null
++++ b/services/src/test/java/org/keycloak/protocol/oidc/EmailDomainMapperContractTest.java
+@@ -0,0 +1,195 @@
++package org.keycloak.protocol.oidc;
++
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.ServiceLoader;
++
++import org.keycloak.common.Profile;
++import org.keycloak.models.ProtocolMapperModel;
++import org.keycloak.protocol.ProtocolMapper;
++import org.keycloak.protocol.oidc.mappers.AbstractOIDCProtocolMapper;
++import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenMapper;
++import org.keycloak.protocol.oidc.mappers.OIDCAttributeMapperHelper;
++import org.keycloak.protocol.oidc.mappers.OIDCIDTokenMapper;
++import org.keycloak.protocol.oidc.mappers.TokenIntrospectionTokenMapper;
++import org.keycloak.protocol.oidc.mappers.UserInfoTokenMapper;
++import org.keycloak.provider.ProviderConfigProperty;
++import org.keycloak.representations.IDToken;
++
++import org.junit.BeforeClass;
++import org.junit.Test;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNotNull;
++import static org.junit.Assert.assertTrue;
++
++/**
++ * Grades the e-mail-domain claim task: a mapper that publishes the part of the token's e-mail after
++ * the '@' as the claim `email_domain`, honours the four administrator switches, is configurable from
++ * the admin console and is shipped as a built-in of the OIDC login protocol.
++ *
++ * Applied post-hoc. This file is NOT in the tree while the task is being solved — the harness adds it
++ * after the fact and runs it as the oracle — so it may only use API that exists at the base commit and
++ * must never name the class it grades. The subject is reached exclusively by its provider id, through
++ * {@link ServiceLoader} for the runtime contract and through the built-in mapper map for the
++ * out-of-the-box contract, which is also what keeps the grade honest about WHERE the feature was
++ * wired rather than about what it was called.
++ *
++ * One @Test per clause of the task on purpose: a partially correct solution has to be legible in the
++ * surefire XML, and "the behaviour is right but it was never registered as a built-in" is precisely
++ * the distinction this experiment is measuring.
++ */
++public class EmailDomainMapperContractTest {
++
++    /** The only handle the task gives the agent, and therefore the only one this oracle may use. */
++    private static final String PROVIDER_ID = "oidc-email-domain-mapper";
++
++    private static final String CLAIM_NAME = "email_domain";
++
++    /**
++     * Feature flags decide two of the built-in mappers, and {@code Profile.getInstance()} returns null
++     * until something configures it — so without this the built-in test dies of an NPE raised inside
++     * Keycloak's own feature lookup, which says nothing at all about the solution being graded. The
++     * defaults are the profile a server started with no feature overrides runs on. Only when nothing
++     * has configured one yet: surefire reuses the JVM, and clobbering a profile another test installed
++     * would make this file the cause of somebody else's failure.
++     */
++    @BeforeClass
++    public static void configureProfile() {
++        if (Profile.getInstance() == null) {
++            Profile.defaults();
++        }
++    }
++
++    @Test
++    public void resolvesByProviderId() {
++        ProtocolMapper mapper = requireMapper();
++        assertEquals(PROVIDER_ID, mapper.getId());
++        assertEquals(OIDCLoginProtocol.LOGIN_PROTOCOL, mapper.getProtocol());
++    }
++
++    @Test
++    public void honoursTheFourAdministratorSwitches() {
++        ProtocolMapper mapper = requireMapper();
++        assertTrue("the claim can never reach an ID token", mapper instanceof OIDCIDTokenMapper);
++        assertTrue("the claim can never reach an access token", mapper instanceof OIDCAccessTokenMapper);
++        assertTrue("the claim can never reach the UserInfo response", mapper instanceof UserInfoTokenMapper);
++        assertTrue("the claim can never reach token introspection", mapper instanceof TokenIntrospectionTokenMapper);
++    }
++
++    @Test
++    public void isConfigurableFromTheAdminConsole() {
++        ProtocolMapper mapper = requireMapper();
++        List<ProviderConfigProperty> properties = mapper.getConfigProperties();
++        assertNotNull("the admin console has no configuration to render", properties);
++        assertFalse("the admin console has no configuration to render", properties.isEmpty());
++        assertEquals(AbstractOIDCProtocolMapper.TOKEN_MAPPER_CATEGORY, mapper.getDisplayCategory());
++        String displayType = mapper.getDisplayType();
++        assertNotNull("the admin console has no label for this mapper", displayType);
++        assertFalse("the admin console has no label for this mapper", displayType.trim().isEmpty());
++    }
++
++    @Test
++    public void addsTheDomainOfTheTokensEmail() {
++        IDToken token = new IDToken();
++        token.setEmail("alice@example.com");
++
++        assertEquals("example.com", transformIDToken(token).getOtherClaims().get(CLAIM_NAME));
++    }
++
++    @Test
++    public void addsNothingWhenTheTokenCarriesNoEmail() {
++        IDToken token = new IDToken();
++
++        assertFalse(
++                "a token without an e-mail must not gain the claim",
++                transformIDToken(token).getOtherClaims().containsKey(CLAIM_NAME));
++    }
++
++    @Test
++    public void addsNothingWhenTheEmailHasNoAtSign() {
++        IDToken token = new IDToken();
++        token.setEmail("alice.example.com");
++
++        assertFalse(
++                "an e-mail with no '@' has no domain part to publish",
++                transformIDToken(token).getOtherClaims().containsKey(CLAIM_NAME));
++    }
++
++    /**
++     * The integration point the whole case is about: shipping the mapper is not the same as writing it.
++     *
++     * The built-in map is keyed by the display name the author chose, which this oracle deliberately
++     * does not know, so the lookup goes over the values by provider id.
++     */
++    @Test
++    public void isOfferedAsABuiltInMapper() {
++        OIDCLoginProtocolFactory factory = new OIDCLoginProtocolFactory();
++        factory.initBuiltIns();
++
++        ProtocolMapperModel builtin = null;
++        for (ProtocolMapperModel candidate : factory.getBuiltinMappers().values()) {
++            if (PROVIDER_ID.equals(candidate.getProtocolMapper())) {
++                builtin = candidate;
++                break;
++            }
++        }
++
++        assertNotNull(
++                "a new realm's administrator would have to create '" + PROVIDER_ID + "' by hand",
++                builtin);
++        assertEquals(OIDCLoginProtocol.LOGIN_PROTOCOL, builtin.getProtocol());
++    }
++
++    private static ProtocolMapper requireMapper() {
++        ProtocolMapper found = null;
++        for (ProtocolMapper candidate : ServiceLoader.load(ProtocolMapper.class)) {
++            if (PROVIDER_ID.equals(candidate.getId())) {
++                found = candidate;
++                break;
++            }
++        }
++        assertNotNull("no protocol mapper is served under the provider id '" + PROVIDER_ID + "'", found);
++        return found;
++    }
++
++    /**
++     * Drives the ID token path, which is the only transform reachable without a running server:
++     * {@code AbstractOIDCProtocolMapper.transformIDToken} reads the mapping model and delegates to
++     * {@code setClaim}, whereas {@code transformAccessToken} dereferences the session to decide on
++     * lightweight tokens. The session, user session and client session context are therefore unused
++     * here and passed as null.
++     */
++    private static IDToken transformIDToken(IDToken token) {
++        ProtocolMapper mapper = requireMapper();
++        assertTrue(
++                "the ID token behaviour cannot be graded before the ID token switch is honoured",
++                mapper instanceof OIDCIDTokenMapper);
++        return ((OIDCIDTokenMapper) mapper).transformIDToken(token, mappingModel(), null, null, null);
++    }
++
++    /**
++     * A model built by hand rather than by the mapper's own factory method: the oracle must compile
++     * against a tree in which no such factory exists yet, and every switch is set so that a mapper
++     * which honours them cannot be mistaken for one that adds nothing.
++     */
++    private static ProtocolMapperModel mappingModel() {
++        ProtocolMapperModel model = new ProtocolMapperModel();
++        model.setName("e-mail domain");
++        model.setProtocolMapper(PROVIDER_ID);
++        model.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
++
++        Map<String, String> config = new HashMap<>();
++        config.put(OIDCAttributeMapperHelper.TOKEN_CLAIM_NAME, CLAIM_NAME);
++        config.put(OIDCAttributeMapperHelper.JSON_TYPE, "String");
++        config.put(OIDCAttributeMapperHelper.INCLUDE_IN_ID_TOKEN, "true");
++        config.put(OIDCAttributeMapperHelper.INCLUDE_IN_ACCESS_TOKEN, "true");
++        config.put(OIDCAttributeMapperHelper.INCLUDE_IN_USERINFO, "true");
++        config.put(OIDCAttributeMapperHelper.INCLUDE_IN_INTROSPECTION, "true");
++        model.setConfig(config);
++
++        return model;
++    }
++}

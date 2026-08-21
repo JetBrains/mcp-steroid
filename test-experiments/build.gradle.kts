@@ -105,6 +105,17 @@ fun Test.configureExperimentalTest() {
         "ripple.checkpoint.arm" to "RIPPLE_CHECKPOINT_ARM",
         "ripple.checkpoint.index" to "RIPPLE_CHECKPOINT_INDEX",
         "ripple.checkpoint.replicate" to "RIPPLE_CHECKPOINT_REPLICATE",
+        // `understanding.*` address ONE cell of the repository-understanding experiment: the research
+        // phase takes case + arm + budget + noteLimit + replicate, the downstream phase takes case +
+        // condition + replicate. Same hazard as the checkpoint keys and a worse one — a research budget
+        // that fails to arrive does not fail the build, it silently runs the cell with the DEFAULT
+        // budget, and the resulting note would be published under a budget it never had.
+        "understanding.case" to "UNDERSTANDING_CASE",
+        "understanding.arm" to "UNDERSTANDING_ARM",
+        "understanding.budget" to "UNDERSTANDING_BUDGET",
+        "understanding.noteLimit" to "UNDERSTANDING_NOTE_LIMIT",
+        "understanding.condition" to "UNDERSTANDING_CONDITION",
+        "understanding.replicate" to "UNDERSTANDING_REPLICATE",
         "test.integration.ide.vm.xmx" to "TEST_INTEGRATION_IDE_VM_XMX",
     ).forEach { (key, envName) ->
         val value = System.getProperty(key)?.takeIf { it.isNotBlank() }

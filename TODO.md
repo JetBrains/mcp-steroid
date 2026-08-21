@@ -591,6 +591,21 @@
   `"model":"<synthetic>"` + `API Error:` turn or a top-level `"error":"server_error"`, drop those
   verdicts and re-queue the cells — a group short of five replicates renders INCOMPLETE until it
   fills, which is the correct intermediate state.
+- [ ] **Run the repository-understanding experiment (calibration first).** The harness is implemented
+  and unit-tested (`Understanding*.kt` in `test-experiments`, design in
+  `docs/understanding-note-experiment/DESIGN.md`): a strong agent explores under a hard budget of
+  5/10/20 environment interactions, writes a note of at most 1 000 or 5 000 characters, leaves the tree
+  byte-identical, and a haiku then implements the task from the pristine tree plus that note. The case
+  is `understanding__keycloak__email-domain-mapper`; the oracle patch is applied only at grading time so
+  the hidden test cannot leak the classes to write. **Nothing has been run yet.** Phase 0 is 3 baseline
+  and 3 `oracle:gold` cells (≈ 9 h, ≈ $3) and its decision rule is pre-registered: baseline 3/3 means
+  the task is too easy and must be replaced, oracle 0/3 means the downstream agent is too weak, and
+  only `baseline ≤ 1/3 && oracle ≥ 2/3` authorises the 8 research + 42 downstream cells of phase 1
+  (≈ 70 h, ≈ $31). Two numbers in that model are estimates and must be replaced with measurements from
+  the first cell: the wall time of `mvn clean test -pl :keycloak-services`, and the price of a research
+  run on a tree this size. The three cheaper candidates that were rejected, and why, are in
+  `docs/understanding-note-experiment/CANDIDATES.md` — do not resurrect one without redoing the shell
+  audit that rejected it.
 - [ ] **The capture arm still ignores the same signal.** The capture seam
   (`DpaiaFeatureService125CheckpointCaptureTest.afterAgentRun`, and `RippleScenarioBaseTest`) now sees
   `DpaiaRunOutcome.apiTransportError` but hands `admitCapture` only its primitives, so nothing acts on
