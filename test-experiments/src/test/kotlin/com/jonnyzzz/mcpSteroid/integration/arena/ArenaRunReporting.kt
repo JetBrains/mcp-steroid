@@ -75,7 +75,29 @@ fun collectRunMetrics(runDir: File, agentName: String, fallbackStdout: String): 
  * paid run.
  */
 fun resolveAgentRawOutput(runDir: File, agentName: String, fallbackStdout: String): String =
-    findRawNdjsonFile(runDir, agentName = agentLogName(agentName))?.readText() ?: fallbackStdout
+    findRawNdjsonFile(runDir, agentName = agentLogName(agentName))?.readText()
+        ?: unprefixConsoleNdjson(fallbackStdout)
+
+/**
+ * Strip the console decoration the interactive session driver puts in front of each event line, so
+ * the fallback text parses as NDJSON again.
+ *
+ * The driver does not swallow the agent's events — it re-emits them for a human reader as
+ * `[IDE OUT] {"type":"result",...}`. Every parser in this file walks the text line by line and calls
+ * `Json.parseToJsonElement` on each one, and a line that starts with `[` is silently skipped. The
+ * effect is indistinguishable from an agent that never spoke: the terminal `result` event, which
+ * carries both the usage totals and the final message, disappears without a single error being
+ * logged. That is what made eight paid research runs report "no final message" while their notes sat
+ * in plain sight in the build log.
+ *
+ * Cutting at the first brace rather than matching a fixed prefix keeps this indifferent to which
+ * decoration a driver uses. A line whose brace does not begin valid JSON is skipped exactly as before,
+ * so the worst case of a wrong cut is the behaviour we already had.
+ */
+fun unprefixConsoleNdjson(text: String): String = text.lineSequence().joinToString("\n") { line ->
+    val brace = line.indexOf('{')
+    if (brace > 0 && line.trimStart().startsWith("[")) line.substring(brace) else line
+}
 
 /** Maps a driver's agent name onto the prefix its persisted logs are written under. */
 fun agentLogName(agentName: String): String = when (agentName) {

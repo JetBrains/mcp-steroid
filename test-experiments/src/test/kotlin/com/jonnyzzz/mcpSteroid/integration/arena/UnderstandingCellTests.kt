@@ -85,11 +85,14 @@ val UNDERSTANDING_BUDGETS: Set<Int> = setOf(5, 10, 20)
  * The pre-registered note limits, in characters.
  *
  * 1 000 asks whether the agent can pick the single most valuable thing it learned; 5 000 is enough for
- * an actionable model of the change. 3 000 is registered so the pilot can add the middle point without
- * a code change, and is deliberately NOT part of the first matrix — it doubles the downstream cost for
- * a point between two the design already predicts.
+ * an actionable model of the change.
+ *
+ * The middle points are no longer hypothetical. 5 000 saturated: every note from either arm, at either
+ * budget, carried the weak agent to 5/5, so that length cannot separate anything. 1 000 separated
+ * sharply. The interesting region is therefore between them, and it is measured rather than argued —
+ * which is why 2 000 and 3 000 are registered as first-class cells.
  */
-val UNDERSTANDING_NOTE_LIMITS: Set<Int> = setOf(1_000, 3_000, 5_000)
+val UNDERSTANDING_NOTE_LIMITS: Set<Int> = setOf(1_000, 2_000, 3_000, 5_000)
 
 /**
  * One research cell of the repository-understanding experiment.

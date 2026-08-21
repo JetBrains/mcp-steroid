@@ -314,6 +314,40 @@ class UnderstandingHarnessTest {
         }
     }
 
+    /**
+     * The real shape of the failure that cost this experiment two research waves.
+     *
+     * The session driver persists no raw transcript for these runs, so the fallback IS the source, and
+     * in it every event carries a `[IDE OUT] ` prefix for the human reader. A line-by-line JSON parser
+     * skips such a line without a word, so the note was reported missing while sitting in the build log
+     * in plain text.
+     */
+    @Test
+    fun `a console-prefixed event line is still read as the agent's final message`(@TempDir tempDir: File) {
+        val runDir = File(tempDir, "no-transcript").also { it.mkdirs() }
+        val consoleStdout = buildString {
+            appendLine("[22:14:41] :\t [IDE] starting the agent")
+            appendLine(
+                """[IDE OUT] {"type":"result","subtype":"success","result":"<NOTE>\nprefixed note\n</NOTE>"}"""
+            )
+        }
+
+        val raw = resolveAgentRawOutput(runDir, agentName = "claude", fallbackStdout = consoleStdout)
+        val note = extractUnderstandingNote(decodeAgentFinalResponse(raw), limitChars = 1_000)
+
+        assertEquals("prefixed note", note.text)
+    }
+
+    @Test
+    fun `unprefixing leaves a line that is already plain NDJSON untouched`() {
+        val plain = """{"type":"result","result":"x"}"""
+
+        assertEquals(plain, unprefixConsoleNdjson(plain)) {
+            "the persisted transcript must survive the same path byte for byte, or the two sources " +
+                "would disagree about the same run"
+        }
+    }
+
     private val sampleCase = UnderstandingCase(
         instanceId = "understanding__sample__case",
         problemStatement = "Make the widget emit its colour when asked politely.",
