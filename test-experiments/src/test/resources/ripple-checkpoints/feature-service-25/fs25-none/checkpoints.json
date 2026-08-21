@@ -1,0 +1,59 @@
+{
+  "case": "dpaia__feature__service-25",
+  "arm": "fs25-none",
+  "model": "claude-opus-5",
+  "n": 42,
+  "firstWriteStep": 10,
+  "fractions": 10,
+  "checkpoints": [
+    {
+      "index": 1,
+      "step": 10,
+      "editFraction": 0.0,
+      "position": 0.2381,
+      "tree": "043a42826df1e2ad6d1333bb6506e87497b59114",
+      "patchChars": 516,
+      "sameStateAs": null
+    },
+    {
+      "index": 2,
+      "step": 24,
+      "editFraction": 0.4375,
+      "position": 0.5714,
+      "tree": null,
+      "patchChars": 5696,
+      "sameStateAs": null,
+      "synthesized": true
+    },
+    {
+      "index": 3,
+      "step": 30,
+      "editFraction": 0.625,
+      "position": 0.7143,
+      "tree": null,
+      "patchChars": 9249,
+      "sameStateAs": null,
+      "synthesized": true
+    },
+    {
+      "index": 4,
+      "step": 31,
+      "editFraction": 0.6562,
+      "position": 0.7381,
+      "tree": null,
+      "patchChars": 10292,
+      "sameStateAs": null,
+      "synthesized": true
+    },
+    {
+      "index": 5,
+      "step": 38,
+      "editFraction": 0.875,
+      "position": 0.9048,
+      "tree": null,
+      "patchChars": 15365,
+      "sameStateAs": null,
+      "synthesized": true
+    }
+  ]
+}

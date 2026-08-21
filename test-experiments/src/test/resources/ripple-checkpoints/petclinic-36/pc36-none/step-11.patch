@@ -1,0 +1,58 @@
+diff --git a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
+index 63e3acc..0e080fe 100644
+--- a/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
++++ b/src/main/java/org/springframework/samples/petclinic/owner/Owner.java
+@@ -30,6 +30,7 @@ import jakarta.persistence.JoinColumn;
+ import jakarta.persistence.OneToMany;
+ import jakarta.persistence.OrderBy;
+ import jakarta.persistence.Table;
++import jakarta.validation.constraints.Email;
+ import jakarta.validation.constraints.Pattern;
+ import jakarta.validation.constraints.NotBlank;
+ 
+@@ -60,6 +61,10 @@ public class Owner extends Person {
+ 	@Pattern(regexp = "\\d{10}", message = "{telephone.invalid}")
+ 	private String telephone;
+ 
++	@Column(name = "email")
++	@Email
++	private String email;
++
+ 	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+ 	@JoinColumn(name = "owner_id")
+ 	@OrderBy("name")
+@@ -89,6 +94,14 @@ public class Owner extends Person {
+ 		this.telephone = telephone;
+ 	}
+ 
++	public String getEmail() {
++		return this.email;
++	}
++
++	public void setEmail(String email) {
++		this.email = email;
++	}
++
+ 	public List<Pet> getPets() {
+ 		return this.pets;
+ 	}
+@@ -152,6 +165,7 @@ public class Owner extends Person {
+ 			.append("address", this.address)
+ 			.append("city", this.city)
+ 			.append("telephone", this.telephone)
++			.append("email", this.email)
+ 			.toString();
+ 	}
+ 
+diff --git a/src/main/java/org/springframework/samples/petclinic/owner/OwnerRestController.java b/src/main/java/org/springframework/samples/petclinic/owner/OwnerRestController.java
+index da87991..d412e40 100644
+--- a/src/main/java/org/springframework/samples/petclinic/owner/OwnerRestController.java
++++ b/src/main/java/org/springframework/samples/petclinic/owner/OwnerRestController.java
+@@ -133,6 +133,7 @@ public class OwnerRestController {
+ 		owner.setAddress(ownerDetails.getAddress());
+ 		owner.setCity(ownerDetails.getCity());
+ 		owner.setTelephone(ownerDetails.getTelephone());
++		owner.setEmail(ownerDetails.getEmail());
+ 
+ 		Owner updatedOwner = this.ownerRepository.save(owner);
+ 		return ResponseEntity.ok(updatedOwner);

@@ -1,0 +1,312 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/api/controllers/FeatureController.java b/src/main/java/com/sivalabs/ft/features/api/controllers/FeatureController.java
+index 9ca87c1..7502b80 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/controllers/FeatureController.java
++++ b/src/main/java/com/sivalabs/ft/features/api/controllers/FeatureController.java
+@@ -91,6 +91,27 @@ class FeatureController {
+         return featureDtos;
+     }
+ 
++    @GetMapping("/all-features")
++    @Operation(
++            summary = "Find features of a release and of its parent releases",
++            description = "Find features of a release and of its parent releases,"
++                    + " optionally stopping the traversal at the given parent release",
++            responses = {
++                @ApiResponse(
++                        responseCode = "200",
++                        description = "Successful response",
++                        content =
++                                @Content(
++                                        mediaType = "application/json",
++                                        array = @ArraySchema(schema = @Schema(implementation = FeatureDto.class))))
++            })
++    List<FeatureDto> getAllFeatures(
++            @RequestParam("releaseCode") String releaseCode,
++            @RequestParam(value = "fromParentRelease", required = false) String fromParentRelease) {
++        String username = SecurityUtils.getCurrentUsername();
++        return featureService.findFeaturesByReleaseAndParents(username, releaseCode, fromParentRelease);
++    }
++
+     @GetMapping("/{code}")
+     @Operation(
+             summary = "Find feature by code",
+diff --git a/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java b/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java
+index 2b8eb90..79dae28 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java
++++ b/src/main/java/com/sivalabs/ft/features/api/controllers/ReleaseController.java
+@@ -99,7 +99,8 @@ class ReleaseController {
+             })
+     ResponseEntity<Void> createRelease(@RequestBody @Valid CreateReleasePayload payload) {
+         var username = SecurityUtils.getCurrentUsername();
+-        var cmd = new CreateReleaseCommand(payload.productCode(), payload.code(), payload.description(), username);
++        var cmd = new CreateReleaseCommand(
++                payload.productCode(), payload.code(), payload.description(), payload.parentCode(), username);
+         String code = releaseService.createRelease(cmd);
+         log.info("Created release with code {}", code);
+         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+@@ -121,8 +122,13 @@ class ReleaseController {
+             })
+     void updateRelease(@PathVariable String code, @RequestBody UpdateReleasePayload payload) {
+         var username = SecurityUtils.getCurrentUsername();
+-        var cmd =
+-                new UpdateReleaseCommand(code, payload.description(), payload.status(), payload.releasedAt(), username);
++        var cmd = new UpdateReleaseCommand(
++                code,
++                payload.description(),
++                payload.status(),
++                payload.releasedAt(),
++                payload.parentCode(),
++                username);
+         releaseService.updateRelease(cmd);
+     }
+ 
+diff --git a/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java b/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
+index 37887ba..ed39529 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
++++ b/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
+@@ -6,4 +6,5 @@ import jakarta.validation.constraints.Size;
+ public record CreateReleasePayload(
+         @NotEmpty(message = "Product code is required") String productCode,
+         @Size(max = 50, message = "Release code cannot exceed 50 characters") @NotEmpty(message = "Release code is required") String code,
+-        String description) {}
++        String description,
++        String parentCode) {}
+diff --git a/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java b/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java
+index 56f7ab1..79d12dd 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java
++++ b/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java
+@@ -3,4 +3,4 @@ package com.sivalabs.ft.features.api.models;
+ import com.sivalabs.ft.features.domain.models.ReleaseStatus;
+ import java.time.Instant;
+ 
+-public record UpdateReleasePayload(String description, ReleaseStatus status, Instant releasedAt) {}
++public record UpdateReleasePayload(String description, ReleaseStatus status, Instant releasedAt, String parentCode) {}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/Commands.java b/src/main/java/com/sivalabs/ft/features/domain/Commands.java
+index a591fe5..06fa2ab 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/Commands.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/Commands.java
+@@ -15,10 +15,16 @@ public class Commands {
+             String code, String prefix, String name, String description, String imageUrl, String updatedBy) {}
+ 
+     /* Release Commands */
+-    public record CreateReleaseCommand(String productCode, String code, String description, String createdBy) {}
++    public record CreateReleaseCommand(
++            String productCode, String code, String description, String parentCode, String createdBy) {}
+ 
+     public record UpdateReleaseCommand(
+-            String code, String description, ReleaseStatus status, Instant releasedAt, String updatedBy) {}
++            String code,
++            String description,
++            ReleaseStatus status,
++            Instant releasedAt,
++            String parentCode,
++            String updatedBy) {}
+ 
+     /* Feature Commands */
+     public record CreateFeatureCommand(
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/FeatureRepository.java b/src/main/java/com/sivalabs/ft/features/domain/FeatureRepository.java
+index a419bdd..b7fd228 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/FeatureRepository.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/FeatureRepository.java
+@@ -17,6 +17,29 @@ interface FeatureRepository extends ListCrudRepository<Feature, Long> {
+     @Query("select f from Feature f left join fetch f.release where f.product.code = :productCode")
+     List<Feature> findByProductCode(String productCode);
+ 
++    /**
++     * Finds the features of the given release and of all its ancestor releases.
++     * When {@code fromParentRelease} is given, the traversal stops at that ancestor release.
++     */
++    @Query(
++            value =
++                    """
++                    with recursive release_tree as (
++                        select r.id, r.parent_id, r.code
++                        from releases r
++                        where r.code = :releaseCode
++                        union all
++                        select p.id, p.parent_id, p.code
++                        from releases p
++                        join release_tree rt on p.id = rt.parent_id
++                        where cast(:fromParentRelease as varchar) is null
++                           or rt.code <> cast(:fromParentRelease as varchar)
++                    )
++                    select f.* from features f join release_tree rt on f.release_id = rt.id
++                    """,
++            nativeQuery = true)
++    List<Feature> findByReleaseCodeAndParents(String releaseCode, String fromParentRelease);
++
+     @Modifying
+     void deleteByCode(String code);
+ 
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/FeatureService.java b/src/main/java/com/sivalabs/ft/features/domain/FeatureService.java
+index a884564..bcb6000 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/FeatureService.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/FeatureService.java
+@@ -63,6 +63,13 @@ public class FeatureService {
+         return updateFavoriteStatus(features, username);
+     }
+ 
++    @Transactional(readOnly = true)
++    public List<FeatureDto> findFeaturesByReleaseAndParents(
++            String username, String releaseCode, String fromParentRelease) {
++        List<Feature> features = featureRepository.findByReleaseCodeAndParents(releaseCode, fromParentRelease);
++        return updateFavoriteStatus(features, username);
++    }
++
+     @Transactional(readOnly = true)
+     public List<FeatureDto> findFeaturesByProduct(String username, String productCode) {
+         List<Feature> features = featureRepository.findByProductCode(productCode);
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java
+index 10ef239..556cf3d 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseRepository.java
+@@ -4,6 +4,7 @@ import com.sivalabs.ft.features.domain.entities.Release;
+ import java.util.List;
+ import java.util.Optional;
+ import org.springframework.data.jpa.repository.Modifying;
++import org.springframework.data.jpa.repository.Query;
+ import org.springframework.data.repository.ListCrudRepository;
+ 
+ interface ReleaseRepository extends ListCrudRepository<Release, Long> {
+@@ -14,5 +15,9 @@ interface ReleaseRepository extends ListCrudRepository<Release, Long> {
+     @Modifying
+     void deleteByCode(String code);
+ 
++    @Modifying
++    @Query("update Release r set r.parent = null where r.parent.code = :code")
++    void unsetParent(String code);
++
+     boolean existsByCode(String code);
+ }
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java b/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java
+index f51cb01..1388ae5 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/ReleaseService.java
+@@ -5,6 +5,7 @@ import com.sivalabs.ft.features.domain.Commands.UpdateReleaseCommand;
+ import com.sivalabs.ft.features.domain.dtos.ReleaseDto;
+ import com.sivalabs.ft.features.domain.entities.Product;
+ import com.sivalabs.ft.features.domain.entities.Release;
++import com.sivalabs.ft.features.domain.exceptions.BadRequestException;
+ import com.sivalabs.ft.features.domain.exceptions.ResourceNotFoundException;
+ import com.sivalabs.ft.features.domain.mappers.ReleaseMapper;
+ import com.sivalabs.ft.features.domain.models.ReleaseStatus;
+@@ -64,6 +65,7 @@ public class ReleaseService {
+         release.setStatus(ReleaseStatus.DRAFT);
+         release.setCreatedBy(cmd.createdBy());
+         release.setCreatedAt(Instant.now());
++        release.setParent(resolveParent(code, cmd.parentCode()));
+         releaseRepository.save(release);
+         return code;
+     }
+@@ -76,6 +78,7 @@ public class ReleaseService {
+         release.setReleasedAt(cmd.releasedAt());
+         release.setUpdatedBy(cmd.updatedBy());
+         release.setUpdatedAt(Instant.now());
++        release.setParent(resolveParent(cmd.code(), cmd.parentCode()));
+         releaseRepository.save(release);
+     }
+ 
+@@ -85,6 +88,24 @@ public class ReleaseService {
+             throw new ResourceNotFoundException("Release with code " + code + " not found");
+         }
+         featureRepository.unsetRelease(code);
++        releaseRepository.unsetParent(code);
+         releaseRepository.deleteByCode(code);
+     }
++
++    /**
++     * Resolves the parent release referenced by {@code parentCode}.
++     * A null or empty parentCode means "no parent".
++     */
++    private Release resolveParent(String releaseCode, String parentCode) {
++        if (parentCode == null || parentCode.isBlank()) {
++            return null;
++        }
++        if (parentCode.equals(releaseCode)) {
++            throw new BadRequestException("Release with code " + releaseCode + " cannot be its own parent");
++        }
++        return releaseRepository
++                .findByCode(parentCode)
++                .orElseThrow(() ->
++                        new ResourceNotFoundException("Parent release with code " + parentCode + " not found"));
++    }
+ }
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java b/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
+index f601760..c9d9165 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
+@@ -8,6 +8,7 @@ public record ReleaseDto(
+         Long id,
+         String code,
+         String description,
++        String parentCode,
+         ReleaseStatus status,
+         Instant releasedAt,
+         String createdBy,
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java b/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
+index b3d5b99..ba1066a 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
+@@ -63,6 +63,13 @@ public class Release {
+     @OneToMany(mappedBy = "release")
+     private Set<Feature> features = new LinkedHashSet<>();
+ 
++    @ManyToOne(fetch = FetchType.LAZY)
++    @JoinColumn(name = "parent_id")
++    private Release parent;
++
++    @OneToMany(mappedBy = "parent")
++    private Set<Release> children = new LinkedHashSet<>();
++
+     public Long getId() {
+         return id;
+     }
+@@ -150,4 +157,20 @@ public class Release {
+     public void setFeatures(Set<Feature> features) {
+         this.features = features;
+     }
++
++    public Release getParent() {
++        return parent;
++    }
++
++    public void setParent(Release parent) {
++        this.parent = parent;
++    }
++
++    public Set<Release> getChildren() {
++        return children;
++    }
++
++    public void setChildren(Set<Release> children) {
++        this.children = children;
++    }
+ }
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java b/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
+index ce2e77f..3dcce3b 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
+@@ -3,8 +3,10 @@ package com.sivalabs.ft.features.domain.mappers;
+ import com.sivalabs.ft.features.domain.dtos.ReleaseDto;
+ import com.sivalabs.ft.features.domain.entities.Release;
+ import org.mapstruct.Mapper;
++import org.mapstruct.Mapping;
+ 
+ @Mapper(componentModel = "spring")
+ public interface ReleaseMapper {
++    @Mapping(target = "parentCode", source = "parent.code")
+     ReleaseDto toDto(Release release);
+ }
+diff --git a/src/main/resources/db/migration/V5__add_release_parent_id.sql b/src/main/resources/db/migration/V5__add_release_parent_id.sql
+new file mode 100644
+index 0000000..c218bd6
+--- /dev/null
++++ b/src/main/resources/db/migration/V5__add_release_parent_id.sql
+@@ -0,0 +1,7 @@
++alter table releases
++    add column parent_id bigint;
++
++alter table releases
++    add constraint fk_releases_parent_id foreign key (parent_id) references releases (id);
++
++create index idx_releases_parent_id on releases (parent_id);

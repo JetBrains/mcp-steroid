@@ -1,0 +1,56 @@
+{
+  "case": "dpaia__jhipster__sample__app-3",
+  "arm": "jh3-none",
+  "model": "claude-opus-5",
+  "n": 25,
+  "firstWriteStep": 13,
+  "fractions": 10,
+  "checkpoints": [
+    {
+      "index": 1,
+      "step": 13,
+      "editFraction": 0.0,
+      "position": 0.52,
+      "tree": "26a33e7b54ea0f4d8cf0975cfeafdfa1616c7743",
+      "patchChars": 638,
+      "sameStateAs": null
+    },
+    {
+      "index": 2,
+      "step": 15,
+      "editFraction": 0.2,
+      "position": 0.6,
+      "tree": "39108e7bf015cd751d05b13f39ff552c432b90d5",
+      "patchChars": 5753,
+      "sameStateAs": null
+    },
+    {
+      "index": 3,
+      "step": 16,
+      "editFraction": 0.25,
+      "position": 0.64,
+      "tree": null,
+      "patchChars": 6726,
+      "sameStateAs": null,
+      "synthesized": true
+    },
+    {
+      "index": 4,
+      "step": 17,
+      "editFraction": 0.3,
+      "position": 0.68,
+      "tree": "9efa4db56c74b95be886de4ed1703cc5f62d3efe",
+      "patchChars": 9020,
+      "sameStateAs": null
+    },
+    {
+      "index": 5,
+      "step": 18,
+      "editFraction": 0.4,
+      "position": 0.72,
+      "tree": "f953f348074f082aa91b2f3268706556128ae0af",
+      "patchChars": 9968,
+      "sameStateAs": null
+    }
+  ]
+}

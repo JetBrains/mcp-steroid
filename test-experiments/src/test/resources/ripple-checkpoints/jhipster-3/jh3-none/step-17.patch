@@ -1,0 +1,193 @@
+diff --git a/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java b/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java
+index 725fc09..399adef 100644
+--- a/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java
++++ b/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java
+@@ -5,7 +5,7 @@ package io.github.jhipster.sample.security;
+  */
+ public final class AuthoritiesConstants {
+ 
+-    public static final String ADMIN = "ROLE_ADMIN";
++    public static final String ADMIN = "ROLE_ADMINISTRATOR";
+ 
+     public static final String USER = "ROLE_USER";
+ 
+diff --git a/src/main/java/io/github/jhipster/sample/web/rest/AuthorityResource.java b/src/main/java/io/github/jhipster/sample/web/rest/AuthorityResource.java
+index ecdf0be..40696c8 100644
+--- a/src/main/java/io/github/jhipster/sample/web/rest/AuthorityResource.java
++++ b/src/main/java/io/github/jhipster/sample/web/rest/AuthorityResource.java
+@@ -2,6 +2,7 @@ package io.github.jhipster.sample.web.rest;
+ 
+ import io.github.jhipster.sample.domain.Authority;
+ import io.github.jhipster.sample.repository.AuthorityRepository;
++import io.github.jhipster.sample.security.AuthoritiesConstants;
+ import io.github.jhipster.sample.web.rest.errors.BadRequestAlertException;
+ import jakarta.validation.Valid;
+ import java.net.URI;
+@@ -47,7 +48,7 @@ public class AuthorityResource {
+      * @throws URISyntaxException if the Location URI syntax is incorrect.
+      */
+     @PostMapping("")
+-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
++    @PreAuthorize("hasAnyAuthority(\"" + AuthoritiesConstants.ADMIN + "\")")
+     public ResponseEntity<Authority> createAuthority(@Valid @RequestBody Authority authority) throws URISyntaxException {
+         LOG.debug("REST request to save Authority : {}", authority);
+         if (authorityRepository.existsById(authority.getName())) {
+@@ -65,7 +66,7 @@ public class AuthorityResource {
+      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and the list of authorities in body.
+      */
+     @GetMapping("")
+-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
++    @PreAuthorize("hasAnyAuthority(\"" + AuthoritiesConstants.ADMIN + "\")")
+     public List<Authority> getAllAuthorities() {
+         LOG.debug("REST request to get all Authorities");
+         return authorityRepository.findAll();
+@@ -78,7 +79,7 @@ public class AuthorityResource {
+      * @return the {@link ResponseEntity} with status {@code 200 (OK)} and with body the authority, or with status {@code 404 (Not Found)}.
+      */
+     @GetMapping("/{id}")
+-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
++    @PreAuthorize("hasAnyAuthority(\"" + AuthoritiesConstants.ADMIN + "\")")
+     public ResponseEntity<Authority> getAuthority(@PathVariable("id") String id) {
+         LOG.debug("REST request to get Authority : {}", id);
+         Optional<Authority> authority = authorityRepository.findById(id);
+@@ -92,7 +93,7 @@ public class AuthorityResource {
+      * @return the {@link ResponseEntity} with status {@code 204 (NO_CONTENT)}.
+      */
+     @DeleteMapping("/{id}")
+-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
++    @PreAuthorize("hasAnyAuthority(\"" + AuthoritiesConstants.ADMIN + "\")")
+     public ResponseEntity<Void> deleteAuthority(@PathVariable("id") String id) {
+         LOG.debug("REST request to delete Authority : {}", id);
+         authorityRepository.deleteById(id);
+diff --git a/src/main/resources/config/application.yml b/src/main/resources/config/application.yml
+index 9c49aaf..3955e51 100644
+--- a/src/main/resources/config/application.yml
++++ b/src/main/resources/config/application.yml
+@@ -45,7 +45,7 @@ management:
+   endpoint:
+     health:
+       show-details: when_authorized
+-      roles: 'ROLE_ADMIN'
++      roles: 'ROLE_ADMINISTRATOR'
+       probes:
+         enabled: true
+       group:
+diff --git a/src/main/resources/config/liquibase/changelog/20260821000000_rename_role_admin_to_role_administrator.xml b/src/main/resources/config/liquibase/changelog/20260821000000_rename_role_admin_to_role_administrator.xml
+new file mode 100644
+index 0000000..c0d835a
+--- /dev/null
++++ b/src/main/resources/config/liquibase/changelog/20260821000000_rename_role_admin_to_role_administrator.xml
+@@ -0,0 +1,43 @@
++<?xml version="1.0" encoding="utf-8"?>
++<databaseChangeLog
++    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
++    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
++
++    <!--
++        Renames the ROLE_ADMIN authority to ROLE_ADMINISTRATOR.
++        jhi_user_authority.authority_name references jhi_authority.name, so the new authority is
++        inserted and the memberships are re-pointed before the old authority is removed.
++    -->
++    <changeSet id="20260821000000-1" author="jhipster">
++        <preConditions onFail="MARK_RAN" onFailMessage="ROLE_ADMIN not present, nothing to rename">
++            <sqlCheck expectedResult="1">SELECT COUNT(*) FROM jhi_authority WHERE name = 'ROLE_ADMIN'</sqlCheck>
++        </preConditions>
++
++        <insert tableName="jhi_authority">
++            <column name="name" value="ROLE_ADMINISTRATOR"/>
++        </insert>
++
++        <update tableName="jhi_user_authority">
++            <column name="authority_name" value="ROLE_ADMINISTRATOR"/>
++            <where>authority_name = 'ROLE_ADMIN'</where>
++        </update>
++
++        <delete tableName="jhi_authority">
++            <where>name = 'ROLE_ADMIN'</where>
++        </delete>
++
++        <rollback>
++            <insert tableName="jhi_authority">
++                <column name="name" value="ROLE_ADMIN"/>
++            </insert>
++            <update tableName="jhi_user_authority">
++                <column name="authority_name" value="ROLE_ADMIN"/>
++                <where>authority_name = 'ROLE_ADMINISTRATOR'</where>
++            </update>
++            <delete tableName="jhi_authority">
++                <where>name = 'ROLE_ADMINISTRATOR'</where>
++            </delete>
++        </rollback>
++    </changeSet>
++</databaseChangeLog>
+diff --git a/src/main/webapp/app/config/authority.constants.ts b/src/main/webapp/app/config/authority.constants.ts
+index 1501bcf..275beef 100644
+--- a/src/main/webapp/app/config/authority.constants.ts
++++ b/src/main/webapp/app/config/authority.constants.ts
+@@ -1,4 +1,4 @@
+ export enum Authority {
+-  ADMIN = 'ROLE_ADMIN',
++  ADMIN = 'ROLE_ADMINISTRATOR',
+   USER = 'ROLE_USER',
+ }
+diff --git a/src/main/webapp/app/entities/admin/authority/authority.routes.ts b/src/main/webapp/app/entities/admin/authority/authority.routes.ts
+index 53ec57f..2cd06ce 100644
+--- a/src/main/webapp/app/entities/admin/authority/authority.routes.ts
++++ b/src/main/webapp/app/entities/admin/authority/authority.routes.ts
+@@ -8,7 +8,7 @@ const authorityRoute: Routes = [
+     path: '',
+     loadComponent: () => import('./list/authority.component').then(m => m.AuthorityComponent),
+     data: {
+-      authorities: ['ROLE_ADMIN'],
++      authorities: ['ROLE_ADMINISTRATOR'],
+     },
+     canActivate: [UserRouteAccessService],
+   },
+@@ -19,7 +19,7 @@ const authorityRoute: Routes = [
+       authority: AuthorityResolve,
+     },
+     data: {
+-      authorities: ['ROLE_ADMIN'],
++      authorities: ['ROLE_ADMINISTRATOR'],
+     },
+     canActivate: [UserRouteAccessService],
+   },
+@@ -30,7 +30,7 @@ const authorityRoute: Routes = [
+       authority: AuthorityResolve,
+     },
+     data: {
+-      authorities: ['ROLE_ADMIN'],
++      authorities: ['ROLE_ADMINISTRATOR'],
+     },
+     canActivate: [UserRouteAccessService],
+   },
+diff --git a/src/main/webapp/app/layouts/navbar/navbar.component.html b/src/main/webapp/app/layouts/navbar/navbar.component.html
+index 0768c9f..5325358 100644
+--- a/src/main/webapp/app/layouts/navbar/navbar.component.html
++++ b/src/main/webapp/app/layouts/navbar/navbar.component.html
+@@ -84,7 +84,7 @@
+           </li>
+         }
+         <li
+-          *jhiHasAnyAuthority="'ROLE_ADMIN'"
++          *jhiHasAnyAuthority="'ROLE_ADMINISTRATOR'"
+           ngbDropdown
+           class="nav-item dropdown pointer"
+           display="dynamic"
+diff --git a/src/main/webapp/app/shared/auth/has-any-authority.directive.ts b/src/main/webapp/app/shared/auth/has-any-authority.directive.ts
+index 48237f4..74125bc 100644
+--- a/src/main/webapp/app/shared/auth/has-any-authority.directive.ts
++++ b/src/main/webapp/app/shared/auth/has-any-authority.directive.ts
+@@ -8,9 +8,9 @@ import { AccountService } from 'app/core/auth/account.service';
+  *
+  * @howToUse
+  * ```
+- *     <some-element *jhiHasAnyAuthority="'ROLE_ADMIN'">...</some-element>
++ *     <some-element *jhiHasAnyAuthority="'ROLE_ADMINISTRATOR'">...</some-element>
+  *
+- *     <some-element *jhiHasAnyAuthority="['ROLE_ADMIN', 'ROLE_USER']">...</some-element>
++ *     <some-element *jhiHasAnyAuthority="['ROLE_ADMINISTRATOR', 'ROLE_USER']">...</some-element>
+  * ```
+  */
+ @Directive({

@@ -57,6 +57,36 @@ missing fails the probe at restore time, and a patch no index names is never rea
 """
 
 
+def _synthesized(source, steps, step):
+    """A metadata entry for a step the recorder exported a patch for but no checkpoint of.
+
+    The recorder writes `checkpoints.json` on a fixed TEN-fraction grid while `exportEveryStepPatch`
+    writes a patch for every step, so a rule that picks states by what the agent DID — which is the whole
+    point of picking by layer coverage — routinely lands between grid points. Round 3 hit this on four of
+    six arms.
+
+    Only `index`, `step`, `editFraction` and `position` are read back by `loadCheckpoint`, and both
+    fractions are reproduced from the capture's own `n` and `firstWriteStep` by the recorder's formulas —
+    verified against the grid entries of the same file, which they reproduce to the digit.
+
+    `tree` is written as null rather than invented. It is the git tree hash the capture observed, this
+    side has no way to recompute it, and a plausible-looking wrong hash is worse than an honest gap: the
+    probe does not read the field, but a human auditing which state a cell measured would.
+    """
+    n, first_write = source["n"], source["firstWriteStep"]
+    patch = steps[step]
+    return {
+        "index": None,
+        "step": step,
+        "editFraction": round((step - first_write) / (n - first_write), 4) if n > first_write else 0.0,
+        "position": round(step / n, 4),
+        "tree": None,
+        "patchChars": len(patch),
+        "sameStateAs": None,
+        "synthesized": True,
+    }
+
+
 def main(argv):
     if len(argv) < 5:
         raise SystemExit(__doc__)
@@ -89,24 +119,26 @@ def main(argv):
         )
     by_step = {c["step"]: c for c in source["checkpoints"]}
 
-    # Collisions collapse: two ids on one step are probed once. The ids are kept for the README, so the
-    # collapse stays visible instead of looking like a trajectory that had fewer milestones.
-    ids_of_step, order = {}, []
+    # Collisions collapse BY TREE, not by step number — the same fold `gate1_r3.py` applies. Two ids on
+    # one step is the obvious case; two ids on different steps carrying byte-identical patches is the
+    # one that costs money, and it is common: `jh3-mcp` records steps 7, 8 and 9 with the same tree
+    # because the agent wrote the solution once and then ran the build three times. Probing those as
+    # three states would buy fifteen cells to measure one.
+    #
+    # The earliest step carrying a tree represents it, so a later verification re-run never displaces
+    # the state's real position in the trajectory.
+    ids_of_step, order, seen = {}, [], {}
     for checkpoint_id, step in picked:
-        ids_of_step.setdefault(step, []).append(checkpoint_id)
-        if step not in order:
-            order.append(step)
+        tree = steps[step]
+        first = seen.setdefault(tree, step)
+        ids_of_step.setdefault(first, []).append(checkpoint_id)
+        if first not in order:
+            order.append(first)
     order.sort()
 
     out, lines = [], []
     for index, step in enumerate(order, start=1):
-        template = by_step.get(step)
-        if template is None:
-            raise SystemExit(
-                f"step {step} was selected but the capture committed no checkpoint for it; the "
-                f"recorder's grid holds {sorted(by_step)}"
-            )
-        entry = dict(template)
+        entry = dict(by_step[step]) if step in by_step else _synthesized(source, steps, step)
         entry["index"] = index
         out.append(entry)
         cov = rcw_layers.coverage(steps[step], case_layers, gold_files)

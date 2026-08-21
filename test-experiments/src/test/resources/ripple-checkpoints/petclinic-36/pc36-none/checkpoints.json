@@ -1,0 +1,37 @@
+{
+  "case": "dpaia__spring__petclinic-36",
+  "arm": "pc36-none",
+  "model": "claude-opus-5",
+  "n": 20,
+  "firstWriteStep": 11,
+  "fractions": 10,
+  "checkpoints": [
+    {
+      "index": 1,
+      "step": 11,
+      "editFraction": 0.0,
+      "position": 0.55,
+      "tree": "6bb9edbdc1344029aa9869c69dc77645ac7714fe",
+      "patchChars": 2199,
+      "sameStateAs": null
+    },
+    {
+      "index": 2,
+      "step": 12,
+      "editFraction": 0.1,
+      "position": 0.6,
+      "tree": "f955a7b77c6eaef8aec9b3715db806fa1b4ce683",
+      "patchChars": 17581,
+      "sameStateAs": null
+    },
+    {
+      "index": 3,
+      "step": 13,
+      "editFraction": 0.2,
+      "position": 0.65,
+      "tree": "c7bfe079664c07f58799bbd3e2f314835c3d46f1",
+      "patchChars": 23264,
+      "sameStateAs": null
+    }
+  ]
+}

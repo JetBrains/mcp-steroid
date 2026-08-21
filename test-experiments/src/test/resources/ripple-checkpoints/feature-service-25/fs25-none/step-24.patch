@@ -1,0 +1,123 @@
+diff --git a/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java b/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
+index 37887ba..ed39529 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
++++ b/src/main/java/com/sivalabs/ft/features/api/models/CreateReleasePayload.java
+@@ -6,4 +6,5 @@ import jakarta.validation.constraints.Size;
+ public record CreateReleasePayload(
+         @NotEmpty(message = "Product code is required") String productCode,
+         @Size(max = 50, message = "Release code cannot exceed 50 characters") @NotEmpty(message = "Release code is required") String code,
+-        String description) {}
++        String description,
++        String parentCode) {}
+diff --git a/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java b/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java
+index 56f7ab1..79d12dd 100644
+--- a/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java
++++ b/src/main/java/com/sivalabs/ft/features/api/models/UpdateReleasePayload.java
+@@ -3,4 +3,4 @@ package com.sivalabs.ft.features.api.models;
+ import com.sivalabs.ft.features.domain.models.ReleaseStatus;
+ import java.time.Instant;
+ 
+-public record UpdateReleasePayload(String description, ReleaseStatus status, Instant releasedAt) {}
++public record UpdateReleasePayload(String description, ReleaseStatus status, Instant releasedAt, String parentCode) {}
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/Commands.java b/src/main/java/com/sivalabs/ft/features/domain/Commands.java
+index a591fe5..06fa2ab 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/Commands.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/Commands.java
+@@ -15,10 +15,16 @@ public class Commands {
+             String code, String prefix, String name, String description, String imageUrl, String updatedBy) {}
+ 
+     /* Release Commands */
+-    public record CreateReleaseCommand(String productCode, String code, String description, String createdBy) {}
++    public record CreateReleaseCommand(
++            String productCode, String code, String description, String parentCode, String createdBy) {}
+ 
+     public record UpdateReleaseCommand(
+-            String code, String description, ReleaseStatus status, Instant releasedAt, String updatedBy) {}
++            String code,
++            String description,
++            ReleaseStatus status,
++            Instant releasedAt,
++            String parentCode,
++            String updatedBy) {}
+ 
+     /* Feature Commands */
+     public record CreateFeatureCommand(
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java b/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
+index f601760..c9d9165 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/dtos/ReleaseDto.java
+@@ -8,6 +8,7 @@ public record ReleaseDto(
+         Long id,
+         String code,
+         String description,
++        String parentCode,
+         ReleaseStatus status,
+         Instant releasedAt,
+         String createdBy,
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java b/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
+index b3d5b99..ba1066a 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/entities/Release.java
+@@ -63,6 +63,13 @@ public class Release {
+     @OneToMany(mappedBy = "release")
+     private Set<Feature> features = new LinkedHashSet<>();
+ 
++    @ManyToOne(fetch = FetchType.LAZY)
++    @JoinColumn(name = "parent_id")
++    private Release parent;
++
++    @OneToMany(mappedBy = "parent")
++    private Set<Release> children = new LinkedHashSet<>();
++
+     public Long getId() {
+         return id;
+     }
+@@ -150,4 +157,20 @@ public class Release {
+     public void setFeatures(Set<Feature> features) {
+         this.features = features;
+     }
++
++    public Release getParent() {
++        return parent;
++    }
++
++    public void setParent(Release parent) {
++        this.parent = parent;
++    }
++
++    public Set<Release> getChildren() {
++        return children;
++    }
++
++    public void setChildren(Set<Release> children) {
++        this.children = children;
++    }
+ }
+diff --git a/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java b/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
+index ce2e77f..3dcce3b 100644
+--- a/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
++++ b/src/main/java/com/sivalabs/ft/features/domain/mappers/ReleaseMapper.java
+@@ -3,8 +3,10 @@ package com.sivalabs.ft.features.domain.mappers;
+ import com.sivalabs.ft.features.domain.dtos.ReleaseDto;
+ import com.sivalabs.ft.features.domain.entities.Release;
+ import org.mapstruct.Mapper;
++import org.mapstruct.Mapping;
+ 
+ @Mapper(componentModel = "spring")
+ public interface ReleaseMapper {
++    @Mapping(target = "parentCode", source = "parent.code")
+     ReleaseDto toDto(Release release);
+ }
+diff --git a/src/main/resources/db/migration/V5__add_release_parent_id.sql b/src/main/resources/db/migration/V5__add_release_parent_id.sql
+new file mode 100644
+index 0000000..c218bd6
+--- /dev/null
++++ b/src/main/resources/db/migration/V5__add_release_parent_id.sql
+@@ -0,0 +1,7 @@
++alter table releases
++    add column parent_id bigint;
++
++alter table releases
++    add constraint fk_releases_parent_id foreign key (parent_id) references releases (id);
++
++create index idx_releases_parent_id on releases (parent_id);

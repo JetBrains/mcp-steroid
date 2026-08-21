@@ -1,26 +1,18 @@
-# `dpaia__spring__petclinic__rest-37` — `pcr37-mcp` arm checkpoints
+# `petclinic-rest-37` / `pcr37-mcp` — committed checkpoint states
 
-The states `RippleCheckpointProbeTest.probe` restarts a bare Haiku from, captured by
-`DpaiaPetclinicRest37CheckpointCaptureTest.captureMcpArm`. A probe cell addresses them as
-`-Dripple.checkpoint.arm=pcr37-mcp`: the token is what names the case, because a probe build forwards
-only `arm`, `index` and `replicate` — see `RippleCheckpointCaseSpec`.
+Round 3 of the residual-completion-work study. Exported from capture build `1037545772` and cut down to the
+states the pre-registered rule selected; see
+[RCW-GENERALIZATION.md](../../../../../../../docs/ripple-checkpoint-pilot/RCW-GENERALIZATION.md).
 
-Expected contents once the capture has run and been admitted:
+`index` is the probe coordinate (`-P ripple.checkpoint.index=`), `step` is the position in the original
+trajectory, and the checkpoint id is the role the rule assigned:
 
-- `step-<n>.patch`, one per checkpoint of the ten-fraction grid — `git diff step-0 step-<n>` of the
-  recorded trajectory. **The file names are NOT known before the run.** The steps are the even
-  fractions of the edit phase that actually happened, so only `RippleCheckpointRecorder.plan`, running
-  after the capture, can say which they are. A probe cell addresses a checkpoint by its ORDINAL and
-  resolves the step through `checkpoints.json`.
-- `checkpoints.json` — `RippleCheckpointRecorder.exportMetadata`: the measured `n`, the first write the
-  edit phase is counted from, and per checkpoint its ordinal, step, `editFraction`, `position` and the
-  `sameStateAs` marker of a repeated state.
+| index | step | checkpoint | layerCov | patch chars | layers |
+|---:|---:|:---|---:|---:|:---|
+| 1 | 7 | C3 | 0.000 | 0 |  |
+| 2 | 8 | C1+C2+C4 | 0.333 | 2479 | api |
+| 3 | 20 | C5 | 0.333 | 4182 | api |
 
-Copy the patches and `checkpoints.json` out of the admitted capture build's run-directory artifact
-(`checkpoints/`) in ONE commit — patches from one run next to metadata from another describe a
-trajectory that never existed, and the probe would normalize its position by the wrong `n`.
-`RippleCheckpointProbeTest` refuses a directory holding either one without the other.
-
-This README is what keeps the directory in git before the capture lands: an empty directory cannot be
-committed, and `RippleCheckpointProbeTest` asserts the layout exists because a probe cell must fail on
-a missing STATE rather than on a missing folder.
+The patch of a step is the whole-tree diff against the pristine revision, so a state is restored by
+applying one file. Patches and `checkpoints.json` must be committed together: an index whose patch is
+missing fails the probe at restore time, and a patch no index names is never read.

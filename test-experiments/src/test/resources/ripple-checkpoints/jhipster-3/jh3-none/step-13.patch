@@ -1,0 +1,13 @@
+diff --git a/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java b/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java
+index 725fc09..399adef 100644
+--- a/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java
++++ b/src/main/java/io/github/jhipster/sample/security/AuthoritiesConstants.java
+@@ -5,7 +5,7 @@ package io.github.jhipster.sample.security;
+  */
+ public final class AuthoritiesConstants {
+ 
+-    public static final String ADMIN = "ROLE_ADMIN";
++    public static final String ADMIN = "ROLE_ADMINISTRATOR";
+ 
+     public static final String USER = "ROLE_USER";
+ 

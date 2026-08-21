@@ -1,0 +1,13 @@
+diff --git a/src/main/resources/db/migration/V5__add_release_parent_id.sql b/src/main/resources/db/migration/V5__add_release_parent_id.sql
+new file mode 100644
+index 0000000..c218bd6
+--- /dev/null
++++ b/src/main/resources/db/migration/V5__add_release_parent_id.sql
+@@ -0,0 +1,7 @@
++alter table releases
++    add column parent_id bigint;
++
++alter table releases
++    add constraint fk_releases_parent_id foreign key (parent_id) references releases (id);
++
++create index idx_releases_parent_id on releases (parent_id);

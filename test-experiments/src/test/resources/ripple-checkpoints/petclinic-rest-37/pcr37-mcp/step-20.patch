@@ -1,0 +1,86 @@
+diff --git a/src/main/java/org/springframework/samples/petclinic/rest/controller/PetRestController.java b/src/main/java/org/springframework/samples/petclinic/rest/controller/PetRestController.java
+index fc9ec87..117ffcc 100644
+--- a/src/main/java/org/springframework/samples/petclinic/rest/controller/PetRestController.java
++++ b/src/main/java/org/springframework/samples/petclinic/rest/controller/PetRestController.java
+@@ -16,7 +16,11 @@
+ 
+ package org.springframework.samples.petclinic.rest.controller;
+ 
++import org.springframework.data.domain.Page;
++import org.springframework.data.domain.PageImpl;
++import org.springframework.data.domain.Pageable;
+ import org.springframework.http.HttpStatus;
++import org.springframework.http.MediaType;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.samples.petclinic.mapper.PetMapper;
+ import org.springframework.samples.petclinic.model.Pet;
+@@ -25,10 +29,12 @@ import org.springframework.samples.petclinic.rest.dto.PetDto;
+ import org.springframework.samples.petclinic.service.ClinicService;
+ import org.springframework.security.access.prepost.PreAuthorize;
+ import org.springframework.web.bind.annotation.CrossOrigin;
++import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.RequestMapping;
+ import org.springframework.web.bind.annotation.RestController;
+ 
+ import java.util.ArrayList;
++import java.util.Collections;
+ import java.util.List;
+ 
+ /**
+@@ -70,6 +76,19 @@ public class PetRestController implements PetsApi {
+     }
+ 
+ 
++    @PreAuthorize("hasRole(@roles.OWNER_ADMIN)")
++    @GetMapping(value = "pets/pages", produces = MediaType.APPLICATION_JSON_VALUE)
++    public ResponseEntity<Page<PetDto>> listPetsPaginated(Pageable pageable) {
++        List<PetDto> pets = new ArrayList<>(petMapper.toPetsDto(this.clinicService.findAllPets()));
++        if (pets.isEmpty()) {
++            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
++        }
++        int start = (int) Math.min(pageable.getOffset(), pets.size());
++        int end = Math.min(start + pageable.getPageSize(), pets.size());
++        List<PetDto> pageContent = start >= end ? Collections.emptyList() : pets.subList(start, end);
++        return new ResponseEntity<>(new PageImpl<>(pageContent, pageable, pets.size()), HttpStatus.OK);
++    }
++
+     @PreAuthorize("hasRole(@roles.OWNER_ADMIN)")
+     @Override
+     public ResponseEntity<PetDto> updatePet(Integer petId, PetDto petDto) {
+diff --git a/src/test/java/org/springframework/samples/petclinic/rest/controller/TmpDiagTests.java b/src/test/java/org/springframework/samples/petclinic/rest/controller/TmpDiagTests.java
+new file mode 100644
+index 0000000..702dbce
+--- /dev/null
++++ b/src/test/java/org/springframework/samples/petclinic/rest/controller/TmpDiagTests.java
+@@ -0,0 +1,31 @@
++package org.springframework.samples.petclinic.rest.controller;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.http.MediaType;
++import org.springframework.security.test.context.support.WithMockUser;
++import org.springframework.test.context.ContextConfiguration;
++import org.springframework.test.web.servlet.MockMvc;
++import org.springframework.test.web.servlet.setup.MockMvcBuilders;
++import org.springframework.web.context.WebApplicationContext;
++
++import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
++
++@SpringBootTest
++class TmpDiagTests {
++
++    @Autowired
++    private WebApplicationContext context;
++
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void diag() throws Exception {
++        MockMvc mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
++        var res = mockMvc.perform(get("/api/pets/pages").accept(MediaType.APPLICATION_JSON)).andReturn();
++        System.err.println("STATUS=" + res.getResponse().getStatus());
++        System.err.println("BODY=" + res.getResponse().getContentAsString());
++        System.err.println("EX=" + res.getResolvedException());
++        System.err.println("HANDLER=" + res.getHandler());
++    }
++}
