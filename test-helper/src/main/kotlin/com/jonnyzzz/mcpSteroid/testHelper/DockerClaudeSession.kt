@@ -34,6 +34,7 @@ class DockerClaudeSession(
     override val displayName: String = Companion.displayName
     private var mcpConfigJson: String? = null
     private var settingsFile: String? = null
+    private val sessionEnv = mutableMapOf<String, String>()
     private val mcpRegistrationLog = mutableListOf<McpRegistration>()
     override val mcpRegistrations: List<McpRegistration>
         get() = mcpRegistrationLog.toList()
@@ -69,6 +70,18 @@ class DockerClaudeSession(
     }
 
     /**
+     * Adds one environment variable to every later CLI invocation of this session.
+     *
+     * Exists because some CLI behaviour is reachable ONLY through the process environment, and a test
+     * that needs it otherwise has to fork the whole launch path. The case in hand is
+     * `ENABLE_TOOL_SEARCH`: with MCP tool schemas deferred, an experiment comparing "agent with IDE
+     * tools" against "agent without" can silently run both arms without them.
+     */
+    fun withSessionEnv(key: String, value: String) {
+        sessionEnv[key] = value
+    }
+
+    /**
      * Runs a Claude command inside the Docker container.
      * Debug mode is always enabled to see MCP connection details.
      */
@@ -90,6 +103,7 @@ class DockerClaudeSession(
                 put("CLAUDE_CODE_DEBUG", "1")
                 put("DEBUG", "*")
             }
+            putAll(sessionEnv)
         }
 
         return session.startProcessInContainer {

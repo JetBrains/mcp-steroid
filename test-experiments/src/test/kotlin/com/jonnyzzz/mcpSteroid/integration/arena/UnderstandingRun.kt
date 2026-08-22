@@ -75,6 +75,14 @@ class UnderstandingResearchGate(
             "seed the budget counters",
         ).assertExitCode(0) { "Failed to seed the budget counters in $recordDir: $stderr" }
 
+        if (eagerMcpTools) {
+            // Belt AND braces, deliberately: the settings file's `env` block is the documented place,
+            // and the process environment is the one the CLI is known to honour in every version. The
+            // failure this guards against is silent by nature — a deferred tool list looks exactly like
+            // an agent that chose not to use its tools — and one wasted trajectory costs more than the
+            // duplication.
+            claude.withSessionEnv(ENABLE_TOOL_SEARCH_KEY, "false")
+        }
         claude.useSettings(
             understandingHookSettingsJson(
                 hooks = listOf(AgentHook("PreToolUse", scriptPath)),

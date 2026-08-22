@@ -179,9 +179,19 @@ class UnderstandingHarnessTest {
         // Without this the CLI ships a tool INDEX and the schemas arrive only after a ToolSearch call.
         // The first acquisition pilot lost two of three mcp trajectories to exactly that: they never
         // searched, never saw a steroid tool, and produced transcripts identical to the control arm's.
-        assertEquals(false, settings(true)["enable_tool_search"]!!.jsonPrimitive.content.toBoolean())
+        //
+        // The key lives in the settings file's `env` block and nowhere else. A top-level
+        // `enable_tool_search` is accepted by the file and ignored by the CLI, which cost three more
+        // trajectories: the harness logged the flag as installed and the runs still came back with
+        // `semantic=0`. Asserting the exact path is the only way that mistake stays fixed.
+        val env = settings(true)["env"]!!.jsonObject
+        assertEquals("false", env[ENABLE_TOOL_SEARCH_KEY]!!.jsonPrimitive.content)
         assertFalse(
-            settings(false).containsKey("enable_tool_search"),
+            settings(true).containsKey("enable_tool_search"),
+            "a top-level key of that name is the shape the CLI silently ignores",
+        )
+        assertFalse(
+            settings(false).containsKey("env"),
             "the control arm runs with no MCP server at all; writing the key there would suggest the " +
                 "two arms differ by a setting rather than by having tools",
         )

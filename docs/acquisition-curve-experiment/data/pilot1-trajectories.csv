@@ -1,0 +1,7 @@
+build_id,trajectory_id,arm,budgeted_calls,refused,exempt,total_output_tokens,tools
+1038838581,mcp-b40-l2000-r1,mcp,20,0,1,19060,"{mcp__mcp-steroid__steroid_list_projects=1, Bash=15, mcp__mcp-steroid__steroid_execute_code=4}"
+1038843166,none-b40-l2000-r1,shell,23,0,0,12115,"{Bash=23}"
+1038848031,mcp-b40-l2000-r2,mcp,25,0,1,20991,"{Bash=25}"
+1038848033,mcp-b40-l2000-r3,mcp,27,0,1,14487,"{Bash=26, Read=1}"
+1038848035,none-b40-l2000-r2,shell,38,0,0,17009,"{Bash=38}"
+1038848037,none-b40-l2000-r3,shell,28,0,0,13625,"{Bash=28}"

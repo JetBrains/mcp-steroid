@@ -126,16 +126,24 @@ fun understandingBudgetHookScript(
  * [eagerMcpTools] turns OFF the CLI's lazy tool discovery, and it is not a tuning knob: it is the fix
  * for a defect the first acquisition pilot recorded in the open. Claude Code hands the model a tool
  * INDEX rather than the MCP tool schemas — every run's `system/init` event carries
- * `mcp_servers: [{name: mcp-steroid, status: pending}]` and no `mcp__…` tool — and the schemas arrive
- * only after the model spends a `ToolSearch` call. Two of the three mcp trajectories never spent it,
- * despite a brief that tells them to list their tools first, and ran to completion on `Bash` alone.
- * Their transcripts are indistinguishable from the control arm's, so the cell labelled "with semantic
- * access" measured a coin flip about whether the model remembered to go looking for its tools.
+ * `mcp_servers: [{name: mcp-steroid, status: pending}]` and a `tools` list with no `mcp__…` entry — and
+ * the schemas arrive only after the model spends a `ToolSearch` call. Two of the three mcp trajectories
+ * never spent it, despite a brief that tells them to list their tools first, and ran to completion on
+ * `Bash` alone. Their transcripts are indistinguishable from the control arm's, so the cell labelled
+ * "with semantic access" measured a coin flip about whether the model remembered to go looking.
+ *
+ * The switch is [ENABLE_TOOL_SEARCH_KEY] inside the settings file's `env` block, and BOTH halves of
+ * that sentence were learned the expensive way. Written at the top level as `enable_tool_search`, the
+ * CLI ignores it silently: three re-run trajectories reported the flag as installed and still came back
+ * `{Bash=24}`, `{Bash=28}`, `{Bash=24}` with `semantic=0`. And the value is the counter-intuitive one —
+ * `"false"` means "do NOT defer", i.e. load every tool up front, which is precisely what this arm needs.
  */
 fun understandingHookSettingsJson(hooks: List<AgentHook>, eagerMcpTools: Boolean = false): String {
     require(hooks.isNotEmpty()) { "a settings file with no hooks would run the agent unrecorded" }
     val settings = buildJsonObject {
-        if (eagerMcpTools) put("enable_tool_search", false)
+        if (eagerMcpTools) {
+            putJsonObject("env") { put(ENABLE_TOOL_SEARCH_KEY, "false") }
+        }
         putJsonObject("hooks") {
             hooks.groupBy { it.event }.forEach { (event, forEvent) ->
                 putJsonArray(event) {
@@ -180,5 +188,14 @@ fun parseUnderstandingBudgetUsage(counterFileContent: String?, deniedFileContent
         used = counterFileContent?.trim()?.toIntOrNull() ?: 0,
         denied = deniedFileContent?.trim()?.toIntOrNull() ?: 0,
     )
+
+/**
+ * The environment variable Claude Code reads to decide whether MCP tool schemas are deferred.
+ *
+ * Named here rather than inlined so the test that pins the settings shape and the code that writes it
+ * cannot drift apart into a passing test for a key the CLI never sees — which is exactly the failure
+ * the previous attempt shipped.
+ */
+const val ENABLE_TOOL_SEARCH_KEY: String = "ENABLE_TOOL_SEARCH"
 
 private val understandingSettingsJson = Json { prettyPrint = true }
