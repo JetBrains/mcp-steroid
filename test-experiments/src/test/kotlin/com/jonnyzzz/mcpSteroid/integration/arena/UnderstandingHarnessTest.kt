@@ -116,12 +116,28 @@ class UnderstandingHarnessTest {
     // ── the budget gate ──────────────────────────────────────────────────────
 
     @Test
-    fun `the gate exempts the CLI's own tool discovery and the agent's scratch list`() {
+    fun `the gate charges for questions about the repository and for nothing else`() {
         val script = understandingBudgetHookScript(5, "/r/used", "/r/denied", "/r")
-        assertTrue(script.contains("ToolSearch|TodoWrite)"), script)
-        // The mcp arm spends its first calls on tool discovery; charging for it would hand the shell arm
-        // a larger effective budget at B=5 and the comparison would measure the CLI's plumbing.
-        assertFalse(script.contains("steroid_list_projects"), "list_projects DOES query the environment")
+        assertTrue(script.contains("ToolSearch|TodoWrite"), script)
+        // Reversed after the first acquisition pilot, and the reversal is the correction of a bias, not
+        // a courtesy to one arm. Tool discovery plus learning the project's routing key is two to three
+        // calls the semantic arm must spend before it can ask anything, and the shell arm's first call
+        // is already research. Charged, that is half the budget at B=5 — and what it bought was measured:
+        // zero semantic calls in three understanding trajectories and in the acquisition probe, against
+        // fourteen in a ripple trajectory of the same agent on the same tree, which has no budget.
+        assertTrue(
+            script.contains("mcp__mcp-steroid__steroid_list_projects"),
+            "learning the routing key is the cost of ADDRESSING the IDE, not of reading the repository",
+        )
+        assertTrue(
+            script.contains("mcp__mcp-steroid__steroid_fetch_resource"),
+            "the tools' own documentation says nothing about the tree under study",
+        )
+        // The line that must never move: the tool that answers questions about the code is charged.
+        assertFalse(
+            script.contains("steroid_execute_code"),
+            "exempting the tool that reads the repository would make the semantic arm's budget infinite",
+        )
     }
 
     @Test

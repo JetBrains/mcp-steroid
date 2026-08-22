@@ -61,6 +61,28 @@ class AcquisitionHarnessTest {
     }
 
     @Test
+    fun `connecting to the semantic tools is free, asking them about the code is not`() {
+        val ndjson = listOf(
+            assistant("m1", 10, toolUse("t1", "mcp__mcp-steroid__steroid_list_projects", "{}")),
+            structuredToolResult("t1", "keycloak@/home/agent/project-home"),
+            assistant("m2", 20, toolUse("t2", "mcp__mcp-steroid__steroid_fetch_resource", """{"uri":"x"}""")),
+            structuredToolResult("t2", "how to run code in the IDE"),
+            assistant("m3", 30, toolUse("t3", "mcp__mcp-steroid__steroid_execute_code", """{"code":"x"}""")),
+            structuredToolResult("t3", "ConsentRequiredExecutor"),
+            resultEvent(60),
+        ).joinToString("\n")
+
+        val trajectory = parseAcquisitionTrajectory(ndjson, "t-1", "case", "mcp")
+
+        // The bootstrap pair is the semantic arm's cost of ADDRESSING the IDE, and the shell arm has no
+        // equivalent. Charging for it is what made three trajectories of this experiment refuse to touch
+        // the tools at all, so the reader must agree with the hook that those two are free.
+        assertEquals(2, trajectory.exemptCalls)
+        assertEquals(1, trajectory.budgetedCalls, "only the question about the code is an interaction")
+        assertEquals("mcp__mcp-steroid__steroid_execute_code", trajectory.calls.single().toolName)
+    }
+
+    @Test
     fun `cumulative output tokens follow the turn that issued the call`() {
         val ndjson = listOf(
             assistant("m1", 100, toolUse("t1", "Bash", """{"command":"ls"}""")),

@@ -120,6 +120,12 @@ fun buildUnderstandingResearchPrompt(
         appendLine("  happens to occur as text. List the tools available to you before you start working.")
         appendLine("- Use them for every question about the code. A grep over this tree answers a different")
         appendLine("  question than the one you need answered.")
+        appendLine("- **Connecting to them is FREE.** Listing the projects the session exposes, and reading")
+        appendLine("  any documentation those tools offer about themselves, do NOT count against your")
+        appendLine("  $budget interactions — only questions about the repository do. Do that first and")
+        appendLine("  spend no thought on whether it is affordable: it is not deducted.")
+        appendLine("- The project routing key you need for those tools is an opaque value (a readable name")
+        appendLine("  plus a hash), knowable only by listing the projects; it is never the folder name.")
     }
     appendLine()
     appendLine("## Output")

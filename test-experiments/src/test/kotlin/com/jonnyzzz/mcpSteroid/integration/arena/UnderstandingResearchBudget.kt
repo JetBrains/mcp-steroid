@@ -22,20 +22,38 @@ data class AgentHook(val event: String, val scriptPath: String)
 /**
  * The tools that do NOT consume research budget, and why each one is on the list.
  *
- * The budget counts ENVIRONMENT INTERACTIONS — the thing the two arms are being compared on — and two
+ * The budget counts ENVIRONMENT INTERACTIONS — the thing the two arms are being compared on — and four
  * tool names are not that:
  *
- * - `ToolSearch` is the CLI's own tool-discovery mechanism. The mcp arm spends its first one to three
- *   calls on it plus `steroid_list_projects` before it can address the IDE at all (measured on all
- *   five round-3 mcp captures: calls 1-3 are always bootstrap), while the shell arm needs none. At a
- *   budget of five, charging for it would hand the shell arm a 60% larger effective budget and the
- *   experiment would measure the CLI's tool plumbing instead of semantic access.
+ * - `ToolSearch` is the CLI's own tool-discovery mechanism, and only one arm ever needs it. At a budget
+ *   of five, charging for it would hand the shell arm a 60% larger effective budget and the experiment
+ *   would measure the CLI's tool plumbing instead of semantic access.
  * - `TodoWrite` writes the agent's own scratch list. It reads nothing from the repository.
+ * - `steroid_list_projects` and `steroid_fetch_resource` are the semantic arm's CONNECTION cost, not
+ *   its research. The first returns the opaque routing key of the open project and the second returns
+ *   documentation; neither answers anything about the repository under study.
  *
- * Everything else counts, including `steroid_list_projects`: it does query the environment, and an arm
- * that must spend one interaction learning where its project is has really spent one.
+ * That third bullet reverses what this list said until the first acquisition pilot, and the reversal is
+ * a correction of a real bias rather than a convenience. Charging for the bootstrap taxes exactly one
+ * arm: the shell arm's first call is already research, while the semantic arm pays two or three calls
+ * before it can ask its first question. At the budget of five that this experiment starts at, that is
+ * half the arm's budget spent on plumbing. What the tax actually bought was measured, twice and
+ * expensively: with it in place the semantic arm did not use its tools AT ALL — zero semantic calls in
+ * three understanding-note trajectories and in the acquisition probe, versus fourteen in a ripple
+ * trajectory of the same agent on the same tree with no budget at all. A rational agent told it has
+ * forty interactions and that the first three buy nothing spends none of them on an unfamiliar tool.
+ *
+ * The exemption cannot flatter the semantic arm's curve, because neither exempt call can carry a
+ * checklist fact: `steroid_list_projects` returns names and paths and `steroid_fetch_resource` returns
+ * prompt articles, and every evidence bundle in the checklist is a set of literals from Keycloak
+ * sources. `AcquisitionHarnessTest` pins that.
  */
-val UNDERSTANDING_BUDGET_EXEMPT_TOOLS: List<String> = listOf("ToolSearch", "TodoWrite")
+val UNDERSTANDING_BUDGET_EXEMPT_TOOLS: List<String> = listOf(
+    "ToolSearch",
+    "TodoWrite",
+    "mcp__mcp-steroid__steroid_list_projects",
+    "mcp__mcp-steroid__steroid_fetch_resource",
+)
 
 /**
  * The message the agent is shown when it reaches for tool number `budget + 1`.

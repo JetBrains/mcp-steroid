@@ -70,7 +70,12 @@ data class AcquisitionTrajectory(
     val arm: String,
     val model: String,
     val calls: List<AcquisitionToolCall>,
-    /** Calls the budget hook does not charge for (`ToolSearch`, `TodoWrite`). Reported, never scored. */
+    /**
+     * Calls the budget hook does not charge for — tool discovery, the agent's own to-do list, and the
+     * semantic arm's connection bootstrap. Reported, never scored, and deliberately NOT counted as
+     * semantic usage: an arm that only ever asked which projects are open has not asked the repository
+     * anything.
+     */
     val exemptCalls: Int,
     /** Calls the hook refused after the wall. A large number means the budget, not the agent, ended the run. */
     val refusedCalls: Int,
