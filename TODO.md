@@ -606,6 +606,21 @@
   run on a tree this size. The three cheaper candidates that were rejected, and why, are in
   `docs/understanding-note-experiment/CANDIDATES.md` — do not resurrect one without redoing the shell
   audit that rejected it.
+- [ ] **Run the acquisition-curve pilot (nothing has been run yet).** The instrument is implemented,
+  unit-tested and calibrated (`Acquisition*.kt` in `test-experiments`, pre-registration in
+  `docs/acquisition-curve-experiment/DESIGN.md`, case audit in `CASE-SELECTION.md`), and the TeamCity
+  cell exists as `IntegrationTests_AcquisitionResearch`. The primary endpoint is no longer downstream
+  success but `U(B)` — the share of a pre-registered fifteen-fact architecture checklist observed after
+  `B` environment interactions — read off slices of ONE 40-interaction transcript at 5/10/20/40 and
+  plotted against interactions AND cumulative output tokens, never combined. The pilot is 3 trajectories
+  per arm (≈ 4.5 h, ≈ $12) and its stopping rules are pre-registered: scale to n = 6/arm only if the
+  arms separate by ≥ 0.15 at one of B = 5, 10, 20; report negative if they stay within one checklist
+  item everywhere; report the case as navigational if the whole difference sits in `B1`, `B2`, `C1`,
+  `C2`, `F1`. Two things must be pushed before a build can run — the product branch through `jb`
+  (TeamCity does not read `origin`) and the DSL branch in `~/Work/mcp-steroid-teamcity`. Do not
+  substitute another case without redoing the recorded shell audit: the current one measures 0.07 of the
+  checklist after three optimal commands and 0.80 after ten, which is the whole reason it can separate
+  anything.
 - [ ] **The capture arm still ignores the same signal.** The capture seam
   (`DpaiaFeatureService125CheckpointCaptureTest.afterAgentRun`, and `RippleScenarioBaseTest`) now sees
   `DpaiaRunOutcome.apiTransportError` but hands `admitCapture` only its primitives, so nothing acts on

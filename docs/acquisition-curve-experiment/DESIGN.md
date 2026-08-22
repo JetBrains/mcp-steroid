@@ -219,3 +219,49 @@ four points missing.
 
 A cell queued without coordinates fails with a readable message. That is intended and matches the
 understanding family: a build must never silently run a default cell.
+
+### On TeamCity
+
+The research cells run on TeamCity, not locally — an Opus trajectory is real spend and the agents there
+have the tokens. The build configuration is `IntegrationTests_AcquisitionResearch`
+("acquisition: research trajectory (one cell)") in the TeamCity DSL repository,
+`.teamcity/builds/_18_acquisition_curve_experiment.kt`. It prompts for exactly three coordinates —
+case, arm, replicate — has no trigger and belongs to no composite, and publishes
+`test-experiments/build/acquisition` as an artifact.
+
+There is no budget parameter and that is deliberate: the budget and the note limit are pre-registered
+constants and the cell refuses any other value, so a build cannot produce a curve with three of its four
+points missing.
+
+Two pushes stand between this design and the first curve, and neither should be done casually:
+
+```bash
+# 1. the product repository — TeamCity reads `jb`, not `origin`
+git push origin acquisition-curve-experiment          # then merge to main as usual
+git fetch jb && git checkout -b jb-merge jb/main
+git merge main --no-ff -m "Merge remote-tracking branch 'origin/main' into jb-merge"
+git push jb jb-merge:main
+
+# 2. the TeamCity DSL repository (~/Work/mcp-steroid-teamcity)
+git push origin acquisition-curve-experiment          # then merge to its main
+```
+
+The pilot is then six manual starts of one build: `arm ∈ {mcp, none}` × `replicate ∈ {1, 2, 3}`, one at
+a time — two IntelliJ containers on one agent exhaust its RAM. Download the `acquisition` artifact of
+each, put the six directories side by side, and run
+
+```bash
+python3 docs/acquisition-curve-experiment/analysis/distill_and_judge.py \
+  --artifacts <the six downloaded directories' parent> --dry-run    # prints the token bill first
+```
+
+The `[ACQUISITION-CURVE]` lines in each build log already carry `U_observed` and both denominators; the
+script adds `U_actionable` and the blind judge's per-fact verdicts.
+
+## Status
+
+Everything above is built, unit-tested and calibrated. **No trajectory of either arm has been run
+yet** — the pilot needs API budget that is only available on TeamCity, so the numbers in this directory
+are, so far, exclusively the ones that describe the instrument and the case. The first result file will
+be `RESULTS.md`, and the honest reading of this document today is: a pre-registration plus the evidence
+that the case can carry it.
