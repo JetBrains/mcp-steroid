@@ -175,3 +175,80 @@ anything because 2000 was not yet a registered limit, and four spent an Opus run
 the note extraction. Their notes are recoverable from the build logs but are NOT used — they were
 produced by the same prompt, so re-running costs less than arguing about whether a recovered note is the
 same artifact.
+
+Two instrument defects were found and fixed before this wave, both of which had silently corrupted every
+earlier research cell (commit `f3b0a1e2c`):
+
+- **The in-container command builder is immutable.** Its calls were written as separate statements, so
+  only the last survived and the container ran `bash -c ''`. Consequence: the budget counters read back
+  as `calls=0 denied=0` while the hook was correctly enforcing the budget, and — far worse — the pristine
+  check certified every tree as untouched off an empty `git status` that never ran. It now builds the
+  request as one expression, prints a completion marker, and refuses to certify a tree on silence.
+- **The research phase read the console-filtered `stdout`.** `AiProcessResult` carries both a filtered
+  stream and `rawStdout`; the filter drops the terminal `result` event, which is where the note travels.
+  Twenty paid Opus runs across two waves reported "no final message" while their notes sat complete in
+  the build log. `ArenaTestResult.agentResult` is now typed as `AiProcessResult` so `rawStdout` is
+  reachable, and a unit test forbids the spelling `agentResult.stdout` in this experiment's code.
+
+### Note limits 2000 and 3000, and the (10, 1000) replicates — research, after the fix
+
+Builds 1038550322/324 and 1038553084…102. Every cell reports honest accounting — the counters are read
+back from a command that really ran — and the pristine check printed its completion marker in all twelve,
+so "the tree was untouched" is now evidence rather than an empty string.
+
+| build | note id | calls | denied | output tokens | usd | s | raw chars → kept |
+|---:|:---|---:|---:|---:|---:|---:|:---|
+| 1038550322 | `mcp-b5-l2000-r1` | 5 | 4 | 7 146 | 0.327 | 95 | 2 952 → 2 000 |
+| 1038550324 | `none-b5-l2000-r1` | 5 | 4 | 7 121 | 0.287 | 97 | 2 626 → 2 000 |
+| 1038553084 | `mcp-b10-l2000-r1` | **9** | **0** | 7 879 | 0.597 | 103 | 2 728 → 2 000 |
+| 1038553086 | `none-b10-l2000-r1` | 10 | 4 | 5 254 | 0.311 | 86 | 2 774 → 2 000 |
+| 1038553088 | `mcp-b5-l3000-r1` | 5 | 3 | 9 002 | 0.347 | 112 | 4 178 → 3 000 |
+| 1038553090 | `mcp-b10-l3000-r1` | 10 | 3 | 7 132 | 0.418 | 124 | 3 625 → 3 000 |
+| 1038553092 | `none-b5-l3000-r1` | 5 | 2 | 8 799 | 0.332 | 123 | 4 257 → 3 000 |
+| 1038553094 | `none-b10-l3000-r1` | 10 | 3 | 5 588 | 0.288 | 91 | 4 300 → 3 000 |
+| 1038553096 | `mcp-b10-l1000-r2` | **8** | **0** | 7 596 | 0.533 | 95 | 1 280 → 1 000 |
+| 1038553098 | `mcp-b10-l1000-r3` | **9** | **0** | 7 740 | 0.532 | 110 | 1 580 → 1 000 |
+| 1038553100 | `none-b10-l1000-r2` | 10 | **10** | 4 271 | 0.281 | 79 | 1 791 → 1 000 |
+| 1038553102 | `none-b10-l1000-r3` | 10 | 5 | 4 101 | 0.282 | 78 | 2 026 → 1 000 |
+
+### Downstream for those twelve notes — queued 2026-08-22 04:05 UTC, 60 cells
+
+Builds 1038566032…070 (2 000), 1038568314…682 (3 000) and 1038568684…722 (the 1 000 replicates).
+$18.89 in agent spend.
+
+| note | Y | usd (median) | agent s (median) |
+|:---|:---:|---:|---:|
+| `mcp-b5-l2000-r1` | 3/5 | 0.380 | 260 |
+| `none-b5-l2000-r1` | 5/5 | 0.346 | 192 |
+| `mcp-b10-l2000-r1` | 5/5 | 0.252 | 233 |
+| `none-b10-l2000-r1` | 5/5 | 0.342 | 351 |
+| `mcp-b5-l3000-r1` | 5/5 | 0.321 | 316 |
+| `none-b5-l3000-r1` | 5/5 | 0.298 | 581 |
+| `mcp-b10-l3000-r1` | 4/5 | 0.436 | 263 |
+| `none-b10-l3000-r1` | 3/5 | 0.219 | 221 |
+| `mcp-b10-l1000-r2` | 4/5 | 0.267 | 265 |
+| `mcp-b10-l1000-r3` | **0/5** | 0.210 | 214 |
+| `none-b10-l1000-r2` | 0/5 | 0.191 | 158 |
+| `none-b10-l1000-r3` | 0/5 | 0.216 | 128 |
+
+Two readings, and the second is the important one:
+
+- **At 2 000 and 3 000 characters the arms are indistinguishable** — 17/20 for mcp against 18/20 for
+  shell. The separation seen at 1 000 does not survive a longer note.
+- **The three mcp notes at (10, 1 000) scored 5/5, 4/5 and 0/5.** The spread between notes from the SAME
+  arm at the SAME coordinates is as large as the arm difference, so the earlier 5/5-versus-0/5 was a
+  property of one note as much as of its arm. The shell arm remains 0/15 across its three notes, which is
+  what keeps the asymmetry interesting — but a permutation test at the note level gives one-sided p = 0.2
+  on three notes per arm. See [RESULTS.md](RESULTS.md).
+
+Two asymmetries in the research table above are results in their own right, and neither is visible
+downstream:
+
+- **At a budget of ten the mcp arm stops early** — 8, 9 and 9 calls of the ten it was allowed, with zero
+  refusals — while the shell arm spends all ten in every cell and then keeps asking: four refusals
+  typically, **ten** in `none-b10-l1000-r2`, i.e. it wanted twice its budget. The arm with resolved-program
+  tools decided it had seen enough; the arm without kept looking.
+- **The shell arm's notes are cheaper in model tokens** (4 101–8 799 versus 7 132–9 002 for mcp) and
+  cost about half as much per note at budget 10 (≈ $0.28–0.31 versus ≈ $0.53–0.60). The mcp arm buys its
+  earlier stop with its own output tokens — the same sign flip round 2 of the checkpoint pilot found, and
+  the reason the two denominators are never mixed.
