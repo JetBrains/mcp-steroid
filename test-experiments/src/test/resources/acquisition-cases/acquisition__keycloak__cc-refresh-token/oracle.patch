@@ -1,0 +1,432 @@
+diff --git a/services/src/test/java/org/keycloak/services/clientpolicy/executor/StrictProfileClientCredentialsRefreshTokenContractTest.java b/services/src/test/java/org/keycloak/services/clientpolicy/executor/StrictProfileClientCredentialsRefreshTokenContractTest.java
+new file mode 100644
+index 0000000..3826127
+--- /dev/null
++++ b/services/src/test/java/org/keycloak/services/clientpolicy/executor/StrictProfileClientCredentialsRefreshTokenContractTest.java
+@@ -0,0 +1,426 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.services.clientpolicy.executor;
++
++import java.io.IOException;
++import java.io.InputStream;
++import java.lang.reflect.InvocationHandler;
++import java.lang.reflect.Method;
++import java.lang.reflect.Proxy;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.HashMap;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++
++import org.keycloak.common.Profile;
++import org.keycloak.common.crypto.CryptoIntegration;
++import org.keycloak.common.crypto.CryptoProvider;
++import org.keycloak.models.ClientModel;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.provider.ProviderFactory;
++import org.keycloak.representations.idm.ClientPolicyExecutorConfigurationRepresentation;
++import org.keycloak.representations.idm.ClientRepresentation;
++import org.keycloak.services.clientpolicy.ClientPolicyContext;
++import org.keycloak.services.clientpolicy.ClientPolicyEvent;
++import org.keycloak.services.clientpolicy.ClientPolicyException;
++import org.keycloak.services.clientpolicy.context.ClientCRUDContext;
++import org.keycloak.services.resteasy.ResteasyKeycloakSession;
++import org.keycloak.services.resteasy.ResteasyKeycloakSessionFactory;
++import org.keycloak.util.JsonSerialization;
++
++import com.fasterxml.jackson.databind.JsonNode;
++
++import org.junit.Assert;
++import org.junit.BeforeClass;
++import org.junit.Test;
++
++/**
++ * Contract test for the client-credentials refresh token rule that the shipped
++ * <code>oauth-2-1-for-confidential-client</code> profile is expected to carry.
++ * <p>
++ * The executor under test is never referenced by class name. It is discovered through the shipped
++ * profile JSON (the executor id the profile gained on top of the pinned baseline) and instantiated
++ * through the provider SPI, exactly like the runtime does. A missing entry in
++ * <code>META-INF/services</code> therefore fails the test too.
++ */
++public class StrictProfileClientCredentialsRefreshTokenContractTest {
++
++    private static final String DEFAULT_PROFILES_RESOURCE = "keycloak-default-client-profiles.json";
++    private static final String LAX_POLICIES_RESOURCE = "keycloak-lax-client-policies.json";
++    private static final String STRICT_POLICIES_RESOURCE = "keycloak-strict-client-policies.json";
++
++    private static final String TARGET_PROFILE = "oauth-2-1-for-confidential-client";
++
++    private static final String ATTRIBUTE_KEY = "client_credentials.use_refresh_token";
++
++    /**
++     * Executor ids of {@link #TARGET_PROFILE} as captured at the base commit.
++     */
++    private static final List<String> BASELINE_EXECUTOR_IDS = Arrays.asList(
++            "confidential-client",
++            "secure-client-authenticator",
++            "secure-redirect-uris-enforcer",
++            "pkce-enforcer",
++            "holder-of-key-enforcer",
++            "reject-implicit-grant",
++            "reject-ropc-grant");
++
++    private static KeycloakSession session;
++
++    @BeforeClass
++    public static void beforeClass() {
++        Profile.defaults();
++        CryptoIntegration.init(CryptoProvider.class.getClassLoader());
++        ResteasyKeycloakSessionFactory sessionFactory = new ResteasyKeycloakSessionFactory();
++        sessionFactory.init();
++        session = new ResteasyKeycloakSession(sessionFactory);
++    }
++
++    @Test
++    public void profileGainsExactlyOneNewExecutor() throws Exception {
++        List<String> newIds = newExecutorIds();
++        Assert.assertEquals("Profile " + TARGET_PROFILE + " is expected to gain exactly one executor on top of the"
++                + " pinned baseline " + BASELINE_EXECUTOR_IDS + ", but gained " + newIds, 1, newIds.size());
++
++        String newId = newIds.get(0);
++        Assert.assertNotNull("No ClientPolicyExecutorProviderFactory registered for id '" + newId
++                + "'. Is the factory listed in META-INF/services?", executorProviderFactory(newId));
++    }
++
++    @Test
++    public void registerWithTheSettingOnIsRejected() throws Exception {
++        ClientRepresentation proposed = clientRepresentation(attributes(ATTRIBUTE_KEY, "true"));
++
++        assertRejected(new CRUDContext(ClientPolicyEvent.REGISTER, proposed, null));
++    }
++
++    @Test
++    public void registerWithoutTheSettingIsAcceptedAndTurnedOff() throws Exception {
++        ClientRepresentation proposed = clientRepresentation(null);
++
++        newExecutor().executeOnEvent(new CRUDContext(ClientPolicyEvent.REGISTER, proposed, null));
++
++        Assert.assertNotNull("The executor is expected to auto-configure the client attributes", proposed.getAttributes());
++        Assert.assertEquals("The executor is expected to turn '" + ATTRIBUTE_KEY + "' off on registration",
++                "false", proposed.getAttributes().get(ATTRIBUTE_KEY));
++    }
++
++    @Test
++    public void updateThatTurnsTheSettingOnIsRejected() throws Exception {
++        ClientRepresentation proposed = clientRepresentation(attributes(ATTRIBUTE_KEY, "true"));
++
++        assertRejected(new CRUDContext(ClientPolicyEvent.UPDATE, proposed, clientWithAttribute(null)));
++    }
++
++    @Test
++    public void partialUpdateOfAClientThatAlreadyHasItOnIsRejected() throws Exception {
++        ClientRepresentation proposed = clientRepresentation(new HashMap<>());
++
++        assertRejected(new CRUDContext(ClientPolicyEvent.UPDATE, proposed, clientWithAttribute("true")));
++    }
++
++    @Test
++    public void partialUpdateOfACleanClientIsAccepted() throws Exception {
++        ClientRepresentation proposed = clientRepresentation(new HashMap<>());
++
++        newExecutor().executeOnEvent(new CRUDContext(ClientPolicyEvent.UPDATE, proposed, clientWithAttribute(null)));
++    }
++
++    @Test
++    public void noOtherShippedProfileGainsTheRule() throws Exception {
++        String newId = theNewExecutorId();
++
++        JsonNode profiles = readResource(DEFAULT_PROFILES_RESOURCE).get("profiles");
++        for (JsonNode profile : profiles) {
++            String name = profile.get("name").asText();
++            if (TARGET_PROFILE.equals(name)) {
++                continue;
++            }
++            Assert.assertFalse("Profile '" + name + "' must not list the executor '" + newId + "'",
++                    executorIds(profile).contains(newId));
++        }
++
++        // The lax policy set binds TARGET_PROFILE itself, so only the other profiles it references are checked.
++        for (String name : referencedProfileNames(LAX_POLICIES_RESOURCE)) {
++            if (TARGET_PROFILE.equals(name)) {
++                continue;
++            }
++            JsonNode profile = profileByName(profiles, name);
++            Assert.assertNotNull("Profile '" + name + "' referenced by " + LAX_POLICIES_RESOURCE + " does not exist", profile);
++            Assert.assertFalse("Profile '" + name + "' referenced by " + LAX_POLICIES_RESOURCE
++                    + " must not list the executor '" + newId + "'", executorIds(profile).contains(newId));
++        }
++
++        Assert.assertTrue(STRICT_POLICIES_RESOURCE + " must still bind the profile '" + TARGET_PROFILE + "'",
++                referencedProfileNames(STRICT_POLICIES_RESOURCE).contains(TARGET_PROFILE));
++    }
++
++    @Test
++    public void unrelatedEventsAreIgnored() throws Exception {
++        newExecutor().executeOnEvent(new SimpleContext(ClientPolicyEvent.AUTHORIZATION_REQUEST));
++    }
++
++    private void assertRejected(ClientPolicyContext context) throws Exception {
++        ClientPolicyExecutorProvider executor = newExecutor();
++        try {
++            executor.executeOnEvent(context);
++            Assert.fail("Expected a ClientPolicyException on event " + context.getEvent()
++                    + " but the executor accepted the client");
++        } catch (ClientPolicyException expected) {
++            Assert.assertNotNull(expected.getError());
++        }
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // discovery of the executor under test
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<String> newExecutorIds() throws IOException {
++        JsonNode profile = profileByName(readResource(DEFAULT_PROFILES_RESOURCE).get("profiles"), TARGET_PROFILE);
++        Assert.assertNotNull("Profile '" + TARGET_PROFILE + "' is missing from " + DEFAULT_PROFILES_RESOURCE, profile);
++
++        List<String> newIds = new ArrayList<>(executorIds(profile));
++        newIds.removeAll(BASELINE_EXECUTOR_IDS);
++        return newIds;
++    }
++
++    private static String theNewExecutorId() throws IOException {
++        List<String> newIds = newExecutorIds();
++        Assert.assertEquals("Profile " + TARGET_PROFILE + " is expected to gain exactly one executor on top of the"
++                + " pinned baseline " + BASELINE_EXECUTOR_IDS + ", but gained " + newIds, 1, newIds.size());
++        return newIds.get(0);
++    }
++
++    /**
++     * Builds the executor the shipped profile gained, through the provider SPI and with the configuration
++     * taken from the profile JSON - the very same way the runtime builds it.
++     */
++    private static ClientPolicyExecutorProvider newExecutor() throws IOException {
++        String id = theNewExecutorId();
++
++        ClientPolicyExecutorProviderFactory factory = executorProviderFactory(id);
++        Assert.assertNotNull("No ClientPolicyExecutorProviderFactory registered for id '" + id
++                + "'. Is the factory listed in META-INF/services?", factory);
++
++        ClientPolicyExecutorProvider executor = factory.create(session);
++        Assert.assertNotNull("Factory '" + id + "' created no executor", executor);
++        Assert.assertEquals("The executor does not report the provider id it is registered under",
++                id, executor.getProviderId());
++
++        JsonNode profile = profileByName(readResource(DEFAULT_PROFILES_RESOURCE).get("profiles"), TARGET_PROFILE);
++        JsonNode configurationNode = executorConfiguration(profile, id);
++        ClientPolicyExecutorConfigurationRepresentation configuration =
++                (ClientPolicyExecutorConfigurationRepresentation) JsonSerialization.mapper.convertValue(
++                        configurationNode, executor.getExecutorConfigurationClass());
++        executor.setupConfiguration(configuration);
++
++        return executor;
++    }
++
++    private static ClientPolicyExecutorProviderFactory executorProviderFactory(String id) {
++        ProviderFactory<ClientPolicyExecutorProvider> factory =
++                session.getKeycloakSessionFactory().getProviderFactory(ClientPolicyExecutorProvider.class, id);
++        return (ClientPolicyExecutorProviderFactory) factory;
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // JSON helpers
++    // ----------------------------------------------------------------------------------------------------
++
++    private static JsonNode readResource(String resource) throws IOException {
++        try (InputStream is = StrictProfileClientCredentialsRefreshTokenContractTest.class
++                .getClassLoader().getResourceAsStream(resource)) {
++            Assert.assertNotNull("Classpath resource '" + resource + "' is missing", is);
++            return JsonSerialization.mapper.readTree(is);
++        }
++    }
++
++    private static JsonNode profileByName(JsonNode profiles, String name) {
++        for (JsonNode profile : profiles) {
++            if (name.equals(profile.get("name").asText())) {
++                return profile;
++            }
++        }
++        return null;
++    }
++
++    private static List<String> executorIds(JsonNode profile) {
++        List<String> ids = new ArrayList<>();
++        JsonNode executors = profile.get("executors");
++        if (executors != null) {
++            for (JsonNode executor : executors) {
++                ids.add(executor.get("executor").asText());
++            }
++        }
++        return ids;
++    }
++
++    private static JsonNode executorConfiguration(JsonNode profile, String executorId) {
++        for (JsonNode executor : profile.get("executors")) {
++            if (executorId.equals(executor.get("executor").asText())) {
++                return executor.get("configuration");
++            }
++        }
++        return null;
++    }
++
++    private static Set<String> referencedProfileNames(String policiesResource) throws IOException {
++        Set<String> names = new LinkedHashSet<>();
++        for (JsonNode policy : readResource(policiesResource).get("policies")) {
++            JsonNode profiles = policy.get("profiles");
++            if (profiles == null) {
++                continue;
++            }
++            for (JsonNode profile : profiles) {
++                names.add(profile.asText());
++            }
++        }
++        return names;
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // test doubles
++    // ----------------------------------------------------------------------------------------------------
++
++    private static Map<String, String> attributes(String key, String value) {
++        Map<String, String> attributes = new HashMap<>();
++        attributes.put(key, value);
++        return attributes;
++    }
++
++    private static ClientRepresentation clientRepresentation(Map<String, String> attributes) {
++        ClientRepresentation rep = new ClientRepresentation();
++        rep.setClientId("test-client");
++        rep.setAttributes(attributes);
++        return rep;
++    }
++
++    /**
++     * A {@link ClientModel} that only knows about {@link #ATTRIBUTE_KEY}, everything else answers with the
++     * neutral default of the return type.
++     */
++    private static ClientModel clientWithAttribute(String value) {
++        return (ClientModel) Proxy.newProxyInstance(
++                StrictProfileClientCredentialsRefreshTokenContractTest.class.getClassLoader(),
++                new Class<?>[]{ClientModel.class},
++                new AttributeOnlyClient(value));
++    }
++
++    private static class AttributeOnlyClient implements InvocationHandler {
++
++        private final String value;
++
++        AttributeOnlyClient(String value) {
++            this.value = value;
++        }
++
++        @Override
++        public Object invoke(Object proxy, Method method, Object[] args) {
++            String name = method.getName();
++            if ("getAttribute".equals(name) && args != null && args.length == 1 && ATTRIBUTE_KEY.equals(args[0])) {
++                return value;
++            }
++            if ("toString".equals(name)) {
++                return "ClientModel[" + ATTRIBUTE_KEY + "=" + value + "]";
++            }
++            if ("hashCode".equals(name)) {
++                return System.identityHashCode(proxy);
++            }
++            if ("equals".equals(name)) {
++                return proxy == args[0];
++            }
++            return defaultValue(method.getReturnType());
++        }
++
++        private static Object defaultValue(Class<?> type) {
++            if (!type.isPrimitive()) {
++                return null;
++            }
++            if (type == boolean.class) {
++                return Boolean.FALSE;
++            }
++            if (type == char.class) {
++                return (char) 0;
++            }
++            if (type == byte.class) {
++                return (byte) 0;
++            }
++            if (type == short.class) {
++                return (short) 0;
++            }
++            if (type == int.class) {
++                return 0;
++            }
++            if (type == long.class) {
++                return 0L;
++            }
++            if (type == float.class) {
++                return 0F;
++            }
++            if (type == double.class) {
++                return 0D;
++            }
++            return null;
++        }
++    }
++
++    private static class SimpleContext implements ClientPolicyContext {
++
++        private final ClientPolicyEvent event;
++
++        SimpleContext(ClientPolicyEvent event) {
++            this.event = event;
++        }
++
++        @Override
++        public ClientPolicyEvent getEvent() {
++            return event;
++        }
++    }
++
++    private static class CRUDContext implements ClientCRUDContext {
++
++        private final ClientPolicyEvent event;
++        private final ClientRepresentation proposed;
++        private final ClientModel target;
++
++        CRUDContext(ClientPolicyEvent event, ClientRepresentation proposed, ClientModel target) {
++            this.event = event;
++            this.proposed = proposed;
++            this.target = target;
++        }
++
++        @Override
++        public ClientPolicyEvent getEvent() {
++            return event;
++        }
++
++        @Override
++        public ClientRepresentation getProposedClientRepresentation() {
++            return proposed;
++        }
++
++        @Override
++        public ClientModel getTargetClient() {
++            return target;
++        }
++    }
++}

@@ -1,0 +1,42 @@
+$ grep -n 'oauth-2-1-for-confidential-client' -A 40 services/src/main/resources/keycloak-default-client-profiles.json | head -60
+297:      "name": "oauth-2-1-for-confidential-client",
+298-      "description": "Client profile, which enforce confidential clients to conform 'OAuth 2.1' specification.",
+299-      "executors": [
+300-        {
+301-          "executor": "confidential-client",
+302-          "configuration": {}
+303-        },
+304-        {
+305-          "executor": "secure-client-authenticator",
+306-          "configuration": {
+307-            "allowed-client-authenticators": [
+308-              "client-jwt",
+309-              "client-x509"
+310-            ],
+311-            "default-client-authenticator": "client-jwt"
+312-          }
+313-        },
+314-        {
+315-          "executor": "secure-redirect-uris-enforcer",
+316-          "configuration": {
+317-            "allow-ipv4-loopback-address": "true",
+318-            "allow-ipv6-loopback-address": "true",
+319-            "allow-private-use-uri-scheme": "true",
+320-            "oauth-2-1-compliant": "true"
+321-          }
+322-        },
+323-        {
+324-          "executor": "pkce-enforcer",
+325-          "configuration": {
+326-            "auto-configure": "true"
+327-          }
+328-        },
+329-        {
+330-          "executor": "holder-of-key-enforcer",
+331-          "configuration": {
+332-            "auto-configure": "true"
+333-          }
+334-        },
+335-        {
+336-          "executor": "reject-implicit-grant",
+337-          "configuration": {

@@ -66,9 +66,10 @@ data class UnderstandingCase(
     val needsReactorInstall: Boolean = true,
 ) {
     init {
-        check(instanceId.startsWith("understanding__")) {
-            "an understanding case id must be prefixed `understanding__` so no report can confuse it " +
-                "with a dpaia or ripple case: got '$instanceId'"
+        check(instanceId.startsWith("understanding__") || instanceId.startsWith("acquisition__")) {
+            "an understanding case id must be prefixed `understanding__` (the note-bottleneck rounds) " +
+                "or `acquisition__` (the acquisition-curve rounds, see [AcquisitionCases]) so no report " +
+                "can confuse it with a dpaia or ripple case: got '$instanceId'"
         }
         check(failToPass.isNotEmpty()) {
             "$instanceId has no FAIL_TO_PASS entry, so a downstream run could never be graded"

@@ -138,6 +138,7 @@ fun runUnderstandingResearch(
     budget: Int,
     noteLimitChars: Int,
     replicate: Int,
+    onRawTranscript: (String) -> Unit = {},
 ): UnderstandingNoteRecord {
     check(arm == "mcp" || arm == "none") { "a research arm is `mcp` or `none`, got '$arm'" }
     val withMcp = arm == "mcp"
@@ -218,6 +219,12 @@ fun runUnderstandingResearch(
             agentName = "claude",
             fallbackStdout = agentResult.rawStdout,
         )
+        // Handed over before anything can fail: the acquisition-curve family reads the WHOLE transcript,
+        // not just the note, and a research run whose note was rejected still carries a usable
+        // trajectory. Publishing it only after the checks below would throw away the expensive half of
+        // the run to save the cheap one.
+        onRawTranscript(rawStdout)
+        session.runDirInContainer.resolve("$noteId.ndjson").writeText(rawStdout)
         val metrics = collectRunMetrics(
             runDir = session.runDirInContainer,
             agentName = "claude",

@@ -1,0 +1,6 @@
+$ cat services/src/main/resources/strict-security-profile.json
+{
+  "name":"strict",
+  "client-profiles":"keycloak-default-client-profiles",
+  "client-policies":"keycloak-strict-client-policies"
+}

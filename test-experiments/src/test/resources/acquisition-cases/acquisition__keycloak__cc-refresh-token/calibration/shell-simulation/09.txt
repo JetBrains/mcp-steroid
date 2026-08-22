@@ -1,0 +1,2 @@
+$ grep -rn 'use_refresh_token' --include='*.java' . | head -20
+./server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java:77:    public static final String USE_REFRESH_TOKEN_FOR_CLIENT_CREDENTIALS_GRANT = "client_credentials.use_refresh_token";
