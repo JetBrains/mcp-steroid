@@ -67,10 +67,12 @@ data class UnderstandingNote(
 /**
  * Pull the note out of a research run's final message and hold it to [limitChars].
  *
- * Truncation is a hard cut at the character limit, not a refusal: the limit is one of the experiment's
- * two note-length conditions, and the downstream cell must receive exactly the number of characters
- * its condition names. A cut mid-sentence costs the arm that overran, which is the correct incentive —
- * both arms are told the same limit in the same words.
+ * The cut is mechanical and it is NOT a way of producing a comparable note. The 1 000-character round
+ * proved why: every note of both arms overran it (by 15 % at best, 102 % at worst), so the harness, not
+ * the model, decided what each arm had said, and the arms ended up separated by where one sentence
+ * happened to fall relative to the knife. Truncation is therefore a diagnostic: [UnderstandingNote]'s
+ * `truncated` says the run failed to meet a budget it was told in advance, and such a note is re-run
+ * rather than compared. The cut itself stays so a cell can still be inspected instead of discarded.
  *
  * @throws IllegalStateException when the run produced no final message at all; that is an instrument
  *   failure (a crashed CLI, a lost transcript), not a short note, and must never reach a downstream
@@ -205,8 +207,8 @@ data class UnderstandingNoteRecord(
         "[UNDERSTANDING-NOTE] id=$noteId case=$case arm=$arm budget=$budget limit=$limitChars " +
             "replicate=$replicate calls=$budgetedCalls denied=$deniedCalls rawCalls=$rawToolCalls " +
             "outputTokens=${researchOutputTokens ?: "unknown"} usd=${researchCostUsd ?: "unknown"} " +
-            "seconds=$researchSeconds noteChars=${note.text.length} truncated=${note.truncated} " +
-            "pristine=$pristine"
+            "seconds=$researchSeconds noteChars=${note.text.length} rawChars=${note.originalChars} " +
+            "truncated=${note.truncated} pristine=$pristine"
 }
 
 /**

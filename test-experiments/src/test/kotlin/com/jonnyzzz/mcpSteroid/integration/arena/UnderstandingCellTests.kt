@@ -91,8 +91,15 @@ val UNDERSTANDING_BUDGETS: Set<Int> = setOf(5, 10, 20)
  * budget, carried the weak agent to 5/5, so that length cannot separate anything. 1 000 separated
  * sharply. The interesting region is therefore between them, and it is measured rather than argued —
  * which is why 2 000 and 3 000 are registered as first-class cells.
+ *
+ * 500 exists because the 1 000 round measured the wrong thing. Every note written under that limit
+ * overran it — by 15 % at best and by 102 % at worst — so the harness cut them, and what separated the
+ * arms was WHERE the cut landed relative to one sentence, not what either arm had understood. A limit
+ * the agent cannot casually overshoot forces the selection to happen inside the model, which is the
+ * quantity this experiment claims to compare. A note that overruns 500 is therefore not truncated into
+ * the comparison: [UnderstandingNote.truncated] marks it and the cell is re-run.
  */
-val UNDERSTANDING_NOTE_LIMITS: Set<Int> = setOf(1_000, 2_000, 3_000, 5_000)
+val UNDERSTANDING_NOTE_LIMITS: Set<Int> = setOf(500, 1_000, 2_000, 3_000, 5_000)
 
 /**
  * One research cell of the repository-understanding experiment.

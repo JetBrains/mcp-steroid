@@ -258,6 +258,18 @@ fun runUnderstandingResearch(
         println("[UNDERSTANDING] tools: ${tools.groupingBy { it }.eachCount()}")
         println("[UNDERSTANDING] note: ${note.describe()}")
         println("[UNDERSTANDING] tree: ${pristine.describe()}")
+        if (note.truncated) {
+            // Loud, and NOT a failed check: the run is paid for and its note is still evidence about
+            // the arm. But it must never be fed to a downstream cell as if the model had written it —
+            // the tail past the limit was chosen by this harness, not by the agent, and the 1 000-char
+            // round showed the arms separating on where that cut landed. Re-run the cell instead.
+            println(
+                "[UNDERSTANDING] OVERRUN: the note is ${note.originalChars} characters against a limit " +
+                    "of $noteLimitChars, so ${note.originalChars - noteLimitChars} characters the agent " +
+                    "wrote were cut by the harness. Do NOT commit this note for a downstream cell — " +
+                    "re-run this research cell."
+            )
+        }
         println(record.logLine())
 
         check(usage.used > 0) {

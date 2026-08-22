@@ -87,6 +87,32 @@ class UnderstandingHarnessTest {
         assertThrows(IllegalStateException::class.java) { parseUnderstandingNoteId("oracle-b10-l5000-r1") }
     }
 
+    @Test
+    fun `the shortest limit is a registered cell, because truncation is not a way to shorten a note`() {
+        assertTrue(500 in UNDERSTANDING_NOTE_LIMITS)
+        val coordinates = understandingResearchCoordinates(
+            caseId = "c", arm = "mcp", budget = "10", noteLimit = "500", replicate = "1",
+        )
+        assertEquals("mcp-b10-l500-r1", coordinates.noteId)
+    }
+
+    @Test
+    fun `the research brief makes the limit the agent's own budget, not the harness's knife`() {
+        val prompt = buildUnderstandingResearchPrompt(
+            case = UnderstandingCases.ALL.first(),
+            projectDir = "/p",
+            withMcp = false,
+            budget = 10,
+            noteLimitChars = 500,
+        )
+        assertTrue(prompt.contains("at most **500 characters**"), prompt)
+        // Without this instruction the agent writes what it wants and the harness decides what survives;
+        // every note of the 1 000-character round overran, so the arms were compared on the position of
+        // one sentence relative to the cut rather than on what they had understood.
+        assertTrue(prompt.contains("count the characters of your note before you send it"), prompt)
+        assertTrue(prompt.contains("rewrite it"), prompt)
+    }
+
     // ── the budget gate ──────────────────────────────────────────────────────
 
     @Test
