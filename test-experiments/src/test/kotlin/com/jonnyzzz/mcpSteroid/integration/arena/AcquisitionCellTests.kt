@@ -89,7 +89,9 @@ class AcquisitionResearchTest {
             "model=${trajectory.model} calls=${trajectory.budgetedCalls} refused=${trajectory.refusedCalls} " +
             "exempt=${trajectory.exemptCalls} tokens=${trajectory.totalOutputTokens} " +
             "accounting=${trajectory.tokenAccounting}")
-        println("[ACQUISITION] tools: ${trajectory.calls.groupingBy { it.toolName }.eachCount()}")
+        val semanticCalls = trajectory.calls.count { it.toolName.contains("steroid") }
+        println("[ACQUISITION] tools: ${trajectory.calls.groupingBy { it.toolName }.eachCount()} " +
+            "semantic=$semanticCalls")
         println("[ACQUISITION-CURVE] ${AcquisitionPoint.CSV_HEADER}")
         for (point in observedCurve(trajectory, checklist)) {
             println("[ACQUISITION-CURVE] ${point.csvRow()}")
@@ -112,5 +114,24 @@ class AcquisitionResearchTest {
             artifacts.resolve("distill-b$checkpoint.txt").writeText(prompt)
         }
         println("[ACQUISITION] artifacts: ${artifacts.absolutePath}")
+
+        // Asserted LAST, so a rejected cell still leaves its transcript and its curve behind: the
+        // trajectory is paid for either way and it is evidence about tool adoption even when it is not
+        // admissible as evidence about semantic access.
+        //
+        // A cell of the semantic arm that never called a semantic tool is not a measurement of that arm.
+        // Pilot 1 produced two such trajectories out of three (`Bash=25` and `Bash=26, Read=1`) because
+        // the CLI keeps MCP schemas behind a `ToolSearch` call and the model simply did not make it; the
+        // curves they drew were control-arm curves wearing the mcp label, and averaging them in would
+        // have understated the very effect the experiment exists to measure. `enable_tool_search=false`
+        // (see [understandingHookSettingsJson]) is the fix; this check is what makes a regression of it
+        // impossible to publish by accident.
+        check(trajectory.arm != "mcp" || semanticCalls > 0) {
+            "ARM DEGENERATE: ${trajectory.trajectoryId} is a semantic-arm cell that made no semantic " +
+                "call in ${trajectory.budgetedCalls} interactions " +
+                "(${trajectory.calls.groupingBy { it.toolName }.eachCount()}). Its transcript is " +
+                "published under ${artifacts.absolutePath}, but it must NOT enter the arm comparison: " +
+                "re-run the cell and check that the session settings still disable lazy tool discovery"
+        }
     }
 }

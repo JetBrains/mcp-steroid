@@ -170,6 +170,25 @@ class UnderstandingHarnessTest {
     }
 
     @Test
+    fun `the semantic arm gets its tool schemas at start-up, the control arm is left alone`() {
+        val settings = { eager: Boolean ->
+            Json.parseToJsonElement(
+                understandingHookSettingsJson(listOf(AgentHook("PreToolUse", "/r/gate.sh")), eagerMcpTools = eager),
+            ).jsonObject
+        }
+        // Without this the CLI ships a tool INDEX and the schemas arrive only after a ToolSearch call.
+        // The first acquisition pilot lost two of three mcp trajectories to exactly that: they never
+        // searched, never saw a steroid tool, and produced transcripts identical to the control arm's.
+        assertEquals(false, settings(true)["enable_tool_search"]!!.jsonPrimitive.content.toBoolean())
+        assertFalse(
+            settings(false).containsKey("enable_tool_search"),
+            "the control arm runs with no MCP server at all; writing the key there would suggest the " +
+                "two arms differ by a setting rather than by having tools",
+        )
+        assertTrue(settings(true).containsKey("hooks"), "the budget gate must survive the new key")
+    }
+
+    @Test
     fun `an absent counter file reads as zero rather than as an error`() {
         assertEquals(UnderstandingBudgetUsage(0, 0), parseUnderstandingBudgetUsage(null, null))
         assertEquals(UnderstandingBudgetUsage(4, 11), parseUnderstandingBudgetUsage("4\n", " 11 "))

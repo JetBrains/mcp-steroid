@@ -33,6 +33,13 @@ class UnderstandingResearchGate(
     private val container: ContainerDriver,
     private val recordDir: String,
     private val budget: Int,
+    /**
+     * True for the arm that has semantic tools, so the CLI puts their schemas in the model's context at
+     * start-up instead of behind a `ToolSearch` call it may never make — see
+     * [understandingHookSettingsJson]. False for the control arm, where the flag would be meaningless:
+     * that session is started with no MCP server at all.
+     */
+    private val eagerMcpTools: Boolean = false,
 ) {
     private val counterFile: String = "$recordDir/budget-used"
     private val deniedFile: String = "$recordDir/budget-denied"
@@ -68,8 +75,16 @@ class UnderstandingResearchGate(
             "seed the budget counters",
         ).assertExitCode(0) { "Failed to seed the budget counters in $recordDir: $stderr" }
 
-        claude.useSettings(understandingHookSettingsJson(listOf(AgentHook("PreToolUse", scriptPath))))
-        println("[UNDERSTANDING] budget gate installed: $budget interactions, records in $recordDir")
+        claude.useSettings(
+            understandingHookSettingsJson(
+                hooks = listOf(AgentHook("PreToolUse", scriptPath)),
+                eagerMcpTools = eagerMcpTools,
+            ),
+        )
+        println(
+            "[UNDERSTANDING] budget gate installed: $budget interactions, records in $recordDir, " +
+                "eager mcp tools=$eagerMcpTools",
+        )
     }
 
     fun usage(): UnderstandingBudgetUsage = parseUnderstandingBudgetUsage(
@@ -193,6 +208,7 @@ fun runUnderstandingResearch(
             container = session.scope,
             recordDir = "${session.guestRunDir()}/understanding",
             budget = budget,
+            eagerMcpTools = withMcp,
         )
         gate.install(claude)
 

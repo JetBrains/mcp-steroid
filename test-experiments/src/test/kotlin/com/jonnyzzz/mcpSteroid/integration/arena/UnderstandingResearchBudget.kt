@@ -122,10 +122,20 @@ fun understandingBudgetHookScript(
  * `matcher = "*"` on each event for the reason [checkpointHookSettingsJson] documents: a matcher that
  * named tools would drop whatever the list forgot, and the MCP tool names differ per arm — which is
  * the one difference that must never change what the instrument counts.
+ *
+ * [eagerMcpTools] turns OFF the CLI's lazy tool discovery, and it is not a tuning knob: it is the fix
+ * for a defect the first acquisition pilot recorded in the open. Claude Code hands the model a tool
+ * INDEX rather than the MCP tool schemas — every run's `system/init` event carries
+ * `mcp_servers: [{name: mcp-steroid, status: pending}]` and no `mcp__…` tool — and the schemas arrive
+ * only after the model spends a `ToolSearch` call. Two of the three mcp trajectories never spent it,
+ * despite a brief that tells them to list their tools first, and ran to completion on `Bash` alone.
+ * Their transcripts are indistinguishable from the control arm's, so the cell labelled "with semantic
+ * access" measured a coin flip about whether the model remembered to go looking for its tools.
  */
-fun understandingHookSettingsJson(hooks: List<AgentHook>): String {
+fun understandingHookSettingsJson(hooks: List<AgentHook>, eagerMcpTools: Boolean = false): String {
     require(hooks.isNotEmpty()) { "a settings file with no hooks would run the agent unrecorded" }
     val settings = buildJsonObject {
+        if (eagerMcpTools) put("enable_tool_search", false)
         putJsonObject("hooks") {
             hooks.groupBy { it.event }.forEach { (event, forEvent) ->
                 putJsonArray(event) {
