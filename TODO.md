@@ -621,6 +621,23 @@
   substitute another case without redoing the recorded shell audit: the current one measures 0.07 of the
   checklist after three optimal commands and 0.80 after ten, which is the whole reason it can separate
   anything.
+  **Pilot run and reported** — [`docs/acquisition-curve-experiment/RESULTS.md`](docs/acquisition-curve-experiment/RESULTS.md),
+  n = 4 per arm: `U` by interactions .40/.70/.83/.83 against .18/.35/.43/.60 (exact permutation over
+  trajectories, p = .043 at B = 10 and .029 at B = 20/40), the correct precedent `A1` in 4/4 semantic
+  trajectories against 0/4 control (p = .014), and NO advantage per output token — the mcp arm spends
+  ~18 k where `shell-r1` reaches .80 for 11.6 k. Transcripts are committed under
+  `docs/acquisition-curve-experiment/data/trajectories`, so every number recomputes offline via
+  `AcquisitionRecomputeTest`.
+- [ ] **Acquisition, what is left.** Three things, in the order they are worth buying:
+  1. **Downstream functional validation.** The distil prompts are published per checkpoint but no Haiku
+     cell has been run from them, so "higher `U` means a more useful understanding" is still an
+     assumption. This is the cheap half of the remaining work.
+  2. **The semantic arm still degenerates sometimes.** `mcp r4` came back `{Bash=14}`, `semantic=0` even
+     with `ENABLE_TOOL_SEARCH=false` in both the settings `env` block and the process environment. The
+     `ARM DEGENERATE` guard catches it, but a cell that has to be re-bought at random is a tax on every
+     future round — find out what makes the CLI ignore the flag in that session.
+  3. **A second case and a second model.** Everything measured so far is `cc-refresh-token` with opus;
+     the shell plateau at .60 is a property of this checklist as much as of the arm.
 - [ ] **The capture arm still ignores the same signal.** The capture seam
   (`DpaiaFeatureService125CheckpointCaptureTest.afterAgentRun`, and `RippleScenarioBaseTest`) now sees
   `DpaiaRunOutcome.apiTransportError` but hands `admitCapture` only its primitives, so nothing acts on
