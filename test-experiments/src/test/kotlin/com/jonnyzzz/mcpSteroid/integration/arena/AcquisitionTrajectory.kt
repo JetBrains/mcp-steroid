@@ -152,9 +152,29 @@ fun parseAcquisitionTrajectory(
     data class PendingCall(val turnId: String, val toolName: String, val requestJson: String)
 
     val pending = LinkedHashMap<String, PendingCall>()
-    data class RawResult(val toolUseId: String, val text: String, val timestampMs: Long?)
+    /**
+     * A tool result together with the model output ALREADY EMITTED when it arrived.
+     *
+     * The snapshot is taken here, while walking the stream, rather than looked up later from the turn
+     * that issued the call, and that is the whole fix for a defect the first pilot published: the
+     * control arm delegated twice to a sub-agent, whose assistant turns interleave with the main
+     * agent's in the same NDJSON, so "the tokens of the turn that issued call N" is not monotone in N.
+     * One shell trajectory reported 1 652 cumulative tokens at twenty interactions and 807 at forty — a
+     * cumulative quantity that decreases, i.e. a token axis that cannot be plotted against. Measured at
+     * the moment the result comes back, the quantity is non-decreasing by construction, and it answers
+     * the question the denominator actually asks: how much model output had been spent by the time the
+     * agent had this observation in hand.
+     */
+    data class RawResult(
+        val toolUseId: String,
+        val text: String,
+        val timestampMs: Long?,
+        val emittedCharsSoFar: Long,
+        val outputTokensSoFar: Long,
+    )
 
     val results = ArrayList<RawResult>()
+    var emittedCharsSoFar = 0L
 
     for (line in rawNdjson.lineSequence()) {
         val start = line.indexOf("{\"type\":")
@@ -188,6 +208,7 @@ fun parseAcquisitionTrajectory(
                     }
                 }
                 turnEmittedChars[turnId] = emitted
+                emittedCharsSoFar = turnEmittedChars.values.sum()
             }
 
             "user" -> {
@@ -198,7 +219,13 @@ fun parseAcquisitionTrajectory(
                     val obj = block.jsonObject
                     if (obj["type"]?.jsonPrimitive?.contentOrNull != "tool_result") continue
                     val id = obj["tool_use_id"]?.jsonPrimitive?.contentOrNull ?: continue
-                    results += RawResult(id, renderToolResult(obj), timestampMs)
+                    results += RawResult(
+                        toolUseId = id,
+                        text = renderToolResult(obj),
+                        timestampMs = timestampMs,
+                        emittedCharsSoFar = emittedCharsSoFar,
+                        outputTokensSoFar = turnOutputTokens.values.sum(),
+                    )
                 }
             }
 
@@ -223,17 +250,6 @@ fun parseAcquisitionTrajectory(
         declaredTotal
     }
     val totalEmitted = turnEmittedChars.values.sum().coerceAtLeast(1L)
-    val cumulativeByTurn = LinkedHashMap<String, Long>()
-    var runningTokens = 0L
-    var runningChars = 0L
-    for (turnId in turnEmittedChars.keys) {
-        runningChars += turnEmittedChars[turnId] ?: 0L
-        runningTokens += turnOutputTokens[turnId] ?: 0L
-        cumulativeByTurn[turnId] = when (accounting) {
-            AcquisitionTokenAccounting.PER_MESSAGE -> runningTokens
-            AcquisitionTokenAccounting.PROPORTIONAL -> totalOutputTokens * runningChars / totalEmitted
-        }
-    }
 
     var ordinal = 0
     var exempt = 0
@@ -256,7 +272,11 @@ fun parseAcquisitionTrajectory(
             toolName = call.toolName,
             requestJson = call.requestJson,
             resultText = result.text,
-            cumulativeOutputTokens = cumulativeByTurn[call.turnId] ?: 0L,
+            cumulativeOutputTokens = when (accounting) {
+                AcquisitionTokenAccounting.PER_MESSAGE -> result.outputTokensSoFar
+                AcquisitionTokenAccounting.PROPORTIONAL ->
+                    totalOutputTokens * result.emittedCharsSoFar / totalEmitted
+            },
             elapsedSeconds = if (result.timestampMs != null && startMs != null) {
                 (result.timestampMs - startMs) / 1000
             } else {

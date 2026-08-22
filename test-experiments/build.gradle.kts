@@ -116,6 +116,11 @@ fun Test.configureExperimentalTest() {
         "understanding.noteLimit" to "UNDERSTANDING_NOTE_LIMIT",
         "understanding.condition" to "UNDERSTANDING_CONDITION",
         "understanding.replicate" to "UNDERSTANDING_REPLICATE",
+        // `acquisition.recompute.dir` points the offline re-reader at transcripts a paid run already
+        // published. It buys nothing at run time and everything afterwards: when the instrument turns
+        // out to have been wrong — as its token axis was, once — the curves are recomputed from the
+        // files instead of from a new round of Opus trajectories.
+        "acquisition.recompute.dir" to "ACQUISITION_RECOMPUTE_DIR",
         "test.integration.ide.vm.xmx" to "TEST_INTEGRATION_IDE_VM_XMX",
     ).forEach { (key, envName) ->
         val value = System.getProperty(key)?.takeIf { it.isNotBlank() }

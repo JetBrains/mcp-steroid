@@ -66,25 +66,6 @@ class AcquisitionResearchTest {
             arm = if (coordinates.arm == "none") "shell" else coordinates.arm,
         )
 
-        // Two independent counts of the same thing: the in-container hook's, and this reader's. They
-        // are printed side by side on every cell rather than quietly reconciled, because every
-        // checkpoint of the curve is a position in that count and a drift of one would move all four
-        // points without changing how the report looks. A drift is loud and the run is kept — the
-        // transcript is already published — but a gross disagreement means the reader is not reading
-        // the same run and nothing downstream of it is worth computing.
-        val drift = trajectory.budgetedCalls - record.budgetedCalls
-        if (drift != 0) {
-            println(
-                "[ACQUISITION] COUNT DRIFT: the transcript reader charged ${trajectory.budgetedCalls} " +
-                    "interactions, the in-container hook charged ${record.budgetedCalls}. The curve below " +
-                    "is drawn on the reader's numbering."
-            )
-        }
-        check(kotlin.math.abs(drift) <= 2 && trajectory.budgetedCalls > 0) {
-            "the transcript reader counted ${trajectory.budgetedCalls} budgeted interactions and the " +
-                "in-container hook counted ${record.budgetedCalls}; the two are not describing the same run"
-        }
-
         println("[ACQUISITION] trajectory ${trajectory.trajectoryId} arm=${trajectory.arm} " +
             "model=${trajectory.model} calls=${trajectory.budgetedCalls} refused=${trajectory.refusedCalls} " +
             "exempt=${trajectory.exemptCalls} tokens=${trajectory.totalOutputTokens} " +
@@ -114,6 +95,31 @@ class AcquisitionResearchTest {
             artifacts.resolve("distill-b$checkpoint.txt").writeText(prompt)
         }
         println("[ACQUISITION] artifacts: ${artifacts.absolutePath}")
+
+        // Two independent counts of the same thing: the in-container hook's, and this reader's. Every
+        // checkpoint of the curve is a position in that count, so a drift of one would move all four
+        // points without changing how the report looks.
+        //
+        // Checked only now, AFTER the transcript is on disk. The comment here used to claim the
+        // transcript was "already published" while the check sat twenty lines above the code that
+        // published it, and the claim was tested the expensive way: a control cell disagreed by three,
+        // failed, and took its transcript with it — leaving nothing to diagnose the disagreement WITH.
+        // A rejected trajectory is still a paid recording of an agent; only its admission to the curve
+        // is in question.
+        val drift = trajectory.budgetedCalls - record.budgetedCalls
+        if (drift != 0) {
+            println(
+                "[ACQUISITION] COUNT DRIFT: the transcript reader charged ${trajectory.budgetedCalls} " +
+                    "interactions, the in-container hook charged ${record.budgetedCalls}. The curve above " +
+                    "is drawn on the reader's numbering."
+            )
+        }
+        check(kotlin.math.abs(drift) <= 2 && trajectory.budgetedCalls > 0) {
+            "the transcript reader counted ${trajectory.budgetedCalls} budgeted interactions and the " +
+                "in-container hook counted ${record.budgetedCalls}; the two are not describing the same " +
+                "run. The transcript is published under ${artifacts.absolutePath} — diff the two counts " +
+                "there before re-running"
+        }
 
         // Asserted LAST, so a rejected cell still leaves its transcript and its curve behind: the
         // trajectory is paid for either way and it is evidence about tool adoption even when it is not

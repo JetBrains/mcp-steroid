@@ -122,6 +122,35 @@ class AcquisitionHarnessTest {
     }
 
     @Test
+    fun `a sub-agent's interleaved turns cannot make the token axis go backwards`() {
+        // The shape that produced the defect: the main agent delegates, the sub-agent's assistant turns
+        // arrive in the same stream, and a LATER result belongs to an EARLIER turn id. Keyed on the
+        // issuing turn, call three then reports fewer cumulative tokens than call two — a cumulative
+        // quantity that decreases, which is not a denominator but a bug. Two shell trajectories of the
+        // first pilot published exactly that (1652 tokens at B=20, 807 at B=40).
+        val ndjson = listOf(
+            assistant("main-1", 1, textBlock("x".repeat(200)), toolUse("t1", "Bash", """{"command":"ls"}""")),
+            toolResult("t1", "one"),
+            assistant("sub-1", 1, textBlock("y".repeat(600)), toolUse("t2", "Bash", """{"command":"grep"}""")),
+            toolResult("t2", "two"),
+            // The main agent's own turn resumes and issues a call whose id was registered first.
+            assistant("main-1", 1, toolUse("t3", "Bash", """{"command":"cat"}""")),
+            toolResult("t3", "three"),
+            resultEvent(9_000),
+        ).joinToString("\n")
+
+        val trajectory = parseAcquisitionTrajectory(ndjson, "t-1", "case", "shell")
+
+        val cumulative = trajectory.calls.map { it.cumulativeOutputTokens }
+        assertEquals(3, cumulative.size)
+        assertTrue(
+            cumulative.zipWithNext().all { (a, b) -> b >= a },
+            "cumulative output tokens must never decrease along a trajectory: $cumulative",
+        )
+        assertEquals(9_000L, cumulative.last(), "the attribution is exact at the end of the run")
+    }
+
+    @Test
     fun `structured mcp tool results are read, not dropped`() {
         val ndjson = listOf(
             assistant("m1", 10, toolUse("t1", "mcp__mcp-steroid__steroid_execute_code", """{"code":"x"}""")),
