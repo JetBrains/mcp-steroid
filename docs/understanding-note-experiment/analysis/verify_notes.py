@@ -120,6 +120,32 @@ def keycloak_index(checkout):
     return dict(tokens=tokens, basenames=basenames)
 
 
+SET_CLAIM = re.compile(r"protected void setClaim\(IDToken.*?\n    \}", re.S)
+
+
+def classify_exemplars(checkout):
+    """Split the OIDC mappers into those whose setClaim reads the user session and those that do not.
+
+    Computed from the tree rather than listed by hand, because the whole claim being tested is that
+    the note's choice of exemplar decides the downstream outcome — a hand-written list would let the
+    conclusion be smuggled into its own evidence.
+    """
+    directory = os.path.join(checkout, "services", "src", "main", "java", "org", "keycloak",
+                             "protocol", "oidc", "mappers")
+    session_based, token_based = set(), set()
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith(".java"):
+            continue
+        with open(os.path.join(directory, name), encoding="utf-8", errors="replace") as handle:
+            body = handle.read()
+        match = SET_CLAIM.search(body)
+        if not match:
+            continue
+        simple = name[: -len(".java")]
+        (session_based if "userSession." in match.group(0) else token_based).add(simple)
+    return session_based, token_based
+
+
 def anchor_position(text):
     """Where the built-in-registration instruction starts, or None when the note never gives it."""
     positions = [m.start() for pattern in BUILTIN_ANCHORS for m in pattern.finditer(text)]
@@ -200,6 +226,27 @@ def main():
               f"wrongStaticClaim={counter['wrong']}/{counter['notes']}")
         if not index:
             print("  (no --kc given: the unknown-identifier column is not measured)")
+
+    print("\n== 3b. which exemplar the note told the weak agent to copy ==")
+    # The 500-character round's whole outcome. Every mapper in the package overrides the same
+    # setClaim(IDToken, ProtocolMapperModel, UserSessionModel); some read the user out of that
+    # session and some do not. The oracle passes a null session — the statement says the domain
+    # comes from the token being issued — so an agent that copies a session-reading exemplar
+    # throws NullPointerException no matter how correct the prose around the name was.
+    if index is None:
+        print("  (no --kc given: exemplars are not classified)")
+    else:
+        session_based, token_based = classify_exemplars(args.kc)
+        print(f"  session-reading exemplars in the tree: {len(session_based)}, "
+              f"token-only: {len(token_based)}")
+        for note_id, note in sorted(notes.items(), key=lambda kv: (kv[1]["limit"], kv[0])):
+            named = sorted({name for name in session_based | token_based if name in note["text"]})
+            risky = [n for n in named if n in session_based]
+            outcomes = runs.get(note_id, [])
+            solved = sum(int(r["solved"]) for r in outcomes)
+            print(f"  {note_id:22s} solved={solved}/{len(outcomes)}  "
+                  f"named={','.join(named) if named else '(none)'}  "
+                  f"sessionReading={','.join(risky) if risky else '-'}")
 
     print("\n== 4. which oracle method fails when a cell fails ==")
     failing = collections.Counter()

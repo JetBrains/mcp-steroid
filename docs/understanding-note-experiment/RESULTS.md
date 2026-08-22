@@ -4,6 +4,12 @@ What was run, what it says, and what it does not say. Every number here comes fr
 `[UNDERSTANDING-*]` log line; the build ids are in [RUN-IDS.md](RUN-IDS.md), the design and the
 pre-registered rules in [DESIGN.md](DESIGN.md).
 
+> **Read [FINDINGS.md](FINDINGS.md) first.** It supersedes the headline of this page. The 1 000-character
+> result below was produced with notes that ALL overran the limit and were cut by the harness, so it
+> compares knife positions rather than arms. The clean round (500 characters, notes the agents fitted
+> themselves) shows no arm effect — and identifies what actually decides the outcome: which existing
+> class the note tells the weak agent to copy.
+
 The hypothesis under test:
 
 > With a fixed exploration budget, semantic repository access lets a strong agent acquire and distil a
