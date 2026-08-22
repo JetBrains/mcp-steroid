@@ -40,6 +40,23 @@ abstract class AIContainerBase(
     }
 }
 
+/**
+ * How long an agent image may take to build before the build is killed.
+ *
+ * Sized for a COLD agent, which is the case that matters: on a machine that already has the layers
+ * this build is seconds, and the timeout is invisible. On a machine that has none, the image installs
+ * an X stack, ffmpeg, ImageMagick and the agent CLIs from npm — and the previous ten minutes were not
+ * enough. The failure that follows is maximally misleading: `docker build` is killed mid-`apt-get`
+ * and the test reports `Failed to build Docker image / Terminated by timeout`, which reads as a broken
+ * Dockerfile rather than as a machine that started from nothing. Twenty-five paid downstream cells
+ * were lost to exactly that on 2026-08-22 before the cause was found, and the same builds had passed
+ * hours earlier purely because they landed on warm agents.
+ *
+ * Raising it costs nothing when the cache is warm and cannot mask a genuinely broken build: a build
+ * that fails still fails immediately with the compiler's or apt's own error.
+ */
+const val AGENT_IMAGE_BUILD_TIMEOUT_SECONDS: Long = 1_800
+
 abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
     abstract val displayName: String
     abstract val outputFilter: AgentProgressOutputFilter
@@ -152,7 +169,7 @@ abstract class AIAgentCompanion<T : Any>(val dockerFileBase: String) {
         val imageId = buildDockerImage(
             logPrefix = dockerFileBase.uppercase(),
             dockerfilePath,
-            timeoutSeconds = 600,
+            timeoutSeconds = AGENT_IMAGE_BUILD_TIMEOUT_SECONDS,
         )
 
         val session = startDockerContainerAndDispose(lifetime,
