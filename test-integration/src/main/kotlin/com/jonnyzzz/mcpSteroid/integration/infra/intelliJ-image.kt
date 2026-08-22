@@ -62,12 +62,31 @@ fun buildDevrigImage(dockerFileBase: String, imageName: String) : ImageDriver {
     val imageId = buildDockerImage(
         logPrefix = "devrig",
         dockerfilePath = File(contextDir, "Dockerfile"),
-        timeoutSeconds = 900,
+        timeoutSeconds = IDE_BASE_IMAGE_BUILD_TIMEOUT_SECONDS,
         buildArgs = mapOf("BASE_IMAGE" to resolvedBaseImageId.imageId),
     )
 
     return imageId
 }
+
+/**
+ * How long the shared IDE base image may take to build.
+ *
+ * Sized for a COLD agent, and the number is the one the derived image already uses — keeping them
+ * different was the whole defect. This layer installs six Temurin JDKs: 817 MB of archives, over a
+ * minute of which is one 168 MB package. A warm agent skips all of it in seconds, so the value is
+ * invisible there; a fresh TeamCity agent needs more than the fifteen minutes this used to allow, and
+ * when it runs out `docker build` is killed mid-`apt-get` and the run reports
+ * `Failed to build Docker image / Terminated by timeout` — which reads as a broken Dockerfile rather
+ * than as a machine that started from nothing.
+ *
+ * That misreading has now cost two rounds of paid runs: twenty-five downstream cells of the
+ * understanding-note experiment through the agent image (see `AGENT_IMAGE_BUILD_TIMEOUT_SECONDS`,
+ * raised for exactly this), and an acquisition trajectory through THIS one, which spent nineteen
+ * minutes downloading JDKs and never reached the research agent at all. Raising it cannot mask a
+ * genuinely broken build: that still fails immediately with apt's or the compiler's own error.
+ */
+const val IDE_BASE_IMAGE_BUILD_TIMEOUT_SECONDS: Long = 1_800
 
 fun buildSharedBaseImage(): ImageDriver {
     val baseContext = prepareContext("docker-ide-base", "ide-base")
@@ -75,7 +94,7 @@ fun buildSharedBaseImage(): ImageDriver {
     val rawImageId = buildDockerImage(
         logPrefix = "IDE",
         dockerfilePath = File(baseContext, "Dockerfile"),
-        timeoutSeconds = 900,
+        timeoutSeconds = IDE_BASE_IMAGE_BUILD_TIMEOUT_SECONDS,
     )
     //TODO: can be a problem if multiple builds run in parallel
     return rawImageId.tagDockerImage("mcp-steroid-base")
