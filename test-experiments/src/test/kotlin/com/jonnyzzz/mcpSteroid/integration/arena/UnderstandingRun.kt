@@ -13,6 +13,7 @@ import com.jonnyzzz.mcpSteroid.integration.infra.waitForProjectReady
 import com.jonnyzzz.mcpSteroid.testHelper.CloseableStackHost
 import com.jonnyzzz.mcpSteroid.testHelper.DockerClaudeSession
 import com.jonnyzzz.mcpSteroid.testHelper.docker.ContainerDriver
+import com.jonnyzzz.mcpSteroid.testHelper.docker.ExecContainerProcessRequest
 import com.jonnyzzz.mcpSteroid.testHelper.docker.mkdirs
 import com.jonnyzzz.mcpSteroid.testHelper.docker.readFromContainer
 import com.jonnyzzz.mcpSteroid.testHelper.docker.startProcessInContainer
@@ -85,11 +86,37 @@ class UnderstandingResearchGate(
         return result.stdout.takeIf { result.exitCode == 0 }
     }
 
-    private fun exec(args: List<String>, description: String) = container.startProcessInContainer {
-        args(args)
-        timeoutSeconds(120)
-        description(description)
-    }.awaitForProcessFinish()
+    private fun exec(args: List<String>, description: String) =
+        container.startProcessInContainer {
+            understandingExecRequest(this, args, description, timeoutSeconds = 120)
+        }.awaitForProcessFinish()
+}
+
+/**
+ * Builds one in-container command, as ONE expression.
+ *
+ * `ExecContainerProcessRequest` is an immutable builder: every method returns a COPY, and the block
+ * passed to `startProcessInContainer` contributes only the value of its last expression. Writing the
+ * calls as separate statements therefore discards all but the last — the process runs as
+ * `docker exec … bash -c ''`, an empty command that exits 0.
+ *
+ * That is not a hypothetical. It is what this experiment actually shipped: the budget counters read
+ * back as zero while the in-container hook was correctly refusing calls, and — far worse — the
+ * pristine check reported PRISTINE off an empty `git status`, so "the tree was untouched" was never
+ * verified at all. Both failures are silent and both look like data.
+ *
+ * A named function so the chaining cannot be undone by an innocent-looking edit, and so it can be
+ * unit-tested without a container: [UnderstandingHarnessTest] asserts the request really carries its
+ * arguments.
+ */
+fun understandingExecRequest(
+    base: ExecContainerProcessRequest,
+    args: List<String>,
+    description: String,
+    timeoutSeconds: Long,
+): ExecContainerProcessRequest {
+    require(args.isNotEmpty()) { "an in-container command with no arguments would run an empty shell" }
+    return base.args(args).timeoutSeconds(timeoutSeconds).description(description)
 }
 
 /**

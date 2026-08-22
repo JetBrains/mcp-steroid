@@ -2,6 +2,7 @@
 package com.jonnyzzz.mcpSteroid.integration.arena
 
 import com.jonnyzzz.mcpSteroid.testHelper.ProjectHomeDirectory
+import com.jonnyzzz.mcpSteroid.testHelper.docker.ExecContainerProcessRequest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -363,6 +364,42 @@ class UnderstandingHarnessTest {
         assertTrue(offenders.isEmpty()) {
             "an agent run's `stdout` is filtered and has no final `result` event; use `rawStdout`. " +
                 "Offending lines:\n" + offenders.joinToString("\n")
+        }
+    }
+
+    /**
+     * The bug that made every research run report zero interactions and certify a tree it never looked
+     * at: the request builder is immutable, so a block of separate statements keeps only the last one
+     * and sends `bash -c ''` — a command that exits 0 and prints nothing.
+     */
+    @Test
+    fun `an in-container request keeps the arguments it was built with`() {
+        val request = understandingExecRequest(
+            base = ExecContainerProcessRequest(),
+            args = listOf("git", "status"),
+            description = "check",
+            timeoutSeconds = 42,
+        )
+
+        assertEquals(listOf("git", "status"), request.args)
+        assertEquals("check", request.description)
+        assertEquals(42L, request.timeout.seconds)
+    }
+
+    @Test
+    fun `a request with no arguments is refused rather than sent`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            understandingExecRequest(ExecContainerProcessRequest(), emptyList(), "nothing", 10)
+        }
+    }
+
+    @Test
+    fun `the pristine verdict ignores its own completion marker`() {
+        val verdict = understandingPristineVerdict(UNDERSTANDING_PRISTINE_MARKER + "\n")
+
+        assertTrue(verdict.pristine)
+        assertTrue(verdict.violations.isEmpty()) {
+            "the marker proves the command ran; it is not a changed path: " + verdict.violations
         }
     }
 

@@ -26,6 +26,16 @@ val UNDERSTANDING_PRISTINE_IGNORED_PREFIXES: List<String> = listOf(
 val UNDERSTANDING_PRISTINE_IGNORED_SUFFIXES: List<String> = listOf(".iml")
 
 /**
+ * Printed by the pristine check after `git status`, and required to be present in its output.
+ *
+ * A clean tree and a command that never ran both answer with an empty string, and this experiment
+ * already shipped the second one while believing the first: the request builder silently dropped the
+ * arguments and every research run was certified pristine off `bash -c ''`. The marker removes the
+ * ambiguity — no marker, no verdict.
+ */
+const val UNDERSTANDING_PRISTINE_MARKER: String = "___pristine-check-completed___"
+
+/**
  * What a `git status --porcelain` of the work tree says about who changed what.
  *
  * [violations] is what invalidates a research run. [ignored] is published next to it rather than
@@ -55,10 +65,11 @@ data class UnderstandingPristineVerdict(
  * every run is "dirty" because of `.idea/` — costs an Opus run per discovery.
  */
 fun understandingPristineVerdict(porcelain: String): UnderstandingPristineVerdict {
-    val entries = porcelain.lines().map { it.trim() }.filter { it.isNotEmpty() }.map { line ->
+    val entries = porcelain.lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && it != UNDERSTANDING_PRISTINE_MARKER }
         // `XY path` or `XY orig -> new`; the arrow form reports the destination, which is what exists now.
-        line.substringAfter(' ').trim().substringAfterLast(" -> ").trim().removeSurrounding("\"")
-    }
+        .map { line -> line.substringAfter(' ').trim().substringAfterLast(" -> ").trim().removeSurrounding("\"") }
     val ignored = entries.filter { path ->
         UNDERSTANDING_PRISTINE_IGNORED_PREFIXES.any { path.startsWith(it) } ||
             UNDERSTANDING_PRISTINE_IGNORED_SUFFIXES.any { path.endsWith(it) }
@@ -82,15 +93,29 @@ fun understandingPristineVerdict(porcelain: String): UnderstandingPristineVerdic
  * here (this phase asks one question, once).
  */
 fun readUnderstandingPristineVerdict(container: ContainerDriver, projectDir: String): UnderstandingPristineVerdict {
+    // One expression, via [understandingExecRequest]: the request builder is immutable, so separate
+    // statements here would send `bash -c ''` and this check would confirm a pristine tree off an empty
+    // answer — which is exactly what it did until commit b8e6e4dfa's successor.
     val result = container.startProcessInContainer {
-        args("git", "-C", projectDir, "status", "--porcelain=v1", "--untracked-files=all")
-        timeoutSeconds(600)
-        description("Research-phase pristine check of $projectDir")
+        understandingExecRequest(
+            base = this,
+            args = listOf(
+                "sh", "-c",
+                "git -C '$projectDir' status --porcelain=v1 --untracked-files=all && " +
+                    "echo $UNDERSTANDING_PRISTINE_MARKER",
+            ),
+            description = "Research-phase pristine check of $projectDir",
+            timeoutSeconds = 600,
+        )
     }.awaitForProcessFinish()
     check(result.exitCode == 0) {
         "could not read the work tree state of $projectDir (exit ${result.exitCode}): ${result.stderr}. " +
             "Without it there is no evidence the research run left the tree alone, and a note from an " +
             "unverified run must not be handed to a downstream cell."
+    }
+    check(result.stdout.contains(UNDERSTANDING_PRISTINE_MARKER)) {
+        "the pristine check did not print its completion marker, so `git status` never ran — an empty " +
+            "answer would otherwise read as a clean tree. Output was: '${result.stdout.take(200)}'"
     }
     return understandingPristineVerdict(result.stdout)
 }
