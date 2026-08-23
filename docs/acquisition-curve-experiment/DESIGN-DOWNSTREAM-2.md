@@ -171,6 +171,32 @@ trajectories × three checkpoints), one rollout each, at the calibrated budget. 
 The independent unit stays the **trajectory** (four clusters), not the cell. Several rollouts of one
 note are not several observations about the research that produced it.
 
+### Amendment 3 — a second rollout of every note, and averaging within a note
+
+Recorded after the twelve cells of stage 2 reported and **before** the replication wave was queued.
+Stage 2's numbers are published either way; this amendment can only be judged against the wave it
+authorises, which does not exist yet.
+
+Stage 2 estimated ρ(`U_obs`, obligations) = **+0.421**, 90% CI [+0.03, +0.71], p = .167 — the sign the
+design predicted, at the magnitude that matters, and with an interval that only just clears zero.
+There is one thing this round measured for the anchors and never measured for the notes: **the
+dispersion of a single cell**. Round 1's whole lesson was that a condition can return 7/8 and 0/8, and
+one note cell here (`none-b40-l2000-r3@10`, `U_obs = .20`) scored 7/9 against a floor of 0/9 — either a
+genuinely good note from a poor prefix, or exactly that dispersion.
+
+So: **one more rollout of each of the same twelve notes**, nothing else changed — same budget, same
+oracle, same weak agent, replicate index 3. Twelve cells, ≈ $2.5.
+
+The primary is then computed on the **mean of a note's rollouts**, not on the rollouts as separate
+rows (`by_note` in the analysis script). Two rollouts of one note are two measurements of one
+knowledge state, and entering them separately would claim twice the evidence about `U` that exists.
+The unit of replication is unchanged: four trajectories, four clusters, the same permutation floor.
+
+What is fixed here so it cannot be chosen later: the replication is of **all twelve** notes, not of
+the outlier; the wave is run **once**; and the reported primary is the one computed on the pooled
+twenty-four cells collapsed to twelve notes, whatever it says. Stage 2's own estimate stays published
+beside it.
+
 ## Analysis, fixed before the data
 
 1. **Primary estimate**: Spearman ρ(`U_obs`, `obligations`) over the twelve note cells, with a

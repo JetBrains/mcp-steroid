@@ -147,16 +147,43 @@ def bootstrap_interval(groups: dict, samples: int = 10_000, seed: int = 20260823
     return (estimates[int(0.05 * len(estimates))], estimates[int(0.95 * len(estimates)) - 1])
 
 
+def by_note(cells: list) -> list:
+    """Collapses rollouts of the SAME note to one observation, averaging every numeric column.
+
+    Amendment 3. A note is one knowledge state; two rollouts of it are two measurements of that
+    state, not two states. Averaging them halves the measurement error in the primary estimate,
+    where entering them as separate rows would claim twice the evidence about `U` that exists.
+    With one rollout per note this is the identity, so the same code reads both waves.
+    """
+    grouped: dict = {}
+    for row in cells:
+        grouped.setdefault((row["trajectory_id"], row["checkpoint"]), []).append(row)
+    collapsed = []
+    for (trajectory, checkpoint), group in sorted(grouped.items()):
+        merged = dict(group[0])
+        merged["rollouts"] = len(group)
+        for column in ("passed", "used", "denied", "tool_calls", "output_tokens", "seconds", "usd"):
+            values = [number(row, column) for row in group if number(row, column) is not None]
+            merged[column] = f"{statistics.fmean(values)}" if values else ""
+        merged["spread"] = (
+            max(number(row, "passed") for row in group) - min(number(row, "passed") for row in group)
+            if len(group) > 1 else 0
+        )
+        collapsed.append(merged)
+    return collapsed
+
+
 def notes_analysis(rows: list) -> None:
-    cells = [row for row in of(rows, "checkpoint") if number(row, "passed") is not None]
-    if not cells:
+    raw = [row for row in of(rows, "checkpoint") if number(row, "passed") is not None]
+    if not raw:
         print("\n== Stage 2 — not run ==")
         return
 
     floor = passed_values(of(rows, "baseline"))
     ceiling = passed_values(of(rows, "oracle-gold"))
-    print("\n== Stage 2 — the twelve notes ==")
+    print("\n== Stage 2 — the notes ==")
 
+    cells = by_note(raw)
     groups: dict = {}
     for row in cells:
         groups.setdefault(row["trajectory_id"], []).append(
@@ -165,6 +192,16 @@ def notes_analysis(rows: list) -> None:
 
     us = [number(row, "u_obs") for row in cells]
     ys = [number(row, "passed") for row in cells]
+    print(
+        f"{len(raw)} graded cells -> {len(cells)} notes over "
+        f"{len(set(r['trajectory_id'] for r in cells))} trajectories"
+    )
+    spreads = [row["spread"] for row in cells if row["rollouts"] > 1]
+    if spreads:
+        print(
+            f"per-note rollout spread (max-min over {max(r['rollouts'] for r in cells)} rollouts): "
+            f"{spreads}, mean {statistics.fmean(spreads):.2f} assertions"
+        )
     rho, p_value, permutations = cluster_permutation(groups, direction=1)
     low, high = bootstrap_interval(groups)
     print(f"primary  rho(U_obs, obligations) = {rho:+.3f}  90% CI [{low:+.3f}, {high:+.3f}]  p={p_value:.4f}")
@@ -192,6 +229,15 @@ def notes_analysis(rows: list) -> None:
                 f"{spearman([u for u, _ in pairs], [v for _, v in pairs]):+.3f}  (predicted {predicted})"
             )
 
+    # The judged note score, as a check that the primary is not an artefact of one particular way of
+    # reading a transcript prefix. Round 1 reported -0.06 here.
+    notes = [(number(row, "u_note"), number(row, "passed")) for row in cells if number(row, "u_note") is not None]
+    if len(notes) > 2:
+        print(
+            "check    rho(U_note, obligations) = "
+            f"{spearman([u for u, _ in notes], [y for _, y in notes]):+.3f}  (the blind judge's reading)"
+        )
+
     within = [row["within"] for row in cells if (row.get("within") or "").strip()]
     if within:
         print(f"success within budget: {within.count('1')}/{len(within)} cells")
@@ -211,11 +257,14 @@ def main() -> None:
     rows = read_cells(args.cells)
     opened = gates(rows)
     notes_analysis(rows)
-    print(
-        "\nVERDICT: "
-        + ("all gates pass — the twelve-note matrix may be bought" if opened
-           else "a gate failed — see its remedy above; no note cell may be queued on this calibration")
-    )
+    graded_notes = [row for row in of(rows, "checkpoint") if number(row, "passed") is not None]
+    if not opened:
+        verdict = "a gate failed — see its remedy above; no note cell may be queued on this calibration"
+    elif not graded_notes:
+        verdict = "all gates pass — the note matrix may be bought"
+    else:
+        verdict = "gates passed and the matrix is in; read the estimate and its interval, not the p"
+    print(f"\nVERDICT: {verdict}")
 
 
 if __name__ == "__main__":
