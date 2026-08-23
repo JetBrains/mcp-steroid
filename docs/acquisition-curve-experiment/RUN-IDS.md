@@ -75,3 +75,36 @@ POST /app/rest/buildQueue
 
 One build is one independent trajectory at budget 40; the four checkpoints are slices of it. Never queue
 two at once — each starts a full Docker IntelliJ.
+
+## Downstream validation wave (2026-08-23)
+
+Build `mcp_steroid_IntegrationTests_AcquisitionDownstream`, branch `acquisition-curve-experiment`, all
+on `acquisition__keycloak__cc-refresh-token`, weak agent, one rollout per cell. Results in
+[RESULTS-DOWNSTREAM.md](RESULTS-DOWNSTREAM.md), per-cell numbers in
+[data/downstream-cells.csv](data/downstream-cells.csv).
+
+| build | condition | verdict |
+|---|---|---|
+| 1039175445 | `baseline` r1 | 7/8, 89 calls |
+| 1039182951 | `baseline` r2 | 0/8, 62 calls |
+| 1039175447 | `oracle:gold` r1 | 8/8, 70 calls |
+| 1039182953 | `oracle:gold` r2 | LOST — Docker image build failed; not re-run |
+| 1039177308/310/312 | `checkpoint:mcp-b40-l2000-r2@{5,10,20}` | 5/8, 5/8, 0/8 |
+| 1039177314/316/318 | `checkpoint:mcp-b40-l2000-r3@{5,10,20}` | 6/8, 5/8, 5/8 |
+| 1039177320/322/324 | `checkpoint:none-b40-l2000-r1@{5,10,20}` | 0/8, 6/8, 7/8 |
+| 1039177326/328/330 | `checkpoint:none-b40-l2000-r3@{5,10,20}` | 7/8, 5/8, 7/8 |
+
+The notes were distilled by build `mcp_steroid_IntegrationTests_AcquisitionDistill` (1039166835 and its
+re-run), offline from the committed transcripts — no research trajectory was bought for this wave.
+
+Queue one cell like this:
+
+```
+POST /app/rest/buildQueue
+{"buildType":{"id":"mcp_steroid_IntegrationTests_AcquisitionDownstream"},
+ "branchName":"acquisition-curve-experiment",
+ "properties":{"property":[
+   {"name":"understanding.case","value":"acquisition__keycloak__cc-refresh-token"},
+   {"name":"understanding.condition","value":"checkpoint:mcp-b40-l2000-r2@10"},
+   {"name":"understanding.replicate","value":"1"}]}}
+```
