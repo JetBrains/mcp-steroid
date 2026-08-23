@@ -51,7 +51,7 @@ def spearman(xs: list, ys: list) -> float:
     return num / den if den else 0.0
 
 
-def cluster_permutation(groups: dict) -> tuple:
+def cluster_permutation(groups: dict, direction: int = 1) -> tuple:
     """ρ over all notes, with a p-value that permutes whole trajectories.
 
     `groups` maps a trajectory id to its list of (u, outcome) pairs, in checkpoint order. The
@@ -70,8 +70,14 @@ def cluster_permutation(groups: dict) -> tuple:
 
     observed = rho_for(range(len(keys)))
     everything = [rho_for(order) for order in itertools.permutations(range(len(keys)))]
-    at_least = sum(1 for value in everything if value >= observed - 1e-12)
-    return observed, at_least / len(everything), len(everything)
+    # `direction` is the sign the hypothesis predicts, and it is an ARGUMENT rather than an absolute
+    # value on purpose: a two-sided test here would hide the case that matters most, a strong
+    # correlation pointing the wrong way. Effort is expected to FALL as understanding rises.
+    if direction >= 0:
+        extreme = sum(1 for value in everything if value >= observed - 1e-12)
+    else:
+        extreme = sum(1 for value in everything if value <= observed + 1e-12)
+    return observed, extreme / len(everything), len(everything)
 
 
 def main() -> int:
@@ -89,7 +95,9 @@ def main() -> int:
     for label in sorted({row["trajectory_id"] for row in anchors}):
         subset = [row for row in anchors if row["trajectory_id"] == label]
         passed = [int(row["passed"]) for row in subset]
-        print(f"  {label:12s} n={len(passed)}  passed={passed}  mean={statistics.fmean(passed):.2f}/8")
+        calls = [int(row["tool_calls"]) for row in subset if row["tool_calls"].strip()]
+        print(f"  {label:12s} n={len(passed)}  passed={passed}  mean={statistics.fmean(passed):.2f}/8"
+              f"  toolCalls={calls}")
 
     print("\n## U against residual work\n")
     print("  trajectory                 B   U_obs  U_note  passed  residual  success  toolCalls")
@@ -108,9 +116,37 @@ def main() -> int:
     for key in groups:
         groups[key].sort()
 
+    # Primary since amendment 1: effort, not the pass count. The floor anchor closed that door —
+    # the weak agent reaches 7/8 with no note at all, given 89 unbudgeted interactions — so what a
+    # note can still change is how much work is left, and that is what is tested here.
+    effort = {}
+    for row in notes:
+        if row["tool_calls"].strip():
+            effort.setdefault(row["trajectory_id"], []).append(
+                (float(row["u_obs"]), int(row["tool_calls"]))
+            )
+    for key in effort:
+        effort[key].sort()
+    if len(effort) == len(groups):
+        rho_effort, p_effort, arrangements = cluster_permutation(effort, direction=-1)
+        print(f"\n## Primary — Spearman rho(U_obs, toolCalls) = {rho_effort:+.3f}, "
+              f"cluster permutation p = {p_effort:.4f} over {arrangements} arrangements "
+              f"(one-sided, negative predicted)")
+    else:
+        print("\n## Primary — not computable: some cells report no tool count")
+
     rho, p_value, arrangements = cluster_permutation(groups)
-    print(f"\n## Primary — Spearman rho(U_obs, passed) = {rho:+.3f}, "
+    print(f"\n## Secondary since amendment 1 — Spearman rho(U_obs, passed) = {rho:+.3f}, "
           f"cluster permutation p = {p_value:.4f} over {arrangements} arrangements")
+
+    print("\n## Within-trajectory monotonicity — effort at B=20 against B=5 (falling is the prediction)")
+    down = 0
+    for key in sorted(effort):
+        pairs = sorted(effort[key])
+        delta = pairs[-1][1] - pairs[0][1]
+        down += 1 if delta < 0 else 0
+        print(f"  {key:24s} {pairs[0][1]} -> {pairs[-1][1]} calls   delta={delta:+d}")
+    print(f"  fell in {down} of {len(effort)} trajectories")
 
     print("\n## Within-trajectory monotonicity (passed at B=20 minus passed at B=5)")
     ups = 0

@@ -131,6 +131,51 @@ Two contingencies, also fixed here:
 - If more than two of the sixteen cells are lost, the wave is reported as incomplete rather than
   analysed.
 
+## Amendment 1 — the floor anchor broke the primary endpoint (2026-08-23, before any note cell reported)
+
+The first calibration anchor came back and the pre-registered floor rule failed:
+
+```
+condition=baseline  Y=0  oraclePassed=7/8  residual=1  toolCalls=89  usd=0.9651  agentSeconds=372
+```
+
+The weak agent, given **no note at all**, satisfies seven of the eight assertions and fails only
+`registerWithoutTheSettingIsAcceptedAndTurnedOff`. The rule above says `baseline ≤ 2/8`, so it is
+violated, and the consequence it predicted holds: with the floor at 7 and the ceiling at 8, the
+primary endpoint has one bit of resolution across the whole wave and cannot express a `U` gradient.
+
+The cause is structural rather than a mistake in the case. The research agent works under a budget of
+environment interactions; the downstream agent does not, and this one spent **89**. Given an unlimited
+allowance on a pristine tree it simply performed the research itself. The note is therefore not what
+makes this task possible for it — it is what makes it cheap.
+
+So the endpoints are re-ranked, and the substitute is a column this document already required to be
+recorded, not a new measurement invented to fit:
+
+- **New primary — downstream effort:** `toolCalls`, with `outputTokens`, `agentSeconds` and `usd` as
+  the same quantity in other currencies. Tested exactly as the old primary was: Spearman ρ between
+  `U_obs` and `toolCalls` over the twelve notes, cluster-permuted over the four trajectories
+  (24 arrangements, one-sided, floor p = .042). The expected sign is **negative** — more understanding
+  handed over, less work left to do.
+- **Demoted to secondary — `oracleTestsPassed`.** Still reported per cell. It can now only detect the
+  one assertion the baseline missed, and that single invariant is worth watching precisely because it
+  is the one a naive implementation breaks.
+- **Verdict rules, restated:** `U` is functionally valid if ρ(`U_obs`, `toolCalls`) ≤ −0.5 with
+  cluster-permutation p ≤ .05; not validated if |ρ| ≤ 0.2; inconclusive otherwise. The ceiling anchor
+  keeps its role for the demoted endpoint only.
+
+Two guards on this amendment, because re-ranking endpoints after seeing data is exactly how a null
+result gets talked into a positive one:
+
+1. It is written and committed **before any of the twelve note cells reported**, on evidence from a
+   calibration anchor — which is the only thing an anchor exists for.
+2. `baseline` is replicated (r2) before the wave is read. If the second baseline lands far from 7/8,
+   this amendment is withdrawn and the round is reported as uncalibrated rather than re-analysed.
+
+What this costs the round is stated plainly: the wave can no longer show that understanding makes the
+task **possible**, only that it makes it **cheaper**. That is a weaker claim than the one the wave was
+designed for — and it is the same claim, on the same sign, that the acquisition curves themselves make.
+
 ## Cost
 
 24 distilled notes ≈ 0.9 M characters of prompt ≈ 226 k input tokens on the strong model — under
