@@ -433,7 +433,9 @@ fun runUnderstandingDownstream(
         // Read before the oracle patch is applied and before anything can throw: the accounting is the
         // cell's other half, and a cell that lost its grading still answers "did the wall arrive".
         val usage = gate?.usage()
-        if (gate != null && usage != null && budget != null) {
+        // No `budget != null` here: the gate exists only when the budget does, and the compiler knows
+        // it — spelling the implication out again is a warning, not a safety net.
+        if (gate != null && usage != null) {
             println(
                 "[UNDERSTANDING-DOWN] budget: ${usage.describe(budget)}; tools " +
                     "${gate.toolLog().groupingBy { it }.eachCount()}"
