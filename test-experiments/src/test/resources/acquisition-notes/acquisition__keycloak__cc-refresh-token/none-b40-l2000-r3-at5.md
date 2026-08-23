@@ -1,0 +1,14 @@
+## Hand-off note: refuse refresh tokens from client credentials grant under `strict`
+
+**Where the mechanism lives.** Security profiles are plain JSON in `services/src/main/resources/`: `strict-security-profile.json`, `lax-…`, `none-…`. `strict` contains only three keys — `name`, `client-profiles` (`keycloak-default-client-profiles`) and `client-policies` (`keycloak-strict-client-policies`). So a profile does not implement rules itself: it names a built-in client-profile set and a built-in client-policy set. The enforcement you need must therefore be expressed as a **client policy executor**, put into the default client profiles, and referenced by the strict policies. The files holding `keycloak-default-client-profiles` / `keycloak-strict-client-policies` were not located during this exploration — find them first; that is the pivot of the whole task. Note `services/target/classes/**` copies are build output; only edit `src/main/resources`.
+
+**What to imitate.** Executors are paired `XExecutor` + `XExecutorFactory` classes in `services/src/main/java/org/keycloak/services/clientpolicy/executor/`. The closest models are `RejectResourceOwnerPasswordCredentialsGrantExecutor` (forbids a grant type) and `ConfidentialClientAcceptExecutor` (restricts to confidential clients) — combine both ideas. Provider contracts: `server-spi-private/.../clientpolicy/executor/ClientPolicyExecutorProvider|Factory|Spi`; `ClientPolicyEvent`, `ClientPolicyContext`, `ClientPolicyException` in `server-spi`. Factories are registered through `META-INF/services` files, as `SecurityProfileProviderFactory` is.
+
+**Dependencies / easy to miss.**
+- The same executor must fire on create *and* update, and both the admin REST and dynamic-registration paths — check which `ClientPolicyEvent` values cover each; do not assume one event suffices.
+- An update representation that omits the attribute must still be rejected when the stored client already has it on, so read the existing client, not just the request.
+- Absent-on-create must resolve to "off" (default handling, not validation).
+- Only confidential OIDC clients; public and SAML clients unaffected.
+- With no security profile the behaviour must be unchanged — keep the rule inside the strict policy set, never in generic client validation.
+
+**Verification.** `tests/base/src/test/java/org/keycloak/tests/securityprofile/LaxSecurityProfileTest.java` is the template for a strict-profile integration test (a strict counterpart may already exist alongside it). Test-framework helpers `ClientPolicyBuilder` / `ClientProfileBuilder` exist under `test-framework/builders`. Unit-level profile loading is covered by `services/src/test/.../DefaultSecurityProfileProverFactoryTest.java` (name is misspelled in-tree) against `DefaultSecurityProfileProvider(Factory)`.

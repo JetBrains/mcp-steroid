@@ -141,6 +141,38 @@ class AcquisitionDownstreamHarnessTest {
     }
 
     @Test
+    fun `every cell of the pre-registered matrix has a note, and none of them names its arm`() {
+        assertEquals(12, ACQUISITION_DOWNSTREAM_MATRIX.size)
+        assertEquals(
+            listOf("mcp", "shell"),
+            ACQUISITION_DOWNSTREAM_MATRIX.map { it.arm }.distinct().sorted(),
+            "a matrix with one arm cannot support the matched-pair reading the design rests on",
+        )
+
+        // A note that mentioned a search, a tool or the IDE would tell the blind judge which arm it
+        // came from, and the arm reading is the only thing keeping "the note was better" apart from
+        // "the tool was different". `\bide\b` rather than `ide`, because `provider` contains it.
+        val giveaways = Regex(
+            """steroid|find[ -]?usages|\bgrep\b|ripgrep|\bIDE\b|\bMCP\b|tool call|semantic search""",
+            RegexOption.IGNORE_CASE,
+        )
+        for (note in ACQUISITION_DOWNSTREAM_MATRIX) {
+            val text = note.noteText(case)
+            assertTrue(text.length in 500..5_000, "${note.label} is ${text.length} characters")
+            assertTrue(
+                giveaways.find(text) == null,
+                "${note.label} names how it was found: '${giveaways.find(text)?.value}'",
+            )
+            // The oracle is applied after the agent finishes. A note naming its class would let the
+            // agent create a file at that path, and the cell would be LOST rather than graded.
+            assertTrue(
+                !text.contains(case.failToPass.single().substringAfterLast('.')),
+                "${note.label} names the hidden oracle class",
+            )
+        }
+    }
+
+    @Test
     fun `a trajectory that never used its tools cannot become a note either`() {
         fun trajectory(arm: String, vararg tools: String) = AcquisitionTrajectory(
             trajectoryId = "t", caseId = case.instanceId, arm = arm, model = "opus",

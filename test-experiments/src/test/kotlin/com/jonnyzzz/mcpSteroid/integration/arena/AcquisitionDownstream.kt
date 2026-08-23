@@ -45,6 +45,24 @@ data class AcquisitionCheckpointNote(val trajectoryId: String, val checkpoint: I
 }
 
 /**
+ * The twelve knowledge states the downstream wave buys, fixed before any of them was graded.
+ *
+ * Four trajectories, two per arm, three checkpoints each. The selection rule is written out in
+ * `DESIGN-DOWNSTREAM.md` and its second half is the one that matters: the two arms must OVERLAP in
+ * `U` at some checkpoints. Without an overlap, "the note was better" and "the note came from the
+ * other arm" are the same column and no amount of analysis afterwards can separate them; here they
+ * meet at .60 and .73.
+ *
+ * Held in code so the matrix cannot quietly grow after the first results are in. A thirteenth cell
+ * chosen once the shape of the answer is visible is not a measurement.
+ */
+val ACQUISITION_DOWNSTREAM_MATRIX: List<AcquisitionCheckpointNote> =
+    listOf("mcp-b40-l2000-r2", "mcp-b40-l2000-r3", "none-b40-l2000-r1", "none-b40-l2000-r3")
+        .flatMap { trajectory ->
+            listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) }
+        }
+
+/**
  * True for a semantic-arm trajectory that never made a semantic call.
  *
  * Such a cell is not a measurement of the arm it is labelled with: the first pilot produced two of
