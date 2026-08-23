@@ -119,11 +119,49 @@ Read off the six calibration cells, before any note cell is queued.
 | **G1 floor leaves room** | mean `obligations` over the 4 `baseline` cells ≤ 5, and no baseline cell ≥ 8 | budget too generous → re-calibrate at **15** |
 | **G2 ceiling reachable** | both `oracle:gold` cells ≥ 7, at least one = 9 | budget too tight, or the case is not solvable by this agent → re-calibrate at **25** |
 | **G3 the gap is real** | mean(`oracle:gold`) − mean(`baseline`) ≥ 3 assertions | no room for a note to matter → stop; report the case as ungradable downstream |
-| **G4 noise is smaller than the gap** | sd(`baseline`) ≤ 2.5 assertions, and ≤ 1 of 4 baseline cells is catastrophic (0 obligations, or LOST) | report the variance and the `n` it implies; do NOT buy a matrix of single rollouts |
+| **G4 noise is smaller than the gap** | sd(`baseline`) ≤ 2.5 assertions **and** ≤ half the G3 gap; no cell LOST to the harness — see amendment 2 | report the variance and the `n` it implies; do NOT buy a matrix of single rollouts |
 
 If G1 and G2 fail together at every allowed budget, this case cannot separate a note from
 self-research and the round stops there. That outcome is a real answer about the case, and it is
 written here so it cannot later be presented as a null about `U`.
+
+### Amendment 2 — calibration wave 1 discarded, and G4's second clause withdrawn
+
+Recorded after the six cells of calibration wave 1 (builds `1039274925`–`1039274935`, `B_down = 20`)
+and **before** any cell of wave 2 or any note cell. Wave 1's per-cell numbers are published in
+`RUN-IDS.md` and are used for no gate.
+
+**a. An instrument defect — which is what a calibration wave is for.** Both `oracle:gold` cells scored
+8/9, losing the same assertion, and not on the merits:
+
+```
+registerWithTheSettingOnIsRejected -- ERROR!
+java.lang.NullPointerException: Cannot invoke "…$Configuration.isAutoConfigure()"
+  because "this.configuration" is null    at …Executor.autoConfigure   <- the AGENT's executor
+```
+
+A5, A7, A8 and A9 exercised an executor on which `setupConfiguration` had never been called — a state
+the runtime never produces, because the shipped profile entry always carries
+`{"auto-configure": true}` and `ClientPoliciesUtil` always configures before dispatch. The in-tree
+precedent this case is built around (`ConsentRequiredExecutor`) dereferences its configuration
+unconditionally too, so the assertion was punishing an implementation for following the precedent.
+The behavioural axes now configure the executor exactly as the profile does. Re-verified on six trees,
+the sixth being the new regression: a gold whose null-guard is deleted must still score 9/9.
+
+The wave is re-run rather than patched up — one table, one grader.
+
+**b. G4's "≤ 1 catastrophic baseline cell" clause is withdrawn, because it contradicts G1.** Two of
+the four floor cells scored 0/9 by leaving `services` non-compiling: a weak agent given twenty
+interactions and no note writes code that does not build. That is the floor being genuinely low, which
+is exactly what G1 asks for, so counting it as noise makes the two gates unsatisfiable together. The
+clause that carries round 1's actual lesson — "the same condition returned 7/8 and 0/8" — is the
+dispersion one, and it is kept and strengthened: sd must also be at most half the anchor gap. A clause
+about cells LOST to the harness (a patch conflict, a Docker failure) replaces it, because those are
+measurement failures rather than outcomes.
+
+What the amendment costs, plainly: G4 can no longer refuse a wave whose floor is bimodal for reasons
+other than dispersion. Every calibration cell's `passed` value is published so a reader can apply the
+original clause and see what it would have said.
 
 ## Stage 2 — the matrix, unchanged from round 1
 

@@ -108,3 +108,26 @@ POST /app/rest/buildQueue
    {"name":"understanding.condition","value":"checkpoint:mcp-b40-l2000-r2@10"},
    {"name":"understanding.replicate","value":"1"}]}}
 ```
+
+## Downstream round 2 — calibration wave 1, DISCARDED (2026-08-23)
+
+Build `mcp_steroid_IntegrationTests_AcquisitionDownstream`, branch `acquisition-curve-experiment`,
+`acquisition__keycloak__cc-refresh-token`, weak agent, **`understanding.budget=20`**, the de-cascaded
+nine-assertion oracle. Design: [DESIGN-DOWNSTREAM-2.md](DESIGN-DOWNSTREAM-2.md). Per-cell numbers:
+[data/downstream2-calibration-wave1.csv](data/downstream2-calibration-wave1.csv).
+
+ build | condition | passed | budget | denied | toolCalls | usd |
+---|---|---|---|---|---|---|
+ 1039274925 | `baseline` r1 | 0/9 (module left non-compiling) | 20/20 | 7 | 61 | 0.53 |
+ 1039274927 | `baseline` r2 | 0/9 (module left non-compiling) | 20/20 | 3 | 32 | 0.22 |
+ 1039274929 | `baseline` r3 | 2/9 | 20/20 | 4 | 41 | 0.29 |
+ 1039274931 | `baseline` r4 | 1/9 | 20/20 | 5 | 38 | 0.25 |
+ 1039274933 | `oracle:gold` r1 | 8/9 | 20/20 | 2 | 32 | 0.27 |
+ 1039274935 | `oracle:gold` r2 | 8/9 | 20/20 | 2 | 34 | 0.31 |
+
+Every cell exhausted its allowance, so the budget binds in all conditions. The wave is **discarded and
+gated on nothing**: both ceiling cells lost the same assertion to an oracle defect it exposed —
+`registerWithTheSettingOnIsRejected` exercised an executor that had never been configured, a state the
+shipped profile never produces — see amendment 2 in the design. It is kept here because it is what the
+repair is evidence for, and because its floor (0, 0, 2, 1 with every cell hitting the wall) is the
+first demonstration that the budget does what round 1 lacked.

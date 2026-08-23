@@ -1,9 +1,9 @@
 diff --git a/services/src/test/java/org/keycloak/services/clientpolicy/executor/ClientCredentialsRefreshTokenResidualContractTest.java b/services/src/test/java/org/keycloak/services/clientpolicy/executor/ClientCredentialsRefreshTokenResidualContractTest.java
 new file mode 100644
-index 0000000..6fe1a68
+index 0000000..29755a8
 --- /dev/null
 +++ b/services/src/test/java/org/keycloak/services/clientpolicy/executor/ClientCredentialsRefreshTokenResidualContractTest.java
-@@ -0,0 +1,814 @@
+@@ -0,0 +1,842 @@
 +/*
 + * Copyright 2025 Red Hat, Inc. and/or its affiliates
 + * and other contributors as indicated by the @author tags.
@@ -89,6 +89,13 @@ index 0000000..6fe1a68
 + *     <li>the provider SPI: {@link ClientPolicyExecutorProviderFactory} ids resolvable through the session
 + *     factory that are absent from the baseline pinned at the base commit.</li>
 + * </ol>
++ * <p>
++ * Every behaviour axis exercises the executor in the state the runtime puts it in: the shipped profile entry
++ * always carries {@code {"auto-configure": true}} and {@code ClientPoliciesUtil} always calls
++ * {@code setupConfiguration} before an executor sees an event, so an executor whose configuration was never
++ * set up is not a state worth grading. Dereferencing the configuration unconditionally is what the shipped
++ * precedents do, and this contract must not punish an implementation for following them. The configuration
++ * is therefore applied once in {@link #executorUnderTest()}, so no axis added later can forget it.
 + */
 +public class ClientCredentialsRefreshTokenResidualContractTest {
 +
@@ -366,16 +373,16 @@ index 0000000..6fe1a68
 +    /**
 +     * A6 - registering a client that says nothing about the setting auto-configures it off.
 +     * <p>
-+     * The {@code auto-configure} switch is fed through the executor's own configuration type. Should an
-+     * implementation declare no configuration type of its own, the switch is not expressible at all - in that
-+     * case the only honest reading of "turns it off" is that the executor auto-configures unconditionally, so
-+     * the same {@code "false"} expectation is kept and the message says why. Either way the axis stays
-+     * non-trivial: merely not throwing is never enough to pass it.
++     * The {@code auto-configure} switch is fed through the executor's own configuration type, exactly as the
++     * shipped profile feeds it. Should an implementation declare no configuration type of its own, the switch
++     * is not expressible at all - in that case the only honest reading of "turns it off" is that the executor
++     * auto-configures unconditionally, so the same {@code "false"} expectation is kept and the message says
++     * why. Either way the axis stays non-trivial: merely not throwing is never enough to pass it.
 +     */
 +    @Test
 +    public void registerWithoutTheSettingTurnsItOff() throws ClientPolicyException {
 +        ClientPolicyExecutorProvider executor = executorUnderTest();
-+        boolean autoConfigureExpressible = setUpAutoConfigure(executor);
++        boolean autoConfigureExpressible = autoConfigureIsExpressible(executor);
 +
 +        ClientRepresentation proposed = clientRepresentation(null);
 +        executor.executeOnEvent(new CRUDContext(ClientPolicyEvent.REGISTER, proposed, null));
@@ -538,7 +545,18 @@ index 0000000..6fe1a68
 +    // the executor under test - built without ever consulting the profile JSON
 +    // ----------------------------------------------------------------------------------------------------
 +
++    /**
++     * The executor as the runtime hands it to a policy: discovered by name-independent means and configured
++     * the way the shipped profile configures it. Configuring here rather than per test keeps every behaviour
++     * axis on a state the runtime can actually produce.
++     */
 +    private static ClientPolicyExecutorProvider executorUnderTest() {
++        ClientPolicyExecutorProvider executor = discoverExecutor();
++        configureAsTheShippedProfileDoes(executor);
++        return executor;
++    }
++
++    private static ClientPolicyExecutorProvider discoverExecutor() {
 +        List<Class<?>> discovered = newProviderClasses();
 +        if (discovered.size() == 1) {
 +            return instantiate(discovered.get(0));
@@ -598,16 +616,27 @@ index 0000000..6fe1a68
 +    }
 +
 +    /**
-+     * @return whether the {@code auto-configure} switch could be expressed through the executor's own
++     * @return whether the {@code auto-configure} switch is expressible through the executor's own
 +     * configuration type
 +     */
-+    private static boolean setUpAutoConfigure(ClientPolicyExecutorProvider executor) {
++    private static boolean autoConfigureIsExpressible(ClientPolicyExecutorProvider executor) {
 +        Class<?> configurationClass = executor.getExecutorConfigurationClass();
-+        if (configurationClass == null
-+                || ClientPolicyExecutorConfigurationRepresentation.class.equals(configurationClass)) {
-+            System.err.println("The executor declares no configuration type of its own, so '" + AUTO_CONFIGURE
-+                    + "' cannot be switched on explicitly");
-+            return false;
++        return configurationClass != null
++                && !ClientPolicyExecutorConfigurationRepresentation.class.equals(configurationClass);
++    }
++
++    /**
++     * Applies the configuration the shipped profile entry carries - {@code {"auto-configure": true}} - through
++     * the executor's own configuration type. An implementation that declares no configuration type of its own
++     * cannot express the switch; that is logged and the executor is left as it is rather than turning a
++     * behaviour axis into an error.
++     */
++    private static void configureAsTheShippedProfileDoes(ClientPolicyExecutorProvider executor) {
++        Class<?> configurationClass = executor.getExecutorConfigurationClass();
++        if (configurationClass == null) {
++            System.err.println("The executor declares no configuration class at all, so '" + AUTO_CONFIGURE
++                    + "' cannot be set up; continuing with an unconfigured executor");
++            return;
 +        }
 +        ObjectNode configurationNode = JsonSerialization.mapper.createObjectNode();
 +        configurationNode.put(AUTO_CONFIGURE, true);
@@ -616,11 +645,10 @@ index 0000000..6fe1a68
 +                    (ClientPolicyExecutorConfigurationRepresentation)
 +                            JsonSerialization.mapper.convertValue(configurationNode, configurationClass);
 +            executor.setupConfiguration(configuration);
-+            return true;
 +        } catch (Exception e) {
 +            System.err.println("The executor configuration type '" + configurationClass.getName()
-+                    + "' does not accept '" + AUTO_CONFIGURE + "': " + e);
-+            return false;
++                    + "' does not accept '" + AUTO_CONFIGURE + "' (" + e
++                    + "); continuing with an unconfigured executor");
 +        }
 +    }
 +

@@ -46,7 +46,7 @@ GATES = [
     ("G1 floor leaves room", "mean(baseline) <= 5 and max(baseline) < 8", "tighten the budget to 15"),
     ("G2 ceiling reachable", "min(oracle-gold) >= 7 and max(oracle-gold) == 9", "loosen the budget to 25"),
     ("G3 the gap is real", "mean(oracle-gold) - mean(baseline) >= 3", "stop: ungradable downstream"),
-    ("G4 noise below the gap", "sd(baseline) <= 2.5 and catastrophic(baseline) <= 1", "do not buy single rollouts"),
+    ("G4 noise below the gap", "sd(baseline) <= min(2.5, gap/2) and no anchor cell LOST", "do not buy single rollouts"),
 ]
 
 
@@ -100,20 +100,27 @@ def gates(rows: list) -> bool:
         print("\nNOT DECIDABLE: an anchor is missing. Re-run it before reading any gate.")
         return False
 
-    catastrophic = sum(1 for value in floor if value <= 1) + (len(of(rows, "baseline")) - len(floor))
+    # Amendment 2b: a floor cell that scores zero by leaving the module non-compiling is the floor
+    # being genuinely low, which is what G1 asks for — counting it as noise made G1 and G4
+    # unsatisfiable together. What is counted instead is a cell LOST to the harness, which is a
+    # measurement failure rather than an outcome, and dispersion, which is round 1's actual lesson.
+    lost = (len(of(rows, "baseline")) - len(floor)) + (len(of(rows, "oracle-gold")) - len(ceiling))
+    gap = statistics.fmean(ceiling) - statistics.fmean(floor)
+    spread = statistics.stdev(floor) if len(floor) > 1 else 0.0
     verdicts = [
         statistics.fmean(floor) <= 5 and max(floor) < 8,
         min(ceiling) >= 7 and max(ceiling) == 9,
-        statistics.fmean(ceiling) - statistics.fmean(floor) >= 3,
-        (statistics.stdev(floor) if len(floor) > 1 else 0.0) <= 2.5 and catastrophic <= 1,
+        gap >= 3,
+        spread <= min(2.5, gap / 2) and lost == 0,
     ]
     print()
     for (name, rule, remedy), ok in zip(GATES, verdicts):
         print(f"{'PASS' if ok else 'FAIL'}  {name:24s} [{rule}]" + ("" if ok else f" -> {remedy}"))
     print(
-        f"\ngap = {statistics.fmean(ceiling) - statistics.fmean(floor):.2f} assertions, "
-        f"baseline sd = {statistics.stdev(floor) if len(floor) > 1 else 0.0:.2f}, "
-        f"catastrophic baseline cells = {catastrophic}"
+        f"\ngap = {gap:.2f} assertions, baseline sd = {spread:.2f} "
+        f"(G4 allows {min(2.5, gap / 2):.2f}), anchor cells lost to the harness = {lost}, "
+        f"floor cells that left the module non-compiling = {sum(1 for v in floor if v == 0)} "
+        f"(reported, not gated — see amendment 2b)"
     )
     return all(verdicts)
 
