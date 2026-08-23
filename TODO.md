@@ -644,3 +644,27 @@
   it: a capture whose stream was cut mid-response would be judged on a trajectory it never finished,
   and every probe cell of that arm would then start from states nobody meant to record. Decide what an
   aborted capture is before the next capture round.
+
+## Downstream validation of `U` — what the wave left open (2026-08-23)
+
+Results: `docs/acquisition-curve-experiment/RESULTS-DOWNSTREAM.md`. The wave was negative AND
+uninformative, and the three repairs below are what a second attempt needs. None is started.
+
+1. **Budget the downstream agent.** It currently has no interaction limit and spent 89 on the floor
+   anchor, reaching 7/8 with no note at all — it simply redid the research the note was meant to save
+   it. Reuse `UnderstandingBudgetGate` (the research phase's `PreToolUse` hook) at roughly 15–25
+   interactions, so a note is measured on the work it removes. Until this exists, do not buy downstream
+   cells for this case.
+2. **De-cascade the oracle of `acquisition__keycloak__cc-refresh-token`.** All eight assertions resolve
+   the executor through the profile JSON first, so before that one line exists all eight fail together
+   (`Tests run: 8, Failures: 8` in both compiling zeros). The residual-work endpoint is therefore
+   `{0} ∪ {5…8}`, not `0..8`. Score the SPI registration, the profile entry and the four behaviours
+   independently — the sub-agent report that built the oracle predicted this exact problem.
+3. **Measure per-cell variance before designing a matrix around it.** Two runs of the SAME `baseline`
+   returned 7/8 and 0/8; about a fifth of all cells end catastrophically (one of them a plain
+   `COMPILATION ERROR`). Four anchor rollouts cost ~$4 and would have shown this before twelve note
+   cells were bought. The honest matrix size follows from that number, and twelve is far too small.
+
+Still open from the research round, unchanged: the semantic arm occasionally degenerates
+(`mcp r4`, `{Bash=14}`) despite both forms of the `ENABLE_TOOL_SEARCH` flag — the harness rejects such
+a cell, but the cause is unknown.
