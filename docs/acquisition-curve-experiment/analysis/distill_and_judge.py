@@ -29,8 +29,30 @@ import sys
 import urllib.request
 
 API_URL = "https://api.anthropic.com/v1/messages"
-DISTILL_MODEL = "claude-opus-4-6"
-JUDGE_MODEL = "claude-opus-4-6"
+MODELS_URL = "https://api.anthropic.com/v1/models"
+
+
+def resolve_model(api_key: str) -> str:
+    """The newest model of the strong family the key can actually reach.
+
+    Asked rather than hardcoded, and the reason is a real failure mode rather than tidiness: the
+    distiller is not the agent, so it goes through the plain Messages API, whose model ids are dated
+    (`claude-opus-4-5-20251101`) while the CLI takes aliases (`claude-opus-5`). A wrong id fails the
+    whole wave with a 404 after the prompts are built, and a stale-but-valid one silently distils
+    every note with a weaker model than the round it belongs to.
+    """
+    request = urllib.request.Request(
+        MODELS_URL + "?limit=100",
+        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        payload = json.load(response)
+    opus = [model for model in payload.get("data", []) if model.get("id", "").startswith("claude-opus")]
+    if not opus:
+        raise SystemExit(f"the key reaches no opus model; it offers {[m.get('id') for m in payload.get('data', [])]}")
+    newest = sorted(opus, key=lambda model: model.get("created_at", ""))[-1]["id"]
+    print(f"resolved model: {newest}")
+    return newest
 
 
 def read_api_key() -> str:
@@ -103,7 +125,19 @@ def main() -> int:
     parser.add_argument("--artifacts", required=True, help="directory of <trajectoryId>/ folders")
     parser.add_argument("--out", default=None, help="where to write notes and the judged CSV")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--checkpoints",
+        default="5,10,20",
+        help="which checkpoints to distil, comma separated. The downstream round buys 5/10/20; "
+             "40 is where every trajectory has already plateaued and its note answers nothing new.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="override the model. Omitted, the newest opus the key reaches is used for both steps.",
+    )
     args = parser.parse_args()
+    wanted = {int(value) for value in args.checkpoints.split(",") if value.strip()}
 
     root = pathlib.Path(args.artifacts)
     trajectories = sorted(path for path in root.iterdir() if (path / "checklist.json").exists())
@@ -112,7 +146,8 @@ def main() -> int:
 
     prompts = [(trajectory, prompt)
                for trajectory in trajectories
-               for prompt in sorted(trajectory.glob("distill-b*.txt"))]
+               for prompt in sorted(trajectory.glob("distill-b*.txt"))
+               if int(prompt.stem.split("-b")[1]) in wanted]
     total_chars = sum(prompt.stat().st_size for _, prompt in prompts)
     print(f"{len(trajectories)} trajectories, {len(prompts)} checkpoints, "
           f"{total_chars / 1e6:.2f} M characters of prompt "
@@ -121,6 +156,7 @@ def main() -> int:
         return 0
 
     api_key = read_api_key()
+    model = args.model or resolve_model(api_key)
     out = pathlib.Path(args.out or root)
     out.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -133,12 +169,12 @@ def main() -> int:
             note = note_path.read_text()
             print(f"  {trajectory.name} b={checkpoint}: note already distilled")
         else:
-            note = call_model(api_key, DISTILL_MODEL, prompt_path.read_text(), max_tokens=2_000).strip()
+            note = call_model(api_key, model, prompt_path.read_text(), max_tokens=2_000).strip()
             note_path.write_text(note)
             print(f"  {trajectory.name} b={checkpoint}: distilled {len(note)} characters")
 
         verdict = parse_judgement(
-            call_model(api_key, JUDGE_MODEL, judge_prompt(note, facts), max_tokens=1_000),
+            call_model(api_key, model, judge_prompt(note, facts), max_tokens=1_000),
             facts,
         )
         score = sum(verdict.values()) / len(facts)

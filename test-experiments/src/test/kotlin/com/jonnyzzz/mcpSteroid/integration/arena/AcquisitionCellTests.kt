@@ -132,7 +132,7 @@ class AcquisitionResearchTest {
         // have understated the very effect the experiment exists to measure. `enable_tool_search=false`
         // (see [understandingHookSettingsJson]) is the fix; this check is what makes a regression of it
         // impossible to publish by accident.
-        check(trajectory.arm != "mcp" || semanticCalls > 0) {
+        check(!armDegenerate(trajectory)) {
             "ARM DEGENERATE: ${trajectory.trajectoryId} is a semantic-arm cell that made no semantic " +
                 "call in ${trajectory.budgetedCalls} interactions " +
                 "(${trajectory.calls.groupingBy { it.toolName }.eachCount()}). Its transcript is " +

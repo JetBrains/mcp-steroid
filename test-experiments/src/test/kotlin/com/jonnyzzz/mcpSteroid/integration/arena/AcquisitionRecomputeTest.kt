@@ -73,7 +73,17 @@ class AcquisitionRecomputeTest {
                 "$trajectoryId has a decreasing token axis: $tokens",
             )
 
-            if (outDir != null) {
+            if (outDir != null && armDegenerate(trajectory)) {
+                // Refused rather than filtered downstream. This trajectory is a paid recording and its
+                // curve is printed above, but it is a control-arm curve wearing the treatment label,
+                // and a note distilled from it would enter a table of "what the semantic arm knew".
+                // Enforcing that here means no consumer has to remember a list of rejected ids.
+                println(
+                    "[ACQUISITION-RECOMPUTE] $trajectoryId is arm-degenerate " +
+                        "(${trajectory.calls.groupingBy { it.toolName }.eachCount()}); no distillation " +
+                        "prompts written for it"
+                )
+            } else if (outDir != null) {
                 val target = outDir.resolve(trajectoryId)
                 target.mkdirs()
                 target.resolve("checklist.json").writeText(checklistAsJson(checklist))

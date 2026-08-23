@@ -45,6 +45,18 @@ data class AcquisitionCheckpointNote(val trajectoryId: String, val checkpoint: I
 }
 
 /**
+ * True for a semantic-arm trajectory that never made a semantic call.
+ *
+ * Such a cell is not a measurement of the arm it is labelled with: the first pilot produced two of
+ * them out of three because the CLI keeps MCP schemas behind a discovery call the model never made,
+ * and their curves were control-arm curves under the treatment label. The cell that produces a
+ * trajectory refuses to publish one, and the offline re-reader refuses to distil a note from one —
+ * one predicate, so the two cannot disagree about which trajectories exist.
+ */
+fun armDegenerate(trajectory: AcquisitionTrajectory): Boolean =
+    trajectory.arm == "mcp" && trajectory.calls.none { it.toolName.contains("steroid") }
+
+/**
  * Where the distilled checkpoint notes of one case live.
  *
  * Deliberately NOT the understanding experiment's note directory. Those notes were written by the

@@ -141,6 +141,24 @@ class AcquisitionDownstreamHarnessTest {
     }
 
     @Test
+    fun `a trajectory that never used its tools cannot become a note either`() {
+        fun trajectory(arm: String, vararg tools: String) = AcquisitionTrajectory(
+            trajectoryId = "t", caseId = case.instanceId, arm = arm, model = "opus",
+            calls = tools.mapIndexed { index, tool ->
+                AcquisitionToolCall(index + 1, tool, "{}", "", 0, null)
+            },
+            exemptCalls = 0, refusedCalls = 0, totalOutputTokens = 1,
+            tokenAccounting = AcquisitionTokenAccounting.PER_MESSAGE, finalMessage = "",
+        )
+
+        assertTrue(armDegenerate(trajectory("mcp", "Bash", "Read")))
+        assertTrue(!armDegenerate(trajectory("mcp", "Bash", "mcp__mcp-steroid__steroid_execute_code")))
+        // The control arm has no semantic tools by construction, so the predicate must never fire on
+        // it — a re-reader that skipped every shell trajectory would silently halve the round.
+        assertTrue(!armDegenerate(trajectory("shell", "Bash", "Read")))
+    }
+
+    @Test
     fun `a committed transcript reads the same gzipped as it does plain`(@TempDir dir: File) {
         val folder = dir.resolve("mcp-b40-l2000-r1").apply { mkdirs() }
         val text = """{"type":"assistant","message":{"id":"m1"}}"""
