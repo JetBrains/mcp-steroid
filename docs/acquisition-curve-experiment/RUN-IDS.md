@@ -150,3 +150,43 @@ Floor 0.00 (sd 0.00), ceiling 9.00, gap 9.00 assertions, nothing lost. The floor
 four unaided cells left `services` non-compiling — twenty interactions are not enough to find the
 chain AND get the code to build — while both cells that were told the chain finished it, one of them
 without ever reaching the wall.
+
+## Downstream validation round 2 (2026-08-24)
+
+Build `mcp_steroid_IntegrationTests_AcquisitionDownstream`, branch `acquisition-curve-experiment`,
+case `acquisition__keycloak__cc-refresh-token`, weak agent, **20 repository interactions**, oracle
+`oracle-v2.patch` (nine independent assertions). Results in
+[RESULTS-DOWNSTREAM-2.md](RESULTS-DOWNSTREAM-2.md), per-cell numbers in
+[data/downstream2-cells.csv](data/downstream2-cells.csv).
+
+ build | cell | obligations |
+---|---|---|
+ 1039274925/927/929/931 | calibration wave 1, `baseline` r1–r4 | 0, 0, 2, 1 |
+ 1039274933/935 | calibration wave 1, `oracle:gold` r1–r2 | 8, 8 |
+ 1039289680/682/684/686 | calibration wave 2, `baseline` r1–r4 | 0, 0, 0, 0 |
+ 1039289688/690 | calibration wave 2, `oracle:gold` r1–r2 | 9, 9 |
+ 1039300811/813/815 | `checkpoint:mcp-b40-l2000-r2@{5,10,20}` r1 | 0, 6, 4 |
+ 1039300817/819/821 | `checkpoint:mcp-b40-l2000-r3@{5,10,20}` r1 | 7, 6, 7 |
+ 1039300823/825/827 | `checkpoint:none-b40-l2000-r1@{5,10,20}` r1 | 0, 0, 7 |
+ 1039300829/831/833 | `checkpoint:none-b40-l2000-r3@{5,10,20}` r1 | 0, 7, 0 |
+ 1039310876/878/880 | `checkpoint:mcp-b40-l2000-r2@{5,10,20}` r3 | 7, 6, 4 |
+ 1039310882/884/886 | `checkpoint:mcp-b40-l2000-r3@{5,10,20}` r3 | 6, 6, 6 |
+ 1039310888/890/892 | `checkpoint:none-b40-l2000-r1@{5,10,20}` r3 | 0, 5, 8 |
+ 1039310894/896/898 | `checkpoint:none-b40-l2000-r3@{5,10,20}` r3 | 0, 0, 5 |
+
+**Calibration wave 1 gates nothing.** It found the instrument defect described in amendment 2a — the
+oracle called the executor unconfigured, a state the runtime never produces — and the whole wave was
+re-run rather than patched up. Its numbers are kept here so the discarded wave stays auditable.
+
+Queue one cell (`understanding.budget` accepts only 15, 20 or 25):
+
+```
+POST /app/rest/buildQueue
+{"buildType":{"id":"mcp_steroid_IntegrationTests_AcquisitionDownstream"},
+ "branchName":"acquisition-curve-experiment",
+ "properties":{"property":[
+   {"name":"understanding.case","value":"acquisition__keycloak__cc-refresh-token"},
+   {"name":"understanding.condition","value":"checkpoint:mcp-b40-l2000-r2@10"},
+   {"name":"understanding.replicate","value":"1"},
+   {"name":"understanding.budget","value":"20"}]}}
+```

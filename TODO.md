@@ -645,7 +645,27 @@
   and every probe cell of that arm would then start from states nobody meant to record. Decide what an
   aborted capture is before the next capture round.
 
-## Downstream validation of `U` — what the wave left open (2026-08-23)
+## Downstream validation of `U` — round 2 closed all three (2026-08-24)
+
+All three repairs below were made and the wave was re-run: `docs/acquisition-curve-experiment/`
+`RESULTS-DOWNSTREAM-2.md`. rho(U_obs, obligations) = +0.668, 90% CI [+0.23, +0.84], against −0.22 in
+round 1 on the same notes; effort falls with `U` on all three denominators. Kept below as the record
+of what was wrong and how each was fixed.
+
+What is still open after round 2:
+
+1. **One case, four clusters.** The permutation p sits on its own floor (.0417) because four
+   trajectories cannot produce a smaller one. More independent research trajectories — or a second
+   case — is the only way past it, and both cost research runs rather than downstream cells.
+2. **Per-cell dispersion is large**: two rollouts of the same note differ by 2.25 assertions on
+   average and by 5–7 for three of the twelve. Any future matrix on this case needs ≥ 2 rollouts per
+   note, and the honest `n` follows from that number.
+3. **A high-`U` note can still disarm a weak reader.** `mcp-r2@20` has the highest `U` in the wave and
+   scores 4/9 twice: it correctly warns that the target profile is shared with the lax policies and
+   offers no resolution, so the agent wires the rule elsewhere. Worth measuring directly — a note's
+   *actionability* is not its fact count.
+
+## Downstream validation of `U` — what the FIRST wave left open (2026-08-23, all three now done)
 
 Results: `docs/acquisition-curve-experiment/RESULTS-DOWNSTREAM.md`. The wave was negative AND
 uninformative, and the three repairs below are what a second attempt needs. None is started.
