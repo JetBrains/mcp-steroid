@@ -66,6 +66,10 @@ def read_api_key() -> str:
     raise SystemExit("no API key: set ANTHROPIC_API_KEY, CLAUDE_EVAL_API_KEY or write ~/.anthropic")
 
 
+class EmptyAnswer(RuntimeError):
+    """Raised when a call came back with no text at all, so the caller can retry with more room."""
+
+
 def call_model(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
     body = json.dumps({
         "model": model,
@@ -83,7 +87,33 @@ def call_model(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
     )
     with urllib.request.urlopen(request, timeout=600) as response:
         payload = json.load(response)
-    return "".join(block.get("text", "") for block in payload.get("content", []))
+    text = "".join(block.get("text", "") for block in payload.get("content", []))
+    if not text.strip():
+        # An empty answer is never "the model had nothing to say" — it is a budget that ran out
+        # inside a reasoning block, or a refusal, and the caller a level up used to report it as
+        # "the judge did not answer with JSON: ''", which points at the wrong thing entirely.
+        blocks = [block.get("type") for block in payload.get("content", [])]
+        raise EmptyAnswer(
+            f"{model} returned no text: stop_reason={payload.get('stop_reason')} "
+            f"blocks={blocks} usage={payload.get('usage')}"
+        )
+    return text
+
+
+def call_model_persistently(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
+    """One retry with four times the room, then give up loudly.
+
+    The failure this exists for is specific and was hit on the first paid wave: with a modern model
+    the whole budget can be spent before a single visible character is emitted, and a fifteen-question
+    verdict is exactly the shape that provokes it. Retrying blindly forever would be worse than
+    failing — an infinite spend — so it is one retry, and the second failure carries the API's own
+    stop reason into the build log.
+    """
+    try:
+        return call_model(api_key, model, prompt, max_tokens)
+    except EmptyAnswer as first:
+        print(f"    empty answer ({first}); retrying with {max_tokens * 4} tokens")
+        return call_model(api_key, model, prompt, max_tokens * 4)
 
 
 JUDGE_PREAMBLE = """You are grading a hand-off note that one developer left another about a large Java
@@ -169,12 +199,14 @@ def main() -> int:
             note = note_path.read_text()
             print(f"  {trajectory.name} b={checkpoint}: note already distilled")
         else:
-            note = call_model(api_key, model, prompt_path.read_text(), max_tokens=2_000).strip()
+            note = call_model_persistently(
+                api_key, model, prompt_path.read_text(), max_tokens=4_000
+            ).strip()
             note_path.write_text(note)
             print(f"  {trajectory.name} b={checkpoint}: distilled {len(note)} characters")
 
         verdict = parse_judgement(
-            call_model(api_key, model, judge_prompt(note, facts), max_tokens=1_000),
+            call_model_persistently(api_key, model, judge_prompt(note, facts), max_tokens=4_000),
             facts,
         )
         score = sum(verdict.values()) / len(facts)
