@@ -63,6 +63,56 @@ val ACQUISITION_DOWNSTREAM_MATRIX: List<AcquisitionCheckpointNote> =
         }
 
 /**
+ * The repository interactions a downstream cell of this round is allowed.
+ *
+ * Twenty, and the number is a measurement rather than a preference. The first downstream wave gave the
+ * weak agent no allowance at all; its floor anchor spent EIGHTY-NINE interactions and reached seven of
+ * eight assertions with no note whatsoever. Against that, nothing a note can say matters — the agent
+ * simply performs the research the note was meant to replace, so every condition converges and the
+ * whole wave measures the ceiling of the task instead of the value of understanding it.
+ *
+ * Twenty sits between the two things the case already knows about itself. Its own recorded shell audit
+ * reaches four fifths of the checklist in ten well-chosen commands, so twenty cannot make the task
+ * impossible for an agent that knows where to look; and it is a quarter of what the unbudgeted floor
+ * anchor spent, so it is nowhere near enough to rediscover the chain from nothing. Whether that gap is
+ * real is exactly what the calibration wave asks, and the answer is allowed to move this number: the
+ * pre-registration fixes the rule (a floor that still reaches the ceiling means tighten, a gold-note
+ * ceiling that cannot finish means loosen), not the value.
+ *
+ * File edits do not count against it — see [UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS].
+ */
+const val ACQUISITION_DOWNSTREAM_BUDGET: Int = 20
+
+/**
+ * The only allowances a downstream cell of this round may run under.
+ *
+ * Three values, fixed before the first calibration cell, because the budget is the one parameter that
+ * can manufacture any result this round could report. A wave that may be re-run at any number until
+ * the notes separate is not an experiment; a wave that may be re-run at the two neighbours of a
+ * pre-registered default, under a written rule for which direction to move, is a calibration.
+ */
+val ACQUISITION_DOWNSTREAM_BUDGETS: Set<Int> = setOf(15, ACQUISITION_DOWNSTREAM_BUDGET, 25)
+
+/**
+ * Reads the allowance a cell was queued with, defaulting to the pre-registered one.
+ *
+ * Refuses an unlisted value rather than honouring it. The failure this prevents is not a typo: it is a
+ * cell queued at 60 during a bad afternoon, landing in the same table as the cells queued at 20 and
+ * indistinguishable from them once the build log has scrolled past.
+ */
+fun acquisitionDownstreamBudgetOf(raw: String?): Int {
+    val value = raw?.trim().orEmpty()
+    if (value.isEmpty()) return ACQUISITION_DOWNSTREAM_BUDGET
+    val budget = value.toIntOrNull()
+    check(budget != null && budget in ACQUISITION_DOWNSTREAM_BUDGETS) {
+        "'$value' is not a pre-registered downstream allowance. This round runs at " +
+            "${ACQUISITION_DOWNSTREAM_BUDGETS.sorted()}, and the calibration rule in DESIGN-DOWNSTREAM.md " +
+            "says which way to move within them"
+    }
+    return budget
+}
+
+/**
  * True for a semantic-arm trajectory that never made a semantic call.
  *
  * Such a cell is not a measurement of the arm it is labelled with: the first pilot produced two of
@@ -111,11 +161,16 @@ fun parseAcquisitionCheckpointNote(raw: String): AcquisitionCheckpointNote {
  * What one downstream cell established, beyond the binary verdict.
  *
  * The count is the point. This round's question is whether a higher `U` buys a functionally better
- * starting position, and a pass/fail on eight assertions throws away most of the answer: a note that
- * carries the agent to seven of eight and a note that leaves it unable to compile are both `Y=0`. The
- * oracle is one class of eight independent assertions covering four different mechanisms, so the
- * number that still fail is a usable reading of the work the note did not do — and it makes twelve
- * cells informative where twelve Bernoulli trials would not be.
+ * starting position, and a pass/fail throws away most of the answer: a note that carries the agent to
+ * eight assertions of nine and a note that leaves it unable to compile are both `Y=0`. The oracle is
+ * one class of nine INDEPENDENT assertions, one per obligation of the change, so the number that still
+ * fail is a usable reading of the work the note did not do.
+ *
+ * Independence is the part that had to be built rather than assumed. The first version of this oracle
+ * discovered the implementation through the profile JSON, so every assertion failed until that one
+ * line existed and the scale was `{0} u {5..8}`; the first downstream wave was graded on it and could
+ * not have detected anything. The current oracle finds the implementation by scanning the module's
+ * compiled classes, and its measured scale over five trees is 1, 7, 8, 8, 9.
  *
  * [oracleTestsPassed] is counted against [oracleTestsTotal] taken from the case, never against what
  * the run happened to execute: a cell whose module did not compile ran zero tests, and reporting that
@@ -136,9 +191,37 @@ data class UnderstandingDownstreamOutcome(
      * there would read as an agent that solved the task by thinking about it.
      */
     val toolCalls: Int? = null,
+    /** The allowance this cell ran under, or null for the unbudgeted shape of the first wave. */
+    val budget: Int? = null,
+    /** Budgeted interactions the agent actually spent, as the in-container hook counted them. */
+    val budgetUsed: Int? = null,
+    /**
+     * Calls refused after the wall.
+     *
+     * Not an error count and not a failure of the cell: it measures how much MORE the agent still
+     * wanted to look at the repository when its allowance ran out, which is the clearest single
+     * reading of what the note failed to supply. A wave in which every cell ends with dozens of
+     * denials is a wave whose budget was set too small to distinguish notes.
+     */
+    val budgetDenied: Int? = null,
 ) {
     /** Assertions the note's reader never satisfied — the residual work, in the oracle's own units. */
     val residualTests: Int get() = oracleTestsTotal - oracleTestsPassed
+
+    /**
+     * True when the agent both solved the task AND never hit the wall.
+     *
+     * The two halves are one outcome on purpose. A cell that passed every assertion having exhausted
+     * its allowance and pushed against it twenty times did not demonstrate that the note carried it
+     * there; it demonstrated that the wall arrived after the work was done. Null whenever either half
+     * is unknown — an ungraded cell and an unbudgeted one are both unanswerable here, and a `false`
+     * would quietly enter an average as evidence of failure.
+     */
+    val successWithinBudget: Boolean?
+        get() = when {
+            success == null || budgetDenied == null -> null
+            else -> success && budgetDenied == 0
+        }
 }
 
 /**
@@ -162,6 +245,9 @@ fun acquisitionDownstreamLine(
     append("oraclePassed=${outcome.oracleTestsPassed}/${outcome.oracleTestsTotal} ")
     append("residual=${outcome.residualTests}")
     outcome.toolCalls?.let { append(" toolCalls=$it") }
+    outcome.budget?.let { append(" budget=${outcome.budgetUsed ?: "?"}/$it") }
+    outcome.budgetDenied?.let { append(" denied=$it") }
+    outcome.successWithinBudget?.let { append(" withinBudget=${if (it) 1 else 0}") }
     outcome.cost.usd?.let { append(" usd=%.4f".format(java.util.Locale.ROOT, it)) }
     outcome.cost.agentSeconds?.let { append(" agentSeconds=$it") }
     outcome.cost.outputTokens?.let { append(" outputTokens=$it") }

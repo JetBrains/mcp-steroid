@@ -306,14 +306,26 @@ object AcquisitionCases {
     val ccRefreshToken: UnderstandingCase = UnderstandingCase(
         instanceId = "acquisition__keycloak__cc-refresh-token",
         problemStatement = CC_REFRESH_TOKEN_STATEMENT,
-        oracleTestPatchResource = "acquisition-cases/acquisition__keycloak__cc-refresh-token/oracle.patch",
+        // v2, and the v1 patch is kept beside it as the provenance of the first downstream wave rather
+        // than as an alternative. v1's eight assertions all discovered the executor through one line of
+        // the profile JSON, so they failed together until that line existed: the residual scale it
+        // actually offered was `{0} u {5..8}` — one boolean wearing eight names — and the first wave was
+        // graded on it before anyone noticed. v2 discovers the implementation by scanning the compiled
+        // classes of the module, so each mechanism fails on its own terms.
+        oracleTestPatchResource = "acquisition-cases/acquisition__keycloak__cc-refresh-token/oracle-v2.patch",
         failToPass = listOf(
-            "org.keycloak.services.clientpolicy.executor.StrictProfileClientCredentialsRefreshTokenContractTest",
+            "org.keycloak.services.clientpolicy.executor.ClientCredentialsRefreshTokenResidualContractTest",
         ),
-        // Eight assertions across four mechanisms — the SPI registration, the profile JSON, the two
-        // CRUD events and the partial-update invariant — which is why the number of them a downstream
-        // run satisfies is a usable reading of residual work and not just a noisier pass/fail.
-        oracleTestCount = 8,
+        // Nine INDEPENDENT assertions, one per obligation of the gold change: the class, the two
+        // registrations, the blast radius, the two CRUD events, the auto-configure branch, the
+        // partial-update invariant and the absence of over-rejection. Measured on five trees before
+        // use — pristine 1, class only 7, plus META-INF 8, naive invariant 8, gold 9 — which is what
+        // makes the count a reading of residual work rather than a noisier pass/fail.
+        //
+        // The floor is ONE and not zero: the blast-radius assertion passes on a pristine tree by
+        // construction, because "changed no other shipped profile" is true of a tree that changed
+        // nothing. Stated here so that nobody reads 1/9 as partial progress.
+        oracleTestCount = 9,
         gradingScopeSelector = ":keycloak-services",
         statementLeakageTokens = CC_REFRESH_TOKEN_LEAKAGE,
         precedentPaths = listOf(

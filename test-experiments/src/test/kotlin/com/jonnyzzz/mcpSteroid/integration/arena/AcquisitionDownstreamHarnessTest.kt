@@ -191,6 +191,125 @@ class AcquisitionDownstreamHarnessTest {
     }
 
     @Test
+    fun `the downstream gate charges for reading the repository and not for writing the answer`() {
+        val script = understandingBudgetHookScript(
+            budget = ACQUISITION_DOWNSTREAM_BUDGET,
+            counterFile = "/r/used",
+            deniedFile = "/r/denied",
+            recordDir = "/r",
+            exemptTools = UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS,
+            exhaustedMessage = UNDERSTANDING_DOWNSTREAM_BUDGET_EXHAUSTED_MESSAGE,
+        )
+        // The edit tools are free, so a note's value is priced in discovery rather than in keystrokes.
+        listOf("Write", "Edit", "MultiEdit").forEach {
+            assertTrue(script.contains("$it|") || script.contains("|$it"), "$it must be exempt: $script")
+        }
+        // Bash is NOT, even though it also runs the build: the same tool greps the tree, and a rule
+        // keyed on the command text is a rule the agent can phrase its way around.
+        assertTrue(!UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS.contains("Bash"), script)
+        assertTrue(!UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS.contains("Read"), script)
+        // No downstream cell has an IDE in any condition, so an exemption for one would describe a
+        // tool that cannot be called — and would invite giving one condition its tools back.
+        assertTrue(UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS.none { it.contains("steroid") })
+        assertTrue(UNDERSTANDING_BUDGET_EXEMPT_TOOLS.any { it.contains("steroid") })
+
+        // The wall must tell a downstream agent to FINISH, where it tells a research agent to stop.
+        assertTrue(script.contains("still create and edit files"), script)
+        assertTrue(!script.contains(UNDERSTANDING_NOTE_OPEN_MARKER), script)
+    }
+
+    @Test
+    fun `the brief states the price of everything before the agent spends anything`() {
+        val budgeted = buildUnderstandingDownstreamPrompt(case, "/p", note = null, budget = 20)
+        assertTrue(budgeted.contains("**20 times**"), budgeted)
+        assertTrue(budgeted.contains("Creating and editing files is FREE"), budgeted)
+        assertTrue(budgeted.contains("Build at most once"), budgeted)
+
+        // The unbudgeted shape must stay byte-identical to what the note-bottleneck rounds ran, or
+        // their published tables would be describing a brief that no longer exists.
+        val unlimited = buildUnderstandingDownstreamPrompt(case, "/p", note = null)
+        assertTrue(!unlimited.contains("## Your budget"), unlimited)
+        assertTrue(!unlimited.contains("costs ONE"), unlimited)
+        assertTrue(unlimited.contains("Verify your work by building and testing the module"), unlimited)
+
+        // One inserted block and nothing else is the whole design of the note conditions; the budget
+        // paragraph must not have become a second difference between them.
+        val withNote = buildUnderstandingDownstreamPrompt(case, "/p", note = "a note", budget = 20)
+        assertEquals(
+            budgeted.lines().filter { it.contains("interact with this repository") },
+            withNote.lines().filter { it.contains("interact with this repository") },
+        )
+    }
+
+    @Test
+    fun `only a pre-registered allowance can be queued`() {
+        assertEquals(ACQUISITION_DOWNSTREAM_BUDGET, acquisitionDownstreamBudgetOf(null))
+        assertEquals(ACQUISITION_DOWNSTREAM_BUDGET, acquisitionDownstreamBudgetOf("  "))
+        assertEquals(15, acquisitionDownstreamBudgetOf("15"))
+        // 60 is not a typo but the failure mode: a cell queued generously lands in the same table as
+        // the cells queued at twenty and is indistinguishable once the build log has scrolled.
+        assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("60") }
+        assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("twenty") }
+    }
+
+    @Test
+    fun `success after the wall is not success within the budget`() {
+        fun outcome(success: Boolean?, denied: Int?) = UnderstandingDownstreamOutcome(
+            success = success,
+            verdict = "Y=${if (success == true) 1 else 0}",
+            oracleTestsPassed = 9,
+            oracleTestsTotal = 9,
+            cost = UnderstandingCellCost(null, null, null),
+            budget = 20,
+            budgetUsed = 20,
+            budgetDenied = denied,
+        )
+
+        assertEquals(true, outcome(true, 0).successWithinBudget)
+        // Solved, but only after pushing against the wall eleven times: that is a cell whose note did
+        // not carry it there, and averaging it in as a success would credit the note for the ceiling.
+        assertEquals(false, outcome(true, 11).successWithinBudget)
+        assertEquals(false, outcome(false, 0).successWithinBudget)
+        assertNull(outcome(null, 0).successWithinBudget, "an ungraded cell answers nothing")
+        assertNull(outcome(true, null).successWithinBudget, "an unbudgeted cell answers nothing here")
+    }
+
+    @Test
+    fun `the verdict line carries the accounting the calibration is read from`() {
+        val line = acquisitionDownstreamLine(
+            caseId = case.instanceId,
+            condition = UnderstandingCondition.Baseline,
+            replicate = 1,
+            outcome = UnderstandingDownstreamOutcome(
+                success = false,
+                verdict = "Y=0",
+                oracleTestsPassed = 2,
+                oracleTestsTotal = 9,
+                cost = UnderstandingCellCost(usd = 0.4, agentSeconds = 300, outputTokens = 8_000),
+                toolCalls = 31,
+                budget = 20,
+                budgetUsed = 20,
+                budgetDenied = 7,
+            ),
+        )
+        assertTrue(line.contains("budget=20/20"), line)
+        assertTrue(line.contains("denied=7"), line)
+        assertTrue(line.contains("withinBudget=0"), line)
+        // An unbudgeted cell must not print zeros for columns it never measured.
+        val unbudgeted = acquisitionDownstreamLine(
+            caseId = case.instanceId,
+            condition = UnderstandingCondition.Baseline,
+            replicate = 1,
+            outcome = UnderstandingDownstreamOutcome(
+                success = false, verdict = "Y=0", oracleTestsPassed = 2, oracleTestsTotal = 9,
+                cost = UnderstandingCellCost(null, null, null),
+            ),
+        )
+        assertTrue(!unbudgeted.contains("budget="), unbudgeted)
+        assertTrue(!unbudgeted.contains("denied="), unbudgeted)
+    }
+
+    @Test
     fun `a committed transcript reads the same gzipped as it does plain`(@TempDir dir: File) {
         val folder = dir.resolve("mcp-b40-l2000-r1").apply { mkdirs() }
         val text = """{"type":"assistant","message":{"id":"m1"}}"""

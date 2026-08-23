@@ -56,6 +56,53 @@ val UNDERSTANDING_BUDGET_EXEMPT_TOOLS: List<String> = listOf(
 )
 
 /**
+ * The tools that do NOT consume the DOWNSTREAM budget, and why that list is a different one.
+ *
+ * A downstream cell does two things the research cell never does: it writes files, and it builds what
+ * it wrote. Only the first is exempt here, and the asymmetry is the measurement.
+ *
+ * - `Write`, `Edit`, `MultiEdit`, `NotebookEdit` produce the ANSWER. Charging for them would price the
+ *   note's value in keystrokes: the gold change is four files, so every cell would pay the same four
+ *   or five interactions regardless of what it understood, and an agent that already knew exactly what
+ *   to write could be refused permission to write it. The quantity this round compares is the
+ *   REPOSITORY DISCOVERY a note removes, so only reading the repository is charged.
+ * - `Bash` is charged even when it runs the build. It cannot be split: the same tool greps the tree and
+ *   compiles it, and a rule keyed on the command text would be a rule an agent can phrase its way
+ *   around. So the brief states the cost plainly instead — build once, at the end — and a cell that
+ *   spent its allowance polling a reactor is visible in `budgetUsed` rather than silently mixed in.
+ * - `TodoWrite` and `ToolSearch` are exempt for the same reasons the research list gives.
+ *
+ * The semantic-arm exemptions of [UNDERSTANDING_BUDGET_EXEMPT_TOOLS] are deliberately absent: no
+ * downstream cell has an IDE at all, in any condition, so an entry for them would describe a tool that
+ * cannot be called and would invite someone to give one condition the tools back.
+ */
+val UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS: List<String> = listOf(
+    "ToolSearch",
+    "TodoWrite",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+)
+
+/**
+ * The message a downstream agent is shown when its allowance runs out.
+ *
+ * Different from the research one in the only way that matters: the research agent is told to stop and
+ * write its note, and this one is told to stop READING and finish the change with what it has. An
+ * agent that is merely refused abandons a half-written patch, and a cell that ends with three files of
+ * four is a measurement of the wall rather than of the note.
+ *
+ * The editing tools keep working after the wall — they are exempt — and the message says so, because
+ * an agent that believes it can no longer act stops acting.
+ */
+const val UNDERSTANDING_DOWNSTREAM_BUDGET_EXHAUSTED_MESSAGE: String =
+    "REPOSITORY INTERACTION BUDGET EXHAUSTED. You have used every repository interaction allowed for " +
+        "this task, and no further shell command, file read or search will succeed — retrying with " +
+        "different arguments will not help. You CAN still create and edit files: finish the change now " +
+        "with what you already know, then give your final answer."
+
+/**
  * The message the agent is shown when it reaches for tool number `budget + 1`.
  *
  * It has to do two things at once: stop the exploration and tell the agent what to do INSTEAD, because
@@ -92,8 +139,15 @@ fun understandingBudgetHookScript(
     deniedFile: String,
     recordDir: String,
     exemptTools: List<String> = UNDERSTANDING_BUDGET_EXEMPT_TOOLS,
+    exhaustedMessage: String = UNDERSTANDING_BUDGET_EXHAUSTED_MESSAGE,
 ): String {
     require(budget > 0) { "a research budget must be positive, got $budget" }
+    require(exemptTools.isNotEmpty()) {
+        "the exempt list is what makes two phases comparable; an empty one charges for the CLI's own plumbing"
+    }
+    require(exhaustedMessage.isNotBlank()) {
+        "a refusal with no reason teaches the agent nothing, and it retries the same call until the run ends"
+    }
     val d = "${'$'}"
     val exemptPattern = exemptTools.joinToString("|")
     return """
@@ -125,7 +179,7 @@ fun understandingBudgetHookScript(
         if [ "${d}used" -ge $budget ]; then
             denied=${d}(( ${d}(cat $deniedFile 2>/dev/null || echo 0) + 1 ))
             echo "${d}denied" > $deniedFile
-            echo "$UNDERSTANDING_BUDGET_EXHAUSTED_MESSAGE" >&2
+            echo "$exhaustedMessage" >&2
             exit 2
         fi
 

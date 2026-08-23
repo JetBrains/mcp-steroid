@@ -186,7 +186,12 @@ class AcquisitionDownstreamTest {
             )
         }
         try {
-            runUnderstandingDownstream(case = case, condition = condition, replicate = replicate)
+            runUnderstandingDownstream(
+                case = case,
+                condition = condition,
+                replicate = replicate,
+                budget = acquisitionDownstreamBudgetOf(System.getProperty(UNDERSTANDING_BUDGET_PROPERTY)),
+            )
         } finally {
             if (previousModel == null) {
                 System.clearProperty(RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY)

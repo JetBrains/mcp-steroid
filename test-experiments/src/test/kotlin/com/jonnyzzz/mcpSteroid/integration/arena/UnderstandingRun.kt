@@ -40,6 +40,17 @@ class UnderstandingResearchGate(
      * that session is started with no MCP server at all.
      */
     private val eagerMcpTools: Boolean = false,
+    /**
+     * Which tool names the gate lets through free.
+     *
+     * A parameter and not a constant because the two phases charge for different things — see
+     * [UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS] — and because the alternative, a second gate
+     * class, would be a second place for the counter-file and executable-bit mistakes this one
+     * already learned about the hard way.
+     */
+    private val exemptTools: List<String> = UNDERSTANDING_BUDGET_EXEMPT_TOOLS,
+    /** What the agent is told when the wall arrives; the two phases want opposite things next. */
+    private val exhaustedMessage: String = UNDERSTANDING_BUDGET_EXHAUSTED_MESSAGE,
 ) {
     private val counterFile: String = "$recordDir/budget-used"
     private val deniedFile: String = "$recordDir/budget-denied"
@@ -61,6 +72,8 @@ class UnderstandingResearchGate(
                 counterFile = counterFile,
                 deniedFile = deniedFile,
                 recordDir = recordDir,
+                exemptTools = exemptTools,
+                exhaustedMessage = exhaustedMessage,
             ),
             executable = true,
         )
@@ -91,7 +104,7 @@ class UnderstandingResearchGate(
         )
         println(
             "[UNDERSTANDING] budget gate installed: $budget interactions, records in $recordDir, " +
-                "eager mcp tools=$eagerMcpTools",
+                "eager mcp tools=$eagerMcpTools, free: ${exemptTools.joinToString(", ")}",
         )
     }
 
@@ -334,11 +347,22 @@ fun runUnderstandingDownstream(
     case: UnderstandingCase,
     condition: UnderstandingCondition,
     replicate: Int,
+    /**
+     * How many repository interactions this cell is allowed, or null for the unbudgeted shape the
+     * note-bottleneck rounds ran.
+     *
+     * Null is not a default worth keeping for new work. An unbudgeted downstream agent does not read a
+     * note, it re-derives it: the first floor anchor of this case reached seven of eight assertions
+     * with NO note at all, on eighty-nine interactions, against a case whose own shell audit says ten
+     * good commands reach four fifths of the checklist. Under that shape a note cannot be measured,
+     * because nothing it could contain changes what the agent can find out for itself.
+     */
+    budget: Int? = null,
 ): UnderstandingDownstreamOutcome {
     val note = condition.noteText(case)
     println(
         "[UNDERSTANDING-DOWN] cell case=${case.instanceId} condition=${condition.label} " +
-            "replicate=$replicate note=${note?.length ?: 0} chars"
+            "replicate=$replicate note=${note?.length ?: 0} chars budget=${budget ?: "unlimited"}"
     )
 
     val lifetime = CloseableStackHost()
@@ -379,6 +403,20 @@ fun runUnderstandingDownstream(
             installReactorWithNetworkRetries(session.scope, projectDir)
         }
 
+        // Installed AFTER every piece of harness work, exactly as the research cell does it: the
+        // reactor install is a build the HARNESS runs, and charging the agent for it would price a
+        // Maven download against the note.
+        val gate = budget?.let { allowance ->
+            UnderstandingResearchGate(
+                container = session.scope,
+                recordDir = "${session.guestRunDir()}/downstream",
+                budget = allowance,
+                eagerMcpTools = false,
+                exemptTools = UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS,
+                exhaustedMessage = UNDERSTANDING_DOWNSTREAM_BUDGET_EXHAUSTED_MESSAGE,
+            ).also { installed -> installed.install(claude) }
+        }
+
         val testCase = case.dpaiaCase()
         val runner = ArenaTestRunner(container = session.scope, projectGuestDir = projectDir)
         val result = runner.runTest(
@@ -388,9 +426,19 @@ fun runUnderstandingDownstream(
             timeoutSeconds = case.downstreamTimeoutSeconds,
             predeployedProjectDir = projectDir,
             logDir = session.runDirInContainer,
-            promptBuilder = { dir -> buildUnderstandingDownstreamPrompt(case, dir, note) },
+            promptBuilder = { dir -> buildUnderstandingDownstreamPrompt(case, dir, note, budget) },
             enforceFirstCallProjectMarker = false,
         )
+
+        // Read before the oracle patch is applied and before anything can throw: the accounting is the
+        // cell's other half, and a cell that lost its grading still answers "did the wall arrive".
+        val usage = gate?.usage()
+        if (gate != null && usage != null && budget != null) {
+            println(
+                "[UNDERSTANDING-DOWN] budget: ${usage.describe(budget)}; tools " +
+                    "${gate.toolLog().groupingBy { it }.eachCount()}"
+            )
+        }
 
         val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
         val oracleApplied = try {
@@ -410,6 +458,9 @@ fun runUnderstandingDownstream(
                 oracleTestsPassed = 0,
                 oracleTestsTotal = case.oracleTestCount,
                 cost = UnderstandingCellCost(null, null, null),
+                budget = budget,
+                budgetUsed = usage?.used,
+                budgetDenied = usage?.denied,
             )
         }
 
@@ -472,6 +523,9 @@ fun runUnderstandingDownstream(
             oracleTestsTotal = case.oracleTestCount,
             cost = cost,
             toolCalls = extractToolCallStats(result.agentResult.rawStdout)?.totalToolCalls,
+            budget = budget,
+            budgetUsed = usage?.used,
+            budgetDenied = usage?.denied,
         )
         // Only for the acquisition family. The note-bottleneck rounds published their tables off the
         // line above and are not re-read; a second verdict line under their cells would mean two

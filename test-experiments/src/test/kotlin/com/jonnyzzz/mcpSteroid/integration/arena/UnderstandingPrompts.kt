@@ -162,6 +162,15 @@ fun buildUnderstandingDownstreamPrompt(
     case: UnderstandingCase,
     projectDir: String,
     note: String?,
+    /**
+     * The repository interactions this cell allows, or null for an unlimited one.
+     *
+     * When it is set the agent is TOLD the number, and it has to be: an allowance that only announces
+     * itself by refusing the twenty-first call measures how surprised the agent was, not what the note
+     * was worth. The same paragraph therefore states the price list too, because an agent that does
+     * not know editing is free will ration the wrong thing.
+     */
+    budget: Int? = null,
 ): String = buildString {
     appendLine("You are working on a large multi-module Java project located at: `$projectDir`")
     appendLine()
@@ -180,12 +189,33 @@ fun buildUnderstandingDownstreamPrompt(
         appendLine()
         appendLine(note.trim())
     }
+    if (budget != null) {
+        appendLine()
+        appendLine("## Your budget of repository interactions")
+        appendLine()
+        appendLine("You may interact with this repository **$budget times**. Plan for it from your first")
+        appendLine("move: this is a large project and it cannot be surveyed within that number, so spend")
+        appendLine("the interactions on what you specifically need in order to make the change.")
+        appendLine()
+        appendLine("- Each shell command, file read, search or listing costs ONE of the $budget.")
+        appendLine("- **Creating and editing files is FREE** and stays available even after the budget is")
+        appendLine("  gone. Never spend an interaction on writing a file through the shell.")
+        appendLine("- A build or test run costs one interaction like anything else, and polling it costs")
+        appendLine("  more. Build at most once, at the end, and only if you can still afford it.")
+        appendLine("- When the budget is exhausted you will be refused further reads. Finish the change")
+        appendLine("  with what you know rather than stopping — an unfinished edit helps nobody.")
+    }
     appendLine()
     appendLine("## Environment Facts")
     appendLine()
     understandingEnvironmentFacts(case).forEach { appendLine(it) }
-    appendLine("- Verify your work by building and testing the module you changed, with")
-    appendLine("  `./mvnw test -pl <module>`; do not launch a reactor-wide test run to check yourself.")
+    if (budget == null) {
+        appendLine("- Verify your work by building and testing the module you changed, with")
+        appendLine("  `./mvnw test -pl <module>`; do not launch a reactor-wide test run to check yourself.")
+    } else {
+        appendLine("- If you verify, build only the module you changed (`./mvnw test -pl <module>`); a")
+        appendLine("  reactor-wide run costs the same one interaction and takes far longer than you have.")
+    }
     appendLine("- Never end your turn while a command you started is still running. If you start a build")
     appendLine("  in the background, poll it until it has finished and read its outcome before you answer.")
     appendLine("  Ending a turn to wait for a completion notification ends the whole run instead, with")

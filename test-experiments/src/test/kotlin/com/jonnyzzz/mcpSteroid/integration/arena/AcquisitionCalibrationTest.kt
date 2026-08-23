@@ -81,6 +81,34 @@ class AcquisitionCalibrationTest {
     }
 
     @Test
+    fun `the oracle finds the implementation without naming it and without either registration`() {
+        val patch = AcquisitionCases.ccRefreshToken.oracleTestPatch()
+        // Naming the gold class would make the residual count a measurement of whether the agent
+        // guessed the same identifier, and would let a note leak the answer through the file path.
+        assertTrue(
+            !patch.contains("RejectClientCredentials"),
+            "the oracle names the gold implementation, so it grades identifiers rather than behaviour",
+        )
+        // The de-cascade itself: discovery by scanning the module's compiled classes, so that the
+        // behavioural axes can pass on a tree that registered nothing. Without this the scale collapses
+        // back to `{0} u {5..9}`, which is what the first downstream wave was graded on.
+        assertTrue(patch.contains("getProtectionDomain"), "discovery must not go through the profile JSON")
+        assertTrue(patch.contains("ClientPolicyExecutorProvider"), patch.take(200))
+
+        // The superseded oracle stays on disk as the provenance of the first wave's numbers. A round
+        // whose grader has been silently replaced cannot explain its own history.
+        assertTrue(
+            AcquisitionCases.ccRefreshToken.oracleTestPatchResource.endsWith("oracle-v2.patch"),
+            "the case must grade against the de-cascaded oracle",
+        )
+        assertTrue(
+            javaClass.classLoader
+                .getResource("acquisition-cases/acquisition__keycloak__cc-refresh-token/oracle.patch") != null,
+            "the first wave's oracle must remain readable beside the one that replaced it",
+        )
+    }
+
+    @Test
     fun `the growth between three and ten commands is where the case lives`() {
         val results = recordedShellResults()
         val afterThree = checklist.observedScore(results.take(3))
