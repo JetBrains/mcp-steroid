@@ -1,0 +1,7 @@
+condition,trajectory_id,checkpoint,arm,u_obs,u_note,passed,total,budget,used,denied,within,tool_calls,output_tokens,seconds,usd,build_id
+baseline,baseline,,-,,,0,9,20,20,8,0,47,19019,159,0.3220,1039289680
+baseline,baseline,,-,,,0,9,20,20,5,0,39,16705,128,0.2722,1039289682
+baseline,baseline,,-,,,0,9,20,20,4,0,77,40004,368,0.7006,1039289684
+baseline,baseline,,-,,,0,9,20,20,3,0,30,7749,80,0.2343,1039289686
+oracle-gold,oracle-gold,,-,,,9,9,20,20,1,0,29,14134,154,0.2673,1039289688
+oracle-gold,oracle-gold,,-,,,9,9,20,20,0,1,29,13995,196,0.2475,1039289690

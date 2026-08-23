@@ -131,3 +131,22 @@ gated on nothing**: both ceiling cells lost the same assertion to an oracle defe
 shipped profile never produces — see amendment 2 in the design. It is kept here because it is what the
 repair is evidence for, and because its floor (0, 0, 2, 1 with every cell hitting the wall) is the
 first demonstration that the budget does what round 1 lacked.
+
+### Calibration wave 2 (2026-08-24) — the fixed oracle, and the gates
+
+Same six cells, same `B_down = 20`, the only change being the amendment-2a repair. All four gates
+pass; per-cell numbers in [data/downstream2-cells.csv](data/downstream2-cells.csv).
+
+ build | condition | passed | budget | denied | toolCalls | usd |
+---|---|---|---|---|---|---|
+ 1039289680 | `baseline` r5 | 0/9 | 20/20 | 8 | 47 | 0.32 |
+ 1039289682 | `baseline` r6 | 0/9 | 20/20 | 5 | 39 | 0.27 |
+ 1039289684 | `baseline` r7 | 0/9 | 20/20 | 4 | 77 | 0.70 |
+ 1039289686 | `baseline` r8 | 0/9 | 20/20 | 3 | 30 | 0.23 |
+ 1039289688 | `oracle:gold` r5 | **9/9** | 20/20 | 1 | 29 | 0.27 |
+ 1039289690 | `oracle:gold` r6 | **9/9** | 20/20 | 0 | 29 | 0.25 |
+
+Floor 0.00 (sd 0.00), ceiling 9.00, gap 9.00 assertions, nothing lost. The floor is zero because all
+four unaided cells left `services` non-compiling — twenty interactions are not enough to find the
+chain AND get the code to build — while both cells that were told the chain finished it, one of them
+without ever reaching the wall.
