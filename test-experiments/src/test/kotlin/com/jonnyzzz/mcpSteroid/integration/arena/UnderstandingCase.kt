@@ -26,6 +26,16 @@ data class UnderstandingCase(
     val oracleTestPatchResource: String,
     /** FAIL_TO_PASS entries, in the form [ArenaVerifier] parses. */
     val failToPass: List<String>,
+    /**
+     * How many assertions the hidden oracle makes, counted in the patch.
+     *
+     * The denominator of the residual-work reading, and it has to come from the CASE rather than from
+     * the run: a downstream cell whose module failed to compile executes zero tests, and scoring it
+     * "0 of 0" would silently drop the very worst outcomes out of every average it enters. Pinned
+     * against the patch by `UnderstandingCaseRegistryTest`, so an oracle that grows an assertion
+     * cannot leave the denominator behind.
+     */
+    val oracleTestCount: Int,
     /** Reactor projects the grading run is scoped to, e.g. `:keycloak-server-spi`. */
     val gradingScopeSelector: String,
     /**
@@ -81,6 +91,10 @@ data class UnderstandingCase(
         }
         check(precedentPaths.isNotEmpty()) {
             "$instanceId claims to be an understanding task but names no precedent to be understood"
+        }
+        check(oracleTestCount > 0) {
+            "$instanceId declares $oracleTestCount oracle assertions, so residual work would be scored " +
+                "against an empty denominator"
         }
     }
 
@@ -175,6 +189,7 @@ object UnderstandingCases {
             problemStatement = EMAIL_DOMAIN_MAPPER_STATEMENT,
             oracleTestPatchResource = "arena-overlays/understanding-keycloak-email-domain-mapper.patch",
             failToPass = listOf("org.keycloak.protocol.oidc.EmailDomainMapperContractTest"),
+            oracleTestCount = 7,
             gradingScopeSelector = ":keycloak-services",
             statementLeakageTokens = EMAIL_DOMAIN_MAPPER_LEAKAGE,
             precedentPaths = listOf(

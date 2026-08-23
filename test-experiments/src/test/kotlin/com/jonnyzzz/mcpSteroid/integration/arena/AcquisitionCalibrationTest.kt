@@ -68,6 +68,19 @@ class AcquisitionCalibrationTest {
     }
 
     @Test
+    fun `the residual-work denominator is the number of assertions the oracle really makes`() {
+        val case = AcquisitionCases.ccRefreshToken
+        val declared = Regex("""^\+\s*@Test\b""", RegexOption.MULTILINE)
+            .findAll(case.oracleTestPatch()).count()
+        assertTrue(
+            declared == case.oracleTestCount,
+            "the oracle patch declares $declared assertions and the case says ${case.oracleTestCount}. " +
+                "Every residual-work reading of this round is a fraction of that number, so the two " +
+                "drifting apart would rescale the whole scatter plot without failing anything",
+        )
+    }
+
+    @Test
     fun `the growth between three and ten commands is where the case lives`() {
         val results = recordedShellResults()
         val afterThree = checklist.observedScore(results.take(3))

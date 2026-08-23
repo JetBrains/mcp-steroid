@@ -310,6 +310,10 @@ object AcquisitionCases {
         failToPass = listOf(
             "org.keycloak.services.clientpolicy.executor.StrictProfileClientCredentialsRefreshTokenContractTest",
         ),
+        // Eight assertions across four mechanisms — the SPI registration, the profile JSON, the two
+        // CRUD events and the partial-update invariant — which is why the number of them a downstream
+        // run satisfies is a usable reading of residual work and not just a noisier pass/fail.
+        oracleTestCount = 8,
         gradingScopeSelector = ":keycloak-services",
         statementLeakageTokens = CC_REFRESH_TOKEN_LEAKAGE,
         precedentPaths = listOf(

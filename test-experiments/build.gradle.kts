@@ -121,6 +121,10 @@ fun Test.configureExperimentalTest() {
         // out to have been wrong — as its token axis was, once — the curves are recomputed from the
         // files instead of from a new round of Opus trajectories.
         "acquisition.recompute.dir" to "ACQUISITION_RECOMPUTE_DIR",
+        // Where that re-reader writes the checklist and the per-checkpoint distillation prompts, so a
+        // hand-off note can be distilled from a transcript bought long ago. Without it on this list the
+        // property never reaches the forked test JVM and the re-read silently produces the curve only.
+        "acquisition.recompute.out" to "ACQUISITION_RECOMPUTE_OUT",
         "test.integration.ide.vm.xmx" to "TEST_INTEGRATION_IDE_VM_XMX",
     ).forEach { (key, envName) ->
         val value = System.getProperty(key)?.takeIf { it.isNotBlank() }

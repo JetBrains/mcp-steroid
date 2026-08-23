@@ -12,7 +12,13 @@ import java.io.File
  * what three independent coordinates cost — every one of them is a chance to measure the wrong cell.
  */
 sealed interface UnderstandingCondition {
-    /** How the cell appears in the log line and in the aggregate. */
+    /**
+     * How the cell appears in the log line and in the aggregate.
+     *
+     * A fourth shape, [AcquisitionCheckpointNote], joined the three below when the acquisition round
+     * needed to address a knowledge state rather than a run. It lives in its own file because it is
+     * indexed by a pair — trajectory and checkpoint — that means nothing to the note-bottleneck rounds.
+     */
     val label: String
 
     /** The note text the downstream prompt embeds, or null for the control. */
@@ -62,9 +68,13 @@ fun understandingConditionOf(raw: String?): UnderstandingCondition {
     val value = raw?.trim().orEmpty()
     check(value.isNotEmpty()) {
         "no downstream condition given. Pass -D$UNDERSTANDING_CONDITION_PROPERTY=baseline, " +
-            "=oracle:<name>, or =<noteId> such as mcp-b10-l5000-r1"
+            "=oracle:<name>, =<noteId> such as mcp-b10-l5000-r1, or " +
+            "=${CHECKPOINT_CONDITION_PREFIX}<trajectoryId>@<B>"
     }
     if (value == "baseline") return UnderstandingCondition.Baseline
+    if (value.startsWith(CHECKPOINT_CONDITION_PREFIX)) {
+        return parseAcquisitionCheckpointNote(value.removePrefix(CHECKPOINT_CONDITION_PREFIX))
+    }
     if (value.startsWith("oracle:")) {
         val name = value.removePrefix("oracle:")
         check(name.isNotBlank()) { "an oracle condition must be named: -D$UNDERSTANDING_CONDITION_PROPERTY=oracle:<name>" }
@@ -74,6 +84,15 @@ fun understandingConditionOf(raw: String?): UnderstandingCondition {
     parseUnderstandingNoteId(value)
     return UnderstandingCondition.Research(value)
 }
+
+/**
+ * What a checkpoint-note condition is written with.
+ *
+ * A prefix rather than a bare `<trajectory>@<B>`, so that the parser can refuse an unknown value
+ * instead of guessing: the three older shapes are matched exactly, and anything else has to say which
+ * kind of thing it is before it is read.
+ */
+const val CHECKPOINT_CONDITION_PREFIX: String = "checkpoint:"
 
 /** The property a downstream build sets to name its cell. */
 const val UNDERSTANDING_CONDITION_PROPERTY: String = "understanding.condition"

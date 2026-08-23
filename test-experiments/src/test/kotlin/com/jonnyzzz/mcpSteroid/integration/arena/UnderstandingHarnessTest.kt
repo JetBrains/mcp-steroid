@@ -489,6 +489,7 @@ class UnderstandingHarnessTest {
         problemStatement = "Make the widget emit its colour when asked politely.",
         oracleTestPatchResource = "arena-overlays/does-not-need-to-exist.patch",
         failToPass = listOf("org.example.WidgetContractTest"),
+        oracleTestCount = 3,
         gradingScopeSelector = ":example-widgets",
         statementLeakageTokens = mapOf("colour" to 3),
         precedentPaths = listOf("src/main/java/org/example/Shape.java"),

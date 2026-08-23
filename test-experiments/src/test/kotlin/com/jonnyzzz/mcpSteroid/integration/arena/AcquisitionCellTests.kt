@@ -141,3 +141,56 @@ class AcquisitionResearchTest {
         }
     }
 }
+
+/**
+ * One downstream validation cell: the weak agent, a pristine tree, and ONE knowledge state.
+ *
+ * This family does not ask which arm produced the note. It asks whether `U` — the share of a
+ * pre-registered checklist a trajectory prefix had observed — predicts how far a competent-but-weak
+ * agent gets from the note that prefix supports. The arm is recorded and analysed afterwards as a
+ * secondary reading, and the agent is never told it.
+ *
+ * The two calibration conditions run through this same cell: `baseline` for the floor and
+ * `oracle:gold` for the ceiling. They are what makes a flat `U -> success` curve interpretable — a
+ * task nobody can do and a task everybody can do both produce one.
+ *
+ * The model is defaulted to the weak one here and restored afterwards, exactly as the note-bottleneck
+ * cell does it: the Gradle test JVM is shared and a research cell in the same JVM must not inherit a
+ * haiku.
+ */
+class AcquisitionDownstreamTest {
+
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.MINUTES)
+    fun downstream() {
+        val caseId = System.getProperty(UNDERSTANDING_CASE_PROPERTY)?.trim().orEmpty()
+        check(caseId.isNotEmpty()) { "no case given. Pass -D$UNDERSTANDING_CASE_PROPERTY=<instanceId>" }
+        val case = AcquisitionCases.byId(caseId)
+        val condition = understandingConditionOf(System.getProperty(UNDERSTANDING_CONDITION_PROPERTY))
+        // A note id of the OTHER family would resolve, read a file from the other directory and grade
+        // a cell nobody can place on this round's curve. Refused rather than run.
+        check(condition !is UnderstandingCondition.Research) {
+            "'${condition.label}' is a note of the note-bottleneck rounds. This round's conditions are " +
+                "`${CHECKPOINT_CONDITION_PREFIX}<trajectoryId>@<B>`, `baseline` and `oracle:<name>`"
+        }
+        val replicate = System.getProperty(UNDERSTANDING_REPLICATE_PROPERTY)?.trim()?.toIntOrNull()
+        check(replicate != null && replicate >= 1) {
+            "the replicate must be a positive number — pass -D$UNDERSTANDING_REPLICATE_PROPERTY"
+        }
+
+        val previousModel = System.getProperty(RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY)
+        if (previousModel == null) {
+            System.setProperty(
+                RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY,
+                RippleCheckpointProbeTest.PROBE_MODEL,
+            )
+        }
+        try {
+            runUnderstandingDownstream(case = case, condition = condition, replicate = replicate)
+        } finally {
+            if (previousModel == null) {
+                System.clearProperty(RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY)
+            }
+        }
+    }
+}

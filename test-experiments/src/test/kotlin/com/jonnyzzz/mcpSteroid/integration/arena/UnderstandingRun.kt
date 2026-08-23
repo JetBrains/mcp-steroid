@@ -334,7 +334,7 @@ fun runUnderstandingDownstream(
     case: UnderstandingCase,
     condition: UnderstandingCondition,
     replicate: Int,
-): Boolean? {
+): UnderstandingDownstreamOutcome {
     val note = condition.noteText(case)
     println(
         "[UNDERSTANDING-DOWN] cell case=${case.instanceId} condition=${condition.label} " +
@@ -404,7 +404,13 @@ fun runUnderstandingDownstream(
         }
         if (!oracleApplied) {
             println(understandingDownstreamLine(case, condition, replicate, null, "LOST oracle-patch-conflict"))
-            return null
+            return UnderstandingDownstreamOutcome(
+                success = null,
+                verdict = "LOST oracle-patch-conflict",
+                oracleTestsPassed = 0,
+                oracleTestsTotal = case.oracleTestCount,
+                cost = UnderstandingCellCost(null, null, null),
+            )
         }
 
         // Snapshotted right after the patch: the oracle did not exist while the agent ran, so this is
@@ -445,20 +451,35 @@ fun runUnderstandingDownstream(
             success -> "Y=1"
             else -> "Y=0"
         }
+        val cost = UnderstandingCellCost(
+            usd = metrics.tokenUsage?.costUsd,
+            agentSeconds = result.agentDurationMs / 1000,
+            outputTokens = metrics.tokenUsage?.outputTokens,
+        )
         println(
             understandingDownstreamLine(
                 case = case,
                 condition = condition,
                 replicate = replicate,
-                cost = UnderstandingCellCost(
-                    usd = metrics.tokenUsage?.costUsd,
-                    agentSeconds = result.agentDurationMs / 1000,
-                    outputTokens = metrics.tokenUsage?.outputTokens,
-                ),
+                cost = cost,
                 verdict = verdict,
             )
         )
-        return if (verdict.startsWith("LOST")) null else success
+        val outcome = UnderstandingDownstreamOutcome(
+            success = if (verdict.startsWith("LOST")) null else success,
+            verdict = verdict,
+            oracleTestsPassed = oracleAssertionsPassed(verification, case),
+            oracleTestsTotal = case.oracleTestCount,
+            cost = cost,
+            toolCalls = extractToolCallStats(result.agentResult.rawStdout)?.totalToolCalls,
+        )
+        // Only for the acquisition family. The note-bottleneck rounds published their tables off the
+        // line above and are not re-read; a second verdict line under their cells would mean two
+        // greppable answers to the same question, which is how an aggregate quietly double-counts.
+        if (case.instanceId.startsWith("acquisition__")) {
+            println(acquisitionDownstreamLine(case.instanceId, condition, replicate, outcome))
+        }
+        return outcome
     } finally {
         lifetime.closeAllStacks()
     }
@@ -483,6 +504,24 @@ fun understandingDownstreamLine(
     cost?.usd?.let { append(" usd=%.4f".format(java.util.Locale.ROOT, it)) }
     cost?.agentSeconds?.let { append(" agentSeconds=$it") }
     cost?.outputTokens?.let { append(" outputTokens=$it") }
+}
+
+/**
+ * How many of the oracle's assertions the agent's tree satisfies.
+ *
+ * Read off surefire's own counters rather than off the pass/fail verdict, because the question this
+ * round asks is how much work a note left undone and the verdict cannot answer it: seven assertions of
+ * eight and a module that does not compile are the same `Y=0`.
+ *
+ * Everything unknown collapses to zero passed, deliberately. A cell that was never graded, a class
+ * surefire never ran, an agent that rewrote the oracle it is judged by — none of them is evidence that
+ * anything worked, and each of them would otherwise enter an average as a missing value that quietly
+ * raises it.
+ */
+fun oracleAssertionsPassed(verification: ArenaVerificationResult?, case: UnderstandingCase): Int {
+    if (verification == null || verification.failToPassTampered) return 0
+    val ran = verification.perClass.sumOf { it.testsRun - it.failures - it.errors }
+    return ran.coerceIn(0, case.oracleTestCount)
 }
 
 /**
