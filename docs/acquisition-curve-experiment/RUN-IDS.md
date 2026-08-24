@@ -190,3 +190,37 @@ POST /app/rest/buildQueue
    {"name":"understanding.replicate","value":"1"},
    {"name":"understanding.budget","value":"20"}]}}
 ```
+
+## Generalization round (2026-08-24) — 24 research cells, all green
+
+Branch `acquisition-curve-experiment`, product revision `ca505f88`, DSL revision with the four-case
+selector. Build configuration `mcp_steroid_IntegrationTests_AcquisitionResearch`. Two waves, both run
+in parallel across agents: 10 cells in 25 min, 12 cells in 26 min. No cell was rejected by the
+degeneracy guard, and no cell was discarded.
+
+| build | case | arm |
+|---|---|---|
+| [1039514843](https://buildserver.labs.intellij.net/build/1039514843) | `client-auth-method` | mcp |
+| [1039540757](https://buildserver.labs.intellij.net/build/1039540757) | `client-auth-method` | mcp |
+| [1039566520](https://buildserver.labs.intellij.net/build/1039566520) | `client-auth-method` | mcp |
+| [1039540753](https://buildserver.labs.intellij.net/build/1039540753) | `client-auth-method` | shell |
+| [1039540755](https://buildserver.labs.intellij.net/build/1039540755) | `client-auth-method` | shell |
+| [1039566522](https://buildserver.labs.intellij.net/build/1039566522) | `client-auth-method` | shell |
+| [1039540769](https://buildserver.labs.intellij.net/build/1039540769) | `email-domain-mapper` | mcp |
+| [1039566795](https://buildserver.labs.intellij.net/build/1039566795) | `email-domain-mapper` | mcp |
+| [1039566799](https://buildserver.labs.intellij.net/build/1039566799) | `email-domain-mapper` | mcp |
+| [1039540771](https://buildserver.labs.intellij.net/build/1039540771) | `email-domain-mapper` | shell |
+| [1039566797](https://buildserver.labs.intellij.net/build/1039566797) | `email-domain-mapper` | shell |
+| [1039566801](https://buildserver.labs.intellij.net/build/1039566801) | `email-domain-mapper` | shell |
+| [1039514845](https://buildserver.labs.intellij.net/build/1039514845) | `oauth-grant-type` | mcp |
+| [1039540763](https://buildserver.labs.intellij.net/build/1039540763) | `oauth-grant-type` | mcp |
+| [1039566524](https://buildserver.labs.intellij.net/build/1039566524) | `oauth-grant-type` | mcp |
+| [1039540759](https://buildserver.labs.intellij.net/build/1039540759) | `oauth-grant-type` | shell |
+| [1039540761](https://buildserver.labs.intellij.net/build/1039540761) | `oauth-grant-type` | shell |
+| [1039566526](https://buildserver.labs.intellij.net/build/1039566526) | `oauth-grant-type` | shell |
+| [1039540765](https://buildserver.labs.intellij.net/build/1039540765) | `rename-method-wide` | mcp |
+| [1039566663](https://buildserver.labs.intellij.net/build/1039566663) | `rename-method-wide` | mcp |
+| [1039566791](https://buildserver.labs.intellij.net/build/1039566791) | `rename-method-wide` | mcp |
+| [1039540767](https://buildserver.labs.intellij.net/build/1039540767) | `rename-method-wide` | shell |
+| [1039566789](https://buildserver.labs.intellij.net/build/1039566789) | `rename-method-wide` | shell |
+| [1039566793](https://buildserver.labs.intellij.net/build/1039566793) | `rename-method-wide` | shell |

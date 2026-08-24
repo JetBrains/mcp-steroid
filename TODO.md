@@ -628,22 +628,55 @@
   ~18 k where `shell-r1` reaches .80 for 11.6 k. Transcripts are committed under
   `docs/acquisition-curve-experiment/data/trajectories`, so every number recomputes offline via
   `AcquisitionRecomputeTest`.
-- [ ] **Acquisition, what is left.** Three things, in the order they are worth buying:
-  1. **Downstream functional validation.** The distil prompts are published per checkpoint but no Haiku
-     cell has been run from them, so "higher `U` means a more useful understanding" is still an
-     assumption. This is the cheap half of the remaining work.
+- [ ] **Acquisition, what is left.** Was three things; the third is now done and the list has changed
+  shape as a result:
+  1. ~~**Downstream functional validation.**~~ Done in round 2 on the original case:
+     rho(U_obs, obligations) = +0.668 (`RESULTS-DOWNSTREAM-2.md`). NOT done for the two new cases,
+     which are research-only by design.
   2. **The semantic arm still degenerates sometimes.** `mcp r4` came back `{Bash=14}`, `semantic=0` even
      with `ENABLE_TOOL_SEARCH=false` in both the settings `env` block and the process environment. The
      `ARM DEGENERATE` guard catches it, but a cell that has to be re-bought at random is a tax on every
-     future round — find out what makes the CLI ignore the flag in that session.
-  3. **A second case and a second model.** Everything measured so far is `cc-refresh-token` with opus;
-     the shell plateau at .60 is a property of this checklist as much as of the arm.
+     future round — find out what makes the CLI ignore the flag in that session. (Not seen once in the
+     24 cells of the generalization round, which makes it rarer than round 2 suggested, not fixed.)
+  3. ~~**A second case and a second model.**~~ Two second cases, run:
+     [`RESULTS-GENERALIZATION.md`](docs/acquisition-curve-experiment/RESULTS-GENERALIZATION.md). The
+     model axis is untouched — everything is still opus.
+
 - [ ] **The capture arm still ignores the same signal.** The capture seam
   (`DpaiaFeatureService125CheckpointCaptureTest.afterAgentRun`, and `RippleScenarioBaseTest`) now sees
   `DpaiaRunOutcome.apiTransportError` but hands `admitCapture` only its primitives, so nothing acts on
   it: a capture whose stream was cut mid-response would be judged on a trajectory it never finished,
   and every probe cell of that arm would then start from states nobody meant to record. Decide what an
   aborted capture is before the next capture round.
+
+## Generalization round — replicated, and one prediction refuted (2026-08-24)
+
+24 research cells, 4 cases × 2 arms × 3 trajectories, all green, none degenerate; pre-registration in
+`DESIGN-GENERALIZATION.md`, results in `RESULTS-GENERALIZATION.md`, curves in
+`data/generalization-curves.csv`, build ids in `RUN-IDS.md`. Stratified exact permutation across cases:
+p = .0001 at B = 5, .0009 at B = 10, .0065 at B = 20, **.63 at B = 40** — acceleration, not unlock.
+The gap is widest exactly in the categories no reference query answers (invariant +9, flow +8,
+precedent +8, secondary +7 at B = 5); the correct precedent is held by 12/12 semantic trajectories at
+B = 5 against 7/12. Per output token the semantic arm remains 1.2–2.3× more expensive on every case.
+
+What this round leaves open, in the order it is worth buying:
+
+1. **The repository axis is untouched.** Dubbo is the scoped candidate (119 modules, 4 050 Java files,
+   pure Maven, JUnit 5, module-scoped builds without a reactor install); Camel (1 124 modules) and Kill
+   Bill (TestNG + database) were measured and rejected. Start with ONE prewarm probe cell — clone,
+   import, index, `mvn -DskipTests install`, no agent — as the ripple pilot did, before designing a case.
+2. **The ordering prediction failed and the replacement hypothesis is untested.** The navigational
+   control came third (+0.09 at B = 10), below both new architecture cases (+0.18, +0.38). The reading
+   in the report — semantic access wins when the NEXT question depends on the answer to the previous
+   one, not when the task is navigational — is a post-hoc explanation and must be pre-registered before
+   it is measured.
+3. **One semantic trajectory plateaued early** (`client-auth-method` mcp-0757, 0.53 and never moved:
+   it settled on the wrong precedent and stopped asking). Three trajectories per arm cannot tell a rare
+   failure mode from noise; a case whose semantic arm loses to the control's best trajectory deserves a
+   fourth and fifth run before anyone quotes its mean.
+4. **`U_actionable` was never computed for this round.** Only `U_obs` (evidence present in a tool
+   result) is reported; the blind-judge pass over distilled checkpoints is still only implemented, not
+   run.
 
 ## Downstream validation of `U` — round 2 closed all three (2026-08-24)
 
