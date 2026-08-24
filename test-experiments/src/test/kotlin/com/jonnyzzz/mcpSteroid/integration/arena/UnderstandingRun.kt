@@ -443,8 +443,21 @@ fun runUnderstandingDownstream(
         }
 
         val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
+        val git = GitDriver(session.scope)
+        // Amendment 3 of DESIGN-CASE-ADMISSION.md, applied before the oracle so the grading build
+        // never sees a test the agent invented. Only ADDED files: a shipped test the agent broke is
+        // evidence about the change and keeps its consequences.
+        val discardedTests = git.discardAddedTestSources(projectDir)
+        if (discardedTests.isEmpty()) {
+            println("[UNDERSTANDING-DOWN] the agent added no test sources of its own")
+        } else {
+            println(
+                "[UNDERSTANDING-DOWN] discarded ${discardedTests.size} test source(s) the agent added, " +
+                    "so this cell is graded on its change: ${discardedTests.joinToString()}"
+            )
+        }
         val oracleApplied = try {
-            GitDriver(session.scope).applyPatch(projectDir, testCase.testPatch)
+            git.applyPatch(projectDir, testCase.testPatch)
             true
         } catch (e: Exception) {
             println("[UNDERSTANDING-DOWN] MEASUREMENT LOST: the oracle patch did not apply after the run")
@@ -463,6 +476,7 @@ fun runUnderstandingDownstream(
                 budget = budget,
                 budgetUsed = usage?.used,
                 budgetDenied = usage?.denied,
+                agentTestsDiscarded = discardedTests.size,
             )
         }
 
@@ -530,6 +544,7 @@ fun runUnderstandingDownstream(
             budget = budget,
             budgetUsed = usage?.used,
             budgetDenied = usage?.denied,
+            agentTestsDiscarded = discardedTests.size,
         )
         // Only for the acquisition family. The note-bottleneck rounds published their tables off the
         // line above and are not re-read; a second verdict line under their cells would mean two

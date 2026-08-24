@@ -291,9 +291,13 @@ class AcquisitionDownstreamHarnessTest {
                 budget = 20,
                 budgetUsed = 20,
                 budgetDenied = 7,
+                agentTestsDiscarded = 2,
             ),
         )
         assertTrue(line.contains("budget=20/20"), line)
+        // Amendment 3 removes files from the tree before grading, and a removal nobody can see in the
+        // table is a removal nobody can audit.
+        assertTrue(line.contains("agentTestsDiscarded=2"), line)
         assertTrue(line.contains("denied=7"), line)
         assertTrue(line.contains("withinBudget=0"), line)
         // An unbudgeted cell must not print zeros for columns it never measured.
@@ -308,6 +312,10 @@ class AcquisitionDownstreamHarnessTest {
         )
         assertTrue(!unbudgeted.contains("budget="), unbudgeted)
         assertTrue(!unbudgeted.contains("denied="), unbudgeted)
+        assertTrue(
+            !unbudgeted.contains("agentTestsDiscarded="),
+            "a cell that ran before amendment 3 must not claim it discarded none: $unbudgeted",
+        )
     }
 
     @Test

@@ -224,3 +224,60 @@ that it runs through the treatment:
 No requirement here catches that, and none is added by this amendment: a fix chosen now would be
 chosen after seeing which direction it helps. It is recorded as an open defect of the instrument, to
 be pre-registered on its own before the anchors are re-bought.
+
+## Amendment 3 — the solver is graded on its change, not on the test it wrote itself (2026-08-24)
+
+Written after the fifteen anchors were read and the mechanism was traced
+([RESULTS-DOWNSTREAM-4-ANCHORS.md](RESULTS-DOWNSTREAM-4-ANCHORS.md)), and **before** the ten
+re-bought anchors it licenses. It carries a falsifiable prediction, below, for the same reason the
+ladder carries one: a repair whose outcome was not written down first is indistinguishable from a
+repair chosen because of its outcome.
+
+### The rule
+
+Before the oracle patch is applied, every file the solver **added** under a `src/test/` directory is
+discarded, and the count is printed. Files the solver *modified* are left alone.
+
+The asymmetry is the whole rule. A shipped test the solver broke is evidence about the solver's
+change and must keep failing the cell — that is what the oracles' "did not break anything" axes are
+for. A test the solver invented is not part of the change being graded, is graded by nothing, and
+under the current instrument can only subtract.
+
+### Why this and not the alternatives
+
+- **Narrowing what the grading build compiles** does not reach it. The build compiles a module, and
+  the agent's file is in that module.
+- **Telling the agent not to write tests** changes the treatment rather than the measurement, cannot
+  be applied to trajectories already bought, and is advice an agent may decline — after which the
+  artifact returns with no symptom.
+- **Accepting it** is defensible, but then the endpoint is "did the change land AND did the agent's
+  own test compile", and the note is being credited or debited for the second half. Since the second
+  half is what the allowance makes expensive, that endpoint measures the allowance.
+
+### What it does NOT repair
+
+The coupling described in the anchors document runs through the interaction budget, and the budget is
+spent before grading starts. This rule recovers the *reading*; it does not stop an agent from
+spending five to ten of its twenty interactions on a test. It is enough here only because in all four
+observed cells the implementation was already complete when the test began — `default-compile`
+succeeded in every one of them.
+
+The other half of the coupling — checklist axis `I1` of `cc-refresh-token`, a `VERIFICATION` fact
+that instructs the agent to write the test and names the file to imitate, while being one of the axes
+`U` is computed over — is **not** repaired here either. It leaves with its case: `cc-refresh-token` is
+retired, and it is the only case carrying such an axis. Should a future case want one, the checklist
+and the endpoint have to be reconciled before it is written, not after.
+
+### The prediction
+
+Ten anchors re-bought on the two surviving cases, same conditions, same allowance. Written before
+they are queued:
+
+| case | predicted | and therefore |
+|---|---|---|
+| `client-auth-method` | 3 of 3 gold rollouts compile and read 9/9 — the single failure was a scratch test | the case stays **blocked**: the baseline that builds reads 6 of 9, so the measured gap stays 3 of a 9-point scale, under half |
+| `oauth-grant-type` | 3 of 3 gold rollouts compile and read 10/10 — its single failure was a scratch test too | but both baselines failed on their **own implementation**, not on a test, so this rule does not touch them; if they fail again the case has no floor and **retires** |
+
+Note what this predicts: the amendment rescues neither case. It is bought because the readings are
+wrong, not because they are unfavourable — and if either case is admitted after it, that is the
+prediction failing, which is a finding of its own.

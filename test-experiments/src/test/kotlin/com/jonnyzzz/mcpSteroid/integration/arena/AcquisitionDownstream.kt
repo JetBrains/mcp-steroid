@@ -268,6 +268,18 @@ data class UnderstandingDownstreamOutcome(
      * denials is a wave whose budget was set too small to distinguish notes.
      */
     val budgetDenied: Int? = null,
+    /**
+     * Test sources the agent ADDED, discarded before grading so the cell is graded on its change.
+     *
+     * Recorded rather than merely done. Four of the five gold-note failures of the fourth round's
+     * anchors were an agent's own scratch unit test failing `testCompile` after its implementation
+     * had compiled clean, and a repair that silently deletes files is a repair nobody can audit —
+     * a cell reporting `agentTestsDiscarded=3` says what was taken out of its reading.
+     *
+     * Null for a cell that ran before amendment 3, which is not the same as a cell that had none to
+     * discard; zero says the tree really carried no invented test.
+     */
+    val agentTestsDiscarded: Int? = null,
 ) {
     /**
      * Assertions the note's reader never satisfied — the residual work, in the oracle's own units.
@@ -314,6 +326,7 @@ fun acquisitionDownstreamLine(
     append("oraclePassed=${outcome.oracleTestsPassed ?: "unmeasured"}/${outcome.oracleTestsTotal} ")
     append("residual=${outcome.residualTests ?: "unmeasured"}")
     outcome.compiled?.let { append(" compiled=${if (it) 1 else 0}") }
+    outcome.agentTestsDiscarded?.let { append(" agentTestsDiscarded=$it") }
     outcome.toolCalls?.let { append(" toolCalls=$it") }
     outcome.budget?.let { append(" budget=${outcome.budgetUsed ?: "?"}/$it") }
     outcome.budgetDenied?.let { append(" denied=$it") }

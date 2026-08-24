@@ -180,6 +180,57 @@ class GitDriver(
          * checked against the patches it has to apply instead of being assumed harmless.
          */
         val APPLY_PATCH_ARGS: List<String> = listOf("apply", "--allow-empty")
+
+        /**
+         * Whether a repository-relative path lives in a test source root.
+         *
+         * Matches `src/test/...` at the repository root and `<any>/src/test/...` below it, which is
+         * the Maven and Gradle convention both. Public and pure so [discardAddedTestSources]'s
+         * selection can be exercised without a container.
+         */
+        fun isTestSourcePath(repoRelativePath: String): Boolean =
+            repoRelativePath.startsWith("src/test/") || "/src/test/" in repoRelativePath
+    }
+
+    /**
+     * Deletes every file the working tree has ADDED under a `src/test/` directory, and returns the
+     * repository-relative paths it removed.
+     *
+     * Added, never modified. A tracked test the agent edited is evidence about the agent's change and
+     * has to keep its consequences; a test the agent invented is not part of any change under
+     * evaluation, and a grading build that compiles the whole module will happily fail on it.
+     *
+     * The selection is `git ls-files --others --exclude-standard` filtered in code rather than by a
+     * pathspec, because the two shapes that have to match — `src/test/...` at the repository root and
+     * `<module>/src/test/...` — are one substring and two pathspecs, and a pathspec that silently
+     * matches neither would look exactly like a tree with nothing to discard.
+     *
+     * @param repoDir guest path of the repository
+     */
+    fun discardAddedTestSources(repoDir: String): List<String> {
+        val listed = driver.startProcessInContainer {
+            this
+                .args("git", "-C", repoDir, "ls-files", "--others", "--exclude-standard")
+                .timeoutSeconds(30)
+                .quietly()
+                .description("git ls-files --others in $repoDir")
+        }.awaitForProcessFinish()
+        listed.assertExitCode(0, "git ls-files --others")
+
+        val added = listed.stdout.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .filter { isTestSourcePath(it) }
+            .toList()
+        if (added.isEmpty()) return emptyList()
+
+        driver.startProcessInContainer {
+            this
+                .args(listOf("rm", "-f", "--") + added.map { "$repoDir/$it" })
+                .timeoutSeconds(30)
+                .description("discard ${added.size} agent-added test source(s) in $repoDir")
+        }.awaitForProcessFinish().assertExitCode(0, "discard agent-added test sources")
+        return added
     }
 
     /**
