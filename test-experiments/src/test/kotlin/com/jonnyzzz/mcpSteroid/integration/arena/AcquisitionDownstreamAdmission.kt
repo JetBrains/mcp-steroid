@@ -244,6 +244,20 @@ data class AcquisitionCaseAdmission(
                     "measured floor a flat wave cannot be told from an easy task"
             )
         }
+        // Amendment 2. Recording the compile verdict made the unmeasured cells VISIBLE; it did not stop
+        // them from being counted as a floor. `oauth-grant-type`'s two no-note cells both failed to
+        // build, so their obligation counts are null, so every rule below skipped them in silence and
+        // the case read as having a floor it never measured. A floor is two trees that demonstrably
+        // built and scored low — not two trees nobody could grade.
+        val measuredFloor = rollouts.count { it.compiled == true && it.obligations != null }
+        if (measuredFloor < MIN_BASELINE_ROLLOUTS) {
+            add(
+                "$measuredFloor of ${rollouts.size} baseline rollout(s) left a tree that demonstrably " +
+                    "built, $MIN_BASELINE_ROLLOUTS needed. A no-note cell that failed `javac` is not a " +
+                    "low floor, it is an unmeasured cell, and reading one as the other is what produced " +
+                    "three rounds of floors at zero"
+            )
+        }
         rollouts.forEach { rollout ->
             if (rollout.compiled == null) {
                 add(
@@ -460,22 +474,24 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 isolates = "nothing — this is the ceiling",
             ),
         ),
-        // Round 2's ceiling anchors. Both read 9 of 9, so both certainly compiled; recorded as null
-        // anyway, because "it must have" is the kind of inference this protocol exists to refuse, and
-        // because the round-3 repair changed the grading scope under them.
+        // Re-bought 2026-08-24 under requirement 6, and the answer is the opposite of round 2's.
+        // Round 2's anchors (1039289688/690 read 9, 1039289680/682/684/686 read 0) carried no compile
+        // verdict and are superseded rather than kept beside these: a count that cannot be told apart
+        // from a `javac` failure is not a second opinion, it is the reading this protocol refuses.
+        //
+        // All THREE gold-note rollouts failed to compile. The weak agent, handed the reference
+        // description of the change, cannot build this tree inside twenty interactions.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1039289688", obligations = 9),
-            AcquisitionRolloutEvidence(buildId = "1039289690", obligations = 9),
+            AcquisitionRolloutEvidence(buildId = "1040174097", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174099", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174101", obligations = null, compiled = false),
         ),
-        // All four read ZERO, which is BELOW the pristine floor of one — a tree that compiled cannot
-        // score less than an untouched tree. So either these solvers broke the shipped profiles or
-        // their trees never built, and nobody recorded which, because at the time there was nothing to
-        // record it in. That is precisely the reading this protocol refuses to accept as a floor.
+        // And the one no-note tree that DID build reads 5 of 9 — four obligations above the pristine
+        // floor. Round 2's floor of "0, 0, 0, 0" was four failures to compile; the real unaided score
+        // of this case, when the agent gets it to build, is most of the scale.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1039289680", obligations = 0),
-            AcquisitionRolloutEvidence(buildId = "1039289682", obligations = 0),
-            AcquisitionRolloutEvidence(buildId = "1039289684", obligations = 0),
-            AcquisitionRolloutEvidence(buildId = "1039289686", obligations = 0),
+            AcquisitionRolloutEvidence(buildId = "1040174116", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174118", obligations = 5, compiled = true),
         ),
     ),
     AcquisitionCaseAdmission(
@@ -528,17 +544,20 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 isolates = "nothing — this is the ceiling",
             ),
         ),
-        // 9, then 0, 0, 0. The case that made three the minimum — and the three zeros are not three
-        // failures to understand: their trees did not compile (an import of an internal JDK type), so
-        // under this protocol they carry no obligation count at all.
+        // Re-bought 2026-08-24. The earlier readings — 9, then 0, 0, 0 (1039700655, 1039761044,
+        // 1039761157) — are superseded; they are what made three the minimum.
+        //
+        // Two of three reach the ceiling and the third does not build: the ceiling is real here, and
+        // roughly a third of the time the weak agent cannot reach it from a perfect note.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1039700655", obligations = 9),
-            AcquisitionRolloutEvidence(buildId = "1039761044", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1039761157", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174120", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040174122", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174124", obligations = 9, compiled = true),
         ),
+        // The no-note tree that built reads 6 of 9. Round 3's floor of "0, 0" was, again, compilation.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1039700643", obligations = 0),
-            AcquisitionRolloutEvidence(buildId = "1039700645", obligations = 0),
+            AcquisitionRolloutEvidence(buildId = "1040174126", obligations = 6, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040174128", obligations = null, compiled = false),
         ),
     ),
     AcquisitionCaseAdmission(
@@ -591,13 +610,19 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 isolates = "nothing — this is the ceiling",
             ),
         ),
+        // Re-bought 2026-08-24; the round-3 pair (1039700657, 1039700653, both read 10 with no compile
+        // verdict) is superseded. Same shape as `client-auth-method`: two at the ceiling, one that
+        // never built.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1039700657", obligations = 10),
-            AcquisitionRolloutEvidence(buildId = "1039700653", obligations = 10),
+            AcquisitionRolloutEvidence(buildId = "1040174130", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174132", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040174134", obligations = 10, compiled = true),
         ),
+        // Neither no-note tree built, so this case has NO measured floor — which the earlier pair of
+        // zeros hid by looking like one.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1039700647", obligations = 0),
-            AcquisitionRolloutEvidence(buildId = "1039700649", obligations = 0),
+            AcquisitionRolloutEvidence(buildId = "1040174136", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040174138", obligations = null, compiled = false),
         ),
     ),
 ).associateBy { it.caseId }

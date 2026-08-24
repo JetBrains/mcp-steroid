@@ -82,9 +82,11 @@ class AcquisitionAdmissionTest {
 
     @Test
     fun `no acquisition case is admitted to a note wave today, and each says what it lacks`() {
-        // The expected state, not a failure of the protocol. Every case in the family was calibrated
-        // under the instrument that has since been repaired, so every one of them owes the same two
-        // things: a measured ladder, and rollouts that say whether they compiled.
+        // The expected state, not a failure of the protocol — but no longer for the original reason.
+        // The ladders are measured and the fifteen anchors of 2026-08-24 all carry a compile verdict,
+        // so what blocks the family now is what those readings SAY: on one case the perfect note never
+        // builds, on two the no-note solver scores most of the scale by itself, and on the third no
+        // no-note tree built at all, so it has no floor.
         for (caseId in ACQUISITION_CASE_ADMISSIONS.keys) {
             val case = AcquisitionCases.byId(caseId)
             val problems = ACQUISITION_CASE_ADMISSIONS.getValue(caseId).problems(case)
@@ -94,24 +96,46 @@ class AcquisitionAdmissionTest {
             problems.forEach { println("[ACQUISITION-ADMISSION]   - $it") }
             assertTrue(problems.isNotEmpty(), "$caseId reports no problems, which nothing has earned yet")
             assertTrue(
-                // The ladder has since been measured for every case, so what every one of them still
-                // owes is the rollout evidence: not one recorded agent cell says whether it compiled.
-                problems.any { "compiled" in it },
-                "$caseId must demand a compile verdict on its rollouts; got $problems",
+                // Every rollout on record now carries a compile verdict, so nothing may still be
+                // blocked for lacking one. A case that is blocked for the OLD reason means an anchor
+                // was added without re-buying it.
+                problems.none { "does not say whether its tree compiled" in it },
+                "$caseId still has a rollout without a compile verdict; got $problems",
             )
             assertThrows<IllegalStateException> { requireAcquisitionAdmission(case) }
         }
 
+        // The three readings the fifteen anchors bought, each locked to the case it was measured on.
         val ccProblems = ACQUISITION_CASE_ADMISSIONS
             .getValue("acquisition__keycloak__cc-refresh-token")
             .problems(AcquisitionCases.ccRefreshToken)
-        assertTrue(
-            ccProblems.any { "2 gold-note rollout(s) recorded, 3 needed" in it },
-            "the two-replicate ceiling must block the wave; got $ccProblems",
+        assertEquals(
+            3,
+            ccProblems.count { "did not compile" in it },
+            "all three gold-note rollouts of cc-refresh-token failed to build; got $ccProblems",
         )
         assertTrue(
-            ccProblems.any { "1039289680" in it && "compiled" in it },
-            "a rollout that cannot say whether it compiled must block the wave; got $ccProblems",
+            ccProblems.any { "1040174118" in it && "scored 5 of 9 with NO note" in it },
+            "the one no-note tree that built scored 5 of 9 and must block the wave; got $ccProblems",
+        )
+
+        val authProblems = ACQUISITION_CASE_ADMISSIONS
+            .getValue("acquisition__keycloak__client-auth-method")
+            .problems(AcquisitionCases.clientAuthMethod)
+        assertTrue(
+            authProblems.any { "1040174126" in it && "scored 6 of 9 with NO note" in it },
+            "the no-note solver reaches 6 of 9 unaided and must block the wave; got $authProblems",
+        )
+
+        val grantProblems = ACQUISITION_CASE_ADMISSIONS
+            .getValue("acquisition__keycloak__oauth-grant-type")
+            .problems(AcquisitionCases.oauthGrantType)
+        assertTrue(
+            // Amendment 2. Both no-note trees failed `javac`, so this case has no measured floor at
+            // all — and before the amendment the gate said nothing about it, because a null count is
+            // skipped by every threshold that reads counts.
+            grantProblems.any { "0 of 2 baseline rollout(s) left a tree that demonstrably built" in it },
+            "a case whose no-note cells never built has no floor; got $grantProblems",
         )
     }
 

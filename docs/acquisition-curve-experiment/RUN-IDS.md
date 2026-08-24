@@ -257,3 +257,30 @@ distillation: `...AcquisitionDistill`, probe: `...AcquisitionDubboProbe`. Raw pe
 | [1039760699](https://buildserver.labs.intellij.net/build/1039760699) | `oauth-grant-type` note cell — 0/10 |
 | [1039761044](https://buildserver.labs.intellij.net/build/1039761044) | `client-auth-method` extra `oracle:gold` replicate — 0/9 |
 | [1039761157](https://buildserver.labs.intellij.net/build/1039761157) | `client-auth-method` extra `oracle:gold` replicate — 0/9 |
+
+## Round 4, step 2 — the fifteen admission anchors (2026-08-24)
+
+Build `mcp_steroid_IntegrationTests_AcquisitionDownstream`, branch `acquisition-curve-experiment`,
+weak agent, 20 interactions. Three `oracle:gold` and two `baseline` per case, all carrying a compile
+verdict for the first time in this family. Reading: [RESULTS-DOWNSTREAM-4-ANCHORS.md](RESULTS-DOWNSTREAM-4-ANCHORS.md).
+
+| build | case | condition | compiled | obligations |
+|---|---|---|---|---|
+| 1040174097 | `cc-refresh-token` | `oracle:gold` r1 | 0 | unmeasured |
+| 1040174099 | `cc-refresh-token` | `oracle:gold` r2 | 0 | unmeasured |
+| 1040174101 | `cc-refresh-token` | `oracle:gold` r3 | 0 | unmeasured |
+| 1040174116 | `cc-refresh-token` | `baseline` r1 | 0 | unmeasured |
+| 1040174118 | `cc-refresh-token` | `baseline` r2 | 1 | 5/9 |
+| 1040174120 | `client-auth-method` | `oracle:gold` r1 | 1 | 9/9 |
+| 1040174122 | `client-auth-method` | `oracle:gold` r2 | 0 | unmeasured |
+| 1040174124 | `client-auth-method` | `oracle:gold` r3 | 1 | 9/9 |
+| 1040174126 | `client-auth-method` | `baseline` r1 | 1 | 6/9 |
+| 1040174128 | `client-auth-method` | `baseline` r2 | 0 | unmeasured |
+| 1040174130 | `oauth-grant-type` | `oracle:gold` r1 | 0 | unmeasured |
+| 1040174132 | `oauth-grant-type` | `oracle:gold` r2 | 1 | 10/10 |
+| 1040174134 | `oauth-grant-type` | `oracle:gold` r3 | 1 | 10/10 |
+| 1040174136 | `oauth-grant-type` | `baseline` r1 | 0 | unmeasured |
+| 1040174138 | `oauth-grant-type` | `baseline` r2 | 0 | unmeasured |
+
+These supersede the round-2 and round-3 anchors of the same conditions (1039289680/682/684/686,
+1039289688/690, 1039700643/645/647/649/653/655/657, 1039761044/157), which carry no compile verdict.
