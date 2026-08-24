@@ -721,3 +721,29 @@ uninformative, and the three repairs below are what a second attempt needs. None
 Still open from the research round, unchanged: the semantic arm occasionally degenerates
 (`mcp r4`, `{Bash=14}`) despite both forms of the `ENABLE_TOOL_SEARCH` flag — the harness rejects such
 a cell, but the cause is unknown.
+
+## acquisition: repair the downstream instrument before buying more solving cells
+
+Round 3 (`docs/acquisition-curve-experiment/RESULTS-DOWNSTREAM-3.md`) bought 22 cells and could not
+compute its primary correlation: all twelve note cells scored 0 of 10, every one of them a COMPILE
+failure of the solver's own code, not a failed assertion. Three repairs, in order:
+
+1. Compilation must be its own graded axis. A cell that does not build should score that axis 0 and
+   leave the behavioural axes UNMEASURED — averaging them as zeros re-creates, one level down, the
+   `{0} u {5..8}` cascade the oracles were rebuilt to remove.
+2. The grading build must cover the modules the repository's own idiom touches. `oauth-grant-type`
+   punishes a solver for following `RefreshTokenGrantTypeFactory`, whose grant id is a constant in
+   `core`, because grading compiles `-pl :keycloak-services` alone.
+3. A case joins the downstream family only after >= 3 `oracle:gold` replicates. Two was too few:
+   `client-auth-method` read 9/9 on its first ceiling run and is 9, 0, 0, 0 over four.
+
+The twelve `client-auth-method` note cells were deliberately NOT bought (its ceiling is 1 of 4). Every
+note of both cases is committed under `test-experiments/src/test/resources/acquisition-notes/`, so the
+repaired instrument re-runs the same matrix without re-buying research or notes.
+
+## acquisition: a Dubbo case, now that the probe passed
+
+`docs/acquisition-curve-experiment/DUBBO-PROBE.md` — 116 modules, the repository's own types resolve,
+ready in 660 s against Keycloak's 384. The axis is open on infrastructure; what it needs is ONE good
+distributed-architecture case passing the same gates, plus the round-3 lesson: if it is ever to carry a
+downstream endpoint, its implementation must be something a weak agent can compile inside the budget.

@@ -224,3 +224,36 @@ degeneracy guard, and no cell was discarded.
 | [1039540767](https://buildserver.labs.intellij.net/build/1039540767) | `rename-method-wide` | shell |
 | [1039566789](https://buildserver.labs.intellij.net/build/1039566789) | `rename-method-wide` | shell |
 | [1039566793](https://buildserver.labs.intellij.net/build/1039566793) | `rename-method-wide` | shell |
+
+## Downstream replication round 3 (2026-08-24) + the Dubbo probe
+
+Branch `acquisition-curve-experiment`. Cells: `mcp_steroid_IntegrationTests_AcquisitionDownstream`,
+distillation: `...AcquisitionDistill`, probe: `...AcquisitionDubboProbe`. Raw per-cell numbers in
+`data/downstream3-cells.csv`; the reading is `RESULTS-DOWNSTREAM-3.md`.
+
+| build | what |
+|---|---|
+| [1039697519](https://buildserver.labs.intellij.net/build/1039697519) | dubbo prewarm probe — PASSED, 116 modules, ready in 660 s |
+| [1039700670](https://buildserver.labs.intellij.net/build/1039700670) | distillation of the 24 notes (re-run, seeded from the repository) |
+| [1039700643](https://buildserver.labs.intellij.net/build/1039700643) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700645](https://buildserver.labs.intellij.net/build/1039700645) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700647](https://buildserver.labs.intellij.net/build/1039700647) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700649](https://buildserver.labs.intellij.net/build/1039700649) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700651](https://buildserver.labs.intellij.net/build/1039700651) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700653](https://buildserver.labs.intellij.net/build/1039700653) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700655](https://buildserver.labs.intellij.net/build/1039700655) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039700657](https://buildserver.labs.intellij.net/build/1039700657) | anchor cell (`baseline` / `oracle:gold`, both cases) |
+| [1039759218](https://buildserver.labs.intellij.net/build/1039759218) | `oauth-grant-type` note cell — 0/10 |
+| [1039759250](https://buildserver.labs.intellij.net/build/1039759250) | `oauth-grant-type` note cell — 0/10 |
+| [1039759273](https://buildserver.labs.intellij.net/build/1039759273) | `oauth-grant-type` note cell — 0/10 |
+| [1039759503](https://buildserver.labs.intellij.net/build/1039759503) | `oauth-grant-type` note cell — 0/10 |
+| [1039759505](https://buildserver.labs.intellij.net/build/1039759505) | `oauth-grant-type` note cell — 0/10 |
+| [1039760195](https://buildserver.labs.intellij.net/build/1039760195) | `oauth-grant-type` note cell — 0/10 |
+| [1039760636](https://buildserver.labs.intellij.net/build/1039760636) | `oauth-grant-type` note cell — 0/10 |
+| [1039760681](https://buildserver.labs.intellij.net/build/1039760681) | `oauth-grant-type` note cell — 0/10 |
+| [1039760683](https://buildserver.labs.intellij.net/build/1039760683) | `oauth-grant-type` note cell — 0/10 |
+| [1039760685](https://buildserver.labs.intellij.net/build/1039760685) | `oauth-grant-type` note cell — 0/10 |
+| [1039760697](https://buildserver.labs.intellij.net/build/1039760697) | `oauth-grant-type` note cell — 0/10 |
+| [1039760699](https://buildserver.labs.intellij.net/build/1039760699) | `oauth-grant-type` note cell — 0/10 |
+| [1039761044](https://buildserver.labs.intellij.net/build/1039761044) | `client-auth-method` extra `oracle:gold` replicate — 0/9 |
+| [1039761157](https://buildserver.labs.intellij.net/build/1039761157) | `client-auth-method` extra `oracle:gold` replicate — 0/9 |
