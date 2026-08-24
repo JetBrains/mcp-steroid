@@ -251,6 +251,10 @@ class AcquisitionDownstreamHarnessTest {
         // the cells queued at twenty and is indistinguishable once the build log has scrolled.
         assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("60") }
         assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("twenty") }
+        // The unbudgeted floor probe: a deliberate absence of a wall, spelled out rather than encoded
+        // as a large number that would land in the wave's table looking like a setting.
+        assertNull(acquisitionDownstreamBudgetOf(ACQUISITION_DOWNSTREAM_BUDGET_NONE))
+        assertNull(acquisitionDownstreamBudgetOf("NONE"))
     }
 
     @Test

@@ -149,17 +149,33 @@ val ACQUISITION_DOWNSTREAM_BUDGETS: Set<Int> = setOf(15, ACQUISITION_DOWNSTREAM_
  * cell queued at 60 during a bad afternoon, landing in the same table as the cells queued at 20 and
  * indistinguishable from them once the build log has scrolled past.
  */
-fun acquisitionDownstreamBudgetOf(raw: String?): Int {
+fun acquisitionDownstreamBudgetOf(raw: String?): Int? {
     val value = raw?.trim().orEmpty()
     if (value.isEmpty()) return ACQUISITION_DOWNSTREAM_BUDGET
+    if (value.equals(ACQUISITION_DOWNSTREAM_BUDGET_NONE, ignoreCase = true)) return null
     val budget = value.toIntOrNull()
     check(budget != null && budget in ACQUISITION_DOWNSTREAM_BUDGETS) {
         "'$value' is not a pre-registered downstream allowance. This round runs at " +
-            "${ACQUISITION_DOWNSTREAM_BUDGETS.sorted()}, and the calibration rule in DESIGN-DOWNSTREAM.md " +
-            "says which way to move within them"
+            "${ACQUISITION_DOWNSTREAM_BUDGETS.sorted()} or '$ACQUISITION_DOWNSTREAM_BUDGET_NONE' for the " +
+            "unbudgeted floor probe, and the calibration rule in DESIGN-DOWNSTREAM.md says which way to " +
+            "move within the numbers"
     }
     return budget
 }
+
+/**
+ * The one non-numeric allowance: no wall at all.
+ *
+ * Not a fourth value of [ACQUISITION_DOWNSTREAM_BUDGETS] and deliberately outside it, because it does
+ * not compete with 15, 20 and 25 — those are candidate settings for the WAVE, and this is a probe of a
+ * different question: what does the unaided agent achieve when the allowance is not what stops it.
+ * Round 1 ran the whole downstream unbudgeted and the two readings it got were 7 of 8 and 0 of 8 on a
+ * case since retired, against an oracle since found to be one assertion wearing eight names — so the
+ * question has no usable prior answer and has to be measured again.
+ *
+ * A cell queued this way can never be mistaken for a wave cell: it prints no `budget=` column at all.
+ */
+const val ACQUISITION_DOWNSTREAM_BUDGET_NONE: String = "none"
 
 /**
  * True for a semantic-arm trajectory that never made a semantic call.

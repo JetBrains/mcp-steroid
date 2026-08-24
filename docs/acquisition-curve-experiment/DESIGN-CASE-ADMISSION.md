@@ -281,3 +281,45 @@ they are queued:
 Note what this predicts: the amendment rescues neither case. It is bought because the readings are
 wrong, not because they are unfavourable — and if either case is admitted after it, that is the
 prediction failing, which is a finding of its own.
+
+## The unbudgeted floor probe (2026-08-24) — pre-registered before its cells were queued
+
+After step 3 both surviving cases have a ceiling their gold note reaches every time and **no measured
+floor**: seven of eight no-note cells never produced a gradable tree. Amendment 2 blocks them on that,
+correctly, and is not relaxed.
+
+This probe tests a different definition of the floor, proposed rather than assumed: **the unaided
+agent with no wall at all.** If the interaction allowance is what stops the no-note arm, removing it
+says so; and an agent that may iterate until its code builds cannot fail for the reason that has
+wrecked every previous reading.
+
+`understanding.budget=none` runs a cell with no allowance and no gate. It is NOT a fourth member of
+the pre-registered set {15, 20, 25} — those are candidate settings for the wave, this is a probe — and
+a cell run this way prints no `budget=` column, so it can never be read as a wave cell.
+
+Ten cells: five `baseline`, unbudgeted, on each of `client-auth-method` and `oauth-grant-type`.
+No note, bare `claude-haiku-4-5`, amendment 3 in force.
+
+### What the prior evidence is worth
+
+Round 1 ran its whole downstream unbudgeted and produced the only two readings that exist: **7 of 8
+and 0 of 8**. All three of the following are true of them, and each alone disqualifies the pair:
+
+- they are on `cc-refresh-token`, retired in step 2;
+- the oracle was the cascade later found to be one assertion wearing eight names, so "7 of 8" does not
+  name seven independent things;
+- there was no compile verdict, so "0 of 8" may be a build failure rather than a reading.
+
+So the question has **no usable prior answer**, and the recollection that an unbudgeted agent "solves
+these cases most of the time" is not supported by anything on record.
+
+### The two branches, decided in advance
+
+| if the unbudgeted no-note agent | then |
+|---|---|
+| **reaches at or near the ceiling** | this floor definition is unusable — there is no room above it for a note to buy anything. The consequence is NOT that the hypothesis fails: it is that the endpoint is **work, not success**. The note would then buy interactions rather than capability, which is exactly what the acquisition side already measures, and the downstream claim has to be restated in those units before any note cell is bought. |
+| **lands well below the ceiling** | it is the better floor, and it retires the whole compile-failure problem: an agent that may iterate until its code builds either builds it or demonstrably cannot. The wave then runs against this floor. |
+
+Either way the numbers of this probe are reported, including if they are inconvenient for both
+branches. What is NOT licensed by this pre-registration is picking the branch after seeing the
+readings — the mapping above is fixed.
