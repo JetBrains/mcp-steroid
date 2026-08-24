@@ -1,0 +1,1320 @@
+diff --git a/services/src/test/java/org/keycloak/authentication/authenticators/client/ClientAuthenticationMethodResidualContractTest.java b/services/src/test/java/org/keycloak/authentication/authenticators/client/ClientAuthenticationMethodResidualContractTest.java
+new file mode 100644
+index 0000000..adffb78
+--- /dev/null
++++ b/services/src/test/java/org/keycloak/authentication/authenticators/client/ClientAuthenticationMethodResidualContractTest.java
+@@ -0,0 +1,1314 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.authentication.authenticators.client;
++
++import java.io.File;
++import java.io.IOException;
++import java.io.InputStream;
++import java.lang.reflect.Constructor;
++import java.lang.reflect.InvocationHandler;
++import java.lang.reflect.Method;
++import java.lang.reflect.Modifier;
++import java.lang.reflect.Proxy;
++import java.math.BigInteger;
++import java.net.URI;
++import java.net.URL;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.security.KeyPair;
++import java.security.KeyPairGenerator;
++import java.security.cert.X509Certificate;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.Enumeration;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Optional;
++import java.util.Set;
++import java.util.jar.JarEntry;
++import java.util.jar.JarFile;
++import java.util.stream.Collectors;
++import java.util.stream.Stream;
++
++import jakarta.ws.rs.core.HttpHeaders;
++import jakarta.ws.rs.core.MediaType;
++import jakarta.ws.rs.core.MultivaluedHashMap;
++import jakarta.ws.rs.core.MultivaluedMap;
++import jakarta.ws.rs.core.UriInfo;
++
++import org.keycloak.OAuth2Constants;
++import org.keycloak.authentication.AuthenticationFlowError;
++import org.keycloak.authentication.ClientAuthenticationFlowContext;
++import org.keycloak.authentication.ClientAuthenticationFlowContextSupplier;
++import org.keycloak.authentication.ClientAuthenticator;
++import org.keycloak.authentication.ClientAuthenticatorFactory;
++import org.keycloak.authentication.FlowStatus;
++import org.keycloak.common.Profile;
++import org.keycloak.common.crypto.CryptoIntegration;
++import org.keycloak.common.crypto.CryptoProvider;
++import org.keycloak.common.util.CertificateUtils;
++import org.keycloak.common.util.PemUtils;
++import org.keycloak.events.EventBuilder;
++import org.keycloak.http.HttpRequest;
++import org.keycloak.models.ClientModel;
++import org.keycloak.models.KeycloakContext;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.models.KeycloakSessionFactory;
++import org.keycloak.models.KeycloakUriInfo;
++import org.keycloak.models.RealmModel;
++import org.keycloak.protocol.oidc.OIDCLoginProtocol;
++import org.keycloak.provider.ProviderFactory;
++import org.keycloak.services.resteasy.ResteasyKeycloakSession;
++import org.keycloak.services.resteasy.ResteasyKeycloakSessionFactory;
++import org.keycloak.services.x509.X509ClientCertificateLookup;
++import org.keycloak.urls.HostnameProvider;
++import org.keycloak.urls.UrlType;
++import org.keycloak.util.JsonSerialization;
++
++import com.fasterxml.jackson.databind.JsonNode;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * Residual-work contract for mutual-TLS client authentication against the certificate registered for the
++ * client itself (RFC 8705, section 2.2), as opposed to the already shipped method that chains the presented
++ * certificate up to a certificate authority (RFC 8705, section 2.1).
++ * <p>
++ * Every {@code @Test} below is meant to be <em>independently</em> satisfiable, so that the number of passing
++ * tests measures how much of the work is still missing rather than acting as one boolean wearing nine names.
++ * In particular the behaviour axes (B1..B4) never read the shipped profile JSON and never require the
++ * ServiceLoader registration; the registration axis (A2) never requires the class-scan axis (A1); and the
++ * JSON axes (A4, A5) never require any of the others.
++ * <p>
++ * The implementation under test is never referenced by class name. It is discovered by the union of two
++ * name-independent routes:
++ * <ol>
++ *     <li>a scan of the compiled classes directory of this module for concrete {@link ClientAuthenticator}
++ *     implementations that are absent from the baseline measured on the pristine tree at the base commit;</li>
++ *     <li>the provider SPI: {@link ClientAuthenticatorFactory} ids resolvable through the session factory
++ *     that are absent from the baseline measured on the pristine tree at the base commit.</li>
++ * </ol>
++ * When neither route finds anything the behaviour axes fail with an explicit message; they never error.
++ * <p>
++ * Every behaviour axis exercises the authenticator in the state the runtime puts it in: the token endpoint
++ * runs client authentication as an authentication flow, so the provider is obtained from its factory with
++ * {@code create(session)}, the certificate chain is offered both through the
++ * {@link X509ClientCertificateLookup} SPI and through {@link HttpRequest#getClientCertificateChain()}, the
++ * request carries a form-encoded {@code client_id}, and the realm resolves that id to an enabled client that
++ * has a certificate registered under the shipped PEM attribute. That set-up lives in one place,
++ * {@link #authenticate(X509Certificate[], String)}, so no axis added later can forget it.
++ */
++public class ClientAuthenticationMethodResidualContractTest {
++
++    private static final String DEFAULT_PROFILES_RESOURCE = "keycloak-default-client-profiles.json";
++
++    private static final String SECURE_CLIENT_AUTHENTICATOR_EXECUTOR = "secure-client-authenticator";
++    private static final String ALLOWED_CLIENT_AUTHENTICATORS = "allowed-client-authenticators";
++    private static final String DEFAULT_CLIENT_AUTHENTICATOR = "default-client-authenticator";
++
++    private static final String SCANNED_PACKAGE = "org/keycloak";
++    private static final String CLASS_SUFFIX = ".class";
++
++    private static final String CLIENT_ID = "residual-contract-client";
++
++    /**
++     * The OIDC token-endpoint authentication method name that the change has to publish.
++     * <p>
++     * This is the single string in this contract that is pinned rather than derived. It is deliberately NOT
++     * taken from the implementation under test: the behavioural statement requires the new method to appear
++     * "in the realm's public discovery document ... so that a client registering itself dynamically can ask
++     * for it by name", i.e. the name is part of the observable, interoperable contract and cannot be chosen
++     * freely. The shipped sibling method publishes the IANA-registered token of RFC 8705 section 2.1
++     * ({@code tls_client_auth}); the self-signed variant of section 2.2 is registered as the token below.
++     * Any other spelling would make the advertised method unusable by a conforming client, so pinning it
++     * grades a real obligation. It is an RFC/IANA token, not an internal name of the reference change.
++     */
++    private static final String SELF_SIGNED_MUTUAL_TLS_METHOD = "self_signed_tls_client_auth";
++
++    /**
++     * Concrete {@link ClientAuthenticator} implementations compiled into this module under
++     * {@link #SCANNED_PACKAGE}, as measured on the pristine tree at the base commit.
++     */
++    private static final Set<String> BASELINE_AUTHENTICATOR_CLASS_NAMES = new LinkedHashSet<>(Arrays.asList(
++            "org.keycloak.authentication.authenticators.client.AttestationBasedClientAuthenticator",
++            "org.keycloak.authentication.authenticators.client.ClientIdAndSecretAuthenticator",
++            "org.keycloak.authentication.authenticators.client.FederatedJWTClientAuthenticator",
++            "org.keycloak.authentication.authenticators.client.JWTClientAuthenticator",
++            "org.keycloak.authentication.authenticators.client.JWTClientSecretAuthenticator",
++            "org.keycloak.authentication.authenticators.client.X509ClientAuthenticator"));
++
++    /**
++     * {@link ClientAuthenticatorFactory} ids resolvable through the session factory, as measured on the
++     * pristine tree at the base commit. The attestation-based authenticator is compiled but feature-gated,
++     * so it is deliberately absent here while present in {@link #BASELINE_AUTHENTICATOR_CLASS_NAMES}.
++     */
++    private static final Set<String> BASELINE_FACTORY_IDS = new LinkedHashSet<>(Arrays.asList(
++            "client-jwt",
++            "client-secret",
++            "client-secret-jwt",
++            "client-x509",
++            "federated-jwt"));
++
++    /**
++     * OIDC token-endpoint authentication method names published by the shipped factories, as measured on the
++     * pristine tree at the base commit.
++     */
++    private static final Set<String> BASELINE_OIDC_AUTH_METHODS = new LinkedHashSet<>(Arrays.asList(
++            "client_secret_basic",
++            "client_secret_post",
++            "client_secret_jwt",
++            "private_key_jwt",
++            "tls_client_auth"));
++
++    /**
++     * Every profile of {@link #DEFAULT_PROFILES_RESOURCE} that configures a
++     * {@code secure-client-authenticator} executor, with its allow-list as measured on the pristine tree at
++     * the base commit. All seven already tolerate certificate-based clients.
++     */
++    private static final Map<String, List<String>> BASELINE_ALLOWED_CLIENT_AUTHENTICATORS =
++            baselineAllowedClientAuthenticators();
++
++    /**
++     * Names of every profile shipped in {@link #DEFAULT_PROFILES_RESOURCE}, in order, at the base commit.
++     */
++    private static final List<String> BASELINE_PROFILE_NAMES = Collections.unmodifiableList(Arrays.asList(
++            "fapi-1-baseline",
++            "fapi-1-advanced",
++            "fapi-ciba",
++            "fapi-2-security-profile",
++            "fapi-2-message-signing",
++            "oauth-2-1-for-confidential-client",
++            "oauth-2-1-for-public-client",
++            "fapi-2-dpop-security-profile",
++            "fapi-2-dpop-message-signing",
++            "saml-security-profile"));
++
++    private static KeycloakSession serverSession;
++
++    private static CertificateFixture certificates;
++
++    private static Map<String, List<String>> baselineAllowedClientAuthenticators() {
++        Map<String, List<String>> baseline = new LinkedHashMap<>();
++        baseline.put("fapi-1-baseline", Arrays.asList("client-jwt", "client-secret-jwt", "client-x509"));
++        baseline.put("fapi-1-advanced", Arrays.asList("client-jwt", "client-x509"));
++        baseline.put("fapi-2-security-profile", Arrays.asList("client-jwt", "client-x509"));
++        baseline.put("fapi-2-message-signing", Arrays.asList("client-jwt", "client-x509"));
++        baseline.put("oauth-2-1-for-confidential-client", Arrays.asList("client-jwt", "client-x509"));
++        baseline.put("fapi-2-dpop-security-profile", Arrays.asList("client-jwt", "client-x509"));
++        baseline.put("fapi-2-dpop-message-signing", Arrays.asList("client-jwt", "client-x509"));
++        return Collections.unmodifiableMap(baseline);
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // A1..A5 - the wiring axes
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * A1 - the implementation exists as a compiled class, regardless of how (or whether) it is registered.
++     */
++    @Test
++    public void anImplementationOfTheClientAuthenticatorSpiExists() {
++        List<Class<?>> discovered = newAuthenticatorClasses();
++
++        Assert.assertEquals("Exactly one new concrete " + ClientAuthenticator.class.getSimpleName()
++                        + " implementation is expected under " + SCANNED_PACKAGE + " on top of the "
++                        + BASELINE_AUTHENTICATOR_CLASS_NAMES.size()
++                        + " measured on the pristine tree, but found " + classNames(discovered),
++                1, discovered.size());
++    }
++
++    /**
++     * A2 - the new authenticator is reachable through the provider SPI, i.e. its factory is listed in the
++     * plain-text ServiceLoader file of this module. Deliberately does not require A1 to have passed.
++     */
++    @Test
++    public void theAuthenticatorIsRegisteredThroughTheProviderSpi() {
++        List<String> newIds = newFactoryIds();
++
++        Assert.assertEquals("Exactly one new " + ClientAuthenticatorFactory.class.getSimpleName()
++                        + " id is expected on top of the " + BASELINE_FACTORY_IDS.size()
++                        + " measured on the pristine tree, but found " + newIds
++                        + ". Is the factory listed in META-INF/services/"
++                        + ClientAuthenticatorFactory.class.getName() + "?",
++                1, newIds.size());
++
++        String newId = newIds.get(0);
++        ClientAuthenticatorFactory factory = clientAuthenticatorFactory(newId);
++        Assert.assertNotNull("No " + ClientAuthenticatorFactory.class.getSimpleName()
++                + " resolvable for the new provider id '" + newId + "'", factory);
++
++        ClientAuthenticator provider = factory.create(serverSession());
++        Assert.assertNotNull("The factory registered under '" + newId + "' created no client authenticator",
++                provider);
++
++        List<Class<?>> discovered = newAuthenticatorClasses();
++        if (discovered.size() == 1) {
++            Assert.assertTrue("The factory registered under '" + newId + "' creates a "
++                            + provider.getClass().getName() + ", which is not the new implementation "
++                            + discovered.get(0).getName() + " found on the compiled classpath",
++                    discovered.get(0).isInstance(provider));
++        }
++    }
++
++    /**
++     * A3 - the new authenticator claims exactly one new OIDC token-endpoint authentication method, that
++     * method is the one a conforming client can ask for by name, and the list the discovery document is
++     * built from - a flat map over every factory, not a set - contains it exactly once.
++     * <p>
++     * The last assertion is the uniqueness invariant: resolving a requested {@code token_endpoint_auth_method}
++     * filters the factory stream and takes the first match, so two factories claiming the same method string
++     * silently hijack each other and the published list carries the duplicate.
++     * <p>
++     * Independent of A2: the simulated publication adds the newly compiled authenticator even when it is not
++     * registered yet.
++     */
++    @Test
++    public void itAdvertisesTheSelfSignedMutualTlsTokenEndpointAuthMethod() {
++        List<String> published = publishedOidcClientAuthMethods();
++
++        List<String> gained = published.stream()
++                .distinct()
++                .filter(method -> !BASELINE_OIDC_AUTH_METHODS.contains(method))
++                .sorted()
++                .collect(Collectors.toList());
++
++        Assert.assertEquals("Exactly one new OIDC token-endpoint authentication method is expected on top of"
++                        + " the " + BASELINE_OIDC_AUTH_METHODS.size() + " measured on the pristine tree "
++                        + BASELINE_OIDC_AUTH_METHODS + ", but the registered and newly compiled client"
++                        + " authenticators together publish " + published,
++                1, gained.size());
++
++        Assert.assertEquals("The advertised method name has to be the one a dynamically registering client"
++                        + " asks for; RFC 8705 section 2.2 registers exactly this token, and the shipped"
++                        + " sibling method uses the section 2.1 token 'tls_client_auth'",
++                SELF_SIGNED_MUTUAL_TLS_METHOD, gained.get(0));
++
++        Assert.assertEquals("Every OIDC client-authentication method must be claimed by exactly one factory,"
++                        + " but the list the discovery document is built from contains duplicates: "
++                        + duplicates(published),
++                Collections.emptyList(), duplicates(published));
++    }
++
++    /**
++     * A4 - the second, non-obvious registry: the shipped high-security client profiles are keyed by provider
++     * id, live in a resource of their own and are enforced by the client-policy subsystem. Every profile that
++     * already tolerates certificate-based clients has to tolerate the new authenticator too, otherwise a
++     * client configured with it is rejected at request time with no compile-time signal.
++     * <p>
++     * A pure JSON axis: it fails informatively even when no implementation exists at all.
++     */
++    @Test
++    public void theShippedCertificateAwareProfilesAllowTheNewAuthenticator() throws IOException {
++        Map<String, List<String>> current = allowedClientAuthenticatorsByProfile();
++
++        List<String> profilesStillMissingIt = new ArrayList<>();
++        Set<String> gainedAcrossProfiles = new LinkedHashSet<>();
++        for (Map.Entry<String, List<String>> baseline : BASELINE_ALLOWED_CLIENT_AUTHENTICATORS.entrySet()) {
++            List<String> allowed = current.get(baseline.getKey());
++            Assert.assertNotNull("Profile '" + baseline.getKey() + "' of " + DEFAULT_PROFILES_RESOURCE
++                    + " no longer configures a '" + SECURE_CLIENT_AUTHENTICATOR_EXECUTOR + "' executor",
++                    allowed);
++            List<String> gained = new ArrayList<>(allowed);
++            gained.removeAll(baseline.getValue());
++            if (gained.isEmpty()) {
++                profilesStillMissingIt.add(baseline.getKey());
++            }
++            gainedAcrossProfiles.addAll(gained);
++        }
++
++        Assert.assertEquals("All " + BASELINE_ALLOWED_CLIENT_AUTHENTICATORS.size() + " shipped profiles that"
++                        + " already allow '" + X509ClientAuthenticator.PROVIDER_ID + "' have to allow the new"
++                        + " client authenticator as well; these still do not: " + profilesStillMissingIt,
++                Collections.emptyList(), profilesStillMissingIt);
++
++        Assert.assertEquals("Every one of those profiles has to gain the same single provider id, but they"
++                        + " gained " + gainedAcrossProfiles,
++                1, gainedAcrossProfiles.size());
++
++        String gainedId = gainedAcrossProfiles.iterator().next();
++        List<String> newIds = newFactoryIds();
++        if (newIds.size() == 1) {
++            Assert.assertEquals("The provider id added to the shipped profiles is not the id the newly"
++                            + " registered client authenticator answers to",
++                    newIds.get(0), gainedId);
++        }
++    }
++
++    /**
++     * A5 - nothing that already worked was taken away: no shipped provider id disappeared from the SPI, no
++     * shipped authenticator class disappeared from the classpath, no profile was dropped or renamed, no
++     * allow-list entry was removed and no profile changed the authenticator it defaults to.
++     * <p>
++     * This axis intentionally PASSES on a pristine tree - it is a "did not break anything" floor, not a "did
++     * the work" check, and a run in which only this axis passes means no progress at all, not partial
++     * progress.
++     */
++    @Test
++    public void nothingThatAlreadyWorkedWasTakenAway() throws IOException {
++        List<String> missingClasses = BASELINE_AUTHENTICATOR_CLASS_NAMES.stream()
++                .filter(name -> !isCompiledAuthenticator(name))
++                .collect(Collectors.toList());
++        Assert.assertEquals("Shipped client authenticator implementations disappeared from the compiled"
++                + " classpath: " + missingClasses, Collections.emptyList(), missingClasses);
++
++        Set<String> currentIds = allFactoryIds();
++        List<String> missingIds = BASELINE_FACTORY_IDS.stream()
++                .filter(id -> !currentIds.contains(id))
++                .collect(Collectors.toList());
++        Assert.assertEquals("Shipped client authenticator provider ids are no longer resolvable through the"
++                + " SPI: " + missingIds, Collections.emptyList(), missingIds);
++
++        Assert.assertEquals("The shipped profiles of " + DEFAULT_PROFILES_RESOURCE + " changed",
++                BASELINE_PROFILE_NAMES, profileNames());
++
++        Map<String, List<String>> current = allowedClientAuthenticatorsByProfile();
++        Assert.assertEquals("The set of profiles configuring a '" + SECURE_CLIENT_AUTHENTICATOR_EXECUTOR
++                        + "' executor changed",
++                BASELINE_ALLOWED_CLIENT_AUTHENTICATORS.keySet(), current.keySet());
++        for (Map.Entry<String, List<String>> baseline : BASELINE_ALLOWED_CLIENT_AUTHENTICATORS.entrySet()) {
++            List<String> removed = new ArrayList<>(baseline.getValue());
++            removed.removeAll(current.get(baseline.getKey()));
++            Assert.assertEquals("Profile '" + baseline.getKey() + "' no longer allows " + removed,
++                    Collections.emptyList(), removed);
++        }
++
++        Map<String, String> defaults = defaultClientAuthenticatorByProfile();
++        for (String profile : BASELINE_ALLOWED_CLIENT_AUTHENTICATORS.keySet()) {
++            Assert.assertEquals("Profile '" + profile + "' changed its '" + DEFAULT_CLIENT_AUTHENTICATOR + "'",
++                    "client-jwt", defaults.get(profile));
++        }
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // B1..B4 - the behaviour axes, none of which reads the profile JSON or needs the registration
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * B1 - a client presenting exactly the certificate registered for it is authenticated.
++     * <p>
++     * The certificate is self-issued and the session offers no truststore whatsoever, so passing this axis
++     * also demonstrates that no certificate authority and no trust anchor is consulted: an implementation
++     * that copies the shipped certificate-authority validation of the sibling authenticator cannot reach
++     * {@code success} here.
++     */
++    @Test
++    public void aClientPresentingItsRegisteredCertificateIsAuthenticated() {
++        CertificateFixture fixture = certificates();
++
++        Outcome outcome = authenticate(new X509Certificate[]{fixture.registered}, fixture.registeredPem);
++
++        Assert.assertEquals("A client presenting exactly the certificate registered for it has to be"
++                        + " authenticated, without any certificate authority being consulted"
++                        + outcome.describe(),
++                FlowStatus.SUCCESS, outcome.status);
++        Assert.assertNotNull("The authenticated client has to be attached to the flow", outcome.client);
++    }
++
++    /**
++     * B2 - THE INVARIANT. A freshly re-issued certificate carrying the very same subject name and the very
++     * same public key as the registered one, but different bytes, is refused.
++     * <p>
++     * This is the axis a naive copy of the shipped certificate-based authenticator breaks: that one compares
++     * the subject distinguished name, which is identical here. The new method has to accept on identity of
++     * the certificate itself, never on a name or a key.
++     */
++    @Test
++    public void aReIssuedCertificateWithTheSameSubjectAndKeyIsRefused() {
++        CertificateFixture fixture = certificates();
++
++        Assert.assertEquals("fixture: the re-issued certificate must carry the same subject",
++                fixture.registered.getSubjectX500Principal(), fixture.reIssued.getSubjectX500Principal());
++        Assert.assertEquals("fixture: the re-issued certificate must carry the same public key",
++                fixture.registered.getPublicKey(), fixture.reIssued.getPublicKey());
++
++        Outcome outcome = authenticate(new X509Certificate[]{fixture.reIssued}, fixture.registeredPem);
++
++        Assert.assertNotEquals("A re-issued certificate with the same subject name and the same key is NOT"
++                        + " the registered certificate and has to be refused; comparing the subject"
++                        + " distinguished name, as the shipped certificate-authority based method does,"
++                        + " accepts it" + outcome.describe(),
++                FlowStatus.SUCCESS, outcome.status);
++    }
++
++    /**
++     * B3 - a valid but unrelated certificate, issued to a different subject with a different key, is refused.
++     */
++    @Test
++    public void aCertificateThatIsNotTheRegisteredOneIsRefused() {
++        CertificateFixture fixture = certificates();
++
++        Outcome outcome = authenticate(new X509Certificate[]{fixture.foreign}, fixture.registeredPem);
++
++        Assert.assertNotEquals("A certificate that is not the one registered for the client has to be"
++                        + " refused" + outcome.describe(),
++                FlowStatus.SUCCESS, outcome.status);
++    }
++
++    /**
++     * B4 - a request that carries no client certificate at all leaves the execution to the rest of the flow.
++     * <p>
++     * Client authentication is a flow of alternative executions, so an authenticator that cannot say anything
++     * has to mark the execution as merely attempted. Aborting the flow instead would make every client of the
++     * realm unable to authenticate by any other means as soon as this authenticator is enabled.
++     */
++    @Test
++    public void aRequestWithoutAClientCertificateLeavesTheFlowToOtherExecutions() {
++        CertificateFixture fixture = certificates();
++
++        Outcome outcome = authenticate(new X509Certificate[0], fixture.registeredPem);
++
++        Assert.assertEquals("A request without a client certificate has to leave the execution attempted so"
++                        + " that the remaining alternative executions still get their chance"
++                        + outcome.describe(),
++                FlowStatus.ATTEMPTED, outcome.status);
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // the authenticator under test - built the way the runtime builds it
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * Runs the authenticator under test against a request that presents {@code presentedChain} over mutual
++     * TLS for a client that has {@code registeredCertificatePem} registered.
++     */
++    private static Outcome authenticate(X509Certificate[] presentedChain, String registeredCertificatePem) {
++        Map<String, String> clientAttributes = new HashMap<>();
++        if (registeredCertificatePem != null) {
++            clientAttributes.put(JWTClientAuthenticator.CERTIFICATE_ATTR, registeredCertificatePem);
++        }
++
++        ClientModel client = newProxy(ClientModel.class, new ClientHandler(clientAttributes));
++        RealmModel realm = newProxy(RealmModel.class, new RealmHandler(client));
++        UriInfo uriInfo = newProxy(UriInfo.class, new UriInfoHandler());
++        HttpRequest httpRequest = newProxy(HttpRequest.class, new HttpRequestHandler(presentedChain, uriInfo));
++        ContextOfSessionHandler contextHandler = new ContextOfSessionHandler(realm, httpRequest);
++        KeycloakContext context = newProxy(KeycloakContext.class, contextHandler);
++        KeycloakSession session = newProxy(KeycloakSession.class,
++                new SessionHandler(context, presentedChain));
++        // KeycloakContext.getUri() is typed to a concrete class, so the real one is built here, over a
++        // delegate that answers the empty query string of a form-encoded token request
++        contextHandler.uri = new KeycloakUriInfo(session, UrlType.FRONTEND, uriInfo);
++
++        Outcome outcome = new Outcome();
++        EventBuilder event = new EventBuilder(realm, session);
++        ClientAuthenticationFlowContext flowContext = newProxy(ClientAuthenticationFlowContext.class,
++                new FlowContextHandler(outcome, session, realm, httpRequest, uriInfo, event));
++
++        authenticatorUnderTest(session).authenticateClient(flowContext);
++        return outcome;
++    }
++
++    /**
++     * The authenticator as the runtime hands it to the client authentication flow: discovered by
++     * name-independent means and, when the discovered class is its own factory, obtained through
++     * {@code create(session)} exactly as the flow does. Never returns an object the runtime could not build.
++     */
++    private static ClientAuthenticator authenticatorUnderTest(KeycloakSession session) {
++        List<Class<?>> discovered = newAuthenticatorClasses();
++        if (discovered.size() == 1) {
++            return asProvider(instantiate(discovered.get(0)), session);
++        }
++
++        ClientAuthenticator fromSpi = authenticatorFromSpi(session);
++        if (discovered.isEmpty()) {
++            if (fromSpi != null) {
++                return fromSpi;
++            }
++            Assert.fail("No new " + ClientAuthenticator.class.getSimpleName() + " was found: neither a new"
++                    + " implementation compiled under " + SCANNED_PACKAGE + " nor a new provider id"
++                    + " registered through the SPI. The behaviour under test is not implemented.");
++        }
++        if (fromSpi != null && discovered.contains(fromSpi.getClass())) {
++            return fromSpi;
++        }
++        Assert.fail("Expected exactly one new " + ClientAuthenticator.class.getSimpleName()
++                + " implementation, but found " + classNames(discovered)
++                + " and no registered factory that singles one of them out");
++        throw new AssertionError("unreachable");
++    }
++
++    private static ClientAuthenticator asProvider(Object instance, KeycloakSession session) {
++        if (instance instanceof ClientAuthenticatorFactory) {
++            ClientAuthenticator provider = ((ClientAuthenticatorFactory) instance).create(session);
++            if (provider != null) {
++                return provider;
++            }
++        }
++        if (instance instanceof ClientAuthenticator) {
++            return (ClientAuthenticator) instance;
++        }
++        Assert.fail("The discovered implementation '" + instance.getClass().getName() + "' produced no "
++                + ClientAuthenticator.class.getSimpleName());
++        throw new AssertionError("unreachable");
++    }
++
++    private static ClientAuthenticator authenticatorFromSpi(KeycloakSession session) {
++        try {
++            List<String> newIds = newFactoryIds();
++            if (newIds.size() != 1) {
++                return null;
++            }
++            ClientAuthenticatorFactory factory = clientAuthenticatorFactory(newIds.get(0));
++            return factory == null ? null : factory.create(session);
++        } catch (Exception e) {
++            System.err.println("Cannot build the client authenticator through the provider SPI: " + e);
++            return null;
++        }
++    }
++
++    private static Object instantiate(Class<?> type) {
++        Object instance = newInstanceOrNull(type);
++        if (instance == null) {
++            Assert.fail("The discovered client authenticator '" + type.getName() + "' offers no public"
++                    + " no-arg constructor, so the provider SPI could never instantiate it either");
++        }
++        return instance;
++    }
++
++    private static Object newInstanceOrNull(Class<?> type) {
++        for (Constructor<?> constructor : type.getConstructors()) {
++            if (constructor.getParameterCount() == 0) {
++                try {
++                    return constructor.newInstance();
++                } catch (Throwable t) {
++                    System.err.println("Cannot instantiate '" + type.getName() + "': " + t);
++                    return null;
++                }
++            }
++        }
++        return null;
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // discovery route (1) - the compiled classes of this module
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<Class<?>> newAuthenticatorClasses() {
++        List<Class<?>> discovered = new ArrayList<>();
++        for (String name : compiledClassNames()) {
++            if (BASELINE_AUTHENTICATOR_CLASS_NAMES.contains(name)) {
++                continue;
++            }
++            Class<?> candidate = loadOrNull(name);
++            if (candidate != null && isConcreteAuthenticator(candidate)) {
++                discovered.add(candidate);
++            }
++        }
++        return discovered;
++    }
++
++    private static boolean isCompiledAuthenticator(String name) {
++        Class<?> candidate = loadOrNull(name);
++        return candidate != null && isConcreteAuthenticator(candidate);
++    }
++
++    private static boolean isConcreteAuthenticator(Class<?> candidate) {
++        try {
++            return ClientAuthenticator.class.isAssignableFrom(candidate)
++                    && !candidate.isInterface()
++                    && !Modifier.isAbstract(candidate.getModifiers())
++                    && !candidate.isSynthetic()
++                    && !candidate.isAnonymousClass()
++                    && !candidate.isLocalClass();
++        } catch (Throwable t) {
++            System.err.println("Skipping class '" + candidate.getName() + "' which cannot be inspected: " + t);
++            return false;
++        }
++    }
++
++    private static Class<?> loadOrNull(String name) {
++        try {
++            return Class.forName(name, false,
++                    ClientAuthenticationMethodResidualContractTest.class.getClassLoader());
++        } catch (Throwable t) {
++            // an unloadable class must not abort the scan - it simply cannot be the authenticator under test
++            System.err.println("Skipping class '" + name + "' which cannot be loaded: " + t);
++            return null;
++        }
++    }
++
++    private static List<String> compiledClassNames() {
++        URL location = X509ClientAuthenticator.class.getProtectionDomain().getCodeSource().getLocation();
++        Assert.assertNotNull("Cannot locate the compiled classes of this module", location);
++
++        List<String> names = new ArrayList<>();
++        try {
++            Path root = Paths.get(location.toURI());
++            if (Files.isDirectory(root)) {
++                Path scanned = root.resolve(SCANNED_PACKAGE);
++                if (Files.isDirectory(scanned)) {
++                    try (Stream<Path> paths = Files.walk(scanned)) {
++                        names.addAll(paths
++                                .filter(path -> path.getFileName().toString().endsWith(CLASS_SUFFIX))
++                                .map(path -> toClassName(
++                                        root.relativize(path).toString().replace(File.separatorChar, '/')))
++                                .collect(Collectors.toList()));
++                    }
++                }
++            } else {
++                try (JarFile jar = new JarFile(root.toFile())) {
++                    Enumeration<JarEntry> entries = jar.entries();
++                    while (entries.hasMoreElements()) {
++                        String entry = entries.nextElement().getName();
++                        if (entry.startsWith(SCANNED_PACKAGE + "/") && entry.endsWith(CLASS_SUFFIX)) {
++                            names.add(toClassName(entry));
++                        }
++                    }
++                }
++            }
++        } catch (Exception e) {
++            Assert.fail("Cannot scan the compiled classes at '" + location + "': " + e);
++        }
++        Collections.sort(names);
++        return names;
++    }
++
++    private static String toClassName(String resourcePath) {
++        return resourcePath.substring(0, resourcePath.length() - CLASS_SUFFIX.length()).replace('/', '.');
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // discovery route (2) - the provider SPI
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<String> newFactoryIds() {
++        return allFactoryIds().stream()
++                .filter(id -> !BASELINE_FACTORY_IDS.contains(id))
++                .sorted()
++                .collect(Collectors.toList());
++    }
++
++    private static Set<String> allFactoryIds() {
++        return registeredFactories().stream()
++                .map(ProviderFactory::getId)
++                .collect(Collectors.toCollection(LinkedHashSet::new));
++    }
++
++    private static List<ClientAuthenticatorFactory> registeredFactories() {
++        return serverSession().getKeycloakSessionFactory()
++                .getProviderFactoriesStream(ClientAuthenticator.class)
++                .filter(ClientAuthenticatorFactory.class::isInstance)
++                .map(ClientAuthenticatorFactory.class::cast)
++                .collect(Collectors.toList());
++    }
++
++    private static ClientAuthenticatorFactory clientAuthenticatorFactory(String id) {
++        ProviderFactory<ClientAuthenticator> factory = serverSession().getKeycloakSessionFactory()
++                .getProviderFactory(ClientAuthenticator.class, id);
++        return factory instanceof ClientAuthenticatorFactory ? (ClientAuthenticatorFactory) factory : null;
++    }
++
++    /**
++     * The list of OIDC token-endpoint authentication methods a realm's discovery document would publish: a
++     * flat map over every client authenticator factory, deliberately not de-duplicated. Newly compiled
++     * authenticators that are not registered yet are added too, so this axis does not depend on the
++     * ServiceLoader registration having been done.
++     */
++    private static List<String> publishedOidcClientAuthMethods() {
++        List<ClientAuthenticatorFactory> factories = new ArrayList<>(registeredFactories());
++        Set<Class<?>> known = factories.stream().map(Object::getClass).collect(Collectors.toSet());
++        for (Class<?> candidate : newAuthenticatorClasses()) {
++            if (known.contains(candidate)) {
++                continue;
++            }
++            Object instance = newInstanceOrNull(candidate);
++            if (instance instanceof ClientAuthenticatorFactory) {
++                factories.add((ClientAuthenticatorFactory) instance);
++            }
++        }
++
++        List<String> methods = new ArrayList<>();
++        for (ClientAuthenticatorFactory factory : factories) {
++            Set<String> claimed;
++            try {
++                claimed = factory.getProtocolAuthenticatorMethods(OIDCLoginProtocol.LOGIN_PROTOCOL);
++            } catch (Exception e) {
++                System.err.println("Factory '" + factory.getClass().getName()
++                        + "' failed to answer which OIDC methods it claims: " + e);
++                continue;
++            }
++            if (claimed != null) {
++                methods.addAll(claimed);
++            }
++        }
++        return methods;
++    }
++
++    private static synchronized KeycloakSession serverSession() {
++        if (serverSession == null) {
++            try {
++                Profile.defaults();
++                CryptoIntegration.init(CryptoProvider.class.getClassLoader());
++                ResteasyKeycloakSessionFactory sessionFactory = new ResteasyKeycloakSessionFactory();
++                sessionFactory.init();
++                serverSession = new ResteasyKeycloakSession(sessionFactory);
++            } catch (Exception e) {
++                Assert.fail("Cannot boot a provider registry to resolve client authenticator factories: " + e);
++            }
++        }
++        return serverSession;
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // JSON helpers
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<String> profileNames() throws IOException {
++        List<String> names = new ArrayList<>();
++        for (JsonNode profile : readDefaultProfiles().get("profiles")) {
++            names.add(profile.get("name").asText());
++        }
++        return names;
++    }
++
++    private static Map<String, List<String>> allowedClientAuthenticatorsByProfile() throws IOException {
++        Map<String, List<String>> allowed = new LinkedHashMap<>();
++        forEachSecureClientAuthenticatorExecutor((profile, configuration) -> {
++            JsonNode list = configuration.get(ALLOWED_CLIENT_AUTHENTICATORS);
++            List<String> ids = new ArrayList<>();
++            if (list != null) {
++                for (JsonNode id : list) {
++                    ids.add(id.asText());
++                }
++            }
++            allowed.put(profile, ids);
++        });
++        return allowed;
++    }
++
++    private static Map<String, String> defaultClientAuthenticatorByProfile() throws IOException {
++        Map<String, String> defaults = new LinkedHashMap<>();
++        forEachSecureClientAuthenticatorExecutor((profile, configuration) -> {
++            JsonNode value = configuration.get(DEFAULT_CLIENT_AUTHENTICATOR);
++            defaults.put(profile, value == null ? null : value.asText());
++        });
++        return defaults;
++    }
++
++    private static void forEachSecureClientAuthenticatorExecutor(ExecutorVisitor visitor) throws IOException {
++        for (JsonNode profile : readDefaultProfiles().get("profiles")) {
++            JsonNode executors = profile.get("executors");
++            if (executors == null) {
++                continue;
++            }
++            for (JsonNode executor : executors) {
++                JsonNode id = executor.get("executor");
++                if (id == null || !SECURE_CLIENT_AUTHENTICATOR_EXECUTOR.equals(id.asText())) {
++                    continue;
++                }
++                JsonNode configuration = executor.get("configuration");
++                if (configuration != null) {
++                    visitor.visit(profile.get("name").asText(), configuration);
++                }
++            }
++        }
++    }
++
++    private static JsonNode readDefaultProfiles() throws IOException {
++        try (InputStream is = ClientAuthenticationMethodResidualContractTest.class.getClassLoader()
++                .getResourceAsStream(DEFAULT_PROFILES_RESOURCE)) {
++            Assert.assertNotNull("Classpath resource '" + DEFAULT_PROFILES_RESOURCE + "' is missing", is);
++            return JsonSerialization.mapper.readTree(is);
++        }
++    }
++
++    private interface ExecutorVisitor {
++        void visit(String profile, JsonNode configuration);
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // misc helpers
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<String> classNames(List<Class<?>> classes) {
++        return classes.stream().map(Class::getName).sorted().collect(Collectors.toList());
++    }
++
++    private static List<String> duplicates(List<String> values) {
++        Set<String> seen = new LinkedHashSet<>();
++        Set<String> repeated = new LinkedHashSet<>();
++        for (String value : values) {
++            if (!seen.add(value)) {
++                repeated.add(value);
++            }
++        }
++        return new ArrayList<>(repeated);
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // certificate fixture
++    // ----------------------------------------------------------------------------------------------------
++
++    private static synchronized CertificateFixture certificates() {
++        if (certificates == null) {
++            try {
++                Profile.defaults();
++                CryptoIntegration.init(CryptoProvider.class.getClassLoader());
++                KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
++                generator.initialize(2048);
++
++                KeyPair clientKeyPair = generator.generateKeyPair();
++                CertificateFixture fixture = new CertificateFixture();
++                fixture.registered = CertificateUtils.generateV1SelfSignedCertificate(clientKeyPair,
++                        "CN=" + CLIENT_ID, BigInteger.valueOf(1));
++                fixture.reIssued = CertificateUtils.generateV1SelfSignedCertificate(clientKeyPair,
++                        "CN=" + CLIENT_ID, BigInteger.valueOf(2));
++                fixture.foreign = CertificateUtils.generateV1SelfSignedCertificate(generator.generateKeyPair(),
++                        "CN=somebody-else", BigInteger.valueOf(3));
++                fixture.registeredPem = PemUtils.encodeCertificate(fixture.registered);
++                certificates = fixture;
++            } catch (Exception e) {
++                Assert.fail("Cannot build the certificate fixture: " + e);
++            }
++        }
++        return certificates;
++    }
++
++    private static class CertificateFixture {
++        private X509Certificate registered;
++        private X509Certificate reIssued;
++        private X509Certificate foreign;
++        private String registeredPem;
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // the recorded outcome of one authentication attempt
++    // ----------------------------------------------------------------------------------------------------
++
++    private static class Outcome {
++
++        private FlowStatus status;
++        private AuthenticationFlowError error;
++        private ClientModel client;
++        private int decisions;
++
++        private void record(FlowStatus status, AuthenticationFlowError error) {
++            this.decisions++;
++            if (this.status == null) {
++                this.status = status;
++                this.error = error;
++            }
++        }
++
++        private String describe() {
++            if (decisions == 0) {
++                return ", but the authenticator reached no decision at all";
++            }
++            return ", but the authenticator answered " + status + (error == null ? "" : " (" + error + ")");
++        }
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // test doubles - plain dynamic proxies, no mocking framework
++    // ----------------------------------------------------------------------------------------------------
++
++    @SuppressWarnings("unchecked")
++    private static <T> T newProxy(Class<T> type, InvocationHandler handler) {
++        return (T) Proxy.newProxyInstance(
++                ClientAuthenticationMethodResidualContractTest.class.getClassLoader(),
++                new Class<?>[]{type}, handler);
++    }
++
++    private abstract static class DefaultingHandler implements InvocationHandler {
++
++        static final Object NOT_HANDLED = new Object();
++
++        @Override
++        public final Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
++            String name = method.getName();
++            if ("toString".equals(name) && (args == null || args.length == 0)) {
++                return getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(proxy));
++            }
++            if ("hashCode".equals(name) && (args == null || args.length == 0)) {
++                return System.identityHashCode(proxy);
++            }
++            if ("equals".equals(name) && args != null && args.length == 1) {
++                return proxy == args[0];
++            }
++            Object answer = answer(proxy, method, args);
++            return answer == NOT_HANDLED ? defaultValue(method.getReturnType()) : answer;
++        }
++
++        abstract Object answer(Object proxy, Method method, Object[] args) throws Throwable;
++
++        private static Object defaultValue(Class<?> type) {
++            if (type.isPrimitive()) {
++                if (type == boolean.class) {
++                    return Boolean.FALSE;
++                }
++                if (type == char.class) {
++                    return (char) 0;
++                }
++                if (type == byte.class) {
++                    return (byte) 0;
++                }
++                if (type == short.class) {
++                    return (short) 0;
++                }
++                if (type == int.class) {
++                    return 0;
++                }
++                if (type == long.class) {
++                    return 0L;
++                }
++                if (type == float.class) {
++                    return 0F;
++                }
++                if (type == double.class) {
++                    return 0D;
++                }
++                return null;
++            }
++            if (Stream.class.isAssignableFrom(type)) {
++                return Stream.empty();
++            }
++            if (Optional.class.isAssignableFrom(type)) {
++                return Optional.empty();
++            }
++            if (MultivaluedMap.class.isAssignableFrom(type)) {
++                return new MultivaluedHashMap<String, String>();
++            }
++            if (Map.class.isAssignableFrom(type)) {
++                return new HashMap<>();
++            }
++            if (Set.class.isAssignableFrom(type)) {
++                return new LinkedHashSet<>();
++            }
++            if (List.class.isAssignableFrom(type)) {
++                return new ArrayList<>();
++            }
++            return null;
++        }
++    }
++
++    private static class ClientHandler extends DefaultingHandler {
++
++        private final Map<String, String> attributes;
++
++        ClientHandler(Map<String, String> attributes) {
++            this.attributes = attributes;
++        }
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            switch (method.getName()) {
++                case "getId":
++                case "getClientId":
++                    return CLIENT_ID;
++                case "isEnabled":
++                    return Boolean.TRUE;
++                case "getAttribute":
++                    return args == null || args.length != 1 ? null : attributes.get(args[0]);
++                case "getAttributes":
++                    return new HashMap<>(attributes);
++                case "getProtocol":
++                    return OIDCLoginProtocol.LOGIN_PROTOCOL;
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++    }
++
++    private static class RealmHandler extends DefaultingHandler {
++
++        private final ClientModel client;
++
++        RealmHandler(ClientModel client) {
++            this.client = client;
++        }
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            switch (method.getName()) {
++                case "getId":
++                    return "residual-contract-realm";
++                case "getName":
++                    return "residual-contract-realm";
++                case "isEnabled":
++                    return Boolean.TRUE;
++                case "isEventsEnabled":
++                    return Boolean.FALSE;
++                case "getClientByClientId":
++                    return args != null && args.length == 1 && CLIENT_ID.equals(args[0]) ? client : null;
++                case "getClientById":
++                    return args != null && args.length == 1 && CLIENT_ID.equals(args[0]) ? client : null;
++                case "getClientsStream":
++                    return Stream.of(client);
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++    }
++
++    private static class UriInfoHandler extends DefaultingHandler {
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            return NOT_HANDLED;
++        }
++    }
++
++    private static class HttpHeadersHandler extends DefaultingHandler {
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            if ("getMediaType".equals(method.getName())) {
++                return MediaType.APPLICATION_FORM_URLENCODED_TYPE;
++            }
++            return NOT_HANDLED;
++        }
++    }
++
++    private static class HttpRequestHandler extends DefaultingHandler {
++
++        private final X509Certificate[] presentedChain;
++        private final UriInfo uriInfo;
++        private final HttpHeaders headers = newProxy(HttpHeaders.class, new HttpHeadersHandler());
++
++        HttpRequestHandler(X509Certificate[] presentedChain, UriInfo uriInfo) {
++            this.presentedChain = presentedChain;
++            this.uriInfo = uriInfo;
++        }
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            switch (method.getName()) {
++                case "getHttpMethod":
++                    return "POST";
++                case "getHttpHeaders":
++                    return headers;
++                case "getDecodedFormParameters":
++                    MultivaluedMap<String, String> form = new MultivaluedHashMap<>();
++                    form.putSingle(OAuth2Constants.CLIENT_ID, CLIENT_ID);
++                    return form;
++                case "getClientCertificateChain":
++                    return presentedChain;
++                case "isProxyTrusted":
++                    return Boolean.TRUE;
++                case "getUri":
++                    return uriInfo;
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++    }
++
++    private static class ContextOfSessionHandler extends DefaultingHandler {
++
++        private final RealmModel realm;
++        private final HttpRequest httpRequest;
++        private KeycloakUriInfo uri;
++
++        ContextOfSessionHandler(RealmModel realm, HttpRequest httpRequest) {
++            this.realm = realm;
++            this.httpRequest = httpRequest;
++        }
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            switch (method.getName()) {
++                case "getRealm":
++                    return realm;
++                case "getHttpRequest":
++                    return httpRequest;
++                case "getUri":
++                    return uri;
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++    }
++
++    private static class SessionFactoryHandler extends DefaultingHandler {
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            return NOT_HANDLED;
++        }
++    }
++
++    private static class SessionHandler extends DefaultingHandler {
++
++        private final KeycloakContext context;
++        private final X509ClientCertificateLookup lookup;
++        private final HostnameProvider hostname = newProxy(HostnameProvider.class, new HostnameHandler());
++        private final KeycloakSessionFactory sessionFactory =
++                newProxy(KeycloakSessionFactory.class, new SessionFactoryHandler());
++
++        SessionHandler(KeycloakContext context, X509Certificate[] presentedChain) {
++            this.context = context;
++            this.lookup = newProxy(X509ClientCertificateLookup.class,
++                    new CertificateLookupHandler(presentedChain));
++        }
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            switch (method.getName()) {
++                case "getContext":
++                    return context;
++                case "getKeycloakSessionFactory":
++                    return sessionFactory;
++                case "getProvider":
++                    if (args == null || args.length == 0) {
++                        return null;
++                    }
++                    if (X509ClientCertificateLookup.class.equals(args[0])) {
++                        return lookup;
++                    }
++                    return HostnameProvider.class.equals(args[0]) ? hostname : null;
++                case "getAllProviders":
++                    return args != null && args.length == 1 && X509ClientCertificateLookup.class.equals(args[0])
++                            ? Collections.singleton(lookup) : new LinkedHashSet<>();
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++    }
++
++    private static class HostnameHandler extends DefaultingHandler {
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            switch (method.getName()) {
++                case "getBaseUri":
++                    return URI.create("https://localhost:8443/");
++                case "getScheme":
++                    return "https";
++                case "getHostname":
++                    return "localhost";
++                case "getPort":
++                    return 8443;
++                case "getContextPath":
++                    return "/";
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++    }
++
++    private static class CertificateLookupHandler extends DefaultingHandler {
++
++        private final X509Certificate[] presentedChain;
++
++        CertificateLookupHandler(X509Certificate[] presentedChain) {
++            this.presentedChain = presentedChain;
++        }
++
++        @Override
++        Object answer(Object proxy, Method method, Object[] args) {
++            if ("getCertificateChain".equals(method.getName())) {
++                return presentedChain;
++            }
++            return NOT_HANDLED;
++        }
++    }
++
++    private static class FlowContextHandler extends DefaultingHandler {
++
++        private final Outcome outcome;
++        private final KeycloakSession session;
++        private final RealmModel realm;
++        private final HttpRequest httpRequest;
++        private final UriInfo uriInfo;
++        private final EventBuilder event;
++        private final Map<String, String> clientAuthAttributes = new HashMap<>();
++        private final Map<Class<?>, Object> state = new HashMap<>();
++
++        FlowContextHandler(Outcome outcome, KeycloakSession session, RealmModel realm, HttpRequest httpRequest,
++                UriInfo uriInfo, EventBuilder event) {
++            this.outcome = outcome;
++            this.session = session;
++            this.realm = realm;
++            this.httpRequest = httpRequest;
++            this.uriInfo = uriInfo;
++            this.event = event;
++        }
++
++        @Override
++        @SuppressWarnings("unchecked")
++        Object answer(Object proxy, Method method, Object[] args) throws Throwable {
++            switch (method.getName()) {
++                case "getSession":
++                    return session;
++                case "getRealm":
++                    return realm;
++                case "getHttpRequest":
++                    return httpRequest;
++                case "getUriInfo":
++                    return uriInfo;
++                case "getEvent":
++                case "newEvent":
++                    return event;
++                case "getClient":
++                    return outcome.client;
++                case "setClient":
++                    outcome.client = args == null || args.length != 1 ? null : (ClientModel) args[0];
++                    return null;
++                case "getClientAuthAttributes":
++                    return clientAuthAttributes;
++                case "getStatus":
++                    return outcome.status;
++                case "getError":
++                    return outcome.error;
++                case "success":
++                    outcome.record(FlowStatus.SUCCESS, null);
++                    return null;
++                case "attempted":
++                    outcome.record(FlowStatus.ATTEMPTED, null);
++                    return null;
++                case "failure":
++                    outcome.record(FlowStatus.FAILED, error(args));
++                    return null;
++                case "failureChallenge":
++                    outcome.record(FlowStatus.FAILURE_CHALLENGE, error(args));
++                    return null;
++                case "challenge":
++                    outcome.record(FlowStatus.CHALLENGE, null);
++                    return null;
++                case "forceChallenge":
++                    outcome.record(FlowStatus.FORCE_CHALLENGE, null);
++                    return null;
++                case "getState":
++                    if (args == null || args.length != 2 || !(args[0] instanceof Class)) {
++                        return NOT_HANDLED;
++                    }
++                    Class<?> type = (Class<?>) args[0];
++                    Object cached = state.get(type);
++                    if (cached == null && args[1] != null) {
++                        cached = ((ClientAuthenticationFlowContextSupplier<Object>) args[1])
++                                .get((ClientAuthenticationFlowContext) proxy);
++                        state.put(type, cached);
++                    }
++                    return cached;
++                default:
++                    return NOT_HANDLED;
++            }
++        }
++
++        private static AuthenticationFlowError error(Object[] args) {
++            return args != null && args.length > 0 && args[0] instanceof AuthenticationFlowError
++                    ? (AuthenticationFlowError) args[0] : null;
++        }
++    }
++}

@@ -402,14 +402,25 @@ object AcquisitionCases {
      * self-signed-certificate client authentication, which the tree lacks while shipping its §2.1
      * sibling.
      *
-     * Research-only by design (see `DESIGN-GENERALIZATION.md`): this round buys curves, not solvers.
-     * The gold patch beside the case is the reference the checklist was derived FROM — it compiles at
-     * the pinned commit and applies to a pristine checkout, which is what makes the discovery chain a
-     * fact about the repository rather than a story about it.
+     * Research-only when the generalization round bought its curves; GRADABLE since the downstream
+     * replication (`DESIGN-DOWNSTREAM-3.md`) gave it a hidden oracle. The gold patch beside the case is
+     * the reference both the checklist and that oracle were derived FROM — it compiles at the pinned
+     * commit and applies to a pristine checkout, which is what makes the discovery chain a fact about
+     * the repository rather than a story about it.
      */
     val clientAuthMethod: UnderstandingCase = UnderstandingCase(
         instanceId = "acquisition__keycloak__client-auth-method",
         problemStatement = CLIENT_AUTH_METHOD_STATEMENT,
+        oracleTestPatchResource = "acquisition-cases/acquisition__keycloak__client-auth-method/oracle.patch",
+        failToPass = listOf(
+            "org.keycloak.authentication.authenticators.client.ClientAuthenticationMethodResidualContractTest",
+        ),
+        // Nine INDEPENDENT assertions, measured on six trees before use: pristine 1, implementation
+        // only 7, plus the ServiceLoader line 8, plus the profile allow-lists 9 — and the naive
+        // neighbour (subject-DN comparison instead of the certificate itself) 8, losing exactly the
+        // invariant axis. The floor is ONE and not zero because the blast-radius assertion is true of
+        // a tree that changed nothing; stated here so nobody reads 1/9 as partial progress.
+        oracleTestCount = 9,
         gradingScopeSelector = ":keycloak-services",
         statementLeakageTokens = CLIENT_AUTH_METHOD_LEAKAGE,
         precedentPaths = listOf(
@@ -440,14 +451,24 @@ object AcquisitionCases {
      * `acquisition__keycloak__oauth-grant-type` — the second NEW architecture case: a dedicated token-
      * endpoint grant for renewing long-lived, non-interactive credentials.
      *
-     * Also research-only. Its interest is that the invariant lives in ANOTHER subsystem than the change:
-     * the shortcut a grant factory declares is consumed by the token-context encoder, which checks
-     * global uniqueness at start-up and refuses to boot on a collision — while the nearest precedent
-     * publishes its own shortcut as a public constant, inviting exactly that collision.
+     * Research-only for the generalization round, GRADABLE since the downstream replication. Its
+     * interest is that the invariant lives in ANOTHER subsystem than the change: the shortcut a grant
+     * factory declares is consumed by the token-context encoder, which checks global uniqueness at
+     * start-up and refuses to boot on a collision — while the nearest precedent publishes its own
+     * shortcut as a public constant, inviting exactly that collision.
      */
     val oauthGrantType: UnderstandingCase = UnderstandingCase(
         instanceId = "acquisition__keycloak__oauth-grant-type",
         problemStatement = OAUTH_GRANT_TYPE_STATEMENT,
+        oracleTestPatchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/oracle.patch",
+        failToPass = listOf("org.keycloak.protocol.oidc.grants.OAuth2GrantTypeResidualContractTest"),
+        // Ten INDEPENDENT assertions, measured on seven trees: pristine 1, implementation only 8,
+        // plus the ServiceLoader line 10 — and, off the ladder, 9 for the collided short code (the
+        // uniqueness axis alone) and 8 for a grant that delegates without checking the credential
+        // kind. The registration line flips TWO axes because it has two distinct runtime consequences,
+        // dispatch and discovery; folding them into one would hide a wrong grant URI, which fails
+        // discovery while dispatch still works.
+        oracleTestCount = 10,
         gradingScopeSelector = ":keycloak-services",
         statementLeakageTokens = OAUTH_GRANT_TYPE_LEAKAGE,
         precedentPaths = listOf(

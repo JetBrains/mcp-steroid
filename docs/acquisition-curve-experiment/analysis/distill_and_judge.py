@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import urllib.request
 
@@ -70,6 +71,18 @@ class EmptyAnswer(RuntimeError):
     """Raised when a call came back with no text at all, so the caller can retry with more room."""
 
 
+class Refused(RuntimeError):
+    """Raised when the API answered `stop_reason=refusal`, which is not a transient failure.
+
+    Separated from EmptyAnswer because the two need opposite handling. An empty answer is a budget
+    that ran out and is worth one retry with more room; a refusal is a decision about the content and
+    a retry only spends money to be told the same thing. This was not hypothetical: the first wave of
+    the replication round distilled 22 notes and then died on the 23rd because the JUDGE prompt for
+    one note -- an OAuth grant that refuses the wrong kind of token -- came back refused, taking the
+    whole run's judged output with it.
+    """
+
+
 def call_model(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
     body = json.dumps({
         "model": model,
@@ -93,10 +106,13 @@ def call_model(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
         # inside a reasoning block, or a refusal, and the caller a level up used to report it as
         # "the judge did not answer with JSON: ''", which points at the wrong thing entirely.
         blocks = [block.get("type") for block in payload.get("content", [])]
-        raise EmptyAnswer(
+        detail = (
             f"{model} returned no text: stop_reason={payload.get('stop_reason')} "
             f"blocks={blocks} usage={payload.get('usage')}"
         )
+        if payload.get("stop_reason") == "refusal":
+            raise Refused(detail)
+        raise EmptyAnswer(detail)
     return text
 
 
@@ -172,6 +188,13 @@ def main() -> int:
              "which re-buys notes that are already committed for the earlier rounds.",
     )
     parser.add_argument(
+        "--seed",
+        default=None,
+        help="directory of ALREADY COMMITTED notes, laid out as <caseId>/<trajectoryId>-at<B>.md. They "
+             "are copied into --out before anything is called, so a re-run judges the notes the "
+             "solving cells actually received instead of buying different ones.",
+    )
+    parser.add_argument(
         "--model",
         default=None,
         help="override the model. Omitted, the newest opus the key reaches is used for both steps.",
@@ -216,6 +239,28 @@ def main() -> int:
     out = pathlib.Path(args.out or root)
     out.mkdir(parents=True, exist_ok=True)
     rows = []
+    refusals = []
+
+    # Seeding is what makes this step safely re-runnable. Distillation is not deterministic, so a
+    # re-run without it produces DIFFERENT notes -- and if some cells already ran against the first
+    # set, the published table would describe notes that no solver ever saw. It also means a wave
+    # interrupted at note 23 costs three notes to finish, not twenty-three.
+    if args.seed:
+        seed_root = pathlib.Path(args.seed)
+        if not seed_root.is_dir():
+            raise SystemExit(f"--seed {seed_root} is not a directory")
+        seeded = 0
+        for committed in seed_root.rglob("*-at*.md"):
+            match = re.fullmatch(r"(?P<trajectory>.+)-at(?P<checkpoint>\d+)\.md", committed.name)
+            if not match:
+                continue
+            target_dir = out / committed.parent.name
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / f"{match['trajectory']}.note-b{match['checkpoint']}.md"
+            if not target.exists():
+                target.write_text(committed.read_text())
+                seeded += 1
+        print(f"seeded {seeded} already-committed notes from {seed_root}")
 
     for trajectory, prompt_path in prompts:
         checklist = json.loads((trajectory / "checklist.json").read_text())
@@ -235,10 +280,19 @@ def main() -> int:
             note_path.write_text(note)
             print(f"  {case_id}/{trajectory.name} b={checkpoint}: distilled {len(note)} characters")
 
-        verdict = parse_judgement(
-            call_model_persistently(api_key, model, judge_prompt(note, facts), max_tokens=4_000),
-            facts,
-        )
+        # A refusal is recorded as a hole, never as a zero and never as a crash. The note itself is
+        # already distilled and paid for, and the downstream wave needs the NOTE; the judged score is
+        # a secondary axis. Turning the hole into a 0 would silently push a real note to the bottom of
+        # the U_note ranking, which is the one place the whole analysis would never notice it.
+        try:
+            verdict = parse_judgement(
+                call_model_persistently(api_key, model, judge_prompt(note, facts), max_tokens=4_000),
+                facts,
+            )
+        except Refused as refusal:
+            print(f"    JUDGE REFUSED, recorded as missing: {refusal}", file=sys.stderr)
+            refusals.append({"case": case_id, "trajectory_id": trajectory.name, "checkpoint": checkpoint})
+            continue
         score = sum(verdict.values()) / len(facts)
         rows.append({
             "case": case_id,
@@ -250,6 +304,13 @@ def main() -> int:
             **verdict,
         })
         print(f"    U_actionable = {score:.2f}  A1 = {verdict.get('A1')}")
+
+    if refusals:
+        print(f"\n{len(refusals)} note(s) went unjudged because the model refused the judge prompt: "
+              f"{refusals}. Their notes are on disk and usable; their U_note is missing, not zero.",
+              file=sys.stderr)
+    if not rows:
+        raise SystemExit("every judge call was refused; nothing to write")
 
     csv_path = out / "actionable-curve.csv"
     header = list(rows[0].keys())
