@@ -402,10 +402,14 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 ),
                 expectedObligations = 7,
                 measuredObligations = 7,
-                measuredIn = "1039952110",
+                measuredIn = "1040026994",
                 losesAxes = listOf(
                     "factoryIsRegisteredThroughTheServiceLoader",
                     "theShippedStrictProfileListsIt",
+                ),
+                measuredAxes = listOf(
+                    "theShippedStrictProfileListsIt",
+                    "factoryIsRegisteredThroughTheServiceLoader",
                 ),
                 isolates = "the two registration axes: the class exists and behaves, but nothing " +
                     "resolves it through the SPI or lists it in the shipped profile",
@@ -422,8 +426,9 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 ),
                 expectedObligations = 8,
                 measuredObligations = 8,
-                measuredIn = "1039952166",
+                measuredIn = "1040026996",
                 losesAxes = listOf("theShippedStrictProfileListsIt"),
+                measuredAxes = listOf("theShippedStrictProfileListsIt"),
                 isolates = "the second, non-obvious mechanism alone — the entry in the shipped " +
                     "high-security profile, which a `copy the neighbour` solution never adds",
             ),
@@ -437,10 +442,13 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                     "partial-naive-invariant.patch",
                 expectedObligations = 8,
                 measuredObligations = 8,
-                measuredIn = "1040019633",
+                measuredIn = "1040026998",
                 // The same COUNT as `implementation-and-spi` and a different obligation — which is why
-                // this ladder is compared by name. See amendment 1 in `problems`.
+                // this ladder is compared by name. See amendment 1 in `problems`. Measured twice, on
+                // two builds: 1040019633 read 8 before the axes were recorded, 1040026998 read the
+                // same 8 and named the axis.
                 losesAxes = listOf("partialUpdateOfAClientThatAlreadyHasItOnIsRejected"),
+                measuredAxes = listOf("partialUpdateOfAClientThatAlreadyHasItOnIsRejected"),
                 isolates = "the partial-update invariant, and only it",
             ),
             AcquisitionPartialRung(
@@ -483,8 +491,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 ),
                 expectedObligations = 7,
                 measuredObligations = 7,
-                measuredIn = "1039952874",
+                measuredIn = "1040027000",
                 losesAxes = listOf(
+                    "theAuthenticatorIsRegisteredThroughTheProviderSpi",
+                    "theShippedCertificateAwareProfilesAllowTheNewAuthenticator",
+                ),
+                measuredAxes = listOf(
                     "theAuthenticatorIsRegisteredThroughTheProviderSpi",
                     "theShippedCertificateAwareProfilesAllowTheNewAuthenticator",
                 ),
@@ -502,8 +514,9 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 ),
                 expectedObligations = 8,
                 measuredObligations = 8,
-                measuredIn = "1039952876",
+                measuredIn = "1040027002",
                 losesAxes = listOf("theShippedCertificateAwareProfilesAllowTheNewAuthenticator"),
+                measuredAxes = listOf("theShippedCertificateAwareProfilesAllowTheNewAuthenticator"),
                 isolates = "the allow-list in the shipped client profiles",
             ),
             AcquisitionPartialRung(
@@ -542,8 +555,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 ),
                 expectedObligations = 8,
                 measuredObligations = 8,
-                measuredIn = "1039952880",
+                measuredIn = "1040027004",
                 losesAxes = listOf(
+                    "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
+                    "theGrantAppearsInThePublishedGrantTypesSupported",
+                ),
+                measuredAxes = listOf(
                     "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
                     "theGrantAppearsInThePublishedGrantTypesSupported",
                 ),
@@ -559,8 +576,10 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                     "partial-naive-shortcut.patch",
                 expectedObligations = 9,
                 measuredObligations = 9,
-                measuredIn = "1040019635",
+                measuredIn = "1040027006",
+                // Also measured at 9 by 1040019635, before the axes were recorded.
                 losesAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
+                measuredAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
                 isolates = "the global uniqueness invariant enforced by the token-context encoder",
             ),
             AcquisitionPartialRung(

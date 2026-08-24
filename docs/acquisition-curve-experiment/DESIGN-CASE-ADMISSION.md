@@ -91,6 +91,30 @@ the reproduction script: [RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-
 This is also the sharpest argument for the six requirements: the defect was visible in the published
 CSV the whole time, and what was missing was not data but a rule that made anyone look.
 
+## Amendment 1 — a rung is identified by WHICH obligations it loses (2026-08-24)
+
+Written after the first ladder cells returned and **before** any note cell of the fourth round; it
+makes the rule stricter, which is the only direction an amendment may move once data exists.
+
+Requirement 2 originally said two partial trees must land on **different counts**. The first ladder
+of `cc-refresh-token` measured `[7, 8, 8]` and the rule fired — wrongly. Its two one-point rungs lose
+*different* obligations: `implementation-and-spi` loses the shipped-profile entry, `naive-partial-update`
+loses the partial-update invariant. Two independent axes priced the same is the strongest evidence of
+a real scale a ladder can produce, and comparing counts threw it away.
+
+So the comparison moves from the number to the **set of failing test methods**:
+
+- `AcquisitionPartialRung.losesAxes` declares the axes a rung is predicted to fail, before it runs;
+- the ladder cell reads the actual ones out of the surefire report (`SurefireClassResult.failedMethods`)
+  and prints them as `loses=…`;
+- a rung whose prediction and reading name different obligations blocks the wave on its own;
+- two rungs losing the **same** set are one rung wearing two names — the original cascade check,
+  now in the units it always meant.
+
+Strictly stronger than what it replaces: a cascading oracle can produce two different totals (it did —
+`{0} ∪ {5..8}`), but it cannot produce two disjoint failure sets. The cost is that every rung already
+measured owes a re-measurement, which is container minutes and **no model tokens**.
+
 ## Cost of lifting the block
 
 - **Ladder cells: 10** (4 + 3 + 3, one per rung including the ceiling). No agent, no model tokens — a
