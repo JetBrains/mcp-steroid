@@ -1,0 +1,237 @@
+diff --git a/services/src/main/java/org/keycloak/services/clientpolicy/executor/RejectClientCredentialsRefreshTokenExecutor.java b/services/src/main/java/org/keycloak/services/clientpolicy/executor/RejectClientCredentialsRefreshTokenExecutor.java
+new file mode 100644
+index 0000000..4a208bf
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/services/clientpolicy/executor/RejectClientCredentialsRefreshTokenExecutor.java
+@@ -0,0 +1,126 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.services.clientpolicy.executor;
++
++import java.util.HashMap;
++import java.util.Map;
++
++import org.keycloak.events.Errors;
++import org.keycloak.models.ClientModel;
++import org.keycloak.protocol.oidc.OIDCConfigAttributes;
++import org.keycloak.representations.idm.ClientPolicyExecutorConfigurationRepresentation;
++import org.keycloak.representations.idm.ClientRepresentation;
++import org.keycloak.services.clientpolicy.ClientPolicyContext;
++import org.keycloak.services.clientpolicy.ClientPolicyException;
++import org.keycloak.services.clientpolicy.context.ClientCRUDContext;
++
++import com.fasterxml.jackson.annotation.JsonProperty;
++
++/**
++ * Rejects clients which are configured to issue a refresh token for the client credentials grant.
++ */
++public class RejectClientCredentialsRefreshTokenExecutor implements ClientPolicyExecutorProvider<RejectClientCredentialsRefreshTokenExecutor.Configuration> {
++
++    private static final String ATTRIBUTE = OIDCConfigAttributes.USE_REFRESH_TOKEN_FOR_CLIENT_CREDENTIALS_GRANT;
++
++    private Configuration configuration;
++
++    @Override
++    public void executeOnEvent(ClientPolicyContext context) throws ClientPolicyException {
++        ClientCRUDContext clientUpdateContext = null;
++        switch (context.getEvent()) {
++            case REGISTER:
++                clientUpdateContext = (ClientCRUDContext)context;
++                autoConfigure(clientUpdateContext.getProposedClientRepresentation());
++                validate(getProposedValue(clientUpdateContext.getProposedClientRepresentation()));
++                break;
++            case UPDATE:
++                clientUpdateContext = (ClientCRUDContext)context;
++                beforeUpdate(clientUpdateContext.getTargetClient(), clientUpdateContext.getProposedClientRepresentation());
++                break;
++            default:
++                return;
++        }
++    }
++
++    @Override
++    public void setupConfiguration(Configuration config) {
++        this.configuration = config;
++    }
++
++    @Override
++    public Class<Configuration> getExecutorConfigurationClass() {
++        return Configuration.class;
++    }
++
++    public static class Configuration extends ClientPolicyExecutorConfigurationRepresentation {
++        @JsonProperty("auto-configure")
++        protected Boolean autoConfigure;
++
++        public Boolean isAutoConfigure() {
++            return autoConfigure;
++        }
++
++        public void setAutoConfigure(Boolean autoConfigure) {
++            this.autoConfigure = autoConfigure;
++        }
++    }
++
++    @Override
++    public String getProviderId() {
++        return RejectClientCredentialsRefreshTokenExecutorFactory.PROVIDER_ID;
++    }
++
++    private boolean isAutoConfigure() {
++        return configuration != null && configuration.isAutoConfigure() != null && configuration.isAutoConfigure();
++    }
++
++    private void autoConfigure(ClientRepresentation proposedClient) {
++        if (!isAutoConfigure() || proposedClient == null) {
++            return;
++        }
++        if (getProposedValue(proposedClient) != null) {
++            return;
++        }
++        Map<String, String> attributes = proposedClient.getAttributes();
++        if (attributes == null) {
++            attributes = new HashMap<>();
++            proposedClient.setAttributes(attributes);
++        }
++        attributes.put(ATTRIBUTE, Boolean.FALSE.toString());
++    }
++
++    private void validate(String value) throws ClientPolicyException {
++        if (Boolean.parseBoolean(value)) {
++            throw new ClientPolicyException(Errors.INVALID_REGISTRATION,
++                    "Invalid client metadata: refresh token for the client credentials grant is prohibited");
++        }
++    }
++
++    public void beforeUpdate(ClientModel clientToBeUpdated, ClientRepresentation proposedClient) throws ClientPolicyException {
++        validate(getProposedValue(proposedClient));
++    }
++
++    private static String getProposedValue(ClientRepresentation proposedClient) {
++        if (proposedClient == null || proposedClient.getAttributes() == null) {
++            return null;
++        }
++        return proposedClient.getAttributes().get(ATTRIBUTE);
++    }
++
++}
+diff --git a/services/src/main/java/org/keycloak/services/clientpolicy/executor/RejectClientCredentialsRefreshTokenExecutorFactory.java b/services/src/main/java/org/keycloak/services/clientpolicy/executor/RejectClientCredentialsRefreshTokenExecutorFactory.java
+new file mode 100644
+index 0000000..408b6df
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/services/clientpolicy/executor/RejectClientCredentialsRefreshTokenExecutorFactory.java
+@@ -0,0 +1,73 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.services.clientpolicy.executor;
++
++import java.util.Collections;
++import java.util.List;
++
++import org.keycloak.Config.Scope;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.models.KeycloakSessionFactory;
++import org.keycloak.provider.ProviderConfigProperty;
++
++/**
++ * Factory for {@link RejectClientCredentialsRefreshTokenExecutor}.
++ */
++public class RejectClientCredentialsRefreshTokenExecutorFactory implements ClientPolicyExecutorProviderFactory {
++
++    public static final String PROVIDER_ID = "reject-client-credentials-refresh-token";
++
++    public static final String AUTO_CONFIGURE = "auto-configure";
++
++    private static final ProviderConfigProperty AUTO_CONFIGURE_PROPERTY = new ProviderConfigProperty(
++            AUTO_CONFIGURE, "Auto-configure", "If On, the configuration of the client will be auto-configured to disable issuing a refresh token for the client credentials grant during client creation." +
++            "If Off, the clients are validated to have the refresh token for the client credentials grant disabled during create/update client", ProviderConfigProperty.BOOLEAN_TYPE, true);
++
++    @Override
++    public ClientPolicyExecutorProvider create(KeycloakSession session) {
++        return new RejectClientCredentialsRefreshTokenExecutor();
++    }
++
++    @Override
++    public void init(Scope config) {
++    }
++
++    @Override
++    public void postInit(KeycloakSessionFactory factory) {
++    }
++
++    @Override
++    public void close() {
++    }
++
++    @Override
++    public String getId() {
++        return PROVIDER_ID;
++    }
++
++    @Override
++    public String getHelpText() {
++        return "When present, then registered/updated clients will be verified to not issue a refresh token for the client credentials grant and eventually will be auto-configured for the 'client_credentials.use_refresh_token' switch to be disabled";
++    }
++
++    @Override
++    public List<ProviderConfigProperty> getConfigProperties() {
++        return Collections.singletonList(AUTO_CONFIGURE_PROPERTY);
++    }
++
++}
+diff --git a/services/src/main/resources/META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory b/services/src/main/resources/META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory
+index bcb129b..8645266 100644
+--- a/services/src/main/resources/META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory
++++ b/services/src/main/resources/META-INF/services/org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory
+@@ -36,3 +36,4 @@ org.keycloak.services.clientpolicy.executor.DownscopeAssertionGrantEnforcerExecu
+ org.keycloak.services.clientpolicy.executor.JWTClaimEnforcerExecutorFactory
+ org.keycloak.services.clientpolicy.executor.TlsClientAuthCASubjectDNExecutorFactory
+ org.keycloak.protocol.oauth2.cimd.clientpolicy.executor.ClientIdMetadataDocumentExecutorFactory
++org.keycloak.services.clientpolicy.executor.RejectClientCredentialsRefreshTokenExecutorFactory
+diff --git a/services/src/main/resources/keycloak-default-client-profiles.json b/services/src/main/resources/keycloak-default-client-profiles.json
+index bb98d78..93d4e12 100644
+--- a/services/src/main/resources/keycloak-default-client-profiles.json
++++ b/services/src/main/resources/keycloak-default-client-profiles.json
+@@ -343,6 +343,12 @@
+           "configuration": {
+             "auto-configure": "true"
+           }
++        },
++        {
++          "executor": "reject-client-credentials-refresh-token",
++          "configuration": {
++            "auto-configure": true
++          }
+         }
+       ]
+     },

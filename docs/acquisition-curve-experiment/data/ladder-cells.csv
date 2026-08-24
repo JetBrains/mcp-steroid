@@ -1,0 +1,9 @@
+build_id,case,rung,replicate,measured,total,expected,compiled
+1039952110,acquisition__keycloak__cc-refresh-token,implementation-only,1,7,9,7,1
+1039952166,acquisition__keycloak__cc-refresh-token,implementation-and-spi,1,8,9,8,1
+1039952168,acquisition__keycloak__cc-refresh-token,gold,1,9,9,9,1
+1039952874,acquisition__keycloak__client-auth-method,implementation-only,1,7,9,7,1
+1039952876,acquisition__keycloak__client-auth-method,implementation-and-spi,1,8,9,8,1
+1039952878,acquisition__keycloak__client-auth-method,gold,1,9,9,9,1
+1039952880,acquisition__keycloak__oauth-grant-type,implementation-only,1,8,10,8,1
+1039952882,acquisition__keycloak__oauth-grant-type,gold,1,10,10,10,1
