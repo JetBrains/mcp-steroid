@@ -44,6 +44,11 @@ ceiling cells compiled and the twelve note cells did not.
 
 - It does **not** contradict `RESULTS-DOWNSTREAM-2.md`. That round measured a real correlation
   (ρ = +0.668, ρ(U_note) = +0.825) on a case whose implementation is four files inside one module.
+  *(Amended 2026-08-24: it turned out to say more about that round than this line admitted. Twelve of
+  round 2's thirty cells also scored below its oracle's floor, i.e. they carry the same failure this
+  round names — see `RESULTS-DOWNSTREAM-2-RECHECK.md`. Round 2's correlation is now withdrawn pending
+  re-measurement, so this round does not stand against a settled result; both rounds stand against the
+  same instrument defect, one of them louder than the other.)*
 - It does **not** say the acquisition result is wrong. The curves of these two cases were measured on a
   research agent that never edits anything, and are unaffected.
 - It **does** say the downstream instrument has a floor effect the previous round did not expose: below

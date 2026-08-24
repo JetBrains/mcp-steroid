@@ -630,9 +630,15 @@
   `AcquisitionRecomputeTest`.
 - [ ] **Acquisition, what is left.** Was three things; the third is now done and the list has changed
   shape as a result:
-  1. ~~**Downstream functional validation.**~~ Done in round 2 on the original case:
-     rho(U_obs, obligations) = +0.668 (`RESULTS-DOWNSTREAM-2.md`). NOT done for the two new cases,
-     which are research-only by design.
+  1. **Downstream functional validation — REOPENED (2026-08-24).** It was marked done on the original
+     case (rho(U_obs, obligations) = +0.668, `RESULTS-DOWNSTREAM-2.md`). Re-reading that wave with
+     compilation separated out shows the estimate is confounded: twelve of its thirty cells scored
+     BELOW the oracle's own floor of 1, rho(U, the tree built) = +0.660 is the same magnitude, and
+     among the cells that demonstrably built rho(U, obligations) = -0.38. Neither reading settles it
+     (the second selects on a collider). Status: **not established, not refuted; needs
+     re-measurement** under `DESIGN-CASE-ADMISSION.md`. Write-up:
+     `RESULTS-DOWNSTREAM-2-RECHECK.md`, script `analysis/downstream2_recheck.py`. Still NOT done for
+     the two new cases either.
   2. **The semantic arm still degenerates sometimes.** `mcp r4` came back `{Bash=14}`, `semantic=0` even
      with `ENABLE_TOOL_SEARCH=false` in both the settings `env` block and the process environment. The
      `ARM DEGENERATE` guard catches it, but a cell that has to be re-bought at random is a tax on every
@@ -678,12 +684,19 @@ What this round leaves open, in the order it is worth buying:
    result) is reported; the blind-judge pass over distilled checkpoints is still only implemented, not
    run.
 
-## Downstream validation of `U` — round 2 closed all three (2026-08-24)
+## Downstream validation of `U` — round 2 closed all three (2026-08-24), and was REOPENED the same day
 
 All three repairs below were made and the wave was re-run: `docs/acquisition-curve-experiment/`
 `RESULTS-DOWNSTREAM-2.md`. rho(U_obs, obligations) = +0.668, 90% CI [+0.23, +0.84], against −0.22 in
 round 1 on the same notes; effort falls with `U` on all three denominators. Kept below as the record
 of what was wrong and how each was fixed.
+
+**That verdict is now withdrawn.** A fourth defect sat underneath the three: twelve of the wave's
+thirty cells scored below the oracle's constructed floor of 1, which a compiling tree cannot do, and
+the wave has no column saying which of them failed `javac`. Split on it, rho(U, the tree built) =
++0.660 — the same size as the headline — and among the cells that demonstrably built the correlation
+is −0.38. See `RESULTS-DOWNSTREAM-2-RECHECK.md`. The functional validity of `U` is back on the open
+list and is settled only by a wave run under `DESIGN-CASE-ADMISSION.md`.
 
 What is still open after round 2:
 

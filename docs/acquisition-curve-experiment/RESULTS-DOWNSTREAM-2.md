@@ -1,5 +1,17 @@
 # Downstream validation of `U`, round 2 — results
 
+> **STATUS (2026-08-24): the verdict below is WITHDRAWN pending re-measurement.** Twelve of this
+> wave's thirty cells score **0**, which is *below* the oracle's constructed floor of 1 — a tree that
+> compiles cannot do that, so those cells report a build failure, not an architectural outcome, and
+> nothing in this wave records which. Re-reading the same data with compilation separated out
+> ([RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md)) gives ρ(`U`, *the tree built*)
+> = +0.660 — the same size as the headline correlation — while among the cells that demonstrably
+> built ρ(`U`, obligations) is −0.38. The functional validity of `U` is therefore **neither
+> established nor refuted here**: it is confounded, and settling it needs the fourth round under
+> [DESIGN-CASE-ADMISSION.md](DESIGN-CASE-ADMISSION.md). Everything below is left exactly as published
+> so the confounded reading stays auditable. **The acquisition result is untouched — `U(B)` never
+> depended on the oracle.**
+
 Pre-registration: [DESIGN-DOWNSTREAM-2.md](DESIGN-DOWNSTREAM-2.md) (with amendments 2 and 3, each
 recorded before the wave it governs). Round 1, which could not answer the question:
 [RESULTS-DOWNSTREAM.md](RESULTS-DOWNSTREAM.md). Per-cell numbers:
@@ -8,10 +20,14 @@ recorded before the wave it governs). Round 1, which could not answer the questi
 
 **No new research trajectory was bought.** The twelve notes are the same committed files round 1 used.
 
-## Verdict
+## Verdict (as published; see the status note above)
 
 `U` is a functionally valid measure of actionable repository understanding, on this case, for this
 weak solving agent, under a bounded interaction budget.
+
+*Withdrawn 2026-08-24.* The estimates in this section are arithmetically correct and reproduce exactly
+from the committed CSV; what is withdrawn is reading `passed` as architectural obligations for the
+twelve cells that scored below the oracle's floor.
 
 | | round 1 | round 2 |
 |---|---|---|
@@ -160,3 +176,9 @@ Chained: **semantic access → the same actionable architectural model in fewer 
 → a downstream agent that finishes more of the change with less work.** Both links are measured on one
 Keycloak case with four independent research trajectories, and neither says anything about model-side
 token cost, which remains the sign that does *not* favour semantic access.
+
+**As of 2026-08-24 the second link is withdrawn.** The first one is not: it has been measured on three
+cases since, and it never used the oracle. What the second link can still be said to rest on is a
+weaker, one-bit outcome — a higher-`U` note leaves a *compiling* tree behind more often (70 % of cells
+below the floor at `U` < 0.4 against 8 % at `U` ≥ 0.6) — and that is a different claim from the one
+made above. See [RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md).

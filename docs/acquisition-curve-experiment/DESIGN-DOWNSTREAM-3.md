@@ -160,3 +160,14 @@ architectural model in fewer interactions → that model, written down, leaves a
 less work. It would still NOT license "the semantic arm produces better notes" — that claim was tested
 in the note-bottleneck round and failed (p = 0.4), and nothing in this design revives it. The arm buys
 the model EARLIER; the model is what pays downstream.
+
+## Note added after the fact (2026-08-24)
+
+This document is left as written — a pre-registration that is edited afterwards is a description of
+its results. But one of its premises no longer holds and must not be read out of it: it opens by
+treating round 2 as "the case where `U` was shown to be functionally valid" and takes ρ = +0.67 as the
+prior for its power calculation. That estimate has since been shown to be confounded with compilation
+failure and is withdrawn pending re-measurement —
+[RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md). This round was therefore a
+replication of a result that is itself unsettled, which is a second reason its negative outcome
+settles nothing, alongside the one its own results file gives.

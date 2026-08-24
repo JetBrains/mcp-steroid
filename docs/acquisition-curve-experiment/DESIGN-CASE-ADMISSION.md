@@ -14,7 +14,7 @@ none of them tested the hypothesis:
 | round | what was bought | why it could not measure |
 |---|---|---|
 | 1 | 12 notes + 3 anchors, ≈$10 | the solver had no interaction budget: the no-note anchor reached 7 of 8 assertions in 89 interactions, so there was nothing left for a note to buy |
-| 2 | 24 notes + 12 calibration, ≈$8 | usable — this is the round that produced ρ(U, obligations) = +0.67 — but only after the oracle was rebuilt from a cascade (`{0} ∪ {5..8}`) into nine independent axes |
+| 2 | 24 notes + 12 calibration, ≈$8 | looked usable — it produced ρ(U, obligations) = +0.67 after the oracle was rebuilt from a cascade (`{0} ∪ {5..8}`) into nine independent axes — but **twelve of its thirty cells also scored below that oracle's own floor**, so the same collapse was present and merely quieter; the correlation is withdrawn pending re-measurement ([RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md)) |
 | 3 | 12 notes + 10 anchors, ≈$6 | every one of the twelve scored 0 of 10 and **not one failed an assertion**: all twelve failed `javac`, eight of them on a constant in `core` that the grading build never recompiled |
 
 Each failure was a property of the *instrument* that was knowable before the wave and was not known,
@@ -77,8 +77,19 @@ gate prints the full list on every green run of `AcquisitionAdmissionTest`; in s
 
 Note what the `cc-refresh-token` baselines say. The oracle's floor is 1 by construction, and all four
 no-note anchors read 0 — a tree that compiled cannot score below an untouched one. Those four readings
-were the "floor" of the round that produced ρ = +0.67. They are not being retracted here; they are
-being marked as a reading that this protocol would no longer accept without knowing whether `javac` ran.
+were the "floor" of the round that produced ρ = +0.67.
+
+**Followed up, 2026-08-24, before any cell of the fourth round was read.** The same test applied to
+every cell of that round finds **twelve of thirty** below the floor, eight of them note cells. Split
+that way, the wave says: ρ(`U`, *the tree built*) = **+0.660** (the same magnitude as the published
+headline), and among the cells that demonstrably built, ρ(`U`, obligations) = **−0.38**. So the
+published estimate is confounded with compilation, and the subset estimate is contaminated by
+selection on a collider — neither is the answer. The verdict "`U` is functionally valid" is therefore
+**withdrawn pending re-measurement under this protocol**, not replaced by its negation. Details and
+the reproduction script: [RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md).
+
+This is also the sharpest argument for the six requirements: the defect was visible in the published
+CSV the whole time, and what was missing was not data but a rule that made anyone look.
 
 ## Cost of lifting the block
 

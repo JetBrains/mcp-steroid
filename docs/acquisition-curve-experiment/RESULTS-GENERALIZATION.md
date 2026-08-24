@@ -138,5 +138,11 @@ Supported now, on four cases and 24 trajectories:
 Not supported: any claim about a second repository (deferred with measurements — Kill Bill is TestNG and
 database-bound, Camel is 1 124 modules against Keycloak's 189, Dubbo is the viable candidate and needs a
 prewarm probe first), and any claim about downstream implementation on these two new cases, which have
-no hidden oracle by design. The downstream link remains the one measured in `RESULTS-DOWNSTREAM-2.md` on
-the original case: ρ(U, obligations met) = +0.668.
+no hidden oracle by design.
+
+The downstream link is **under re-measurement and must not be cited as established**. Round 2's
+ρ(U, obligations met) = +0.668 is confounded with compilation failure — twelve of its thirty cells
+score below the oracle's own floor, ρ(U, *the tree built*) is the same +0.660, and among the cells
+that demonstrably built the correlation is −0.38. See
+[RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md). Nothing in this document depends
+on it: the acquisition curves are read from a research agent that never edits the tree.
