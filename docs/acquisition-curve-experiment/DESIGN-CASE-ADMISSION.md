@@ -63,17 +63,32 @@ are deliberately **never** gated, because they are how the list gets shorter.
 - The two thresholds that could be tuned into any result — the solver's interaction allowance and the
   set of allowances it may run under — are unchanged (20, from {15, 20, 25}).
 
-## Where each case stands today
+## Where each case stood when this was written
 
-Every one of the three gradable cases is **blocked**, which is the honest reading of the evidence rather
-than a new obstacle: all of them were calibrated under the instrument that has since been repaired. The
-gate prints the full list on every green run of `AcquisitionAdmissionTest`; in summary:
+Superseded by the section below; kept because it is what the protocol was written against. Every one
+of the three gradable cases was **blocked**, which was the honest reading of the evidence rather than
+a new obstacle: all of them had been calibrated under the instrument that has since been repaired.
 
 | case | ladder | gold-note rollouts | baselines | verdict |
 |---|---|---|---|---|
 | `cc-refresh-token` | 3 rungs declared, 0 measured; the invariant rung is not exported | 2, both compile-status unknown | 4, all read 0 — *below* the pristine floor of 1, so they either broke the profiles or never built, and nobody recorded which | blocked by 12 |
 | `client-auth-method` | 2 rungs declared, 0 measured | 3, of which 2 did not compile and 1 is unknown | 2, unknown | blocked by 8 |
 | `oauth-grant-type` | 2 rungs declared, 0 measured; the invariant rung is not exported | 2, both unknown | 2, unknown | blocked by 9 |
+
+### Where each case stands after the ladders and the anchors (2026-08-24)
+
+Ten ladder cells and fifteen agent anchors later, with every reading carrying a compile verdict. The
+gate prints the full list on every green run of `AcquisitionAdmissionTest`; readings in
+[RESULTS-DOWNSTREAM-4-ANCHORS.md](RESULTS-DOWNSTREAM-4-ANCHORS.md).
+
+| case | ladder | gold-note rollouts | baselines | verdict |
+|---|---|---|---|---|
+| `cc-refresh-token` | measured, rungs separate by axis name | 3, **none compiled** | 2, one built and read 5 of 9 | **retired** — both stopping rules fired |
+| `client-auth-method` | measured, rungs separate by axis name | 3, two at 9 of 9, one did not compile | 2, one built and read 6 of 9 | blocked by 4 — the measured gap is 3 of 9 |
+| `oauth-grant-type` | measured, rungs separate by axis name | 3, two at 10 of 10, one did not compile | 2, **neither built** | blocked by 2, both for missing readings |
+
+`oauth-grant-type` is the only case whose blocks are both about readings that were never taken rather
+than readings that came back wrong.
 
 Note what the `cc-refresh-token` baselines say. The oracle's floor is 1 by construction, and all four
 no-note anchors read 0 — a tree that compiled cannot score below an untouched one. Those four readings
