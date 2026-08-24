@@ -155,3 +155,57 @@ It prints one line to copy back into `ACQUISITION_CASE_ADMISSIONS`:
   recorded as such, not a property of the hypothesis.
 - If a baseline reaches the gold-note score, the allowance is too large — and only then may it move,
   within the pre-registered set, in the direction the earlier design fixed.
+
+## Amendment 2 — a floor is two trees that BUILT (2026-08-24)
+
+Written after the fifteen admission anchors returned and before any note cell of the fourth round.
+Strictly stronger, like amendment 1.
+
+Requirement 6 made compilation its own reading, which made the unmeasured cells *visible*. It did not
+stop them from counting. Every threshold in `problems` reads obligation **counts**, an unmeasured
+cell's count is null, and null is skipped — so `oauth-grant-type`, whose two no-note cells both failed
+`javac`, satisfied "at least two baselines" and passed "no more than one above the floor" vacuously.
+It read as having a floor it had never measured, which is the round-2 defect wearing the round-4
+repair.
+
+`baselineProblems` now requires `MIN_BASELINE_ROLLOUTS` baselines that **demonstrably built**. It
+changes no tunable threshold.
+
+## `cc-refresh-token` has left the downstream family (2026-08-24)
+
+Both stopping rules fired on the same case, on the same anchor wave:
+
+- the gold note produced **no gradable tree in three of three** rollouts (1040174097/099/101), so the
+  case measures implementation difficulty rather than understanding;
+- the one no-note tree that built reads **5 of 9** (1040174118) — four obligations above the pristine
+  floor — so the unaided solver already holds most of what a note could buy.
+
+This is recorded as `AcquisitionCaseAdmission.retiredFromDownstream` rather than as prose, because a
+retirement is not a work item: every other entry of `problems` names a cell somebody can queue, and a
+reader working that list must not be able to empty this one.
+
+**The acquisition curve of `cc-refresh-token` is unaffected and stays published.** `U(B)` is a
+property of the trajectory and the checklist; it never depended on the oracle. What retires is only
+the case's role in the downstream half.
+
+Note which case this was: it produced the ρ = +0.67 headline of round 2, already withdrawn in
+[RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md). The anchors now say the wave was
+run on a case whose floor and ceiling are both unmeasurable by this instrument.
+
+## The coupling the anchors exposed, which no admission rule yet covers
+
+The four gold-note cells that failed `testCompile` failed on a unit test **the solving agent wrote
+itself**, after its implementation had already compiled clean. The mechanism is in
+[RESULTS-DOWNSTREAM-4-ANCHORS.md](RESULTS-DOWNSTREAM-4-ANCHORS.md); what matters for the protocol is
+that it runs through the treatment:
+
+- the allowance prices reads and builds and leaves edits free, so an agent that located the
+  architecture cheaply — the thing a good note buys — arrives at "done" with interactions to spare
+  and spends them on verification it cannot finish;
+- on `cc-refresh-token` the checklist itself carries axis `I1` (`VERIFICATION`), which names the
+  sibling test to imitate. `I1` is one of the axes `U` is computed over, so a higher-`U` note is a
+  note that more surely instructs the agent to start the test that costs it the cell.
+
+No requirement here catches that, and none is added by this amendment: a fix chosen now would be
+chosen after seeing which direction it helps. It is recorded as an open defect of the instrument, to
+be pre-registered on its own before the anchors are re-bought.

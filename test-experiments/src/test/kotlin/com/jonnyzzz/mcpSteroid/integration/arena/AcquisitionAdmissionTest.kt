@@ -118,6 +118,12 @@ class AcquisitionAdmissionTest {
             ccProblems.any { "1040174118" in it && "scored 5 of 9 with NO note" in it },
             "the one no-note tree that built scored 5 of 9 and must block the wave; got $ccProblems",
         )
+        assertTrue(
+            // Both stopping rules fired on this case, so no cell can readmit it and the record must
+            // say so rather than leaving a queue somebody could keep working.
+            ccProblems.any { "LEFT the downstream family" in it },
+            "cc-refresh-token is retired, not merely blocked; got $ccProblems",
+        )
 
         val authProblems = ACQUISITION_CASE_ADMISSIONS
             .getValue("acquisition__keycloak__client-auth-method")

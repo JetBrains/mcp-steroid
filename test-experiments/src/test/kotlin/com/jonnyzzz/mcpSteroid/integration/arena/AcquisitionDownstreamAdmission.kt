@@ -59,6 +59,19 @@ data class AcquisitionCaseAdmission(
     val goldNoteRollouts: List<AcquisitionRolloutEvidence>,
     /** Weak-agent cells run with no note at all — the floor evidence. */
     val baselineRollouts: List<AcquisitionRolloutEvidence>,
+    /**
+     * Why this case left the downstream family for good, or null while it is merely blocked.
+     *
+     * The difference matters and the type carries it rather than a document: every other entry in
+     * [problems] names a cell somebody can queue, so a reader who works the list eventually empties
+     * it. A retirement never empties, because the stopping rules of the design are about properties
+     * of the CASE — the gold note cannot be built in the allowance, or the no-note solver already
+     * scores what the note would buy — and no number of cells changes those.
+     *
+     * The acquisition curve of a retired case stays valid. `U(B)` is a property of the trajectory and
+     * of the checklist, and it never depended on the oracle.
+     */
+    val retiredFromDownstream: String? = null,
 ) {
     /**
      * Everything that still stands between this case and a note wave, or an empty list when it is
@@ -70,6 +83,9 @@ data class AcquisitionCaseAdmission(
     fun problems(case: UnderstandingCase): List<String> = buildList {
         require(case.instanceId == caseId) {
             "admission record '$caseId' checked against case '${case.instanceId}'"
+        }
+        retiredFromDownstream?.let {
+            add("the case has LEFT the downstream family and no cell can readmit it: $it")
         }
         if (!case.gradable) {
             add("the case has no hidden oracle, so nothing downstream can be graded on it")
@@ -493,6 +509,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
             AcquisitionRolloutEvidence(buildId = "1040174116", obligations = null, compiled = false),
             AcquisitionRolloutEvidence(buildId = "1040174118", obligations = 5, compiled = true),
         ),
+        retiredFromDownstream = "both stopping rules of DESIGN-CASE-ADMISSION.md fired at once. The " +
+            "gold note produced no gradable tree in three of three rollouts (1040174097/099/101), so " +
+            "the case tests implementation difficulty rather than understanding; and the one no-note " +
+            "tree that built reads 5 of 9 (1040174118), four obligations above the pristine floor, so " +
+            "the unaided solver already has most of what a note could buy. Its acquisition curve — the " +
+            "result this project actually rests on — is unaffected and stays published.",
     ),
     AcquisitionCaseAdmission(
         caseId = "acquisition__keycloak__client-auth-method",

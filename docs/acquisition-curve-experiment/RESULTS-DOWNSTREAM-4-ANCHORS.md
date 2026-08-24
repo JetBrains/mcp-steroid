@@ -130,9 +130,67 @@ measured.
 direction as every previous amendment: strictly stronger, and it changes no threshold that could be
 tuned into a result.
 
+## Why the agent writes a test it cannot finish
+
+Read before deciding how to repair it, because the mechanism turned out not to be incidental.
+
+The four transcripts have one shape. Reconstructed from cell 1040174097, and the other three differ
+only in names:
+
+| # | what the agent did |
+|---|---|
+| … | reads the executor SPI, the two profile JSONs, the registration file |
+| ~13 | **writes the implementation, the factory, the SPI line and the profile entry** — the whole gold change, and `default-compile` later proves it compiles |
+| 14 | `ls services/src/test/java/.../executor/` |
+| 15 | `find … ConsentRequiredExecutorTest.java` |
+| 16 | reads `SecureRedirectUrisEnforcerExecutorTest.java` — an existing sibling test, as a model |
+| — | writes its own `RejectClientCredentialsRefreshTokenExecutorTest` (free) |
+| 17 | `grep -r beforeUpdate …` to fix the mock it just wrote |
+| — | two edits to that test (free) |
+| 18 | `./mvnw test -pl services` — the first time it could have seen the errors |
+| 19–20 | more of the same, then the wall; two further calls refused |
+
+The change is finished, and everything after it goes into a test nobody asked for:
+
+| cell | first touch of `src/test` | interactions left after it |
+|---|---|---|
+| 1040174097 | 13th of 20 | 7 |
+| 1040174101 | 10th of 20 | 10 |
+| 1040174122 | 17th of 20 | 3 |
+| 1040174130 | 12th of 20 | 8 |
+
+Two things make this the note's doing rather than the agent's whim.
+
+**The budget rewards it.** The prompt tells the agent that editing files is free and that reads,
+searches and build runs each cost one of twenty. An agent that spent few interactions locating the
+architecture — which is exactly what a good note buys — arrives at "done" with interactions in hand
+and nothing to spend them on except verification. An agent still hunting never gets there. The
+allowance therefore converts note quality into scratch-test exposure.
+
+**On `cc-refresh-token` the checklist says so out loud.** Fact `I1`, category `VERIFICATION`, is:
+
+> The right test pattern is a plain JUnit test in the `services` module beside the executors
+> (`SecureRedirectUrisEnforcerExecutorTest`), which constructs the executor directly with no server…
+
+`I1` is one of the axes `U` is computed over, so the *better the note, the more certainly it carries
+an instruction to write a companion test and the name of the file to imitate* — and the transcript
+above is that instruction being followed, file name included. The note causes the behaviour that
+makes the cell unreadable, and the causal path runs through the very quantity being measured.
+
+That is a sharper defect than "the grading build compiles too much". It means the endpoint and the
+treatment are coupled through the interaction allowance: on this case, part of what `U` measures is
+an instruction whose execution costs the agent the budget it needs to finish. The other two cases
+have no such fact — their VERIFICATION axes are about *existing* tests breaking — and their agents
+wrote tests anyway, so the general mechanism does not depend on `I1`; `I1` only makes
+`cc-refresh-token` the extreme.
+
 ## What this round has not decided
 
 Whether the gold-note arm's advantage survives once the scratch-test artifact is removed. The
 measurement to make is the same fifteen cells, minus the artifact — and how the artifact should be
 removed is an instrument decision that has to be pre-registered before those cells are re-bought,
 not chosen after seeing which choice helps.
+
+Note what the mechanism above rules out: any repair that only widens or narrows what the grading
+build compiles leaves the coupling in place, because the interactions were spent before grading ever
+started.
