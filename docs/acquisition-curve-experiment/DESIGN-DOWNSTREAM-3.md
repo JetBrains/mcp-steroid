@@ -94,6 +94,48 @@ Failure rules, written now so they cannot be chosen later:
 - Both fail, or a retry fails → the case is dropped from this wave and reported as not gradable at any
   pre-registered budget. Its acquisition curve stands; its functional link stays unmeasured.
 
+## Amendment 1 — written after the eight anchors, before any note cell
+
+The anchors ran first, as the gates require. What they returned:
+
+| case | `baseline` | `oracle:gold` |
+|---|---|---|
+| `client-auth-method` (9 assertions) | 0, 0 | **9, 0** |
+| `oauth-grant-type` (10 assertions) | 0, 0 | 10, 10 |
+
+`oauth-grant-type` passes all three gates outright: floor 0.0, ceiling 10.0, gap 10. Its twelve note
+cells are bought now.
+
+`client-auth-method` passes G1 (floor 0.0) and the gap clause of G2, but its ceiling mean is 4.5 against
+the required 7 — because ONE of the two ceiling runs scored zero. The cause is in the run's own log and
+is not a note problem: the solver wrote the right architecture from a 3 083-character note and then
+imported `sun.security.x509`, an internal JDK package that is not exported, so
+`maven-compiler-plugin:testCompile` failed on `keycloak-services` and every one of the nine axes scored
+0 with the module unbuilt. It is not a budget problem either — that run used 34 interactions and was
+refused only 2 after the wall.
+
+**Two decisions, both taken here and both before the twelve cells of this case are queued.**
+
+1. **The pre-registered remedy is not applied.** G2's written failure rule is "re-run the anchors at
+   budget 25", and the single retry it allows is worth spending only on the cause it targets. The
+   diagnosis excludes budget. So instead: **two additional `oracle:gold` replicates at the same budget
+   20**, and G2 is re-read over all four. If the ceiling mean over four runs is still below 7, the case
+   is dropped from this wave exactly as the original rule says, and its acquisition curve stands alone.
+   Recording the substitution is the point — a remedy applied ritually to a cause it cannot touch is
+   how a pre-registration becomes decoration.
+2. **Non-compiling cells are analysed both ways, and the rule is fixed now for every case.** A cell
+   whose module does not compile is recorded with `compiled=false` and 0 obligations, because an
+   implementation that does not build has produced nothing. But that zero re-creates, at the
+   compilation level, exactly the cascade the oracles were rebuilt to remove: nine independent axes
+   collapse into one boolean about `javac`. So the primary correlation is reported **twice** — with
+   those cells included as zeros and with them excluded — and both numbers are published side by side.
+   If the two disagree in sign, the case is reported as inconclusive rather than resolved in the
+   direction that suits the hypothesis.
+
+This is a real limitation of the instrument and belongs in the write-up, not in a footnote: below the
+assertion level there is a single point of failure that no de-cascading of the oracle can remove, and
+one anchor in eight hit it.
+
 ## Analysis
 
 The unit is the NOTE (trajectory × checkpoint), never the rollout. Pooled over both cases, with ranks

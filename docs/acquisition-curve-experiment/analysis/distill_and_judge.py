@@ -312,12 +312,20 @@ def main() -> int:
     if not rows:
         raise SystemExit("every judge call was refused; nothing to write")
 
+    # The header is the UNION of the rows' keys, not the first row's. Two cases have different fact
+    # ids -- one has an H2, the other does not -- and taking the header from row zero killed a wave
+    # with `KeyError: 'H2'` AFTER every paid call had already been made. A missing fact is written as
+    # an empty cell, which reads as "this case has no such fact" and never as a zero score.
     csv_path = out / "actionable-curve.csv"
-    header = list(rows[0].keys())
+    header = []
+    for row in rows:
+        for key in row:
+            if key not in header:
+                header.append(key)
     with csv_path.open("w") as handle:
         handle.write(",".join(header) + "\n")
         for row in rows:
-            handle.write(",".join(str(row[key]) for key in header) + "\n")
+            handle.write(",".join(str(row.get(key, "")) for key in header) + "\n")
     print(f"wrote {csv_path}")
     return 0
 
