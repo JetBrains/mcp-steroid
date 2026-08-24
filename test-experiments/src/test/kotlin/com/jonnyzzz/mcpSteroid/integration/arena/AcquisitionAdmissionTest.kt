@@ -125,10 +125,29 @@ class AcquisitionAdmissionTest {
             "cc-refresh-token is retired, not merely blocked; got $ccProblems",
         )
 
+        // The two surviving cases, re-anchored under amendment 3. Both now have a ceiling their gold
+        // note reaches every time, and neither has a floor — so what blocks them is the control arm.
+        for (caseId in listOf(
+            "acquisition__keycloak__client-auth-method",
+            "acquisition__keycloak__oauth-grant-type",
+        )) {
+            val problems = ACQUISITION_CASE_ADMISSIONS.getValue(caseId).problems(AcquisitionCases.byId(caseId))
+            assertTrue(
+                problems.none { "gold-note rollout" in it },
+                "$caseId's gold note reaches the ceiling in every recorded rollout; got $problems",
+            )
+            assertTrue(
+                problems.any { "baseline rollout(s) left a tree that demonstrably built" in it },
+                "$caseId has no measured floor and must say so; got $problems",
+            )
+        }
+
         val authProblems = ACQUISITION_CASE_ADMISSIONS
             .getValue("acquisition__keycloak__client-auth-method")
             .problems(AcquisitionCases.clientAuthMethod)
         assertTrue(
+            // Kept across both waves on purpose: it is the only baseline reading above the floor, and
+            // it is the one that blocks this case on the gap rule.
             authProblems.any { "1040174126" in it && "scored 6 of 9 with NO note" in it },
             "the no-note solver reaches 6 of 9 unaided and must block the wave; got $authProblems",
         )
@@ -137,10 +156,10 @@ class AcquisitionAdmissionTest {
             .getValue("acquisition__keycloak__oauth-grant-type")
             .problems(AcquisitionCases.oauthGrantType)
         assertTrue(
-            // Amendment 2. Both no-note trees failed `javac`, so this case has no measured floor at
-            // all — and before the amendment the gate said nothing about it, because a null count is
+            // Amendment 2. Four no-note cells, not one gradable tree — so this case has no measured
+            // floor, and before the amendment the gate said nothing about it, because a null count is
             // skipped by every threshold that reads counts.
-            grantProblems.any { "0 of 2 baseline rollout(s) left a tree that demonstrably built" in it },
+            grantProblems.any { "0 of 4 baseline rollout(s) left a tree that demonstrably built" in it },
             "a case whose no-note cells never built has no floor; got $grantProblems",
         )
     }

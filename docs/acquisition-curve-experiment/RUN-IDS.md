@@ -284,3 +284,25 @@ verdict for the first time in this family. Reading: [RESULTS-DOWNSTREAM-4-ANCHOR
 
 These supersede the round-2 and round-3 anchors of the same conditions (1039289680/682/684/686,
 1039289688/690, 1039700643/645/647/649/653/655/657, 1039761044/157), which carry no compile verdict.
+
+## Round 4, step 3 — the ten anchors re-bought under amendment 3 (2026-08-24)
+
+Revision `c44b70dcc`, pinned by all ten. The `discarded` column is `agentTestsDiscarded`.
+
+| build | case | condition | compiled | obligations | discarded |
+|---|---|---|---|---|---|
+| 1040258857 | `client-auth-method` | `oracle:gold` r1 | 1 | 9/9 | 1 |
+| 1040259462 | `client-auth-method` | `oracle:gold` r2 | 1 | 9/9 | 1 |
+| 1040259464 | `client-auth-method` | `oracle:gold` r3 | 1 | 9/9 | 1 |
+| 1040259466 | `client-auth-method` | `baseline` r1 | 0 | unmeasured | 0 |
+| 1040259468 | `client-auth-method` | `baseline` r2 | 0 | unmeasured | 1 |
+| 1040259470 | `oauth-grant-type` | `oracle:gold` r1 | 1 | 10/10 | 1 |
+| 1040259472 | `oauth-grant-type` | `oracle:gold` r2 | 1 | 10/10 | 1 |
+| 1040259474 | `oauth-grant-type` | `oracle:gold` r3 | 1 | 10/10 | 1 |
+| 1040259476 | `oauth-grant-type` | `baseline` r1 | 0 | unmeasured | 0 |
+| 1040259478 | `oauth-grant-type` | `baseline` r2 | 0 | unmeasured | 0 |
+
+These supersede the step-2 gold rollouts of both cases (1040174120/122/124, 1040174130/132/134),
+which ran before amendment 3. The step-2 **baselines** are kept beside them: amendment 3 cannot change
+a baseline's reading, and dropping the one that read 6 of 9 would remove the only reading that blocks
+`client-auth-method` on the gap rule.

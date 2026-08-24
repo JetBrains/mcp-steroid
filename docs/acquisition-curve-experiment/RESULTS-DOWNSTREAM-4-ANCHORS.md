@@ -194,3 +194,132 @@ not chosen after seeing which choice helps.
 Note what the mechanism above rules out: any repair that only widens or narrows what the grading
 build compiles leaves the coupling in place, because the interactions were spent before grading ever
 started.
+
+---
+
+# Step 3: the ten anchors re-bought under amendment 3
+
+Queued after amendment 3 and its prediction were committed (revision `c44b70dcc`, pinned by all ten
+builds), on the two cases that survived step 2. ≈$2.90.
+
+## The readings
+
+`discarded` is the new `agentTestsDiscarded` column: test files the solver added, removed before
+grading.
+
+### `client-auth-method` — 9 axes
+
+| build | condition | compiled | obligations | discarded |
+|---|---|---|---|---|
+| 1040258857 | `oracle:gold` r1 | 1 | **9 / 9** | 1 |
+| 1040259462 | `oracle:gold` r2 | 1 | **9 / 9** | 1 |
+| 1040259464 | `oracle:gold` r3 | 1 | **9 / 9** | 1 |
+| 1040259466 | `baseline` r1 | 0 | – | 0 |
+| 1040259468 | `baseline` r2 | 0 | – | 1 |
+
+### `oauth-grant-type` — 10 axes
+
+| build | condition | compiled | obligations | discarded |
+|---|---|---|---|---|
+| 1040259470 | `oracle:gold` r1 | 1 | **10 / 10** | 1 |
+| 1040259472 | `oracle:gold` r2 | 1 | **10 / 10** | 1 |
+| 1040259474 | `oracle:gold` r3 | 1 | **10 / 10** | 1 |
+| 1040259476 | `baseline` r1 | 0 | – | 0 |
+| 1040259478 | `baseline` r2 | 0 | – | 0 |
+
+## The amendment did what it was pre-registered to do, and the mechanism replicated forward
+
+Six of six gold-note rollouts compile and land exactly on the ceiling, against four of six before.
+And **every one of the six discarded exactly one agent-authored test** — including the four whose
+step-2 predecessors passed. So the artifact was present in every gold cell of both waves; what
+differed between a 9/9 and an `unmeasured` was whether the scratch test happened to compile.
+
+The asymmetry that step 2 could only infer from four transcripts is now a column:
+
+| arm | cells | wrote a test of its own | reached the ceiling |
+|---|---|---|---|
+| `oracle:gold` | 6 | **6 of 6** | **6 of 6** |
+| `baseline` | 4 | **1 of 4** | 0 of 4 |
+
+An agent handed the architecture writes a companion test essentially always; an agent without one
+almost never gets far enough to try. That is the prediction of the mechanism, measured prospectively
+rather than read back out of the cells it explains.
+
+## Half the prediction was wrong, and the half that was wrong is the finding
+
+Pre-registered, before these cells were queued:
+
+| case | predicted | measured |
+|---|---|---|
+| `client-auth-method` gold | 3 of 3 compile at 9/9 | **exactly that** |
+| `oauth-grant-type` gold | 3 of 3 compile at 10/10 | **exactly that** |
+| `client-auth-method` baseline | the 6-of-9 floor reappears, so the case stays blocked on the gap | **wrong**: neither re-bought baseline produced a gradable tree |
+| `oauth-grant-type` baseline | both fail again, so the case has no floor | that, and now on four cells rather than two |
+
+So the two cases did not separate the way the prediction said, and they did not separate the way the
+protocol wants either. Pooling both waves:
+
+| arm | cells | left a gradable tree |
+|---|---|---|
+| `oracle:gold` (all four cases-waves) | 12 | **10** |
+| `baseline` | 8 | **1** |
+
+The one no-note cell that ever built on these two cases read 6 of 9. Every other no-note cell — seven
+of eight — never got its own implementation to compile.
+
+## Where this leaves the two survivors
+
+Both are **blocked**, and for the first time the blocks are about the control arm rather than the
+instrument:
+
+| case | blocked by | the substance |
+|---|---|---|
+| `client-auth-method` | 3 | 1 of 4 baselines built; that one read 6 of 9, so the measured gap is 3 of a 9-point scale |
+| `oauth-grant-type` | 1 | 0 of 4 baselines built — no measured floor at all |
+
+Nothing here is an instrument defect. The gold note reaches the ceiling every time it is asked; the
+oracle has a measured ladder whose rungs separate by axis name; compilation is its own reading; the
+solver is graded on its change. What the protocol now refuses is a wave whose control arm cannot be
+read — and that refusal is correct on its own terms.
+
+## The tension this creates, stated and NOT resolved
+
+`oauth-grant-type` presents the strongest raw separation this project has produced: the gold note
+reaches 10 of 10 three times of three, and four unaided rollouts produce no gradable tree at all.
+Requirement 4 and amendment 2 nevertheless block it, because a floor has to be a *reading*, and "did
+not compile" is not one in the oracle's units.
+
+There is an obvious move here and it is deliberately not made: relaxing amendment 2 so that a
+replicated "the unaided agent never compiles" counts as a floor. Amendment 2 was written hours before
+these cells returned, it now blocks the two remaining cases, and loosening a rule *because* it blocked
+the result is precisely the move the whole protocol exists to prevent — amendment 1 states that once
+data exists an amendment may only move in the stricter direction. So the rule stands and the cases
+stay blocked.
+
+What the tension actually indicates is that the pre-registered **endpoint** may be the wrong one for
+these cases, not that the rule is too strict. Three separate readings now point the same way:
+
+- round 2's re-read found that the only relationship it could measure with confidence was
+  ρ(`U`, *the tree built*) = +0.660, the same magnitude as its withdrawn headline
+  ([RESULTS-DOWNSTREAM-2-RECHECK.md](RESULTS-DOWNSTREAM-2-RECHECK.md));
+- step 2 found the obligation counts unreadable in four of nine cells for a reason unrelated to
+  understanding;
+- step 3 finds a 10-of-12 versus 1-of-8 split on exactly that binary, with the artifact removed.
+
+Changing the endpoint is a larger decision than an amendment: it changes what the project claims, it
+needs its own pre-registration, and it must be written down before any note cell is bought — because
+a binary endpoint chosen after seeing which endpoint separates is not evidence. It is recorded here as
+the open question and nothing more.
+
+## Cost so far, and what it bought
+
+| round | cells | ≈cost | what it could measure |
+|---|---|---|---|
+| 1–3 | 46 | ≈$24 | nothing; each lost the wave to a different instrument defect |
+| 4, step 1 (ladders) | 10 | $0 in model tokens | the oracles have a real scale, rungs separating by axis name |
+| 4, step 2 (anchors) | 15 | ≈$4.30 | the floor was never zero; one case retired; the scratch-test artifact and its mechanism |
+| 4, step 3 (re-anchors) | 10 | ≈$2.90 | the artifact is gone; 6 of 6 ceilings; the control arm is what blocks the family now |
+
+Thirty-five cells and ≈$7 of the fourth round bought a working instrument and two cases whose only
+remaining obstacle is a property of the task rather than of the harness. No note cell has been bought
+on it yet, which is the protocol working as designed.

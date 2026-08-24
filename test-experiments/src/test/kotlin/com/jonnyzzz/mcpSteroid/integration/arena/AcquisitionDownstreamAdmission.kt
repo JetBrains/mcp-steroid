@@ -566,20 +566,29 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 isolates = "nothing — this is the ceiling",
             ),
         ),
-        // Re-bought 2026-08-24. The earlier readings — 9, then 0, 0, 0 (1039700655, 1039761044,
-        // 1039761157) — are superseded; they are what made three the minimum.
+        // Re-bought under amendment 3, which is why the pre-amendment set is superseded rather than
+        // kept beside these. 1040174120/122/124 read 9, unmeasured, 9 — and the middle one failed
+        // `testCompile` on a test the agent wrote, so the difference between those three readings was
+        // whether a scratch test happened to compile. Every one of the three below discarded exactly
+        // one such test, including the two whose predecessors passed.
         //
-        // Two of three reach the ceiling and the third does not build: the ceiling is real here, and
-        // roughly a third of the time the weak agent cannot reach it from a perfect note.
+        // Three of three at the ceiling. Amendment 3's prediction for this half was exact.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040174120", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040174122", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040174124", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040258857", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040259462", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040259464", obligations = 9, compiled = true),
         ),
-        // The no-note tree that built reads 6 of 9. Round 3's floor of "0, 0" was, again, compilation.
+        // All FOUR no-note cells are kept, across both waves. A baseline reading is not affected by
+        // amendment 3 — the rule only removes files that would break the build, and a tree that
+        // compiled and was graded compiles and grades the same without them — so superseding the one
+        // that read 6 of 9 would be dropping the single reading that blocks this case on the gap rule.
+        // One of four built. Amendment 3's prediction for this half was WRONG: it expected the 6 of 9
+        // floor to reappear, and instead neither re-bought baseline produced a gradable tree.
         baselineRollouts = listOf(
             AcquisitionRolloutEvidence(buildId = "1040174126", obligations = 6, compiled = true),
             AcquisitionRolloutEvidence(buildId = "1040174128", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040259466", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040259468", obligations = null, compiled = false),
         ),
     ),
     AcquisitionCaseAdmission(
@@ -632,19 +641,24 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 isolates = "nothing — this is the ceiling",
             ),
         ),
-        // Re-bought 2026-08-24; the round-3 pair (1039700657, 1039700653, both read 10 with no compile
-        // verdict) is superseded. Same shape as `client-auth-method`: two at the ceiling, one that
-        // never built.
+        // Re-bought under amendment 3; 1040174130/132/134 (unmeasured, 10, 10 — the first failed
+        // `testCompile` on the agent's own test) and the round-3 pair 1039700657/653 are superseded.
+        // Three of three at the ceiling, each having discarded exactly one agent-authored test.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040174130", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040174132", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040174134", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040259470", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040259472", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1040259474", obligations = 10, compiled = true),
         ),
-        // Neither no-note tree built, so this case has NO measured floor — which the earlier pair of
-        // zeros hid by looking like one.
+        // FOUR no-note cells across both waves, and not one produced a gradable tree. Three of them
+        // had nothing to discard — the unaided agent never got far enough to write a test — and the
+        // fourth failed on its own implementation with its test already removed. So this case has no
+        // measured floor, and what it has instead is a replicated demonstration that the unaided weak
+        // agent does not reach a compiling tree here at all.
         baselineRollouts = listOf(
             AcquisitionRolloutEvidence(buildId = "1040174136", obligations = null, compiled = false),
             AcquisitionRolloutEvidence(buildId = "1040174138", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040259476", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1040259478", obligations = null, compiled = false),
         ),
     ),
 ).associateBy { it.caseId }
