@@ -327,6 +327,12 @@ object AcquisitionCases {
         // nothing. Stated here so that nobody reads 1/9 as partial progress.
         oracleTestCount = 9,
         gradingScopeSelector = ":keycloak-services",
+        // On, and it changes what the round 2 numbers mean: they were read through a build that
+        // recompiled `services` alone. Nothing in THIS case's gold reaches outside that module, so the
+        // closure is not a fix here — it is the condition under which a solver that wanders upstream is
+        // graded on its solution rather than on the scope of the evaluation build.
+        gradingBuildsDependencyClosure = true,
+        goldPatchResource = "acquisition-cases/acquisition__keycloak__cc-refresh-token/gold.patch",
         statementLeakageTokens = CC_REFRESH_TOKEN_LEAKAGE,
         precedentPaths = listOf(
             "services/src/main/java/org/keycloak/services/clientpolicy/executor/ConsentRequiredExecutor.java",
@@ -422,6 +428,8 @@ object AcquisitionCases {
         // a tree that changed nothing; stated here so nobody reads 1/9 as partial progress.
         oracleTestCount = 9,
         gradingScopeSelector = ":keycloak-services",
+        gradingBuildsDependencyClosure = true,
+        goldPatchResource = "acquisition-cases/acquisition__keycloak__client-auth-method/gold.patch",
         statementLeakageTokens = CLIENT_AUTH_METHOD_LEAKAGE,
         precedentPaths = listOf(
             "services/src/main/java/org/keycloak/authentication/authenticators/client/" +
@@ -470,6 +478,13 @@ object AcquisitionCases {
         // discovery while dispatch still works.
         oracleTestCount = 10,
         gradingScopeSelector = ":keycloak-services",
+        // The case that produced the requirement. Its shipped precedent names its grant through a
+        // constant in `core`, so every solver that imitated the precedent added one there — and a
+        // build scoped to `:keycloak-services` recompiles none of `core`, so eight of twelve note
+        // cells were graded on `cannot find symbol`. The gold avoided the module with a local literal,
+        // which is exactly why the ceiling looked fine.
+        gradingBuildsDependencyClosure = true,
+        goldPatchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/gold.patch",
         statementLeakageTokens = OAUTH_GRANT_TYPE_LEAKAGE,
         precedentPaths = listOf(
             "services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantType.java",

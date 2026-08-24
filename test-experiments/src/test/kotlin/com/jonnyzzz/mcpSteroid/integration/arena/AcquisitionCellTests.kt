@@ -187,6 +187,27 @@ class AcquisitionDownstreamTest {
             "the replicate must be a positive number — pass -D$UNDERSTANDING_REPLICATE_PROPERTY"
         }
 
+        // A ladder rung runs no agent at all, so it leaves before the model is chosen: it deploys a
+        // deliberately partial tree and reads the oracle. It shares this cell rather than getting one
+        // of its own because it shares everything that matters — the container, the reactor install,
+        // the grading build — and a second copy of that path would be a second place for the two to
+        // drift apart, which is precisely the drift the ladder exists to detect.
+        if (condition is AcquisitionLadderCondition) {
+            runAcquisitionLadderCell(
+                case = case,
+                rung = acquisitionLadderRung(case, condition.rungName),
+                replicate = replicate,
+            )
+            return
+        }
+        // Asked only of the note cells, and only here. `baseline`, `oracle:gold` and the rungs are the
+        // cells that PRODUCE the evidence this gate demands, so gating them would make the block
+        // impossible to lift; a note cell bought before the evidence exists is the mistake three
+        // rounds in a row have paid for.
+        if (condition is AcquisitionCheckpointNote) {
+            requireAcquisitionAdmission(case)
+        }
+
         val previousModel = System.getProperty(RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY)
         if (previousModel == null) {
             System.setProperty(

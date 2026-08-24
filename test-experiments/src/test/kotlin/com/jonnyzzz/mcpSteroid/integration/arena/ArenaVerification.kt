@@ -40,7 +40,29 @@ data class ArenaVerificationResult(
     /** True when either whole-suite run was cut short, making [regressions] a lower bound — see [FullSuiteSnapshot.timedOut]. */
     val regressionScanTruncated: Boolean = false,
     val verificationDurationMs: Long,
+    /**
+     * Compiler diagnostics of the grading run — empty when the tree compiled.
+     *
+     * Kept beside the test results rather than folded into them, because a tree that does not compile
+     * has an UNKNOWN number of satisfied obligations, not zero of them. See
+     * [mavenCompilationDiagnostics] for the round this cost.
+     */
+    val compilationDiagnostics: List<String> = emptyList(),
+    /** Exit code of the grading build; null for a result assembled without one (tests, older rounds). */
+    val gradingExitCode: Int? = null,
 ) {
+    /**
+     * Whether the graded tree compiled at all, or null when this result carries no build evidence.
+     *
+     * Null rather than `true` for a hand-built result: "nobody looked" and "it compiled" are different
+     * statements, and only one of them licenses reading the assertion counts as a measurement.
+     */
+    val compiled: Boolean? get() = when {
+        compilationDiagnostics.isNotEmpty() -> false
+        gradingExitCode == null -> null
+        else -> true
+    }
+
     val classesPassed: Int get() = perClass.count { it.passed }
     val classesTotal: Int get() = perClass.size
     val failToPassRate: Double get() = if (perClass.isEmpty()) 0.0 else classesPassed.toDouble() / perClass.size
@@ -313,8 +335,39 @@ fun gradingGoals(purgeScopedBuildOutput: Boolean, buildSystem: String): String =
  * Callers that pass null keep the whole-reactor behaviour byte for byte, which is what every dpaia
  * case relies on.
  */
-fun mavenProjectScopeFlag(selector: String?): String =
-    if (selector.isNullOrBlank()) "" else "-pl $selector"
+fun mavenProjectScopeFlag(selector: String?, alsoMakeDependencies: Boolean = false): String = when {
+    selector.isNullOrBlank() -> ""
+    alsoMakeDependencies -> "-pl $selector -am"
+    else -> "-pl $selector"
+}
+
+/**
+ * The compiler diagnostics of a Maven run, or an empty list when nothing failed to compile.
+ *
+ * A separate reading from the test results, and the round that paid for it says why. Twelve downstream
+ * cells of `acquisition__keycloak__oauth-grant-type` reported zero of ten obligations, and not one of
+ * them had failed an assertion: every one of them failed `javac`. Below the level of the oracle's
+ * independent axes there was still a single boolean, and it collapsed all ten of them exactly the way
+ * the cascading oracle collapsed eight — with no symptom, because "no surefire report" and "the test
+ * ran and failed" are the same zero once the build log has scrolled past.
+ *
+ * Matched on the compiler plugin's own two shapes: the `COMPILATION ERROR` banner, and the
+ * `/path/File.java:[12,34] message` diagnostics under it. Deliberately NOT on `BUILD FAILURE`, which a
+ * run with merely failing tests also prints — the question here is whether the tree the solver left
+ * behind is a tree the oracle could be run against at all.
+ */
+fun mavenCompilationDiagnostics(mavenOutput: String): List<String> =
+    MAVEN_COMPILER_DIAGNOSTIC.findAll(mavenOutput)
+        .map { it.value.trim() }
+        .distinct()
+        .toList()
+
+/** True when [mavenOutput] shows the build never got past compilation. */
+fun mavenCompilationFailed(mavenOutput: String): Boolean =
+    mavenOutput.contains("COMPILATION ERROR") || mavenCompilationDiagnostics(mavenOutput).isNotEmpty()
+
+private val MAVEN_COMPILER_DIAGNOSTIC =
+    Regex("""^\[ERROR] \S+\.(?:java|kt):\[\d+(?:,\d+)?] .*$""", RegexOption.MULTILINE)
 
 private val JAVAC_RELEASE_UNSUPPORTED = Regex("""release version (\d+) not supported""")
 
@@ -733,8 +786,10 @@ class ArenaVerifier(
 
     /**
      * Run all [failToPass] classes in ONE Maven invocation and grade from surefire XML.
-     * Maven exit code is ignored (failures are data, not errors); a class with no XML
-     * (compile failure / not run) grades as testsRun=0 → not passed.
+     * Maven exit code is not a verdict (failures are data, not errors); a class with no XML
+     * (compile failure / not run) grades as testsRun=0 → not passed. Whether that zero means "the
+     * assertion failed" or "nothing could run" is answered separately by
+     * [ArenaVerificationResult.compiled], which every consumer that averages the counts must consult.
      */
     fun verify(
         failToPass: List<String>,
@@ -745,6 +800,19 @@ class ArenaVerifier(
         retried: Boolean = false,
         /** Reactor project to grade in isolation, e.g. `:keycloak-tests-base` — see [mavenProjectScopeFlag]. */
         mavenProjectSelector: String? = null,
+        /**
+         * Rebuild the graded module's upstream dependencies too (`-am`), instead of resolving them
+         * from whatever the reactor install left in the local repository.
+         *
+         * Off by default because it costs minutes per cell, and on for any case whose solver can
+         * reasonably touch a module upstream of the graded one. `oauth-grant-type` is the measured
+         * example: the in-tree precedent every correct solution imitates names its grant through a
+         * constant in `core`, so a solver that follows the precedent adds a constant there — and a
+         * grading build scoped to `:keycloak-services` alone recompiles none of it and reports
+         * `cannot find symbol`. Eight of that round's twelve note cells died exactly there, which
+         * graded the SCOPE of the evaluation build rather than the solution.
+         */
+        mavenAlsoMakeDependencies: Boolean = false,
         /** Pre-agent contents from [snapshotOracleContents]; makes a tamper verdict show its evidence. */
         preAgentOracleContents: Map<String, String> = emptyMap(),
         /**
@@ -796,7 +864,7 @@ class ArenaVerifier(
         cleanSurefireReports()
         // `set -o pipefail` keeps Maven's exit code instead of `tail`'s — without it a Maven that never
         // started was logged as `exit=0`, indistinguishable from a clean run whose tests simply failed.
-        val scope = mavenProjectScopeFlag(mavenProjectSelector)
+        val scope = mavenProjectScopeFlag(mavenProjectSelector, mavenAlsoMakeDependencies)
         val goals = gradingGoals(purgeScopedBuildOutput, buildSystem)
         val mvn = bash(
             "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand $goals " +
@@ -839,6 +907,7 @@ class ArenaVerifier(
                 return verify(
                     failToPass, required, testPatch, preAgentSnapshot, baseline, retried = true,
                     mavenProjectSelector = mavenProjectSelector,
+                    mavenAlsoMakeDependencies = mavenAlsoMakeDependencies,
                     preAgentOracleContents = preAgentOracleContents,
                     purgeScopedBuildOutput = purgeScopedBuildOutput,
                 )
@@ -891,6 +960,14 @@ class ArenaVerifier(
             }
         }
 
+        val diagnostics = mavenCompilationDiagnostics(mvn.stdout)
+        if (diagnostics.isNotEmpty()) {
+            println(
+                "[ARENA-VERIFY] the graded tree DID NOT COMPILE (${diagnostics.size} diagnostics). The " +
+                    "assertion counts below are UNMEASURED, not zero — see ArenaVerificationResult.compiled." +
+                    diagnostics.take(5).joinToString("\n  ", prefix = "\n  ")
+            )
+        }
         return ArenaVerificationResult(
             perClass = perClass,
             failToPassTampered = tampered,
@@ -899,6 +976,8 @@ class ArenaVerifier(
             baselineAvailable = usableBaseline != null,
             regressionScanTruncated = truncated,
             verificationDurationMs = System.currentTimeMillis() - startMs,
+            compilationDiagnostics = diagnostics,
+            gradingExitCode = mvn.exitCode,
         )
     }
 }

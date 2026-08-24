@@ -52,6 +52,30 @@ data class UnderstandingCase(
     /** Reactor projects the grading run is scoped to, e.g. `:keycloak-server-spi`. */
     val gradingScopeSelector: String,
     /**
+     * Whether the grading build must rebuild the dependency closure of [gradingScopeSelector] (`-am`)
+     * rather than resolving it from the reactor install.
+     *
+     * Required of every case that carries a downstream endpoint, and it is a requirement rather than a
+     * tuning knob because the alternative grades the harness. `oauth-grant-type` measured it: the
+     * in-tree precedent a correct solution imitates declares its grant id as a constant in `core`, so
+     * a solver that follows the precedent edits `core` — and a build scoped to `:keycloak-services`
+     * recompiles none of it, so eight of twelve note cells reported `cannot find symbol` and zero
+     * obligations. The gold patch sidestepped the same module with a local literal, which is exactly
+     * why the ceiling cells compiled and the note cells did not.
+     *
+     * Left false for a research-only case, which never runs a grading build at all.
+     */
+    val gradingBuildsDependencyClosure: Boolean = false,
+    /**
+     * Classpath resource of the reference implementation, when the case has one.
+     *
+     * Not used by any solving cell — the solver never sees it — but required by the ladder that
+     * admits a case to a downstream wave: the rungs of [AcquisitionPartialRung] are subsets of this
+     * patch, and the ceiling rung IS this patch. A case whose gold cannot be replayed cannot have its
+     * ceiling measured, and a ceiling nobody measured is the assumption the last round died on.
+     */
+    val goldPatchResource: String? = null,
+    /**
      * Every word of [problemStatement] that could be grepped straight onto a target file, with the
      * number of files that grep returns at the base commit.
      *
@@ -118,6 +142,23 @@ data class UnderstandingCase(
         check(precedentPaths.isNotEmpty()) {
             "$instanceId claims to be an understanding task but names no precedent to be understood"
         }
+    }
+
+    /**
+     * The reference implementation, for the ladder that calibrates a case — never for a solving cell.
+     *
+     * Throws rather than returning null when the case declares none, for the reason [oracleTestPatch]
+     * throws: a ladder cell that quietly graded an unpatched tree would publish the FLOOR under the
+     * ceiling's label, which is the one reading the whole admission protocol exists to establish.
+     */
+    fun goldPatch(): String {
+        val resource = checkNotNull(goldPatchResource) {
+            "$instanceId declares no gold patch, so its ceiling cannot be replayed. A case cannot be " +
+                "admitted to a downstream wave without one — see AcquisitionCaseAdmission"
+        }
+        return checkNotNull(javaClass.classLoader.getResourceAsStream(resource)) {
+            "Gold patch resource not found on the test classpath: $resource"
+        }.use { it.readBytes().decodeToString() }
     }
 
     /**

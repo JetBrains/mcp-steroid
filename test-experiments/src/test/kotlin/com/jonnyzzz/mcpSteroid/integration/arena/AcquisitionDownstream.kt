@@ -222,14 +222,29 @@ fun parseAcquisitionCheckpointNote(raw: String): AcquisitionCheckpointNote {
  * compiled classes, and its measured scale over five trees is 1, 7, 8, 8, 9.
  *
  * [oracleTestsPassed] is counted against [oracleTestsTotal] taken from the case, never against what
- * the run happened to execute: a cell whose module did not compile ran zero tests, and reporting that
- * as "0 of 0" would quietly drop the worst outcomes out of every average.
+ * the run happened to execute: a cell that ran fewer classes than the case declares would otherwise
+ * report "0 of 0" and quietly drop the worst outcomes out of every average.
+ *
+ * It is NULL when the tree did not compile, which is a different statement from zero. The third
+ * downstream round published twelve cells at zero of ten, every one of them a compile failure and not
+ * one of them a failed assertion; read as zeros they said "the note taught nothing", when what they
+ * said was "nothing could be read". [compiled] carries that fact as its own diagnostic, exactly as the
+ * assertions carry theirs.
  */
 data class UnderstandingDownstreamOutcome(
     val success: Boolean?,
     val verdict: String,
-    val oracleTestsPassed: Int,
+    val oracleTestsPassed: Int?,
     val oracleTestsTotal: Int,
+    /**
+     * Whether the graded tree compiled — a diagnostic beside the obligations, never folded into them.
+     *
+     * Null when the cell carries no build evidence at all (an ungraded cell, or a hand-built outcome
+     * in a test). A false here is the one value that makes [oracleTestsPassed] unmeasurable, and a
+     * reader of the aggregate must decide what to do with such a cell explicitly rather than have the
+     * decision made for it by an average.
+     */
+    val compiled: Boolean? = null,
     val cost: UnderstandingCellCost,
     /**
      * How many times the downstream agent reached for a tool.
@@ -254,8 +269,13 @@ data class UnderstandingDownstreamOutcome(
      */
     val budgetDenied: Int? = null,
 ) {
-    /** Assertions the note's reader never satisfied — the residual work, in the oracle's own units. */
-    val residualTests: Int get() = oracleTestsTotal - oracleTestsPassed
+    /**
+     * Assertions the note's reader never satisfied — the residual work, in the oracle's own units.
+     *
+     * Null exactly when [oracleTestsPassed] is: residual work on a tree that never built is unknown,
+     * and reporting it as "all of them" would be the same collapse wearing the opposite sign.
+     */
+    val residualTests: Int? get() = oracleTestsPassed?.let { oracleTestsTotal - it }
 
     /**
      * True when the agent both solved the task AND never hit the wall.
@@ -291,8 +311,9 @@ fun acquisitionDownstreamLine(
     append("[ACQUISITION-DOWN] case=$caseId condition=${condition.label} ")
     append("trajectory=${note?.trajectoryId ?: "-"} checkpoint=${note?.checkpoint ?: "-"} ")
     append("arm=${note?.arm ?: "-"} replicate=$replicate ${outcome.verdict} ")
-    append("oraclePassed=${outcome.oracleTestsPassed}/${outcome.oracleTestsTotal} ")
-    append("residual=${outcome.residualTests}")
+    append("oraclePassed=${outcome.oracleTestsPassed ?: "unmeasured"}/${outcome.oracleTestsTotal} ")
+    append("residual=${outcome.residualTests ?: "unmeasured"}")
+    outcome.compiled?.let { append(" compiled=${if (it) 1 else 0}") }
     outcome.toolCalls?.let { append(" toolCalls=$it") }
     outcome.budget?.let { append(" budget=${outcome.budgetUsed ?: "?"}/$it") }
     outcome.budgetDenied?.let { append(" denied=$it") }

@@ -80,6 +80,14 @@ fun understandingConditionOf(raw: String?): UnderstandingCondition {
         check(name.isNotBlank()) { "an oracle condition must be named: -D$UNDERSTANDING_CONDITION_PROPERTY=oracle:<name>" }
         return UnderstandingCondition.Oracle(name)
     }
+    if (value.startsWith(LADDER_CONDITION_PREFIX)) {
+        val rung = value.removePrefix(LADDER_CONDITION_PREFIX).trim()
+        check(rung.isNotBlank()) {
+            "a ladder condition must name a rung: " +
+                "-D$UNDERSTANDING_CONDITION_PROPERTY=${LADDER_CONDITION_PREFIX}<rungName>"
+        }
+        return AcquisitionLadderCondition(rung)
+    }
     // Throws with the expected shape when it is not a note id, which is the whole point of parsing here.
     parseUnderstandingNoteId(value)
     return UnderstandingCondition.Research(value)

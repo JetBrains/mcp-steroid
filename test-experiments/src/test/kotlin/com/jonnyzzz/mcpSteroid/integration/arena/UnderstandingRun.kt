@@ -481,6 +481,7 @@ fun runUnderstandingDownstream(
                 // what they are. The scoped module build is the only regression evidence available.
                 baseline = null,
                 mavenProjectSelector = case.gradingScopeSelector,
+                mavenAlsoMakeDependencies = case.gradingBuildsDependencyClosure,
                 preAgentOracleContents = oracleContents,
                 purgeScopedBuildOutput = true,
             )
@@ -523,6 +524,7 @@ fun runUnderstandingDownstream(
             verdict = verdict,
             oracleTestsPassed = oracleAssertionsPassed(verification, case),
             oracleTestsTotal = case.oracleTestCount,
+            compiled = verification?.compiled,
             cost = cost,
             toolCalls = extractToolCallStats(result.agentResult.rawStdout)?.totalToolCalls,
             budget = budget,
@@ -563,19 +565,26 @@ fun understandingDownstreamLine(
 }
 
 /**
- * How many of the oracle's assertions the agent's tree satisfies.
+ * How many of the oracle's assertions the agent's tree satisfies, or null when nothing could run.
  *
  * Read off surefire's own counters rather than off the pass/fail verdict, because the question this
  * round asks is how much work a note left undone and the verdict cannot answer it: seven assertions of
  * eight and a module that does not compile are the same `Y=0`.
  *
- * Everything unknown collapses to zero passed, deliberately. A cell that was never graded, a class
- * surefire never ran, an agent that rewrote the oracle it is judged by — none of them is evidence that
- * anything worked, and each of them would otherwise enter an average as a missing value that quietly
- * raises it.
+ * NULL for a tree that did not compile, and that distinction is the repair the third downstream round
+ * paid for. Twelve note cells reported zero of ten obligations there and not one of them had failed an
+ * assertion — every one failed `javac`. Averaging those zeros re-created, one level below the
+ * assertions, exactly the cascade the oracles had been rebuilt to remove: N independent axes collapsing
+ * into a single boolean. Compilation is now its OWN diagnostic — see [ArenaVerificationResult.compiled]
+ * — and the obligations of a tree that never built are unmeasured, not zero.
+ *
+ * Everything else unknown still collapses to zero passed, deliberately. A cell that was never graded
+ * and an agent that rewrote the oracle it is judged by are not evidence that anything worked, and both
+ * would otherwise enter an average as a missing value that quietly raises it.
  */
-fun oracleAssertionsPassed(verification: ArenaVerificationResult?, case: UnderstandingCase): Int {
+fun oracleAssertionsPassed(verification: ArenaVerificationResult?, case: UnderstandingCase): Int? {
     if (verification == null || verification.failToPassTampered) return 0
+    if (verification.compiled == false) return null
     val ran = verification.perClass.sumOf { it.testsRun - it.failures - it.errors }
     return ran.coerceIn(0, case.oracleTestCount)
 }

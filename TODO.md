@@ -722,24 +722,41 @@ Still open from the research round, unchanged: the semantic arm occasionally deg
 (`mcp r4`, `{Bash=14}`) despite both forms of the `ENABLE_TOOL_SEARCH` flag — the harness rejects such
 a cell, but the cause is unknown.
 
-## acquisition: repair the downstream instrument before buying more solving cells
+## acquisition: the downstream instrument is repaired; the calibration is not bought yet
 
 Round 3 (`docs/acquisition-curve-experiment/RESULTS-DOWNSTREAM-3.md`) bought 22 cells and could not
 compute its primary correlation: all twelve note cells scored 0 of 10, every one of them a COMPILE
-failure of the solver's own code, not a failed assertion. Three repairs, in order:
+failure of the solver's own code, not a failed assertion. All three repairs below are now IN THE CODE,
+and a fourth thing came with them — the order of purchase is enforced rather than remembered. See
+`docs/acquisition-curve-experiment/DESIGN-CASE-ADMISSION.md`.
 
-1. Compilation must be its own graded axis. A cell that does not build should score that axis 0 and
-   leave the behavioural axes UNMEASURED — averaging them as zeros re-creates, one level down, the
-   `{0} u {5..8}` cascade the oracles were rebuilt to remove.
-2. The grading build must cover the modules the repository's own idiom touches. `oauth-grant-type`
-   punishes a solver for following `RefreshTokenGrantTypeFactory`, whose grant id is a constant in
-   `core`, because grading compiles `-pl :keycloak-services` alone.
-3. A case joins the downstream family only after >= 3 `oracle:gold` replicates. Two was too few:
-   `client-auth-method` read 9/9 on its first ceiling run and is 9, 0, 0, 0 over four.
+1. ~~Compilation must be its own graded axis.~~ Done: `ArenaVerificationResult.compiled` is derived from
+   the compiler's own diagnostics, and `oracleAssertionsPassed` returns **null** for a tree that never
+   built. A cell now prints `oraclePassed=unmeasured/N ... compiled=0`.
+2. ~~The grading build must cover the modules the repository's own idiom touches.~~ Done:
+   `UnderstandingCase.gradingBuildsDependencyClosure` adds `-am`, and it is on for all three gradable
+   cases. The admission gate refuses a note wave on a case where it is off.
+3. ~~A case joins the downstream family only after >= 3 `oracle:gold` replicates.~~ Done, and widened:
+   `AcquisitionCaseAdmission` also demands a replayed ceiling, two separating ladder rungs, two
+   baselines, and a compile verdict on every recorded rollout.
 
-The twelve `client-auth-method` note cells were deliberately NOT bought (its ceiling is 1 of 4). Every
-note of both cases is committed under `test-experiments/src/test/resources/acquisition-notes/`, so the
-repaired instrument re-runs the same matrix without re-buying research or notes.
+**What is left is a purchase, not a repair.** All three cases are currently BLOCKED — 12, 8 and 9 items,
+printed by `AcquisitionAdmissionTest`. To lift a block:
+
+- 10 ladder cells (`-Dunderstanding.condition=ladder:<rung>`), no agent and no model tokens, on the
+  existing downstream build configuration;
+- 15 agent cells (3 `oracle:gold` + 2 `baseline` per case), ≈$15, because no rollout on record says
+  whether it compiled;
+- two partial patches still have to be written and exported: `partial-naive-invariant.patch`
+  (`cc-refresh-token`) and `partial-naive-shortcut.patch` (`oauth-grant-type`). Both trees were built
+  once by the oracle authors and measured at 8 and 9; neither was exported.
+
+Watch the `cc-refresh-token` baselines while doing this: all four read 0 against a pristine floor of 1,
+which a compiling tree cannot do. Those four were the floor of the round that produced rho = +0.67.
+
+Every note of both new cases is committed under
+`test-experiments/src/test/resources/acquisition-notes/`, so the repaired instrument re-runs the same
+matrix without re-buying research or notes.
 
 ## acquisition: a Dubbo case, now that the probe passed
 
