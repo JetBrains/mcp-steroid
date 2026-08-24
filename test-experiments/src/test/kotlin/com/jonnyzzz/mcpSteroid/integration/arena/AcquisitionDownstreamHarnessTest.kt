@@ -180,7 +180,8 @@ class AcquisitionDownstreamHarnessTest {
                 AcquisitionToolCall(index + 1, tool, "{}", "", 0, null)
             },
             exemptCalls = 0, refusedCalls = 0, totalOutputTokens = 1,
-            tokenAccounting = AcquisitionTokenAccounting.PER_MESSAGE, finalMessage = "",
+            tokenAccounting = AcquisitionTokenAccounting.PER_MESSAGE, delegatedOutputTokens = 0,
+            finalMessage = "",
         )
 
         assertTrue(armDegenerate(trajectory("mcp", "Bash", "Read")))

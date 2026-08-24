@@ -1,0 +1,16 @@
+$ find . -path ./.git -prune -o -path '*authenticators/client*' -name '*.java' -print | head -30
+./services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractClientAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/DefaultClientAssertionStrategy.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientSecretValidator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientValidator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/ClientIdAndSecretAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/AttestationBasedClientAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/FederatedJWTClientAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/FederatedJWTClientValidator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractBaseJWTValidator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/ClientAuthUtil.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientSecretAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/X509ClientAuthenticator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractJWTClientValidator.java
+./services/src/main/java/org/keycloak/authentication/authenticators/client/ClientAssertionState.java

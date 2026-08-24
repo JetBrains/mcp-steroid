@@ -1,0 +1,54 @@
+$ grep -n 'GRANT_TYPE_PARAM\|checkGrantType\|grant.process\|checkParameterDuplicated\|DPoPUtil\|newUnsupportedGrantTypeException\|getProvider(OAuth2GrantType' -A3 services/src/main/java/org/keycloak/protocol/oidc/endpoints/TokenEndpoint.java
+70:import org.keycloak.services.util.DPoPUtil;
+71-import org.keycloak.utils.StringUtil;
+72-
+73-import org.jboss.logging.Logger;
+--
+131:        grantType = formParams.getFirst(OIDCLoginProtocol.GRANT_TYPE_PARAM);
+132-
+133-        // https://tools.ietf.org/html/rfc6749#section-5.1
+134-        // The authorization server MUST include the HTTP "Cache-Control" response header field
+--
+141:        checkGrantType();
+142-
+143-        try {
+144-            grant.preProcess(session, formParams);
+--
+156:            checkParameterDuplicated();
+157-        }
+158-
+159-        checkParameters();
+--
+168:        DPoPUtil.handleDPoPHeader(session, event, cors, clientConfig);
+169-
+170-        OAuth2GrantType.Context context = new OAuth2GrantType.Context(session, clientConfig, clientAuthAttributes,
+171-                                                                      formParams, event, cors, tokenManager);
+--
+174:            return grant.process(context);
+175-        } catch (TokenInterceptorException e) {
+176-            throw new CorsErrorResponseException(cors, e.getError(), e.getDescription(), Response.Status.BAD_REQUEST);
+177-        } catch (RefreshTokenException e) {
+--
+222:    private void checkGrantType() {
+223-        if (grantType == null) {
+224:            throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "Missing form parameter: " + OIDCLoginProtocol.GRANT_TYPE_PARAM, Response.Status.BAD_REQUEST);
+225-        }
+226-
+227:        grant = session.getProvider(OAuth2GrantType.class, grantType);
+228-        if (grant == null) {
+229:            throw newUnsupportedGrantTypeException();
+230-        }
+231-
+232-        event.event(grant.getEventType());
+--
+236:    private void checkParameterDuplicated() {
+237-        for (var entry : formParams.entrySet()) {
+238-            if (entry.getValue().size() != 1 && !grant.getSupportedMultivaluedRequestParameters().contains(entry.getKey())) {
+239-                throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "duplicated parameter",
+--
+245:    private CorsErrorResponseException newUnsupportedGrantTypeException() {
+246-        return new CorsErrorResponseException(cors, OAuthErrorException.UNSUPPORTED_GRANT_TYPE,
+247:                "Unsupported " + OIDCLoginProtocol.GRANT_TYPE_PARAM, Status.BAD_REQUEST);
+248-    }
+249-
+250-    private MultivaluedMap<String, String> sanitizeFormParameters(MultivaluedMap<String, String> formParams) {

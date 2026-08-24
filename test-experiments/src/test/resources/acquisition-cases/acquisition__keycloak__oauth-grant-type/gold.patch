@@ -1,0 +1,150 @@
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/OfflineRefreshTokenGrantType.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/OfflineRefreshTokenGrantType.java
+new file mode 100644
+index 0000000..129b5e4
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/OfflineRefreshTokenGrantType.java
+@@ -0,0 +1,68 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.protocol.oidc.grants;
++
++import jakarta.ws.rs.core.Response;
++
++import org.keycloak.OAuth2Constants;
++import org.keycloak.OAuthErrorException;
++import org.keycloak.events.Details;
++import org.keycloak.events.Errors;
++import org.keycloak.jose.jws.JWSInputException;
++import org.keycloak.services.CorsErrorResponseException;
++import org.keycloak.util.TokenUtil;
++
++/**
++ * Offline Refresh Token Grant
++ *
++ * Dedicated grant for renewing access tokens of offline sessions. Unlike the plain refresh token grant it only
++ * accepts offline refresh tokens, so that the usage of long-lived credentials can be restricted and audited
++ * separately from the renewal of the regular interactive sessions.
++ */
++public class OfflineRefreshTokenGrantType extends RefreshTokenGrantType {
++
++    public static final String OFFLINE_REFRESH_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:offline-refresh";
++
++    @Override
++    public Response process(Context context) {
++        setContext(context);
++
++        String refreshToken = formParams.getFirst(OAuth2Constants.REFRESH_TOKEN);
++        if (refreshToken == null) {
++            throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "No refresh token", Response.Status.BAD_REQUEST);
++        }
++
++        if (!isOfflineToken(refreshToken)) {
++            event.detail(Details.REASON, "Refresh token is not an offline token");
++            event.error(Errors.INVALID_TOKEN);
++            throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_GRANT, "Refresh token is not an offline token", Response.Status.BAD_REQUEST);
++        }
++
++        return super.process(context);
++    }
++
++    private boolean isOfflineToken(String refreshToken) {
++        try {
++            return TokenUtil.isOfflineToken(refreshToken);
++        } catch (JWSInputException e) {
++            event.detail(Details.REASON, "Unable to parse refresh token");
++            event.error(Errors.INVALID_TOKEN);
++            throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_GRANT, "Invalid refresh token", Response.Status.BAD_REQUEST);
++        }
++    }
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/grants/OfflineRefreshTokenGrantTypeFactory.java b/services/src/main/java/org/keycloak/protocol/oidc/grants/OfflineRefreshTokenGrantTypeFactory.java
+new file mode 100644
+index 0000000..717034c
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/protocol/oidc/grants/OfflineRefreshTokenGrantTypeFactory.java
+@@ -0,0 +1,58 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.protocol.oidc.grants;
++
++import org.keycloak.Config;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.models.KeycloakSessionFactory;
++
++/**
++ * Factory for Offline Refresh Token Grant
++ */
++public class OfflineRefreshTokenGrantTypeFactory implements OAuth2GrantTypeFactory {
++
++    public static final String GRANT_SHORTCUT = "or";
++
++    @Override
++    public String getId() {
++        return OfflineRefreshTokenGrantType.OFFLINE_REFRESH_GRANT_TYPE;
++    }
++
++    @Override
++    public String getShortcut() {
++        return GRANT_SHORTCUT;
++    }
++
++    @Override
++    public OAuth2GrantType create(KeycloakSession session) {
++        return new OfflineRefreshTokenGrantType();
++    }
++
++    @Override
++    public void init(Config.Scope config) {
++    }
++
++    @Override
++    public void postInit(KeycloakSessionFactory factory) {
++    }
++
++    @Override
++    public void close() {
++    }
++
++}
+diff --git a/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.grants.OAuth2GrantTypeFactory b/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.grants.OAuth2GrantTypeFactory
+index 5b47a85..c17d742 100644
+--- a/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.grants.OAuth2GrantTypeFactory
++++ b/services/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.grants.OAuth2GrantTypeFactory
+@@ -2,6 +2,7 @@ org.keycloak.protocol.oidc.grants.AuthorizationCodeGrantTypeFactory
+ org.keycloak.protocol.oidc.grants.ClientCredentialsGrantTypeFactory
+ org.keycloak.protocol.oidc.grants.PermissionGrantTypeFactory
+ org.keycloak.protocol.oidc.grants.RefreshTokenGrantTypeFactory
++org.keycloak.protocol.oidc.grants.OfflineRefreshTokenGrantTypeFactory
+ org.keycloak.protocol.oidc.grants.ResourceOwnerPasswordCredentialsGrantTypeFactory
+ org.keycloak.protocol.oidc.grants.TokenExchangeGrantTypeFactory
+ org.keycloak.protocol.oidc.grants.ciba.CibaGrantTypeFactory

@@ -1,0 +1,20 @@
+$ grep -n 'GrantTypesSupported' -A8 services/src/main/java/org/keycloak/protocol/oidc/OIDCWellKnownProvider.java
+153:        config.setGrantTypesSupported(getGrantTypesSupported());
+154-        config.setAcrValuesSupported(getAcrValuesSupported(realm));
+155-
+156-        config.setPromptValuesSupported(getPromptValuesSupported(realm));
+157-
+158-        List<String> clientAuthMethodsSupported = getClientAuthMethodsSupported();
+159-        List<String> supportedClientSigningAlgorithms = getSupportedClientSigningAlgorithms(false);
+160-
+161-        config.setTokenEndpointAuthMethodsSupported(clientAuthMethodsSupported);
+--
+298:    private List<String> getGrantTypesSupported() {
+299-
+300-        KeycloakSessionFactory sessionFactory = session.getKeycloakSessionFactory();
+301-        Stream<String> providerFactoryStream = sessionFactory
+302-                .getProviderFactoriesStream(OAuth2GrantType.class)
+303-                .map(ProviderFactory::getId);
+304-
+305-        // Implicit not available as OAuth2GrantType implementation, but should be included.
+306-        // It is served from OIDC authentication endpoint directly

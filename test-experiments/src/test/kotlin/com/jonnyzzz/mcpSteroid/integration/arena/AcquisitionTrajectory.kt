@@ -81,6 +81,17 @@ data class AcquisitionTrajectory(
     val refusedCalls: Int,
     val totalOutputTokens: Long,
     val tokenAccounting: AcquisitionTokenAccounting,
+    /**
+     * The part of [totalOutputTokens] produced by a model OTHER than the trajectory's own.
+     *
+     * Non-zero when the agent delegated to a sub-agent, which the control arm did in three of round
+     * two's four trajectories. It matters because the token axis used to be read from the final event's
+     * `usage.output_tokens`, and that field carries ONE model's output: those three trajectories showed
+     * 30-40 % of what they really emitted, and the published "shell buys facts three times cheaper"
+     * followed from the omission rather than from the arms. Reported separately instead of only being
+     * folded in, so a reader can see WHICH runs the correction moved.
+     */
+    val delegatedOutputTokens: Long,
     val finalMessage: String?,
 ) {
     val budgetedCalls: Int get() = calls.size
@@ -143,6 +154,7 @@ fun parseAcquisitionTrajectory(
     var model = "unknown"
     var finalMessage: String? = null
     var resultOutputTokens: Long? = null
+    var resultModelUsage: Map<String, Long> = emptyMap()
     var firstTimestampMs: Long? = null
 
     // Assistant turns, in order, with the two things a token column can be built from.
@@ -233,12 +245,27 @@ fun parseAcquisitionTrajectory(
                 finalMessage = event["result"]?.jsonPrimitive?.contentOrNull ?: finalMessage
                 resultOutputTokens = event["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.longOrNull
                     ?: resultOutputTokens
+                // `usage` is one model's accounting; `modelUsage` is the per-model breakdown of the same
+                // run, and a delegating agent's cheap sub-agent appears only in the latter. Read both and
+                // trust the larger, because the omission is silent and always in the same direction.
+                event["modelUsage"]?.jsonObject?.let { breakdown ->
+                    resultModelUsage = breakdown.mapValues { (_, value) ->
+                        (value as? JsonObject)?.get("outputTokens")?.jsonPrimitive?.longOrNull ?: 0L
+                    }
+                }
             }
         }
     }
 
     val perMessageTotal = turnOutputTokens.values.sum()
-    val declaredTotal = resultOutputTokens ?: 0L
+    val modelUsageTotal = resultModelUsage.values.sum()
+    // The main model of the run is the one the assistant turns name; everything else in the breakdown
+    // was emitted by something the agent delegated to. `model` stays "unknown" only for a transcript
+    // with no assistant turn at all, in which case there is nothing to attribute anyway.
+    val delegatedTotal = resultModelUsage
+        .filterKeys { !it.startsWith(model) && !model.startsWith(it) }
+        .values.sum()
+    val declaredTotal = maxOf(resultOutputTokens ?: 0L, modelUsageTotal)
     val accounting = when {
         declaredTotal <= 0L -> AcquisitionTokenAccounting.PER_MESSAGE
         perMessageTotal >= declaredTotal * 0.9 -> AcquisitionTokenAccounting.PER_MESSAGE
@@ -295,6 +322,7 @@ fun parseAcquisitionTrajectory(
         refusedCalls = refused,
         totalOutputTokens = totalOutputTokens,
         tokenAccounting = accounting,
+        delegatedOutputTokens = delegatedTotal,
         finalMessage = finalMessage,
     )
 }

@@ -109,6 +109,21 @@ data class AcquisitionFact(
 data class AcquisitionChecklist(
     val caseId: String,
     val facts: List<AcquisitionFact>,
+    /**
+     * True when this case is a deliberate POSITIVE CONTROL made of reference facts.
+     *
+     * The generalization round runs, beside the architecture cases, one case whose knowledge really is
+     * a set of references: which declarations share the name, how many call sites a textual rewrite
+     * would damage, which modules the fan-out reaches. Semantic tooling should win it by a wide
+     * margin, and that is the point — it anchors the top of the predicted ordering, so that a modest
+     * effect on an architecture case can be read as modest rather than as "the instrument is blind".
+     *
+     * It is a declared flag and not an inferred one because the two failure modes are opposite. An
+     * architecture checklist that drifted into usages would be won by construction and would prove
+     * nothing; a control checklist that drifted into architecture would stop anchoring anything and
+     * nobody would notice. So each shape is asserted against what it claims to be.
+     */
+    val positiveControl: Boolean = false,
 ) {
     init {
         check(facts.size in 8..15) {
@@ -124,11 +139,19 @@ data class AcquisitionChecklist(
             AcquisitionFactCategory.IMPLEMENTATION,
             AcquisitionFactCategory.WIRING,
         )
-        check((categories - navigational).size >= 4) {
-            "$caseId is a navigation benchmark in disguise: all but ${categories - navigational} of " +
-                "its facts are the kind a single find-usages answers. A checklist made of usages, " +
-                "callers and implementations would be won by semantic tooling by construction and " +
-                "would say nothing about acquiring an architectural model"
+        if (positiveControl) {
+            check((categories - navigational).size <= 2) {
+                "$caseId claims to be the navigational positive control, but ${categories - navigational} " +
+                    "of its facts are architecture facts. A control that looks like the cases it is " +
+                    "supposed to bound stops bounding them"
+            }
+        } else {
+            check((categories - navigational).size >= 4) {
+                "$caseId is a navigation benchmark in disguise: all but ${categories - navigational} of " +
+                    "its facts are the kind a single find-usages answers. A checklist made of usages, " +
+                    "callers and implementations would be won by semantic tooling by construction and " +
+                    "would say nothing about acquiring an architectural model"
+            }
         }
     }
 

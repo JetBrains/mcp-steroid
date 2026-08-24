@@ -166,6 +166,15 @@ class AcquisitionDownstreamTest {
         val caseId = System.getProperty(UNDERSTANDING_CASE_PROPERTY)?.trim().orEmpty()
         check(caseId.isNotEmpty()) { "no case given. Pass -D$UNDERSTANDING_CASE_PROPERTY=<instanceId>" }
         val case = AcquisitionCases.byId(caseId)
+        // Refused here, before a container exists. The generalization round buys research trajectories
+        // on cases that carry no hidden oracle at all, and such a case run through this cell would
+        // spend its half hour and report "0 of 0" — a reading that enters an average as a zero and
+        // looks like an agent that solved nothing.
+        check(case.gradable) {
+            "'${case.instanceId}' is a research-only case: it has no hidden oracle, so this cell has " +
+                "nothing to grade. Its endpoint is the acquisition curve — queue the research build " +
+                "instead, or give the case an oracle first"
+        }
         val condition = understandingConditionOf(System.getProperty(UNDERSTANDING_CONDITION_PROPERTY))
         // A note id of the OTHER family would resolve, read a file from the other directory and grade
         // a cell nobody can place on this round's curve. Refused rather than run.

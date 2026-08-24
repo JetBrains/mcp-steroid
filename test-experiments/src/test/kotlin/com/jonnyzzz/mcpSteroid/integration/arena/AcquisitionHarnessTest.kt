@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -276,5 +277,142 @@ class AcquisitionHarnessTest {
                 "measures navigation and not architecture",
         )
         assertTrue(checklist.facts.all { it.judgeQuestion.endsWith("?") }, "a rubric item is a question")
+    }
+
+    /**
+     * A case declares an oracle completely or not at all.
+     *
+     * The generalization round buys research trajectories on cases that have no hidden oracle, which
+     * is a deliberate saving: `U(B)` needs a statement and a checklist, and a hidden test suite per
+     * case is what would have kept this family at one case. The danger the type has to remove is the
+     * MIDDLE state — a patch with no FAIL_TO_PASS entry grades nothing while looking graded, and a
+     * denominator with no patch publishes a fraction of an oracle that does not exist. Both come out
+     * as a percentage rather than as an error.
+     */
+    @Test
+    fun `a case is either research-only or gradable and never half of one`() {
+        fun case(resource: String?, failToPass: List<String>, count: Int) = UnderstandingCase(
+            instanceId = "acquisition__keycloak__probe",
+            problemStatement = "behaviour only",
+            oracleTestPatchResource = resource,
+            failToPass = failToPass,
+            oracleTestCount = count,
+            gradingScopeSelector = ":keycloak-services",
+            statementLeakageTokens = mapOf("strict" to 592),
+            precedentPaths = listOf("services/src/main/java/Whatever.java"),
+            goldRolePaths = emptyMap(),
+        )
+
+        assertFalse(case(null, emptyList(), 0).gradable, "no oracle declared at all")
+        assertTrue(case("p.patch", listOf("a.B"), 3).gradable)
+
+        // Every half-declaration, each of which used to be constructible.
+        assertThrows(IllegalStateException::class.java) { case("p.patch", emptyList(), 0) }
+        assertThrows(IllegalStateException::class.java) { case(null, listOf("a.B"), 0) }
+        assertThrows(IllegalStateException::class.java) { case(null, emptyList(), 3) }
+        assertThrows(IllegalStateException::class.java) { case("p.patch", listOf("a.B"), 0) }
+    }
+
+    /**
+     * The token axis counts every model of the run, not just the one that answered last.
+     *
+     * The final event carries two accountings of the same run: `usage`, which is ONE model's output,
+     * and `modelUsage`, the per-model breakdown. Round two read only the first, and three control-arm
+     * trajectories had delegated most of their work to a cheap sub-agent — so the published axis showed
+     * 30-40 % of what they emitted, and "the shell arm buys facts three times cheaper per token"
+     * followed from the omission. The correction is not cosmetic: it moves the per-fact token ratio
+     * between the arms from 2.8x to about 1.2x.
+     */
+    @Test
+    fun `a delegating run is charged for its sub-agent too`() {
+        val ndjson = listOf(
+            assistant("m1", 40, toolUse("t1", "Bash", """{"command":"grep"}""")),
+            toolResult("t1", "something"),
+            """{"type":"result","subtype":"success","result":"done",""" +
+                """"usage":{"input_tokens":1,"output_tokens":3635},""" +
+                """"modelUsage":{"claude-opus-5":{"outputTokens":3635,"inputTokens":10},""" +
+                """"claude-haiku-4-5-20251001":{"outputTokens":6589,"inputTokens":10}}}""",
+        ).joinToString("\n")
+
+        val trajectory = parseAcquisitionTrajectory(ndjson, "t-1", "case", "shell")
+
+        assertEquals(10_224L, trajectory.totalOutputTokens, "the sub-agent's output is part of the cost")
+        assertEquals(6_589L, trajectory.delegatedOutputTokens, "and it is visible as delegated")
+        assertEquals("claude-opus-5", trajectory.model)
+
+        // A run that delegated nothing must be unchanged, or every published number would move.
+        val solo = listOf(
+            assistant("m1", 40, toolUse("t1", "Bash", """{"command":"grep"}""")),
+            toolResult("t1", "something"),
+            """{"type":"result","subtype":"success","result":"done",""" +
+                """"usage":{"input_tokens":1,"output_tokens":21873},""" +
+                """"modelUsage":{"claude-opus-5":{"outputTokens":21873,"inputTokens":10}}}""",
+        ).joinToString("\n")
+        val single = parseAcquisitionTrajectory(solo, "t-2", "case", "mcp")
+        assertEquals(21_873L, single.totalOutputTokens)
+        assertEquals(0L, single.delegatedOutputTokens)
+    }
+
+    /**
+     * The registry of the generalization round, asserted as a SET rather than case by case.
+     *
+     * The round's claim is not "the effect replicates" but "the effect is ordered": largest on the
+     * navigational control, smallest on the shallow one, and somewhere between on the two architecture
+     * cases. That claim is only readable if the round really contains those different shapes, so the
+     * shapes are asserted here — one declared control and no more, a checklist for every case, and the
+     * no-leakage rule enforced on every case that is NOT the control.
+     */
+    @Test
+    fun `the round is a set of different shapes and not the same case four times`() {
+        val cases = AcquisitionCases.all
+        assertTrue(cases.size >= 3, "a generalization round with fewer than three cases generalizes nothing")
+        assertEquals(cases.size, cases.map { it.instanceId }.distinct().size, "duplicate case id")
+
+        val checklists = cases.map { AcquisitionCases.checklistFor(it.instanceId) }
+        assertEquals(
+            cases.map { it.instanceId },
+            checklists.map { it.caseId },
+            "a checklist registered under another case's id would score the wrong facts silently",
+        )
+        assertEquals(
+            1,
+            checklists.count { it.positiveControl },
+            "exactly one case anchors the top of the scale; two would be two anchors and none would " +
+                "leave a modest effect unreadable",
+        )
+
+        for ((case, checklist) in cases.zip(checklists)) {
+            assertTrue(checklist.facts.size in 8..15, "${case.instanceId}: ${checklist.facts.size} facts")
+            assertTrue(
+                checklist.facts.all { it.judgeQuestion.endsWith("?") },
+                "${case.instanceId}: a rubric item is a question",
+            )
+            // The control is the ONLY case allowed to name its target: a rename brief without the
+            // symbol is a guessing game. Every other statement must still be pure vocabulary.
+            if (checklist.positiveControl) continue
+            assertTrue(
+                case.statementLeakageTokens.isNotEmpty(),
+                "${case.instanceId}: an architecture case with no leakage audit was never admitted",
+            )
+        }
+    }
+
+    @Test
+    fun `a research-only case refuses to be read as something gradable`() {
+        val researchOnly = UnderstandingCase(
+            instanceId = "acquisition__keycloak__probe",
+            problemStatement = "behaviour only",
+            gradingScopeSelector = ":keycloak-services",
+            statementLeakageTokens = mapOf("strict" to 592),
+            precedentPaths = listOf("services/src/main/java/Whatever.java"),
+            goldRolePaths = emptyMap(),
+        )
+
+        // Not "returns an empty patch": an empty patch applies cleanly and grades a pristine tree,
+        // which is a green cell reporting that nothing was asked of the agent.
+        val patch = assertThrows(IllegalStateException::class.java) { researchOnly.oracleTestPatch() }
+        assertTrue(patch.message!!.contains("research-only"), patch.message)
+        val shape = assertThrows(IllegalStateException::class.java) { researchOnly.dpaiaCase() }
+        assertTrue(shape.message!!.contains("research-only"), shape.message)
     }
 }

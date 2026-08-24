@@ -1,0 +1,49 @@
+$ grep -n 'AuthMethodsSupported\|getProviderFactoriesStream\|flatMap' -A4 services/src/main/java/org/keycloak/protocol/oidc/OIDCWellKnownProvider.java
+158:        List<String> clientAuthMethodsSupported = getClientAuthMethodsSupported();
+159-        List<String> supportedClientSigningAlgorithms = getSupportedClientSigningAlgorithms(false);
+160-
+161:        config.setTokenEndpointAuthMethodsSupported(clientAuthMethodsSupported);
+162-        config.setTokenEndpointAuthSigningAlgValuesSupported(supportedClientSigningAlgorithms);
+163:        config.setIntrospectionEndpointAuthMethodsSupported(clientAuthMethodsSupported);
+164-        config.setIntrospectionEndpointAuthSigningAlgValuesSupported(supportedClientSigningAlgorithms);
+165-
+166:        if (clientAuthMethodsSupported.contains(ATTEST_JWT_CLIENT_AUTH)) {
+167-            config.setClientAttestationSigningAlgValuesSupported(getSupportedSigningAlgorithms(false));
+168-            config.setClientAttestationPopSigningAlgValuesSupported(getSupportedSigningAlgorithms(false));
+169-        }
+170-
+--
+212:        config.setRevocationEndpointAuthMethodsSupported(clientAuthMethodsSupported);
+213-        config.setRevocationEndpointAuthSigningAlgValuesSupported(supportedClientSigningAlgorithms);
+214-
+215-        config.setBackchannelLogoutSupported(true);
+216-        config.setBackchannelLogoutSessionSupported(true);
+--
+238:            if (!clientAuthMethodsSupported.contains("none")) {
+239:                clientAuthMethodsSupported.add("none");
+240-            }
+241-        }
+242-
+243-        config = checkConfigOverride(config);
+--
+263:    private List<String> getClientAuthMethodsSupported() {
+264:        List<String> clientAuthMethods = session.getKeycloakSessionFactory().getProviderFactoriesStream(ClientAuthenticator.class)
+265-                .map(ClientAuthenticatorFactory.class::cast)
+266-                .map(caf -> caf.getProtocolAuthenticatorMethods(OIDCLoginProtocol.LOGIN_PROTOCOL))
+267:                .flatMap(Collection::stream)
+268-                .collect(Collectors.toList());
+269-        return clientAuthMethods;
+270-    }
+271-
+--
+273:        Stream<String> supportedAlgorithms = session.getKeycloakSessionFactory().getProviderFactoriesStream(clazz)
+274-                .map(ProviderFactory::getId);
+275-
+276-        if (includeNone) {
+277-            supportedAlgorithms = Stream.concat(supportedAlgorithms, Stream.of("none"));
+--
+302:                .getProviderFactoriesStream(OAuth2GrantType.class)
+303-                .map(ProviderFactory::getId);
+304-
+305-        // Implicit not available as OAuth2GrantType implementation, but should be included.
+306-        // It is served from OIDC authentication endpoint directly

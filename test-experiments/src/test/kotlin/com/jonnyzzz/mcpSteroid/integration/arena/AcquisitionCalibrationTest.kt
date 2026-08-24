@@ -23,10 +23,27 @@ import org.junit.jupiter.api.Test
  */
 class AcquisitionCalibrationTest {
 
-    private val checklist = CC_REFRESH_TOKEN_CHECKLIST
+    /**
+     * The cases that carry a recorded cheating trajectory, checked as a family.
+     *
+     * Every ARCHITECTURE case of a round has to pass all three shape criteria before it is queued, and
+     * the criteria are the reason the round can be read at all: a case whose checklist is bought by
+     * three commands measures nothing, and one whose checklist the shell cannot reach at forty measures
+     * the ceiling. Keeping them in one data-driven check is how a case added later cannot skip them —
+     * the previous shape of this file hard-coded the first case and would have said nothing about the
+     * two that came after it.
+     *
+     * The controls are deliberately absent: the navigational one names its own target (three commands
+     * SHOULD buy much of it), and the shallow one is here to be easy.
+     */
+    private val calibrated: List<AcquisitionChecklist> = listOf(
+        CC_REFRESH_TOKEN_CHECKLIST,
+        CLIENT_AUTH_METHOD_CHECKLIST,
+        OAUTH_GRANT_TYPE_CHECKLIST,
+    )
 
-    private fun recordedShellResults(): List<String> = (1..10).map { index ->
-        val name = "acquisition-cases/acquisition__keycloak__cc-refresh-token/calibration/" +
+    private fun recordedShellResults(caseId: String): List<String> = (1..10).map { index ->
+        val name = "acquisition-cases/$caseId/calibration/" +
             "shell-simulation/${index.toString().padStart(2, '0')}.txt"
         checkNotNull(javaClass.classLoader.getResourceAsStream(name)) {
             "the recorded shell calibration output $name is missing from the test resources"
@@ -34,38 +51,39 @@ class AcquisitionCalibrationTest {
     }
 
     @Test
-    fun `three obvious commands do not buy the checklist`() {
-        val results = recordedShellResults()
-        val afterThree = checklist.observedScore(results.take(3))
+    fun `three obvious commands do not buy the checklist`() = calibrated.forEach { checklist ->
+        val results = recordedShellResults(checklist.caseId).take(3)
+        val afterThree = checklist.observedScore(results)
         println(
-            "[ACQUISITION-CALIBRATION] research depth: U_obs after 3 optimal shell commands = " +
-                "${"%.2f".format(afterThree)} (${checklist.observedIds(results.take(3))})"
+            "[ACQUISITION-CALIBRATION] ${checklist.caseId}: research depth: U_obs after 3 optimal " +
+                "shell commands = ${"%.2f".format(afterThree)} (${checklist.observedIds(results)})"
         )
         assertTrue(
             afterThree <= 0.35,
-            "an agent that types the three most obvious commands already observes " +
+            "${checklist.caseId}: an agent that types the three most obvious commands already observes " +
                 "${"%.2f".format(afterThree)} of the checklist, so the case is a file-name lookup and " +
                 "cannot separate two ways of looking at a repository",
         )
     }
 
     @Test
-    fun `the checklist is reachable from the shell, so the control arm is not handicapped`() {
-        val results = recordedShellResults()
-        val afterTen = checklist.observedScore(results)
-        println(
-            "[ACQUISITION-CALIBRATION] reachability: U_obs after 10 optimal shell commands = " +
-                "${"%.2f".format(afterTen)} (missing: " +
-                "${checklist.facts.map { it.id } - checklist.observedIds(results).toSet()})"
-        )
-        assertTrue(
-            afterTen >= 0.60,
-            "ten commands aimed straight at the answer observe only ${"%.2f".format(afterTen)} of the " +
-                "checklist. Either the detectors are broken or the checklist asks for something the " +
-                "shell arm cannot reach at all, and a curve drawn against an unreachable ceiling would " +
-                "measure the ceiling",
-        )
-    }
+    fun `the checklist is reachable from the shell, so the control arm is not handicapped`() =
+        calibrated.forEach { checklist ->
+            val results = recordedShellResults(checklist.caseId)
+            val afterTen = checklist.observedScore(results)
+            println(
+                "[ACQUISITION-CALIBRATION] ${checklist.caseId}: reachability: U_obs after 10 optimal " +
+                    "shell commands = ${"%.2f".format(afterTen)} (missing: " +
+                    "${checklist.facts.map { it.id } - checklist.observedIds(results).toSet()})"
+            )
+            assertTrue(
+                afterTen >= 0.60,
+                "${checklist.caseId}: ten commands aimed straight at the answer observe only " +
+                    "${"%.2f".format(afterTen)} of the checklist. Either the detectors are broken or the " +
+                    "checklist asks for something the shell arm cannot reach at all, and a curve drawn " +
+                    "against an unreachable ceiling would measure the ceiling",
+            )
+        }
 
     @Test
     fun `the residual-work denominator is the number of assertions the oracle really makes`() {
@@ -98,8 +116,10 @@ class AcquisitionCalibrationTest {
         // The superseded oracle stays on disk as the provenance of the first wave's numbers. A round
         // whose grader has been silently replaced cannot explain its own history.
         assertTrue(
-            AcquisitionCases.ccRefreshToken.oracleTestPatchResource.endsWith("oracle-v2.patch"),
-            "the case must grade against the de-cascaded oracle",
+            AcquisitionCases.ccRefreshToken.oracleTestPatchResource?.endsWith("oracle-v2.patch") == true,
+            "the case must grade against the de-cascaded oracle, and it must still HAVE one: the " +
+                "resource is nullable now that research-only cases exist, and null here would mean " +
+                "this case had quietly lost the downstream half of its history",
         )
         assertTrue(
             javaClass.classLoader
@@ -109,15 +129,16 @@ class AcquisitionCalibrationTest {
     }
 
     @Test
-    fun `the growth between three and ten commands is where the case lives`() {
-        val results = recordedShellResults()
-        val afterThree = checklist.observedScore(results.take(3))
-        val afterTen = checklist.observedScore(results)
-        assertTrue(
-            afterTen - afterThree >= 0.30,
-            "the checklist barely moves between the third and the tenth interaction " +
-                "(${"%.2f".format(afterThree)} -> ${"%.2f".format(afterTen)}), so there is no region in " +
-                "which an acquisition curve could have a shape",
-        )
-    }
+    fun `the growth between three and ten commands is where the case lives`() =
+        calibrated.forEach { checklist ->
+            val results = recordedShellResults(checklist.caseId)
+            val afterThree = checklist.observedScore(results.take(3))
+            val afterTen = checklist.observedScore(results)
+            assertTrue(
+                afterTen - afterThree >= 0.30,
+                "${checklist.caseId}: the checklist barely moves between the third and the tenth " +
+                    "interaction (${"%.2f".format(afterThree)} -> ${"%.2f".format(afterTen)}), so there " +
+                    "is no region in which an acquisition curve could have a shape",
+            )
+        }
 }

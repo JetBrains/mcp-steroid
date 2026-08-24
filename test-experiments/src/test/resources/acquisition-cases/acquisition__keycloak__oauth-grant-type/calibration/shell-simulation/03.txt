@@ -1,0 +1,7 @@
+$ grep -rn 'grant_type' --include=*.java services/src/main/java | head -20
+services/src/main/java/org/keycloak/broker/oidc/AbstractOAuth2IdentityProvider.java:188:    public static final String OAUTH2_PARAMETER_GRANT_TYPE = "grant_type";
+services/src/main/java/org/keycloak/protocol/oidc/endpoints/LogoutEndpoint.java:472:     * Logout a session via a non-browser invocation.  Similar signature to refresh token except there is no grant_type.
+services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java:93:    public static final String GRANT_TYPE_PARAM = "grant_type";
+services/src/main/java/org/keycloak/email/TokenAuthEmailAuthenticator.java:131:                .param("grant_type", "client_credentials").asJson();
+services/src/main/java/org/keycloak/services/clientpolicy/condition/GrantTypeCondition.java:52:        @JsonProperty("grant_types")
+services/src/main/java/org/keycloak/services/clientpolicy/condition/GrantTypeConditionFactory.java:36:    public static final String GRANT_TYPES = "grant_types";

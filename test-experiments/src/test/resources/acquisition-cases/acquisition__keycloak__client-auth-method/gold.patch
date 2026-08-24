@@ -1,0 +1,324 @@
+diff --git a/services/src/main/java/org/keycloak/authentication/authenticators/client/SelfSignedX509ClientAuthenticator.java b/services/src/main/java/org/keycloak/authentication/authenticators/client/SelfSignedX509ClientAuthenticator.java
+new file mode 100644
+index 0000000..0a663fd
+--- /dev/null
++++ b/services/src/main/java/org/keycloak/authentication/authenticators/client/SelfSignedX509ClientAuthenticator.java
+@@ -0,0 +1,221 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.authentication.authenticators.client;
++
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.security.cert.X509Certificate;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++
++import jakarta.ws.rs.core.MediaType;
++import jakarta.ws.rs.core.MultivaluedMap;
++import jakarta.ws.rs.core.Response;
++
++import org.keycloak.OAuth2Constants;
++import org.keycloak.authentication.AuthenticationFlowError;
++import org.keycloak.authentication.ClientAuthenticationFlowContext;
++import org.keycloak.common.util.PemException;
++import org.keycloak.common.util.PemUtils;
++import org.keycloak.models.AuthenticationExecutionModel;
++import org.keycloak.models.ClientModel;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.protocol.oidc.OIDCLoginProtocol;
++import org.keycloak.provider.ProviderConfigProperty;
++import org.keycloak.services.x509.X509ClientCertificateLookup;
++import org.keycloak.utils.StringUtil;
++
++/**
++ * Client authentication based on a self-signed X.509 certificate presented during the mutual TLS handshake.
++ * See <a href="https://datatracker.ietf.org/doc/html/rfc8705#section-2.2">RFC 8705, section 2.2</a> for more details.
++ *
++ * Contrary to {@link X509ClientAuthenticator}, the presented certificate is not validated against any certificate
++ * authority. The client is authenticated when the certificate presented in the TLS handshake is binary identical
++ * to the certificate registered for the client, which is compared by its SHA-256 thumbprint.
++ */
++public class SelfSignedX509ClientAuthenticator extends AbstractClientAuthenticator {
++
++    public static final String PROVIDER_ID = "client-self-signed-x509";
++
++    private static final String THUMBPRINT_ALGORITHM = "SHA-256";
++
++    @Override
++    public void authenticateClient(ClientAuthenticationFlowContext context) {
++
++        X509ClientCertificateLookup provider = context.getSession().getProvider(X509ClientCertificateLookup.class);
++        if (provider == null) {
++            logger.errorv("\"{0}\" Spi is not available, did you forget to update the configuration?",
++                    X509ClientCertificateLookup.class);
++            return;
++        }
++
++        X509Certificate[] certs;
++        ClientModel client;
++        try {
++            certs = provider.getCertificateChain(context.getHttpRequest());
++
++            String clientId = getClientId(context);
++            if (clientId == null) {
++                Response challengeResponse = ClientAuthUtil.errorResponse(Response.Status.BAD_REQUEST.getStatusCode(), "invalid_client", "Missing client_id parameter");
++                context.challenge(challengeResponse);
++                return;
++            }
++
++            client = context.getRealm().getClientByClientId(clientId);
++            if (client == null) {
++                context.failure(AuthenticationFlowError.CLIENT_NOT_FOUND, null);
++                return;
++            }
++            context.getEvent().client(clientId);
++            context.setClient(client);
++
++            if (!client.isEnabled()) {
++                context.failure(AuthenticationFlowError.CLIENT_DISABLED, null);
++                return;
++            }
++        } catch (GeneralSecurityException e) {
++            logger.errorf("[SelfSignedX509ClientAuthenticator:authenticate] Exception: %s", e.getMessage());
++            context.attempted();
++            return;
++        }
++
++        if (certs == null || certs.length == 0) {
++            // No x509 client cert, fall through and
++            // continue processing the rest of the authentication flow
++            logger.debug("[SelfSignedX509ClientAuthenticator:authenticate] x509 client certificate is not available for mutual SSL.");
++            context.attempted();
++            return;
++        }
++
++        String registeredCertificatePem = client.getAttribute(JWTClientAuthenticator.CERTIFICATE_ATTR);
++        if (StringUtil.isBlank(registeredCertificatePem)) {
++            logger.errorf("[SelfSignedX509ClientAuthenticator:authenticate] Client '%s' in realm '%s' has no certificate registered",
++                    client.getClientId(), context.getRealm().getName());
++            context.attempted();
++            return;
++        }
++
++        X509Certificate registeredCertificate;
++        try {
++            registeredCertificate = PemUtils.decodeCertificate(registeredCertificatePem);
++        } catch (PemException e) {
++            logger.errorf(e, "[SelfSignedX509ClientAuthenticator:authenticate] Unable to parse the certificate registered for client '%s' in realm '%s'",
++                    client.getClientId(), context.getRealm().getName());
++            context.attempted();
++            return;
++        }
++
++        // Only the leaf certificate is relevant. The certificate is deliberately not validated against any
++        // certificate authority, as required by RFC 8705, section 2.2
++        if (!isSameCertificate(certs[0], registeredCertificate)) {
++            logger.debugf("[SelfSignedX509ClientAuthenticator:authenticate] Certificate presented by client '%s' does not match the registered certificate.",
++                    client.getClientId());
++            context.attempted();
++            return;
++        }
++
++        logger.debugf("[SelfSignedX509ClientAuthenticator:authenticate] Matched the certificate registered for client '%s'.", client.getClientId());
++        context.success();
++    }
++
++    private String getClientId(ClientAuthenticationFlowContext context) {
++        MediaType mediaType = context.getHttpRequest().getHttpHeaders().getMediaType();
++        boolean hasFormData = mediaType != null && mediaType.isCompatible(MediaType.APPLICATION_FORM_URLENCODED_TYPE);
++
++        MultivaluedMap<String, String> formData = hasFormData ? context.getHttpRequest().getDecodedFormParameters() : null;
++        MultivaluedMap<String, String> queryParams = context.getSession().getContext().getUri().getQueryParameters();
++
++        String clientId = formData == null ? null : formData.getFirst(OAuth2Constants.CLIENT_ID);
++
++        if (clientId == null && queryParams != null) {
++            clientId = queryParams.getFirst(OAuth2Constants.CLIENT_ID);
++        }
++
++        if (clientId == null) {
++            clientId = context.getSession().getAttribute("client_id", String.class);
++        }
++
++        return clientId;
++    }
++
++    private boolean isSameCertificate(X509Certificate presented, X509Certificate registered) {
++        try {
++            MessageDigest digest = MessageDigest.getInstance(THUMBPRINT_ALGORITHM);
++            return Arrays.equals(digest.digest(presented.getEncoded()), digest.digest(registered.getEncoded()));
++        } catch (GeneralSecurityException e) {
++            logger.warnf(e, "[SelfSignedX509ClientAuthenticator:authenticate] Unable to compute the %s certificate thumbprint", THUMBPRINT_ALGORITHM);
++            return false;
++        }
++    }
++
++    @Override
++    public String getDisplayType() {
++        return "Self-signed X509 Certificate";
++    }
++
++    @Override
++    public boolean isConfigurable() {
++        return false;
++    }
++
++    @Override
++    public AuthenticationExecutionModel.Requirement[] getRequirementChoices() {
++        return REQUIREMENT_CHOICES;
++    }
++
++    @Override
++    public List<ProviderConfigProperty> getConfigPropertiesPerClient() {
++        return Collections.emptyList();
++    }
++
++    @Override
++    public Map<String, Object> getAdapterConfiguration(KeycloakSession session, ClientModel client) {
++        return Collections.emptyMap();
++    }
++
++    @Override
++    public Set<String> getProtocolAuthenticatorMethods(String loginProtocol) {
++        if (loginProtocol.equals(OIDCLoginProtocol.LOGIN_PROTOCOL)) {
++            Set<String> results = new HashSet<>();
++            results.add(OIDCLoginProtocol.SELF_SIGNED_TLS_CLIENT_AUTH);
++            return results;
++        } else {
++            return Collections.emptySet();
++        }
++    }
++
++    @Override
++    public String getHelpText() {
++        return "Validates client based on a self-signed X509 Certificate registered for the client";
++    }
++
++    @Override
++    public List<ProviderConfigProperty> getConfigProperties() {
++        return Collections.emptyList();
++    }
++
++    @Override
++    public String getId() {
++        return PROVIDER_ID;
++    }
++
++}
+diff --git a/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java b/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java
+index 859d2d2..be61897 100755
+--- a/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java
++++ b/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java
+@@ -127,6 +127,7 @@ public class OIDCLoginProtocol implements LoginProtocol {
+     public static final String CLIENT_SECRET_JWT = "client_secret_jwt";
+     public static final String PRIVATE_KEY_JWT = "private_key_jwt";
+     public static final String TLS_CLIENT_AUTH = "tls_client_auth";
++    public static final String SELF_SIGNED_TLS_CLIENT_AUTH = "self_signed_tls_client_auth";
+     public static final String ATTEST_JWT_CLIENT_AUTH = "attest_jwt_client_auth";
+ 
+     /**
+diff --git a/services/src/main/resources/META-INF/services/org.keycloak.authentication.ClientAuthenticatorFactory b/services/src/main/resources/META-INF/services/org.keycloak.authentication.ClientAuthenticatorFactory
+index 192fd78..6d68ae8 100644
+--- a/services/src/main/resources/META-INF/services/org.keycloak.authentication.ClientAuthenticatorFactory
++++ b/services/src/main/resources/META-INF/services/org.keycloak.authentication.ClientAuthenticatorFactory
+@@ -19,5 +19,6 @@ org.keycloak.authentication.authenticators.client.ClientIdAndSecretAuthenticator
+ org.keycloak.authentication.authenticators.client.JWTClientAuthenticator
+ org.keycloak.authentication.authenticators.client.JWTClientSecretAuthenticator
+ org.keycloak.authentication.authenticators.client.X509ClientAuthenticator
++org.keycloak.authentication.authenticators.client.SelfSignedX509ClientAuthenticator
+ org.keycloak.authentication.authenticators.client.FederatedJWTClientAuthenticator
+ org.keycloak.authentication.authenticators.client.AttestationBasedClientAuthenticator
+diff --git a/services/src/main/resources/keycloak-default-client-profiles.json b/services/src/main/resources/keycloak-default-client-profiles.json
+index bb98d78..bccff4f 100644
+--- a/services/src/main/resources/keycloak-default-client-profiles.json
++++ b/services/src/main/resources/keycloak-default-client-profiles.json
+@@ -20,7 +20,8 @@
+             "allowed-client-authenticators": [
+               "client-jwt",
+               "client-secret-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }
+@@ -60,7 +61,8 @@
+           "configuration": {
+             "allowed-client-authenticators": [
+               "client-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }
+@@ -150,7 +152,8 @@
+           "configuration": {
+             "allowed-client-authenticators": [
+               "client-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }
+@@ -224,7 +227,8 @@
+           "configuration": {
+             "allowed-client-authenticators": [
+               "client-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }
+@@ -306,7 +310,8 @@
+           "configuration": {
+             "allowed-client-authenticators": [
+               "client-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }
+@@ -400,7 +405,8 @@
+           "configuration": {
+             "allowed-client-authenticators": [
+               "client-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }
+@@ -476,7 +482,8 @@
+           "configuration": {
+             "allowed-client-authenticators": [
+               "client-jwt",
+-              "client-x509"
++              "client-x509",
++              "client-self-signed-x509"
+             ],
+             "default-client-authenticator": "client-jwt"
+           }

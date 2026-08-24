@@ -1,0 +1,4 @@
+$ grep -rl 'token_endpoint_auth_methods_supported' . --exclude-dir=.git --exclude-dir=target
+./core/src/main/java/org/keycloak/protocol/oidc/representations/OIDCConfigurationRepresentation.java
+./js/apps/admin-ui/src/identity-providers/OIDCConfigurationRepresentation.ts
+./authz/client/src/main/java/org/keycloak/authorization/client/representation/ServerConfiguration.java

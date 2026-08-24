@@ -349,7 +349,134 @@ object AcquisitionCases {
         ),
     )
 
-    val all: List<UnderstandingCase> = listOf(ccRefreshToken)
+    /**
+     * The navigational POSITIVE CONTROL of the generalization round: the ripple family's wide method
+     * rename, run through the acquisition instrument instead of through a PSI postcondition.
+     *
+     * Research-only, and it could not be anything else: the ripple grade is a compile gate over
+     * fourteen modules plus a PSI query, not a Maven test class, so there is no hidden oracle to
+     * declare here. What this round buys on it is a curve, and the curve is what anchors the top of
+     * the round's scale — see [RENAME_METHOD_WIDE_CHECKLIST].
+     *
+     * Its statement names the symbol, which every other case in this family is forbidden to do. That
+     * is not an oversight but the definition of the control: the knowledge under test is the reference
+     * topology of a name that 336 files mention and 109 actually use.
+     */
+    val renameMethodWide: UnderstandingCase = UnderstandingCase(
+        instanceId = "acquisition__keycloak__rename-method-wide",
+        problemStatement = RENAME_METHOD_WIDE_STATEMENT,
+        gradingScopeSelector = ":keycloak-server-spi",
+        statementLeakageTokens = RENAME_METHOD_WIDE_LEAKAGE,
+        precedentPaths = listOf(
+            "server-spi/src/main/java/org/keycloak/models/KeycloakContext.java",
+        ),
+        goldRolePaths = mapOf(
+            "declaration" to listOf(
+                "server-spi/src/main/java/org/keycloak/models/KeycloakContext.java",
+            ),
+            "override-family" to listOf(
+                "services/src/main/java/org/keycloak/services/DefaultKeycloakContext.java",
+                "quarkus/runtime/src/main/java/org/keycloak/quarkus/runtime/integration/resteasy/" +
+                    "QuarkusKeycloakContext.java",
+                "services/src/test/java/org/keycloak/services/resteasy/ResteasyKeycloakContext.java",
+            ),
+            "fan-out" to listOf("496 references across 109 files in 14 reactor modules"),
+        ),
+    )
+
+    /**
+     * The shallow control: the note-bottleneck round's mapper case, re-registered under an
+     * `acquisition__` id so this round's artifacts cannot be confused with that round's.
+     *
+     * Derived by `copy` from the case that round ran rather than retyped, so the statement, the leakage
+     * audit and the oracle are the same objects the published numbers were produced with. A retyped
+     * copy would be a second definition of "the mapper case" and the first divergence would be
+     * invisible.
+     */
+    val emailDomainMapper: UnderstandingCase = UnderstandingCases.ALL
+        .single { it.instanceId == "understanding__keycloak__email-domain-mapper" }
+        .copy(instanceId = "acquisition__keycloak__email-domain-mapper")
+
+    /**
+     * `acquisition__keycloak__client-auth-method` — the first NEW architecture case: RFC 8705 §2.2
+     * self-signed-certificate client authentication, which the tree lacks while shipping its §2.1
+     * sibling.
+     *
+     * Research-only by design (see `DESIGN-GENERALIZATION.md`): this round buys curves, not solvers.
+     * The gold patch beside the case is the reference the checklist was derived FROM — it compiles at
+     * the pinned commit and applies to a pristine checkout, which is what makes the discovery chain a
+     * fact about the repository rather than a story about it.
+     */
+    val clientAuthMethod: UnderstandingCase = UnderstandingCase(
+        instanceId = "acquisition__keycloak__client-auth-method",
+        problemStatement = CLIENT_AUTH_METHOD_STATEMENT,
+        gradingScopeSelector = ":keycloak-services",
+        statementLeakageTokens = CLIENT_AUTH_METHOD_LEAKAGE,
+        precedentPaths = listOf(
+            "services/src/main/java/org/keycloak/authentication/authenticators/client/" +
+                "X509ClientAuthenticator.java",
+            "services/src/main/java/org/keycloak/authentication/authenticators/client/" +
+                "JWTClientAuthenticator.java",
+        ),
+        goldRolePaths = mapOf(
+            "behaviour" to listOf(
+                "services/src/main/java/org/keycloak/authentication/authenticators/client/" +
+                    "SelfSignedX509ClientAuthenticator.java",
+            ),
+            "method-string" to listOf(
+                "services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java",
+            ),
+            "discovery" to listOf(
+                "services/src/main/resources/META-INF/services/" +
+                    "org.keycloak.authentication.ClientAuthenticatorFactory",
+            ),
+            "profile-allow-list" to listOf(
+                "services/src/main/resources/keycloak-default-client-profiles.json",
+            ),
+        ),
+    )
+
+    /**
+     * `acquisition__keycloak__oauth-grant-type` — the second NEW architecture case: a dedicated token-
+     * endpoint grant for renewing long-lived, non-interactive credentials.
+     *
+     * Also research-only. Its interest is that the invariant lives in ANOTHER subsystem than the change:
+     * the shortcut a grant factory declares is consumed by the token-context encoder, which checks
+     * global uniqueness at start-up and refuses to boot on a collision — while the nearest precedent
+     * publishes its own shortcut as a public constant, inviting exactly that collision.
+     */
+    val oauthGrantType: UnderstandingCase = UnderstandingCase(
+        instanceId = "acquisition__keycloak__oauth-grant-type",
+        problemStatement = OAUTH_GRANT_TYPE_STATEMENT,
+        gradingScopeSelector = ":keycloak-services",
+        statementLeakageTokens = OAUTH_GRANT_TYPE_LEAKAGE,
+        precedentPaths = listOf(
+            "services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantType.java",
+            "services/src/main/java/org/keycloak/protocol/oidc/grants/RefreshTokenGrantTypeFactory.java",
+        ),
+        goldRolePaths = mapOf(
+            "behaviour" to listOf(
+                "services/src/main/java/org/keycloak/protocol/oidc/grants/" +
+                    "OfflineRefreshTokenGrantType.java",
+            ),
+            "factory" to listOf(
+                "services/src/main/java/org/keycloak/protocol/oidc/grants/" +
+                    "OfflineRefreshTokenGrantTypeFactory.java",
+            ),
+            "discovery" to listOf(
+                "services/src/main/resources/META-INF/services/" +
+                    "org.keycloak.protocol.oidc.grants.OAuth2GrantTypeFactory",
+            ),
+        ),
+    )
+
+    val all: List<UnderstandingCase> = listOf(
+        ccRefreshToken,
+        clientAuthMethod,
+        oauthGrantType,
+        renameMethodWide,
+        emailDomainMapper,
+    )
 
     fun byId(instanceId: String): UnderstandingCase =
         all.singleOrNull { it.instanceId == instanceId }
@@ -358,6 +485,10 @@ object AcquisitionCases {
     fun checklistFor(instanceId: String): AcquisitionChecklist =
         when (instanceId) {
             ccRefreshToken.instanceId -> CC_REFRESH_TOKEN_CHECKLIST
+            clientAuthMethod.instanceId -> CLIENT_AUTH_METHOD_CHECKLIST
+            oauthGrantType.instanceId -> OAUTH_GRANT_TYPE_CHECKLIST
+            renameMethodWide.instanceId -> RENAME_METHOD_WIDE_CHECKLIST
+            emailDomainMapper.instanceId -> EMAIL_DOMAIN_MAPPER_CHECKLIST
             else -> error("no pre-registered checklist for '$instanceId'")
         }
 }

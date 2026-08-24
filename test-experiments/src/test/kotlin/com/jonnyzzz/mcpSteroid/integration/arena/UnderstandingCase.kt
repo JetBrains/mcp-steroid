@@ -22,10 +22,23 @@ data class UnderstandingCase(
     val instanceId: String,
     /** The behaviour-level brief, with no target file, class or package in it. */
     val problemStatement: String,
-    /** Classpath resource of the patch that adds the hidden oracle test to the tree. */
-    val oracleTestPatchResource: String,
-    /** FAIL_TO_PASS entries, in the form [ArenaVerifier] parses. */
-    val failToPass: List<String>,
+    /**
+     * Classpath resource of the patch that adds the hidden oracle test to the tree, or null when the
+     * case is RESEARCH-ONLY.
+     *
+     * Null is a declaration, not an omission. The acquisition rounds measure `U(B)` — how much of a
+     * pre-registered architecture checklist an agent holds after B interactions — and that endpoint
+     * needs a statement and a checklist, nothing else. Requiring an oracle for every case would price
+     * a generalization round at one hidden test suite per case that no cell of the round would run,
+     * which is exactly how a family stays at one case forever.
+     *
+     * What null costs is that such a case could be queued into a phase that cannot grade it, so the
+     * type refuses rather than degrading: [oracleTestPatch] and [dpaiaCase] throw, and the downstream
+     * cell asks [gradable] before it spends a container minute.
+     */
+    val oracleTestPatchResource: String? = null,
+    /** FAIL_TO_PASS entries, in the form [ArenaVerifier] parses; empty for a research-only case. */
+    val failToPass: List<String> = emptyList(),
     /**
      * How many assertions the hidden oracle makes, counted in the patch.
      *
@@ -35,7 +48,7 @@ data class UnderstandingCase(
      * against the patch by `UnderstandingCaseRegistryTest`, so an oracle that grows an assertion
      * cannot leave the denominator behind.
      */
-    val oracleTestCount: Int,
+    val oracleTestCount: Int = 0,
     /** Reactor projects the grading run is scoped to, e.g. `:keycloak-server-spi`. */
     val gradingScopeSelector: String,
     /**
@@ -81,8 +94,21 @@ data class UnderstandingCase(
                 "or `acquisition__` (the acquisition-curve rounds, see [AcquisitionCases]) so no report " +
                 "can confuse it with a dpaia or ripple case: got '$instanceId'"
         }
-        check(failToPass.isNotEmpty()) {
-            "$instanceId has no FAIL_TO_PASS entry, so a downstream run could never be graded"
+        // All three or none of them. A case that carries an oracle patch but no FAIL_TO_PASS entry
+        // would run the grading build and read nothing out of it, and a case that names a denominator
+        // it has no oracle for would publish a fraction of an oracle that does not exist — both fail
+        // as a percentage rather than as an error, which is the failure mode this experiment can least
+        // afford.
+        val oracleParts = listOf(
+            "oracleTestPatchResource" to (oracleTestPatchResource != null),
+            "failToPass" to failToPass.isNotEmpty(),
+            "oracleTestCount" to (oracleTestCount > 0),
+        )
+        check(oracleParts.all { it.second } || oracleParts.none { it.second }) {
+            "$instanceId is half a gradable case: ${oracleParts.filter { it.second }.map { it.first }} " +
+                "given, ${oracleParts.filterNot { it.second }.map { it.first }} missing. A case is " +
+                "either research-only (all three absent, U(B) is its only endpoint) or downstream-" +
+                "gradable (all three present)"
         }
         check(gradingScopeSelector.startsWith(":")) {
             "a Maven `-pl` token without a colon is read as a directory path, not an artifactId, and " +
@@ -92,16 +118,27 @@ data class UnderstandingCase(
         check(precedentPaths.isNotEmpty()) {
             "$instanceId claims to be an understanding task but names no precedent to be understood"
         }
-        check(oracleTestCount > 0) {
-            "$instanceId declares $oracleTestCount oracle assertions, so residual work would be scored " +
-                "against an empty denominator"
-        }
     }
 
-    fun oracleTestPatch(): String =
-        checkNotNull(javaClass.classLoader.getResourceAsStream(oracleTestPatchResource)) {
-            "Oracle patch resource not found on the test classpath: $oracleTestPatchResource"
+    /**
+     * Whether a downstream solving cell can be graded on this case at all.
+     *
+     * Asked BEFORE a cell starts a container, because the alternative is a thirty-minute run whose
+     * verdict is "0 of 0" — a number that enters an average as a zero and reads as a failure of the
+     * agent rather than of the queue.
+     */
+    val gradable: Boolean get() = oracleTestPatchResource != null
+
+    fun oracleTestPatch(): String {
+        val resource = checkNotNull(oracleTestPatchResource) {
+            "$instanceId is a research-only case: it has no hidden oracle, so nothing can be graded " +
+                "against it. Its endpoint is the acquisition curve U(B); check `gradable` before " +
+                "queueing it into a solving phase"
+        }
+        return checkNotNull(javaClass.classLoader.getResourceAsStream(resource)) {
+            "Oracle patch resource not found on the test classpath: $resource"
         }.use { it.readBytes().decodeToString() }
+    }
 
     /**
      * The case in the shape the container setup, the agent runner and the verifier already consume.
