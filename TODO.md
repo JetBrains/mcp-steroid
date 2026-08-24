@@ -753,19 +753,37 @@ and a fourth thing came with them — the order of purchase is enforced rather t
    `AcquisitionCaseAdmission` also demands a replayed ceiling, two separating ladder rungs, two
    baselines, and a compile verdict on every recorded rollout.
 
-**What is left is a purchase, not a repair.** All three cases are currently BLOCKED — 12, 8 and 9 items,
-printed by `AcquisitionAdmissionTest`. To lift a block:
+~~**What is left is a purchase, not a repair.**~~ The purchase was made: ten ladder cells and fifteen
+agent anchors, all measured. Readings in
+`docs/acquisition-curve-experiment/RESULTS-DOWNSTREAM-4-ANCHORS.md`. What it bought:
 
-- 10 ladder cells (`-Dunderstanding.condition=ladder:<rung>`), no agent and no model tokens, on the
-  existing downstream build configuration;
-- 15 agent cells (3 `oracle:gold` + 2 `baseline` per case), ≈$15, because no rollout on record says
-  whether it compiled;
-- two partial patches still have to be written and exported: `partial-naive-invariant.patch`
-  (`cc-refresh-token`) and `partial-naive-shortcut.patch` (`oauth-grant-type`). Both trees were built
-  once by the oracle authors and measured at 8 and 9; neither was exported.
+- **the floor is not zero.** Of five no-note cells, the two that built read 5 of 9 and 6 of 9 against
+  a pristine floor of 1. Every published floor in this family was a `javac` failure.
+- **`cc-refresh-token` has left the downstream family** — gold note ungradable 3 of 3, and the one
+  no-note tree that built reads 5 of 9. Recorded as `retiredFromDownstream`, not as prose. Its
+  acquisition curve is unaffected and stays published.
+- `client-auth-method` is blocked by 4 (the measured gold-vs-baseline gap is 3 of 9, under half the
+  scale); `oauth-grant-type` is blocked by 2, both for readings never taken — it is the only case
+  whose blocks are all still purchasable.
 
-Watch the `cc-refresh-token` baselines while doing this: all four read 0 against a pristine floor of 1,
-which a compiling tree cannot do. Those four were the floor of the round that produced rho = +0.67.
+### acquisition: the open instrument defect — the note buys the artifact
+
+Not repaired on purpose; a repair chosen now would be chosen after seeing which direction it helps.
+
+Four of the five gold-note failures are the solving agent's OWN unit test failing `testCompile` after
+its implementation compiled clean. No baseline failed that way. The transcripts show why: the agent
+finishes the change around interaction 10–17 of 20, reads a sibling test as a model, writes its own,
+and spends what is left failing to compile it. The allowance prices reads and builds while leaving
+edits free, so an agent that located the architecture cheaply — what a good note buys — arrives with
+interactions to spare and spends them on verification it cannot finish. On `cc-refresh-token` the
+checklist axis `I1` (`VERIFICATION`) literally names the sibling test to imitate, and `I1` is one of
+the axes `U` is computed over.
+
+So the treatment and the endpoint are coupled through the interaction allowance. Options, none
+chosen: discard agent-added `src/test` files before grading; instruct both arms not to write tests;
+or accept it and restate the endpoint. Any of them must be pre-registered BEFORE the anchors are
+re-bought, and note that repairs which only change what the grading build compiles leave the coupling
+intact — the interactions were already spent before grading started.
 
 Every note of both new cases is committed under
 `test-experiments/src/test/resources/acquisition-notes/`, so the repaired instrument re-runs the same
