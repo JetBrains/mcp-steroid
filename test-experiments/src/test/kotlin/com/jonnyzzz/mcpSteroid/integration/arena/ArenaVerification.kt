@@ -14,6 +14,15 @@ data class SurefireClassResult(
     val failures: Int,
     val errors: Int,
     val skipped: Int,
+    /**
+     * Which test methods failed or errored, by name — WHICH obligations went unmet, not how many.
+     *
+     * The count alone cannot tell two different partial trees apart when they happen to cost the same
+     * number of assertions, and "the same number" is exactly what a cascading oracle produces. The
+     * calibration ladder compares these SETS, so a rung that loses the registration axis and a rung
+     * that loses the invariant axis are distinguishable even though both read 8 of 9.
+     */
+    val failedMethods: List<String> = emptyList(),
 ) {
     val passed: Boolean get() = testsRun > 0 && failures == 0 && errors == 0
 }
@@ -62,6 +71,14 @@ data class ArenaVerificationResult(
         gradingExitCode == null -> null
         else -> true
     }
+
+    /**
+     * Every unmet obligation, by test-method name, across all graded classes.
+     *
+     * Read by the calibration ladder to prove that two rungs landing on the same COUNT are still two
+     * rungs — see [SurefireClassResult.failedMethods].
+     */
+    val failedAxes: List<String> get() = perClass.flatMap { it.failedMethods }
 
     val classesPassed: Int get() = perClass.count { it.passed }
     val classesTotal: Int get() = perClass.size
@@ -217,6 +234,7 @@ fun parseSurefireXml(xmlText: String, methodName: String? = null): SurefireClass
             failures = attr("failures"),
             errors = attr("errors"),
             skipped = attr("skipped"),
+            failedMethods = failedMethodNames(suite),
         )
     }
 
@@ -237,7 +255,25 @@ fun parseSurefireXml(xmlText: String, methodName: String? = null): SurefireClass
         errors += case.getElementsByTagName("error").length
         skipped += case.getElementsByTagName("skipped").length
     }
-    return SurefireClassResult(className, testsRun, failures, errors, skipped)
+    return SurefireClassResult(className, testsRun, failures, errors, skipped, failedMethodNames(suite))
+}
+
+/**
+ * The names of the `<testcase>` entries carrying a `<failure>` or an `<error>`, in report order.
+ *
+ * Both are collected under one name deliberately: for a grading oracle "the assertion said no" and
+ * "it blew up before it could" are both "this obligation is not met", and which of the two it was is
+ * a question for the log, not for the identity of the axis.
+ */
+private fun failedMethodNames(suite: org.w3c.dom.Element): List<String> {
+    val cases = suite.getElementsByTagName("testcase")
+    val names = mutableListOf<String>()
+    for (i in 0 until cases.length) {
+        val case = cases.item(i) as? org.w3c.dom.Element ?: continue
+        val broken = case.getElementsByTagName("failure").length + case.getElementsByTagName("error").length
+        if (broken > 0) names += case.getAttribute("name")
+    }
+    return names
 }
 
 private val MAVEN_RESUME_HINT = Regex("""-rf\s+:(\S+)""")

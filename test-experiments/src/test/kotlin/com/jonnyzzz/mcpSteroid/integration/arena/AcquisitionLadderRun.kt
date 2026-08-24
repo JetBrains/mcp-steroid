@@ -105,6 +105,7 @@ fun runAcquisitionLadderCell(
             measuredObligations = oracleAssertionsPassed(verification, case),
             totalObligations = case.oracleTestCount,
             compiled = verification.compiled,
+            measuredAxes = verification.failedAxes,
         )
         println(acquisitionLadderLine(outcome, replicate))
         // Reported, never asserted. A rung that lands somewhere else is a FINDING about the oracle —
@@ -117,6 +118,13 @@ fun runAcquisitionLadderCell(
                     "${rung.expectedObligations} and measured " +
                     "${outcome.measuredObligations ?: "unmeasured"}. Record the measurement in " +
                     "ACQUISITION_CASE_ADMISSIONS and decide there whether the ladder or the oracle is wrong"
+            )
+        }
+        if (rung.losesAxes.isNotEmpty() && outcome.measuredAxes.toSet() != rung.losesAxes.toSet()) {
+            println(
+                "[ACQUISITION-LADDER] DIFFERENT OBLIGATIONS: rung `${rung.name}` was predicted to lose " +
+                    "${rung.losesAxes} and lost ${outcome.measuredAxes}. This is the reading that tells " +
+                    "two equally-priced rungs apart, so it matters even when the counts agree"
             )
         }
         return outcome
@@ -134,6 +142,14 @@ data class AcquisitionLadderOutcome(
     val measuredObligations: Int?,
     val totalObligations: Int,
     val compiled: Boolean?,
+    /**
+     * WHICH obligations this rung failed, by test-method name.
+     *
+     * The reading the count cannot give. `cc-refresh-token` has two rungs that both cost exactly one
+     * obligation — the shipped-profile entry and the partial-update invariant — and only these names
+     * say that they are two different obligations rather than one measured twice.
+     */
+    val measuredAxes: List<String> = emptyList(),
 )
 
 /**
@@ -148,4 +164,5 @@ fun acquisitionLadderLine(outcome: AcquisitionLadderOutcome, replicate: Int): St
     append("measured=${outcome.measuredObligations ?: "unmeasured"}/${outcome.totalObligations} ")
     append("expected=${outcome.expectedObligations}/${outcome.totalObligations}")
     outcome.compiled?.let { append(" compiled=${if (it) 1 else 0}") }
+    if (outcome.measuredAxes.isNotEmpty()) append(" loses=${outcome.measuredAxes.joinToString(",")}")
 }

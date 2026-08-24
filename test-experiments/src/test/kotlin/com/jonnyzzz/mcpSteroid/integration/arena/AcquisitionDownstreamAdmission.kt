@@ -139,10 +139,43 @@ data class AcquisitionCaseAdmission(
                     "Fewer than two cannot show the oracle has a scale rather than a verdict"
             )
         }
-        if (measured.size >= 2 && measured.distinct().size != measured.size) {
+        // Amendment 1, written 2026-08-24 after the first ladder came back and BEFORE any note cell of
+        // the fourth round: identity is the SET of unmet obligations, not their number.
+        //
+        // The rule as first written compared counts, and `cc-refresh-token` immediately produced
+        // [7, 8, 8] — its registration rung and its invariant rung cost one obligation each, which is
+        // the same number and a different obligation. Read as counts that is a coarse scale; read as
+        // sets it is the exact opposite, two independent axes priced alike. What the rule is for is
+        // catching N assertions that are one assertion, and two rungs failing DIFFERENT test methods
+        // is a stronger refutation of that than two different totals, which a cascade can also produce.
+        //
+        // So the count comparison is replaced, not relaxed: a rung must now declare which axes it
+        // loses, the ladder cell measures them by name, and a rung whose declaration disagrees with
+        // what the cell read is a blocker of its own.
+        val axesByRung = intermediate.filter { it.measuredObligations != null }
+            .associate { it.name to it.measuredAxes?.toSet() }
+        intermediate.filter { it.measuredObligations != null && it.measuredAxes == null }.forEach {
             add(
-                "the measured rungs are $measured: two partial trees landing on the SAME count are one " +
-                    "rung wearing two names, and the oracle's scale is coarser than it looks"
+                "rung `${it.name}` was measured before the ladder recorded WHICH obligations it loses. " +
+                    "Re-queue `${LADDER_CONDITION_PREFIX}${it.name}`: two rungs are told apart by the " +
+                    "axes they fail, and a count cannot distinguish two axes that cost the same"
+            )
+        }
+        intermediate.forEach { rung ->
+            val measuredAxes = rung.measuredAxes ?: return@forEach
+            if (measuredAxes.toSet() != rung.losesAxes.toSet()) {
+                add(
+                    "rung `${rung.name}` was declared to lose ${rung.losesAxes} and measured losing " +
+                        "$measuredAxes. A rung whose prediction and reading name different obligations " +
+                        "is not calibrating anything"
+                )
+            }
+        }
+        val named = axesByRung.values.filterNotNull()
+        if (named.size >= 2 && named.distinct().size != named.size) {
+            add(
+                "two measured rungs lose the SAME obligations $named: they are one rung wearing two " +
+                    "names, and the oracle's scale is coarser than it looks"
             )
         }
         measured.filterNot { it > pristineFloor && it < case.oracleTestCount }.forEach {
@@ -280,6 +313,23 @@ data class AcquisitionPartialRung(
     val expectedObligations: Int,
     /** What the ladder cell actually read, or null until one has run. */
     val measuredObligations: Int? = null,
+    /**
+     * The build that read it, so a recorded rung can be re-read rather than believed.
+     *
+     * Same reason [AcquisitionRolloutEvidence] carries one: every previous round's calibration lived
+     * in prose, and prose cannot say which of two runs of a condition it is quoting.
+     */
+    val measuredIn: String? = null,
+    /**
+     * The oracle's test methods this rung is predicted to fail, by name.
+     *
+     * Written BEFORE the ladder cell runs, like [expectedObligations], and compared against what the
+     * cell reads. Names rather than a count because a count cannot distinguish two independent axes
+     * that happen to cost the same — which is exactly what this case family produces.
+     */
+    val losesAxes: List<String> = emptyList(),
+    /** Which axes the ladder cell actually saw fail, or null until one has run. */
+    val measuredAxes: List<String>? = null,
     /** Which obligation this rung is meant to isolate, in one sentence. */
     val isolates: String,
 ) {
@@ -351,6 +401,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                         "RejectClientCredentialsRefreshTokenExecutorFactory.java",
                 ),
                 expectedObligations = 7,
+                measuredObligations = 7,
+                measuredIn = "1039952110",
+                losesAxes = listOf(
+                    "factoryIsRegisteredThroughTheServiceLoader",
+                    "theShippedStrictProfileListsIt",
+                ),
                 isolates = "the two registration axes: the class exists and behaves, but nothing " +
                     "resolves it through the SPI or lists it in the shipped profile",
             ),
@@ -365,6 +421,9 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                         "org.keycloak.services.clientpolicy.executor.ClientPolicyExecutorProviderFactory",
                 ),
                 expectedObligations = 8,
+                measuredObligations = 8,
+                measuredIn = "1039952166",
+                losesAxes = listOf("theShippedStrictProfileListsIt"),
                 isolates = "the second, non-obvious mechanism alone — the entry in the shipped " +
                     "high-security profile, which a `copy the neighbour` solution never adds",
             ),
@@ -377,12 +436,19 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 patchResource = "acquisition-cases/acquisition__keycloak__cc-refresh-token/" +
                     "partial-naive-invariant.patch",
                 expectedObligations = 8,
+                measuredObligations = 8,
+                measuredIn = "1040019633",
+                // The same COUNT as `implementation-and-spi` and a different obligation — which is why
+                // this ladder is compared by name. See amendment 1 in `problems`.
+                losesAxes = listOf("partialUpdateOfAClientThatAlreadyHasItOnIsRejected"),
                 isolates = "the partial-update invariant, and only it",
             ),
             AcquisitionPartialRung(
                 name = "gold",
                 goldPaths = emptyList(),
                 expectedObligations = 9,
+                measuredObligations = 9,
+                measuredIn = "1039952168",
                 isolates = "nothing — this is the ceiling",
             ),
         ),
@@ -416,6 +482,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                     "services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocol.java",
                 ),
                 expectedObligations = 7,
+                measuredObligations = 7,
+                measuredIn = "1039952874",
+                losesAxes = listOf(
+                    "theAuthenticatorIsRegisteredThroughTheProviderSpi",
+                    "theShippedCertificateAwareProfilesAllowTheNewAuthenticator",
+                ),
                 isolates = "both registrations; the protocol-method constant travels with the class " +
                     "because the class does not compile without it",
             ),
@@ -429,12 +501,17 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                         "org.keycloak.authentication.ClientAuthenticatorFactory",
                 ),
                 expectedObligations = 8,
+                measuredObligations = 8,
+                measuredIn = "1039952876",
+                losesAxes = listOf("theShippedCertificateAwareProfilesAllowTheNewAuthenticator"),
                 isolates = "the allow-list in the shipped client profiles",
             ),
             AcquisitionPartialRung(
                 name = "gold",
                 goldPaths = emptyList(),
                 expectedObligations = 9,
+                measuredObligations = 9,
+                measuredIn = "1039952878",
                 isolates = "nothing — this is the ceiling",
             ),
         ),
@@ -464,6 +541,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                         "OfflineRefreshTokenGrantTypeFactory.java",
                 ),
                 expectedObligations = 8,
+                measuredObligations = 8,
+                measuredIn = "1039952880",
+                losesAxes = listOf(
+                    "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
+                    "theGrantAppearsInThePublishedGrantTypesSupported",
+                ),
                 isolates = "the ServiceLoader registration, which is simultaneously what makes the " +
                     "grant dispatchable and what puts it in the discovery document",
             ),
@@ -475,12 +558,17 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 patchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/" +
                     "partial-naive-shortcut.patch",
                 expectedObligations = 9,
+                measuredObligations = 9,
+                measuredIn = "1040019635",
+                losesAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
                 isolates = "the global uniqueness invariant enforced by the token-context encoder",
             ),
             AcquisitionPartialRung(
                 name = "gold",
                 goldPaths = emptyList(),
                 expectedObligations = 10,
+                measuredObligations = 10,
+                measuredIn = "1039952882",
                 isolates = "nothing — this is the ceiling",
             ),
         ),

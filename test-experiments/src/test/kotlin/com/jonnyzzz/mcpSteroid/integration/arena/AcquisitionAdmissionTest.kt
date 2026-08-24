@@ -94,8 +94,10 @@ class AcquisitionAdmissionTest {
             problems.forEach { println("[ACQUISITION-ADMISSION]   - $it") }
             assertTrue(problems.isNotEmpty(), "$caseId reports no problems, which nothing has earned yet")
             assertTrue(
-                problems.any { "ceiling has never been replayed" in it },
-                "$caseId must demand a replayed ceiling; got $problems",
+                // The ladder has since been measured for every case, so what every one of them still
+                // owes is the rollout evidence: not one recorded agent cell says whether it compiled.
+                problems.any { "compiled" in it },
+                "$caseId must demand a compile verdict on its rollouts; got $problems",
             )
             assertThrows<IllegalStateException> { requireAcquisitionAdmission(case) }
         }
@@ -149,11 +151,54 @@ class AcquisitionAdmissionTest {
             case,
         )
         assertBlocked(
-            "two rungs landing on the same count",
+            "two rungs losing the same obligations",
             admission.copy(
                 rungs = listOf(
                     admission.rungs[0],
-                    admission.rungs[1].copy(expectedObligations = 4, measuredObligations = 4),
+                    admission.rungs[1].copy(
+                        losesAxes = admission.rungs[0].losesAxes,
+                        measuredAxes = admission.rungs[0].measuredAxes,
+                    ),
+                    CEILING,
+                ),
+            ),
+            case,
+        )
+        // The reading amendment 1 exists for: same count, different obligation. It must NOT block,
+        // because that is a scale, not a cascade — `cc-refresh-token` really is shaped that way.
+        assertEquals(
+            emptyList<String>(),
+            admission.copy(
+                rungs = listOf(
+                    admission.rungs[0].copy(
+                        expectedObligations = 7,
+                        measuredObligations = 7,
+                        losesAxes = listOf("someOtherAxis"),
+                        measuredAxes = listOf("someOtherAxis"),
+                    ),
+                    admission.rungs[1],
+                    CEILING,
+                ),
+            ).problems(case),
+            "two rungs that cost the same but lose DIFFERENT obligations are a scale, not a cascade",
+        )
+        assertBlocked(
+            "a rung measured before anyone recorded which obligations it loses",
+            admission.copy(
+                rungs = listOf(
+                    admission.rungs[0].copy(measuredAxes = null),
+                    admission.rungs[1],
+                    CEILING,
+                ),
+            ),
+            case,
+        )
+        assertBlocked(
+            "a rung that loses obligations other than the ones predicted",
+            admission.copy(
+                rungs = listOf(
+                    admission.rungs[0].copy(measuredAxes = listOf("anEntirelyDifferentAxis")),
+                    admission.rungs[1],
                     CEILING,
                 ),
             ),
@@ -322,6 +367,43 @@ class AcquisitionAdmissionTest {
         assertTrue(line.contains("compiled=0"), line)
     }
 
+    @Test
+    fun `the report says WHICH obligations failed, not only how many`() {
+        // The reading that tells `implementation-and-spi` from `naive-partial-update`: both cost one
+        // assertion of nine, and only the names say they are two different assertions.
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuite name="org.example.ResidualContractTest" tests="3" failures="1" errors="1" skipped="0">
+              <testcase name="theShippedStrictProfileListsIt" classname="org.example.ResidualContractTest"/>
+              <testcase name="partialUpdateOfAClientThatAlreadyHasItOnIsRejected" classname="org.example.ResidualContractTest">
+                <failure message="Expected a ClientPolicyException on event UPDATE">boom</failure>
+              </testcase>
+              <testcase name="registerWithTheSettingOnIsRejected" classname="org.example.ResidualContractTest">
+                <error message="NullPointerException">boom</error>
+              </testcase>
+            </testsuite>
+        """.trimIndent()
+
+        val suite = parseSurefireXml(xml)
+        assertEquals(
+            listOf("partialUpdateOfAClientThatAlreadyHasItOnIsRejected", "registerWithTheSettingOnIsRejected"),
+            suite.failedMethods,
+            "a failure and an error are both unmet obligations and must both be named",
+        )
+        assertEquals(suite.failedMethods, verificationOf(listOf(suite), emptyList()).failedAxes)
+
+        // A green suite names nothing, so a ceiling rung cannot be mistaken for a partial one.
+        val green = parseSurefireXml(
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <testsuite name="org.example.ResidualContractTest" tests="1" failures="0" errors="0" skipped="0">
+              <testcase name="everythingHolds" classname="org.example.ResidualContractTest"/>
+            </testsuite>
+            """.trimIndent()
+        )
+        assertEquals(emptyList<String>(), green.failedMethods)
+    }
+
     private fun assertBlocked(
         what: String,
         admission: AcquisitionCaseAdmission,
@@ -373,6 +455,8 @@ class AcquisitionAdmissionTest {
                 ),
                 expectedObligations = 4,
                 measuredObligations = 4,
+                losesAxes = listOf("registeredThroughTheSpi", "listedInTheShippedProfile"),
+                measuredAxes = listOf("registeredThroughTheSpi", "listedInTheShippedProfile"),
                 isolates = "the registrations",
             ),
             AcquisitionPartialRung(
@@ -385,6 +469,8 @@ class AcquisitionAdmissionTest {
                 ),
                 expectedObligations = 7,
                 measuredObligations = 7,
+                losesAxes = listOf("listedInTheShippedProfile"),
+                measuredAxes = listOf("listedInTheShippedProfile"),
                 isolates = "the second mechanism",
             ),
             CEILING,
