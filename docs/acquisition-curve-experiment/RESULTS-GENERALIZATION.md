@@ -5,12 +5,30 @@ cases, two arms, three independent trajectories per arm per case, all green, non
 degeneracy guard. Every number below is recomputed offline from `data/generalization-curves.csv`; the
 build ids are in `RUN-IDS.md`.
 
-## The headline
+## The headline: the shape of the curve, not the size of a p
 
 The round asked whether round 2's result — *semantic access reaches a given level of architectural
 understanding in fewer environment interactions, but not in fewer output tokens* — is a property of one
-case or of the access. It replicates on two brand-new cases in untouched subsystems, and it is stronger
-there than on the case it was found on.
+case or of the access. It replicates on two brand-new cases in untouched subsystems, and the replication
+is worth reading as a **shape** rather than as a verdict. Pooled over all 24 trajectories:
+
+| interactions spent | `U` mcp | `U` shell | advantage |
+|---|---:|---:|---:|
+| 5 | 0.585 | 0.310 | **1.89×** |
+| 10 | 0.687 | 0.505 | 1.36× |
+| 20 | 0.750 | 0.651 | 1.15× |
+| 40 | 0.750 | 0.735 | **1.02×** |
+
+Read down the last column: a large early gap, monotonically closing, ending in parity. That single
+sequence is the round's actual finding, and it is a claim about a MECHANISM, not about a difference of
+means. A tool that made the repository *comprehensible* would show a gap that persists at B=40 — the
+shell arm would simply never get there. A tool that *accelerates acquisition* shows exactly this: the
+same destination, reached earlier. The shell arm does reach 0.735; it just spends the entire allowance
+doing it, and five of its twelve trajectories hit the wall at forty calls, while every semantic
+trajectory stopped on its own, at a median of 16 (range 9–22).
+
+The same shape holds inside each case, which is what makes it a shape rather than an average of four
+unrelated things:
 
 | case | B=5 | B=10 | B=20 | B=40 |
 |---|---|---|---|---|
@@ -18,20 +36,17 @@ there than on the case it was found on.
 | `client-auth-method` (**new**) | +0.29 | +0.18 | +0.18 | +0.02 |
 | `oauth-grant-type` (**new**) | +0.40 | +0.38 | +0.13 | −0.02 |
 | `email-domain-mapper` (shallow control) | +0.14 | +0.08 | +0.06 | +0.03 |
-| **stratified across cases, exact p** | **.0001** | **.0009** | **.0065** | **.63** |
 
-The stratified permutation test is the primary one: the unit is the trajectory, arm labels are permuted
-within each case, and the four case-level differences are summed (exhaustive over 20⁴ = 160 000
-relabellings, so the floor is p = 6·10⁻⁶ rather than the .05 a single 3-v-3 case is stuck with).
+Four cases, four monotone decays to approximately zero. No case ends with a gap; none of them widens.
 
-Two things are visible at once, and only one of them was expected:
-
-1. **The advantage is real and large early.** At five interactions the semantic arm holds 0.47–0.76 of
-   the checklist against the shell arm's 0.13–0.48.
-2. **It is an acceleration, not an unlock.** By forty interactions every case has converged (p = .63,
-   summed difference +0.06). The shell arm gets there — it just spends the whole budget doing it: five
-   of its twelve trajectories ran into the wall at 40 calls, while every semantic trajectory stopped
-   itself, at a median of 16 calls (9–22).
+*On the statistics, which are the supporting evidence and not the finding.* The pre-registered primary
+test is a case-stratified exact permutation over trajectories (labels permuted within each case, the
+four case-level differences summed, exhaustive over 20⁴ = 160 000 relabellings, so the floor is
+p = 6·10⁻⁶ rather than the .05 a single 3-v-3 case is stuck with). It gives p = .0001 at B=5, .0009 at
+B=10, .0065 at B=20 and **.63 at B=40**. The number worth quoting out of those four is the last one: it
+is the only one that could have falsified the acceleration reading, and it did not. The three small
+p-values say the early gap is not sampling noise; they say nothing at all about why it exists, and
+quoting .0001 as the result would advertise the least informative thing the round measured.
 
 ## The prediction that failed
 
@@ -113,11 +128,12 @@ trajectories by 60–70 %.
 
 Supported now, on four cases and 24 trajectories:
 
-> Semantic repository access lets an agent build an actionable architectural model of a large unfamiliar
-> repository in roughly half the environment interactions, and the advantage is concentrated in the
-> facts a reference query cannot produce — invariants, runtime flow, the correct precedent, the second
-> integration mechanism. It costs more model output, not less, and at a large enough interaction budget
-> shell access reaches the same model.
+> Semantic repository access ACCELERATES the acquisition of an actionable architectural model of a
+> large unfamiliar repository: the advantage is 1.89× at five environment interactions, 1.36× at ten,
+> 1.15× at twenty and 1.02× at forty. It is a curve that closes, not a capability the other arm lacks.
+> The advantage is concentrated in the facts a reference query cannot produce — invariants, runtime
+> flow, the correct precedent, the second integration mechanism — and it costs more model output, not
+> less.
 
 Not supported: any claim about a second repository (deferred with measurements — Kill Bill is TestNG and
 database-bound, Camel is 1 124 modules against Keycloak's 189, Dubbo is the viable candidate and needs a

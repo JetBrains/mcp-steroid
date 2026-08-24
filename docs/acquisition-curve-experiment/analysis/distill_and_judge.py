@@ -152,7 +152,11 @@ def parse_judgement(raw: str, facts: list) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--artifacts", required=True, help="directory of <trajectoryId>/ folders")
+    parser.add_argument(
+        "--artifacts",
+        required=True,
+        help="directory of <caseId>/<trajectoryId>/ folders, as the recompute step writes them",
+    )
     parser.add_argument("--out", default=None, help="where to write notes and the judged CSV")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -162,17 +166,39 @@ def main() -> int:
              "40 is where every trajectory has already plateaued and its note answers nothing new.",
     )
     parser.add_argument(
+        "--cases",
+        default=None,
+        help="comma-separated case ids to distil. Omitted, every case under --artifacts is distilled, "
+             "which re-buys notes that are already committed for the earlier rounds.",
+    )
+    parser.add_argument(
         "--model",
         default=None,
         help="override the model. Omitted, the newest opus the key reaches is used for both steps.",
     )
     args = parser.parse_args()
     wanted = {int(value) for value in args.checkpoints.split(",") if value.strip()}
+    wanted_cases = {value.strip() for value in args.cases.split(",") if value.strip()} if args.cases else None
 
     root = pathlib.Path(args.artifacts)
-    trajectories = sorted(path for path in root.iterdir() if (path / "checklist.json").exists())
+    # Searched recursively, and the case level is the reason. Trajectory ids repeat across cases --
+    # every case has an `mcp-b40-l2000-r1` -- so a note file named after the trajectory alone would
+    # have one case silently overwrite another's, and the judged row would carry the wrong checklist.
+    trajectories = sorted(path.parent for path in root.rglob("checklist.json"))
     if not trajectories:
-        raise SystemExit(f"no trajectory artifacts under {root}")
+        raise SystemExit(f"no <caseId>/<trajectoryId>/checklist.json under {root}")
+    flat = [path for path in trajectories if path.parent == root]
+    if flat:
+        raise SystemExit(
+            f"{[p.name for p in flat]} sit directly under {root}, i.e. the old single-case layout. "
+            f"Re-run the recompute step, which writes <caseId>/<trajectoryId>/"
+        )
+    if wanted_cases is not None:
+        present = {path.parent.name for path in trajectories}
+        unknown = wanted_cases - present
+        if unknown:
+            raise SystemExit(f"--cases names {sorted(unknown)}, which is not under {root} ({sorted(present)})")
+        trajectories = [path for path in trajectories if path.parent.name in wanted_cases]
 
     prompts = [(trajectory, prompt)
                for trajectory in trajectories
@@ -192,9 +218,13 @@ def main() -> int:
     rows = []
 
     for trajectory, prompt_path in prompts:
-        facts = json.loads((trajectory / "checklist.json").read_text())["facts"]
+        checklist = json.loads((trajectory / "checklist.json").read_text())
+        facts = checklist["facts"]
+        case_id = checklist["caseId"]
         checkpoint = int(prompt_path.stem.split("-b")[1])
-        note_path = out / f"{trajectory.name}.note-b{checkpoint}.md"
+        note_dir = out / case_id
+        note_dir.mkdir(parents=True, exist_ok=True)
+        note_path = note_dir / f"{trajectory.name}.note-b{checkpoint}.md"
         if note_path.exists():
             note = note_path.read_text()
             print(f"  {trajectory.name} b={checkpoint}: note already distilled")
@@ -203,7 +233,7 @@ def main() -> int:
                 api_key, model, prompt_path.read_text(), max_tokens=4_000
             ).strip()
             note_path.write_text(note)
-            print(f"  {trajectory.name} b={checkpoint}: distilled {len(note)} characters")
+            print(f"  {case_id}/{trajectory.name} b={checkpoint}: distilled {len(note)} characters")
 
         verdict = parse_judgement(
             call_model_persistently(api_key, model, judge_prompt(note, facts), max_tokens=4_000),
@@ -211,6 +241,7 @@ def main() -> int:
         )
         score = sum(verdict.values()) / len(facts)
         rows.append({
+            "case": case_id,
             "trajectory_id": trajectory.name,
             "checkpoint": checkpoint,
             "u_actionable": round(score, 4),

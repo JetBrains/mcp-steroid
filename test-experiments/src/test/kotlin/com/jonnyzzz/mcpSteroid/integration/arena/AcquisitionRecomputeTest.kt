@@ -14,13 +14,24 @@ import org.junit.jupiter.api.Test
  * laptop. The first pilot shipped a token axis that could decrease, and fixing it required exactly this
  * and no Opus budget at all.
  *
- * Point it at a directory holding one folder per trajectory, each with the transcript the cell
- * published — `transcript.ndjson`, or the `transcript.ndjson.gz` the repository commits:
+ * Point it at a directory holding one folder per CASE, each holding one folder per trajectory, each
+ * with the transcript the cell published — `transcript.ndjson`, or the `transcript.ndjson.gz` the
+ * repository commits:
  *
  * ```
+ * docs/acquisition-curve-experiment/data/trajectories/
+ *   acquisition__keycloak__cc-refresh-token/mcp-b40-l2000-r1/transcript.ndjson.gz
+ *   acquisition__keycloak__oauth-grant-type/mcp-b40-l2000-r1/transcript.ndjson.gz
+ *
  * ./gradlew :test-experiments:test --tests '*AcquisitionRecomputeTest*' \
  *     -Dacquisition.recompute.dir=docs/acquisition-curve-experiment/data/trajectories
  * ```
+ *
+ * The case level is not decoration and it is not optional. Trajectory ids repeat across cases by
+ * construction — every case has an `mcp-b40-l2000-r1` — while the checklist, the statement and
+ * therefore every number derived from a transcript are per case. A flat directory would let the
+ * generalization round's twelve transcripts overwrite the pilot's, and would score one case's
+ * transcript against another case's checklist without any symptom other than a low `U`.
  *
  * With `-Dacquisition.recompute.out=<dir>` it also re-emits the two artifacts the offline
  * distil-and-judge step consumes — `checklist.json` and one `distill-b<K>.txt` per checkpoint — so a
@@ -43,15 +54,35 @@ class AcquisitionRecomputeTest {
         check(dir.isDirectory) { "-D$RECOMPUTE_DIR_PROPERTY=$dir is not a directory" }
         val outDir = System.getProperty(RECOMPUTE_OUT_PROPERTY)?.let(::File)
 
-        val transcripts = dir.listFiles().orEmpty()
+        // Refused rather than guessed. A folder of transcripts directly under the root is the OLD
+        // single-case layout, and reading it would silently score it against whichever case this test
+        // used to hardcode — which is exactly the defect the case level exists to remove.
+        val stray = dir.listFiles().orEmpty().filter { it.isDirectory && acquisitionTranscriptIn(it) != null }
+        check(stray.isEmpty()) {
+            "$dir holds transcripts directly (${stray.map { it.name }}), i.e. the flat single-case " +
+                "layout. Move each trajectory under its case: <root>/<caseId>/<trajectoryId>/. A " +
+                "transcript whose case is unknown cannot be scored, because the checklist is per case"
+        }
+        val caseFolders = dir.listFiles().orEmpty().filter { it.isDirectory }.sortedBy { it.name }
+        check(caseFolders.isNotEmpty()) { "no <caseId>/<trajectory>/transcript.ndjson[.gz] under $dir" }
+
+        println("[ACQUISITION-RECOMPUTE] ${AcquisitionPoint.CSV_HEADER}")
+        for (caseFolder in caseFolders) recomputeCase(caseFolder, outDir)
+    }
+
+    private fun recomputeCase(caseFolder: File, outRoot: File?) {
+        val case = AcquisitionCases.byId(caseFolder.name)
+        val checklist = AcquisitionCases.checklistFor(case.instanceId)
+        val outDir = outRoot?.resolve(case.instanceId)
+
+        val transcripts = caseFolder.listFiles().orEmpty()
             .filter { it.isDirectory }
             .mapNotNull { folder -> acquisitionTranscriptIn(folder) }
             .sortedBy { it.parentFile.name }
-        check(transcripts.isNotEmpty()) { "no <trajectory>/transcript.ndjson[.gz] under $dir" }
+        check(transcripts.isNotEmpty()) {
+            "no <trajectory>/transcript.ndjson[.gz] under $caseFolder"
+        }
 
-        val case = AcquisitionCases.ccRefreshToken
-        val checklist = AcquisitionCases.checklistFor(case.instanceId)
-        println("[ACQUISITION-RECOMPUTE] ${AcquisitionPoint.CSV_HEADER}")
         for (file in transcripts) {
             val trajectoryId = file.parentFile.name
             val arm = if (trajectoryId.startsWith("mcp")) "mcp" else "shell"
@@ -79,7 +110,7 @@ class AcquisitionRecomputeTest {
                 // and a note distilled from it would enter a table of "what the semantic arm knew".
                 // Enforcing that here means no consumer has to remember a list of rejected ids.
                 println(
-                    "[ACQUISITION-RECOMPUTE] $trajectoryId is arm-degenerate " +
+                    "[ACQUISITION-RECOMPUTE] ${case.instanceId}/$trajectoryId is arm-degenerate " +
                         "(${trajectory.calls.groupingBy { it.toolName }.eachCount()}); no distillation " +
                         "prompts written for it"
                 )

@@ -63,6 +63,55 @@ val ACQUISITION_DOWNSTREAM_MATRIX: List<AcquisitionCheckpointNote> =
         }
 
 /**
+ * The downstream matrix of every case that has one, addressed by case id.
+ *
+ * The replication round asks the SAME question as the round that produced [ACQUISITION_DOWNSTREAM_MATRIX]
+ * — does a higher `U` leave the weak agent less work? — on the two cases the generalization round added,
+ * and it asks it with the same instrument on purpose. What is new is only that the question is now asked
+ * where the acquisition advantage was measured to be LARGEST (`oauth-grant-type`, +0.38 at B=10) and
+ * where it was middling (`client-auth-method`, +0.18), so a positive answer would connect the two halves
+ * of the evidence rather than repeat one of them.
+ *
+ * The per-case selection rule is the one written in `DESIGN-DOWNSTREAM.md` and repeated in
+ * `DESIGN-DOWNSTREAM-3.md`: two trajectories per arm, chosen so the arms OVERLAP in `U`. Without an
+ * overlap "the note was better" and "the note came from the other arm" are the same column, and no
+ * analysis afterwards can separate them. The chosen pairs, with their measured `U` at 5/10/20:
+ *
+ * - `client-auth-method`: mcp r1 (.47/.60/.80), mcp r2 (.53/.53/.53), shell r1 (.00/.27/.40),
+ *   shell r3 (.27/.47/.47) — range .00–.80, arms meet at .47 and .53.
+ * - `oauth-grant-type`: mcp r1 (.53/.73/.73), mcp r2 (.47/.67/.73), shell r1 (.20/.40/.60),
+ *   shell r2 (.00/.27/.53) — range .00–.73, arms meet at .53 and .60.
+ *
+ * `mcp r2` of `client-auth-method` is in the matrix precisely because its curve is FLAT: three notes
+ * from three different prefixes that carry the same `U`. If the outcome tracked the research budget
+ * rather than the understanding, those three cells would separate, and nothing else in the design would
+ * reveal it.
+ */
+val ACQUISITION_DOWNSTREAM_MATRICES: Map<String, List<AcquisitionCheckpointNote>> = mapOf(
+    "acquisition__keycloak__cc-refresh-token" to ACQUISITION_DOWNSTREAM_MATRIX,
+    "acquisition__keycloak__client-auth-method" to
+        listOf("mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "none-b40-l2000-r1", "none-b40-l2000-r3")
+            .flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
+    "acquisition__keycloak__oauth-grant-type" to
+        listOf("mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "none-b40-l2000-r1", "none-b40-l2000-r2")
+            .flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
+)
+
+/**
+ * The matrix of one case, refusing a case that has none.
+ *
+ * A cell queued against a case with no pre-registered matrix is not a smaller experiment, it is an
+ * unregistered one: the whole point of holding these lists in code is that the thirteenth cell cannot
+ * be chosen after the first twelve are in.
+ */
+fun acquisitionDownstreamMatrixOf(caseId: String): List<AcquisitionCheckpointNote> =
+    checkNotNull(ACQUISITION_DOWNSTREAM_MATRICES[caseId]) {
+        "'$caseId' has no pre-registered downstream matrix. The cases that do are " +
+            "${ACQUISITION_DOWNSTREAM_MATRICES.keys.sorted()}; add one to ACQUISITION_DOWNSTREAM_MATRICES " +
+            "with its selection rule BEFORE queueing any cell of it"
+    }
+
+/**
  * The repository interactions a downstream cell of this round is allowed.
  *
  * Twenty, and the number is a measurement rather than a preference. The first downstream wave gave the
