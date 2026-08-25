@@ -323,3 +323,95 @@ the open question and nothing more.
 Thirty-five cells and ≈$7 of the fourth round bought a working instrument and two cases whose only
 remaining obstacle is a property of the task rather than of the harness. No note cell has been bought
 on it yet, which is the protocol working as designed.
+
+---
+
+# Step 4: the unbudgeted floor probe
+
+Ten cells, five `baseline` on each surviving case, **no allowance at all**, bare `claude-haiku-4-5`,
+no note, amendment 3 in force. Revision `341190fcf`. ≈$7.50.
+
+## The readings
+
+| build | case | obligations | compiled | tool calls | usd |
+|---|---|---|---|---|---|
+| 1040393850 | `client-auth-method` | 6 / 9 | 1 | 60 | 0.47 |
+| 1040393852 | `client-auth-method` | 7 / 9 | 1 | 61 | 0.52 |
+| 1040393854 | `client-auth-method` | 2 / 9 | 1 | 97 | 0.77 |
+| 1040393856 | `client-auth-method` | 6 / 9 | 1 | 72 | 0.65 |
+| 1040393858 | `client-auth-method` | 7 / 9 | 1 | 70 | 0.62 |
+| 1040393860 | `oauth-grant-type` | 7 / 10 | 1 | 103 | 0.77 |
+| 1040393862 | `oauth-grant-type` | 8 / 10 | 1 | 101 | 1.03 |
+| 1040393864 | `oauth-grant-type` | 9 / 10 | 1 | 82 | 0.71 |
+| 1040393866 | `oauth-grant-type` | 8 / 10 | 1 | 106 | 1.05 |
+| 1040393868 | `oauth-grant-type` | 8 / 10 | 1 | 94 | 0.97 |
+
+**Ten of ten compiled.** Against one of eight at an allowance of twenty. The compile failures that
+wrecked three rounds were never a property of these tasks: they are what happens when the wall
+arrives before the agent has finished. Given room, this agent builds its code every time.
+
+## The pre-registered branch that fires
+
+Branch 1, and not narrowly. The rules that decide it were fixed before these cells were queued:
+
+| pre-registered rule | requires | measured | |
+|---|---|---|---|
+| a baseline is at most one obligation above the pristine floor of 1 | ≤ 2 | **5.6** mean (`client-auth`), **8.0** mean (`oauth-grant`) | fails |
+| gold and baseline separated by half the scale | ≥ 4.5 / ≥ 5 | **2** of 9, **1** of 10 | fails |
+
+| case | unbudgeted no-note | of the ceiling |
+|---|---|---|
+| `client-auth-method` | 5.6 / 9 mean (6, 7, 2, 6, 7) | **62 %** |
+| `oauth-grant-type` | 8.0 / 10 mean (7, 8, 9, 8, 8) | **80 %** |
+
+So the unbudgeted agent does most of the job unaided, and this definition of the floor leaves no room
+above it for a note to buy anything. **The floor-by-unlimited-budget is unusable, exactly as
+suspected — and now on evidence rather than on a misremembered pair of round-1 numbers.**
+
+Note what it is not: it is not "the agent solves the case". No cell of the ten satisfied every
+obligation; the best was 9 of 10, once. The unaided agent gets close and does not arrive.
+
+## What the same ten cells say about the note
+
+The pre-registration says branch 1 means the endpoint is **work, not success**. These readings say
+what that endpoint would show, and it is the sharpest contrast this project has produced:
+
+| | obligations | tool calls | cost |
+|---|---|---|---|
+| no note, no wall — `client-auth-method` | 5.6 / 9 | **72** | $0.61 |
+| gold note, 20 interactions — `client-auth-method` | **9 / 9** | **32** | $0.25 |
+| no note, no wall — `oauth-grant-type` | 8.0 / 10 | **97** | $0.86 |
+| gold note, 20 interactions — `oauth-grant-type` | **10 / 10** | **26** | $0.18 |
+
+The note produces a **complete** result at **2.3×–3.7× less work** than no note produces an
+incomplete one. Both halves move, and they move the same way — which is what a "the note reduces the
+work" claim needs and what no previous round could show, because in every previous round the control
+arm's number was a build failure.
+
+This is also the first reading in the family that is coherent with the acquisition side rather than
+merely adjacent to it. Link 1 says semantic access reaches a given level of the checklist in fewer
+environment interactions. This says the saving survives being written down and handed to a different,
+weaker agent. The chain is one claim about interactions from end to end, and never was a claim about
+pass/fail.
+
+## What is decided, and what is not
+
+**Decided by the pre-registration:** the unbudgeted no-note cell is not the floor, and the endpoint of
+the downstream half is work rather than success.
+
+**Not decided, and not to be decided by whoever noticed the numbers first:** the design that follows.
+Restating the endpoint changes what the project claims and needs its own pre-registration, written
+before a note cell is bought. The open questions it has to answer, listed so they are not quietly
+settled:
+
+1. **At what allowance does the wave run** — or does it run unbudgeted, with interactions as the
+   outcome rather than the constraint? An unbudgeted wave has no compile-failure problem at all, since
+   ten of ten built; it costs roughly 3× per cell.
+2. **What counts as the residual** when a cell may run as long as it likes. "Obligations at the point
+   the agent declares itself done" is the obvious answer and has never been measured.
+3. **Whether the admission requirements still apply in their present form.** Requirements 3 and 4 and
+   amendment 2 are all phrased in terms of a floor and a ceiling of *obligations*. Under a work
+   endpoint the floor is a number of interactions, and the gate has to be rewritten in those units
+   rather than reinterpreted in prose.
+
+Nothing in this document licenses skipping that. It reports which branch fired and stops there.

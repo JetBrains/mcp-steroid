@@ -306,3 +306,23 @@ These supersede the step-2 gold rollouts of both cases (1040174120/122/124, 1040
 which ran before amendment 3. The step-2 **baselines** are kept beside them: amendment 3 cannot change
 a baseline's reading, and dropping the one that read 6 of 9 would remove the only reading that blocks
 `client-auth-method` on the gap rule.
+
+## Round 4, step 4 — the unbudgeted floor probe (2026-08-24)
+
+Revision `341190fcf`, `understanding.budget=none`, bare `claude-haiku-4-5`, no note. All ten compiled.
+
+| build | case | obligations | tool calls |
+|---|---|---|---|
+| 1040393850 | `client-auth-method` | 6/9 | 60 |
+| 1040393852 | `client-auth-method` | 7/9 | 61 |
+| 1040393854 | `client-auth-method` | 2/9 | 97 |
+| 1040393856 | `client-auth-method` | 6/9 | 72 |
+| 1040393858 | `client-auth-method` | 7/9 | 70 |
+| 1040393860 | `oauth-grant-type` | 7/10 | 103 |
+| 1040393862 | `oauth-grant-type` | 8/10 | 101 |
+| 1040393864 | `oauth-grant-type` | 9/10 | 82 |
+| 1040393866 | `oauth-grant-type` | 8/10 | 106 |
+| 1040393868 | `oauth-grant-type` | 8/10 | 94 |
+
+They are NOT recorded in `baselineRollouts`: those are the wave's floor, measured at the wave's
+allowance, and an unbudgeted cell mixed into them would be a floor for a condition nobody runs.
