@@ -531,12 +531,15 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
             AcquisitionRolloutEvidence(buildId = "1040174116", obligations = null, compiled = false),
             AcquisitionRolloutEvidence(buildId = "1040174118", obligations = 5, compiled = true),
         ),
-        retiredFromDownstream = "both stopping rules of DESIGN-CASE-ADMISSION.md fired at once. The " +
-            "gold note produced no gradable tree in three of three rollouts (1040174097/099/101), so " +
-            "the case tests implementation difficulty rather than understanding; and the one no-note " +
-            "tree that built reads 5 of 9 (1040174118), four obligations above the pristine floor, so " +
-            "the unaided solver already has most of what a note could buy. Its acquisition curve — the " +
-            "result this project actually rests on — is unaffected and stays published.",
+        // RETIREMENT WITHDRAWN 2026-08-25. It was declared on 1040174097/099/101, three gold-note
+        // rollouts that produced no gradable tree — but those cells were bought BEFORE amendment 3,
+        // and two of the three failed `testCompile` on a unit test the agent wrote itself, after its
+        // implementation had compiled clean. Amendment 3 discards exactly those files, so the reading
+        // the retirement rested on no longer exists and the case has to be re-anchored rather than
+        // buried. Only 1040174099 failed on the agent's own implementation.
+        //
+        // This is a correction of a decision, not a relaxation of a rule: the stopping rule is intact
+        // and may fire again on the re-bought anchors.
     ),
     AcquisitionCaseAdmission(
         caseId = "acquisition__keycloak__client-auth-method",

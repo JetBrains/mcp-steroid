@@ -101,6 +101,9 @@ class AcquisitionAdmissionTest {
         // rungs separate by axis name, three gold-note rollouts that all compiled and all reached
         // 10 of 10, and four no-note rollouts that all carry a compile verdict and all score zero.
         // Floor 0, ceiling 10, zero variance in both.
+        // One admitted today. The other two print the pre-registered remedy for what stops them:
+        // their no-note solver re-derives the understanding, so the allowance is tightened rather than
+        // the rule loosened.
         val admitted = "acquisition__keycloak__oauth-grant-type"
         for (caseId in ACQUISITION_CASE_ADMISSIONS.keys) {
             val case = AcquisitionCases.byId(caseId)
@@ -139,10 +142,12 @@ class AcquisitionAdmissionTest {
             "the one no-note tree that built scored 5 of 9 and must block the wave; got $ccProblems",
         )
         assertTrue(
-            // Both stopping rules fired on this case, so no cell can readmit it and the record must
-            // say so rather than leaving a queue somebody could keep working.
-            ccProblems.any { "LEFT the downstream family" in it },
-            "cc-refresh-token is retired, not merely blocked; got $ccProblems",
+            // The retirement was WITHDRAWN: it rested on three gold rollouts bought before amendment 3,
+            // two of which failed on a unit test the agent wrote itself. A case may not stay buried on
+            // a reading a later repair invalidated — the stopping rule is intact and may fire again on
+            // the re-bought anchors.
+            ccProblems.none { "LEFT the downstream family" in it },
+            "cc-refresh-token's retirement is withdrawn pending re-anchoring; got $ccProblems",
         )
 
         // Both surviving cases were re-anchored under amendment 3, and neither has a gold-note rollout
