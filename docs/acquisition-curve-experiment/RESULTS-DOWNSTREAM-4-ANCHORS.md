@@ -498,3 +498,61 @@ a calibration that said "not at this allowance" before anything was bought.
 It is written here and deliberately not implemented in the same breath as the result it would have
 caught, because the allowance it implies moving is the one parameter this design has always held
 closed. That is the next decision, and it is not mine to take alone.
+
+---
+
+# Step 6: why the wave sat on the floor — the oracles are implementation-weighted
+
+Read after step 5, from the committed ladder readings of all three gradable cases. No cells bought.
+
+## The measurement
+
+| case | pristine tree | **implementation only** | + all the wiring | gold |
+|---|---|---|---|---|
+| `cc-refresh-token` | 1 | **7** | 8 | 9 |
+| `client-auth-method` | 1 | **7** | 8 | 9 |
+| `oauth-grant-type` | 1 | **8** | 9 | 10 |
+
+In every case, writing the implementation alone moves the score from 1 to 7 or 8 out of 9 or 10.
+Everything architectural — the SPI service descriptor, the shipped profile JSON, the globally unique
+shortcut, the partial-update invariant — is worth **one or two points in total**.
+
+So roughly **80 % of every oracle grades "did you write compiling code that does the thing"**, and
+about 20 % grades the knowledge a hand-off note exists to transfer.
+
+## What follows, and it explains the whole round
+
+- The endpoint is dominated by implementation success, so compile failure dominates the readings —
+  which is what steps 2 through 5 kept running into from different directions.
+- The measurable value of a note is therefore "did it let the agent write the code", not "did it
+  convey the architecture".
+- `U` is computed over architectural facts, i.e. over the fifth of the scale the oracle barely grades.
+  A note can carry the architecture and still score zero, and one did: `mcp-r1@20`, `U` = 0.73, zero in
+  six of six cells, while a note with `U` = 0.67 that happened to name one implementation shortcut
+  returned 9 of 10 twice.
+
+This is not a property of `oauth-grant-type`. It is the shape of all three oracles, and no choice
+among the existing cases avoids it.
+
+## What an architecture-weighted case would look like
+
+- the change is trivial to WRITE — a rename, an added line, a mechanical edit;
+- the score is almost entirely "did you find every place that must change";
+- those places are many and independently graded, rather than two.
+
+`rename-method-wide` is already in the registry with exactly that shape: 496 references across 109
+files in 14 reactor modules, an implementation cost near zero and a discovery cost that is the whole
+task. It has **no oracle**, and building one is straightforward — an axis per override family, per
+module, per compatibility surface, plus the closure compiling. It is also the case where semantic
+access should matter most, since find-usages against grep is the entire difference.
+
+This is a rebuild of the endpoint rather than a choice among cases, and it costs a new oracle, a new
+ladder and new anchors. **The acquisition result is untouched**: `U(B)` is a property of the
+trajectory and the checklist and never depended on an oracle.
+
+## The seventh admission requirement, still unimplemented and now better motivated
+
+At least one note of the kind the wave will buy must clear the floor before the wave is bought — two
+cells, ≈$0.50. Step 5 would have stopped for ≈$0.50 instead of ≈$6. Under an implementation-weighted
+oracle it would also have surfaced the weighting itself, because the note that clears the floor and
+the note with the highest `U` would have been visibly different notes.
