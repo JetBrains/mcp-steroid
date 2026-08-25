@@ -323,3 +323,63 @@ these cases most of the time" is not supported by anything on record.
 Either way the numbers of this probe are reported, including if they are inconvenient for both
 branches. What is NOT licensed by this pre-registration is picking the branch after seeing the
 readings — the mapping above is fixed.
+
+## The matched floor probe at 60 (2026-08-25) — pre-registered before its cells were queued
+
+The unbudgeted probe answered its question and raised the next one. Without a wall the solver spends
+**55–96 charged interactions, mean 77** (measured from the transcripts of the ten step-4 cells), so
+"no wall" and "the wave's twenty" are not two settings of one dial — they are three-and-a-half times
+apart, and neither is the comparison the hypothesis needs.
+
+The comparison it needs is **equal total cost**. A note cell is handed, for free, the research a
+stronger agent (`claude-opus-5`) already paid for; a no-note cell at twenty has to do that research
+itself out of the same twenty. Comparing them measures the head start, not the note.
+
+**Sixty**, derived and not chosen:
+
+- the research agent was allowed `ACQUISITION_RESEARCH_BUDGET` = **40**, and the shell arm spent all
+  of it on `oauth-grant-type` (40, 40, 40) and most of it on `client-auth-method` (40, 25, 29);
+- plus `ACQUISITION_DOWNSTREAM_BUDGET` = **20**, the solver's own allowance.
+
+It is also below what the same solver spends when nothing stops it (mean 77), so a no-note cell at
+sixty is given less than it takes unaided and more than the entire bill of the most expensive note.
+A floor that still falls short at sixty falls short for a reason other than the wall.
+
+The semantic arm's research cost is far lower — about **17** interactions on both cases — so sixty is
+an *exact* control for a shell note and a **generous** one for a semantic note. That asymmetry is the
+acquisition result, not an accident, and it is left visible rather than averaged into one number.
+
+`ACQUISITION_FLOOR_PROBE_BUDGETS = {60}` is deliberately a separate set from the wave's closed
+`{15, 20, 25}`. The wave's allowance stays untouchable, because it is the one parameter that could
+manufacture any result the round reports. A probe allowance is not a candidate setting for anything,
+and `AcquisitionDownstreamHarnessTest` pins both halves: 60 resolves, an arbitrary generous number
+(45, 100) is still refused, and no probe allowance may ever appear in the wave's set.
+
+### On shell-call batching, checked rather than assumed
+
+The allowance charges by TOOL NAME: one `Bash` call is one interaction whatever it contains, so three
+chained searches cost one. Measured across the cells bought so far:
+
+| group | `Bash` calls per cell | of which chained | share |
+|---|---|---|---|
+| unbudgeted | 50.0 | 4.4 | 9 % |
+| gold note @20 | 14.2 | 1.2 | 8 % |
+| no note @20 | 14.5 | **0.0** | **0 %** |
+
+The control arm never batched, so no reading in this family is inflated by it, and most of what does
+get chained is `mvnw compile && grep …` or a `until ! pgrep …` wait on a background build rather than
+several independent queries. Batching is also the shell arm's legitimate analogue of what one
+`steroid_execute_code` call does for the semantic arm, so it is left charged as one and recorded here
+rather than legislated against.
+
+### The prediction
+
+Ten cells, five `baseline` at sixty on each surviving case. Written before they are queued:
+
+| case | predicted | and therefore |
+|---|---|---|
+| `client-auth-method` | lands near the unbudgeted 5.6/9, since 60 is close to its unaided mean of 66 charged interactions | the gap to the gold note's 9/9 stays under half the scale, and the case stays blocked |
+| `oauth-grant-type` | lands somewhat below the unbudgeted 8.0/10, since 60 is well under its unaided mean of 87 | the gap to 10/10 stays under half the scale, and the case stays blocked |
+
+As with amendment 3, the probe is bought because the readings are wrong, not because they are
+unfavourable. If either case is admitted after it, the prediction failed and that is a finding.

@@ -247,14 +247,29 @@ class AcquisitionDownstreamHarnessTest {
         assertEquals(ACQUISITION_DOWNSTREAM_BUDGET, acquisitionDownstreamBudgetOf(null))
         assertEquals(ACQUISITION_DOWNSTREAM_BUDGET, acquisitionDownstreamBudgetOf("  "))
         assertEquals(15, acquisitionDownstreamBudgetOf("15"))
-        // 60 is not a typo but the failure mode: a cell queued generously lands in the same table as
-        // the cells queued at twenty and is indistinguishable once the build log has scrolled.
-        assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("60") }
+        // The failure mode this guards is a cell queued generously landing in the same table as the
+        // cells queued at twenty, indistinguishable once the build log has scrolled. A GENEROUS NUMBER
+        // is still refused — only the one derived from the research budget is not, and a cell run at it
+        // prints `budget=60/60`, so it names itself.
+        assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("45") }
+        assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("100") }
         assertThrows(IllegalStateException::class.java) { acquisitionDownstreamBudgetOf("twenty") }
         // The unbudgeted floor probe: a deliberate absence of a wall, spelled out rather than encoded
         // as a large number that would land in the wave's table looking like a setting.
         assertNull(acquisitionDownstreamBudgetOf(ACQUISITION_DOWNSTREAM_BUDGET_NONE))
         assertNull(acquisitionDownstreamBudgetOf("NONE"))
+        // The floor probes have their own allowances, accepted but kept out of the wave's closed set:
+        // 60 is the research the shell arm actually spent plus the solver's own twenty.
+        assertEquals(60, acquisitionDownstreamBudgetOf("60"))
+        assertTrue(
+            ACQUISITION_FLOOR_PROBE_BUDGETS.none { it in ACQUISITION_DOWNSTREAM_BUDGETS },
+            "a probe allowance must never become a candidate setting for the wave",
+        )
+        assertEquals(
+            ACQUISITION_RESEARCH_BUDGET + ACQUISITION_DOWNSTREAM_BUDGET,
+            ACQUISITION_FLOOR_PROBE_BUDGETS.single(),
+            "the matched floor is the research budget plus the solver's allowance, not a round number",
+        )
     }
 
     @Test

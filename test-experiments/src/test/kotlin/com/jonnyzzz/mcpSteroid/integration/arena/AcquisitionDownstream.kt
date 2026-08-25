@@ -154,11 +154,11 @@ fun acquisitionDownstreamBudgetOf(raw: String?): Int? {
     if (value.isEmpty()) return ACQUISITION_DOWNSTREAM_BUDGET
     if (value.equals(ACQUISITION_DOWNSTREAM_BUDGET_NONE, ignoreCase = true)) return null
     val budget = value.toIntOrNull()
-    check(budget != null && budget in ACQUISITION_DOWNSTREAM_BUDGETS) {
-        "'$value' is not a pre-registered downstream allowance. This round runs at " +
-            "${ACQUISITION_DOWNSTREAM_BUDGETS.sorted()} or '$ACQUISITION_DOWNSTREAM_BUDGET_NONE' for the " +
-            "unbudgeted floor probe, and the calibration rule in DESIGN-DOWNSTREAM.md says which way to " +
-            "move within the numbers"
+    check(budget != null && (budget in ACQUISITION_DOWNSTREAM_BUDGETS || budget in ACQUISITION_FLOOR_PROBE_BUDGETS)) {
+        "'$value' is not a pre-registered downstream allowance. The WAVE runs at " +
+            "${ACQUISITION_DOWNSTREAM_BUDGETS.sorted()}; the floor probes run at " +
+            "${ACQUISITION_FLOOR_PROBE_BUDGETS.sorted()} or '$ACQUISITION_DOWNSTREAM_BUDGET_NONE'. The " +
+            "calibration rule in DESIGN-DOWNSTREAM.md says which way to move within the wave's numbers"
     }
     return budget
 }
@@ -176,6 +176,37 @@ fun acquisitionDownstreamBudgetOf(raw: String?): Int? {
  * A cell queued this way can never be mistaken for a wave cell: it prints no `budget=` column at all.
  */
 const val ACQUISITION_DOWNSTREAM_BUDGET_NONE: String = "none"
+
+/**
+ * Allowances a FLOOR PROBE may run at, and which no wave cell may run at.
+ *
+ * Kept apart from [ACQUISITION_DOWNSTREAM_BUDGETS] on purpose. That set is closed because the wave's
+ * allowance is the one parameter that can manufacture any result the round could report, and widening
+ * it would reopen exactly that door. A floor probe asks a different question — what does the UNAIDED
+ * solver achieve — so its allowance is not a candidate setting for anything, and a cell run at one can
+ * never be mistaken for a wave cell.
+ *
+ * **Sixty**, and it is derived rather than chosen. A note cell is handed, for free, the research a
+ * stronger agent (`claude-opus-5`) already paid for; a no-note cell at the wave's twenty has to do
+ * that research itself out of the same twenty. Comparing them measures the head start, not the note.
+ * Sixty removes the head start by giving the unaided solver the whole bill:
+ *
+ * - the research agent was allowed [ACQUISITION_RESEARCH_BUDGET] = 40 interactions, and the shell arm
+ *   spent all of them on `oauth-grant-type` (40, 40, 40) and most of them on `client-auth-method`
+ *   (40, 25, 29) — `docs/acquisition-curve-experiment/data/generalization-curves.csv`, checkpoint 40;
+ * - plus the [ACQUISITION_DOWNSTREAM_BUDGET] = 20 the solver gets.
+ *
+ * It is also the conservative end of what the unbudgeted probe measured the same solver actually
+ * spending unaided — 55 to 96 charged interactions, mean 77 (round 4 step 4). So a no-note cell at
+ * sixty is given less than it takes when nothing stops it, and more than the note's whole bill on the
+ * arm that researched most expensively. A floor that still falls short at sixty is short for reasons
+ * other than the wall.
+ *
+ * The semantic arm's research cost is far lower — roughly seventeen interactions on both cases — so
+ * sixty is a GENEROUS control for a semantic note and an exact one for a shell note. That asymmetry is
+ * the acquisition result rather than an accident, and it is left visible instead of averaged away.
+ */
+val ACQUISITION_FLOOR_PROBE_BUDGETS: Set<Int> = setOf(60)
 
 /**
  * True for a semantic-arm trajectory that never made a semantic call.
