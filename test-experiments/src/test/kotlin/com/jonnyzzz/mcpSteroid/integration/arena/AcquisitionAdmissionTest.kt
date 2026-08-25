@@ -56,13 +56,27 @@ class AcquisitionAdmissionTest {
             val gold = case.goldPatch()
             for (rung in admission.rungs) {
                 if (rung.patchResource != null) {
-                    // Declared but not yet exported. That is a legitimate state — the rung is a work
-                    // item the admission gate names — and the ONLY thing that must not happen is for
-                    // it to be silently skipped.
-                    val problems = admission.problems(case)
+                    if (!rung.patchResourceExists) {
+                        // Declared but not yet exported. A legitimate state — the rung is a work item
+                        // the admission gate names — and the only thing that must not happen is for it
+                        // to be silently skipped.
+                        val problems = admission.problems(case)
+                        assertTrue(
+                            problems.isNotEmpty(),
+                            "$caseId declares the unexported rung `${rung.name}` yet reports no problem",
+                        )
+                        continue
+                    }
+                    // Exported: it has to materialise, and it has to differ from the gold. An invariant
+                    // trap is NOT a subset of the gold — "the whole change with the neighbour's shortcut
+                    // reused" touches the same files — so the file-count check below cannot apply to it,
+                    // and demanding it would force the trap to be written as something it is not.
+                    val trap = rung.patch(gold)
+                    assertTrue(trap.isNotBlank(), "$caseId rung `${rung.name}` materialised to nothing")
                     assertTrue(
-                        problems.isNotEmpty(),
-                        "$caseId declares the unexported rung `${rung.name}` yet reports no problem",
+                        trap != gold,
+                        "$caseId rung `${rung.name}` is byte-identical to the gold, so it is the ceiling " +
+                            "under another name and measures nothing",
                     )
                     continue
                 }
@@ -81,28 +95,34 @@ class AcquisitionAdmissionTest {
     }
 
     @Test
-    fun `no acquisition case is admitted to a note wave today, and each says what it lacks`() {
-        // The expected state, not a failure of the protocol — but no longer for the original reason.
-        // The ladders are measured and the fifteen anchors of 2026-08-24 all carry a compile verdict,
-        // so what blocks the family now is what those readings SAY: on one case the perfect note never
-        // builds, on two the no-note solver scores most of the scale by itself, and on the third no
-        // no-note tree built at all, so it has no floor.
+    fun `exactly one case is admitted, and the other two say what stops them`() {
+        // ONE case is admitted, and that is the whole point of the protocol finally being satisfied
+        // rather than a relaxation of it. `oauth-grant-type` has a replayed ceiling, a ladder whose
+        // rungs separate by axis name, three gold-note rollouts that all compiled and all reached
+        // 10 of 10, and four no-note rollouts that all carry a compile verdict and all score zero.
+        // Floor 0, ceiling 10, zero variance in both.
+        val admitted = "acquisition__keycloak__oauth-grant-type"
         for (caseId in ACQUISITION_CASE_ADMISSIONS.keys) {
             val case = AcquisitionCases.byId(caseId)
             val problems = ACQUISITION_CASE_ADMISSIONS.getValue(caseId).problems(case)
-            // Printed, because this list IS the work queue for the next round, and an operator should
-            // be able to read it off a green build rather than off a failure they had to provoke.
+            // Printed, because this list IS the work queue, and an operator should be able to read it
+            // off a green build rather than off a failure they had to provoke.
             println("[ACQUISITION-ADMISSION] $caseId is blocked by ${problems.size}:")
             problems.forEach { println("[ACQUISITION-ADMISSION]   - $it") }
-            assertTrue(problems.isNotEmpty(), "$caseId reports no problems, which nothing has earned yet")
             assertTrue(
-                // Every rollout on record now carries a compile verdict, so nothing may still be
-                // blocked for lacking one. A case that is blocked for the OLD reason means an anchor
-                // was added without re-buying it.
+                // Every rollout on record carries a compile verdict, so nothing may still be blocked
+                // for lacking one. A case blocked for the OLD reason means an anchor was added without
+                // buying it under the current instrument.
                 problems.none { "does not say whether its tree compiled" in it },
                 "$caseId still has a rollout without a compile verdict; got $problems",
             )
-            assertThrows<IllegalStateException> { requireAcquisitionAdmission(case) }
+            if (caseId == admitted) {
+                assertTrue(problems.isEmpty(), "$caseId should be admitted; blocked by $problems")
+                requireAcquisitionAdmission(case)
+            } else {
+                assertTrue(problems.isNotEmpty(), "$caseId reports no problems, which nothing earned")
+                assertThrows<IllegalStateException> { requireAcquisitionAdmission(case) }
+            }
         }
 
         // The three readings the fifteen anchors bought, each locked to the case it was measured on.
@@ -125,8 +145,8 @@ class AcquisitionAdmissionTest {
             "cc-refresh-token is retired, not merely blocked; got $ccProblems",
         )
 
-        // The two surviving cases, re-anchored under amendment 3. Both now have a ceiling their gold
-        // note reaches every time, and neither has a floor — so what blocks them is the control arm.
+        // Both surviving cases were re-anchored under amendment 3, and neither has a gold-note rollout
+        // that fails: the ceiling is reached every time on both.
         for (caseId in listOf(
             "acquisition__keycloak__client-auth-method",
             "acquisition__keycloak__oauth-grant-type",
@@ -135,10 +155,6 @@ class AcquisitionAdmissionTest {
             assertTrue(
                 problems.none { "gold-note rollout" in it },
                 "$caseId's gold note reaches the ceiling in every recorded rollout; got $problems",
-            )
-            assertTrue(
-                problems.any { "baseline rollout(s) left a tree that demonstrably built" in it },
-                "$caseId has no measured floor and must say so; got $problems",
             )
         }
 
@@ -152,16 +168,25 @@ class AcquisitionAdmissionTest {
             "the no-note solver reaches 6 of 9 unaided and must block the wave; got $authProblems",
         )
 
-        val grantProblems = ACQUISITION_CASE_ADMISSIONS
-            .getValue("acquisition__keycloak__oauth-grant-type")
-            .problems(AcquisitionCases.oauthGrantType)
-        assertTrue(
-            // Amendment 2. Four no-note cells, not one gradable tree — so this case has no measured
-            // floor, and before the amendment the gate said nothing about it, because a null count is
-            // skipped by every threshold that reads counts.
-            grantProblems.any { "0 of 4 baseline rollout(s) left a tree that demonstrably built" in it },
-            "a case whose no-note cells never built has no floor; got $grantProblems",
+        // Amendment 2, as revised: a floor needs a recorded compile VERDICT, not a successful build,
+        // because `compiled` is now its own column and a zero beside `compiled=0` hides nothing. All
+        // four of this case's no-note cells failed to build inside the allowance, and the same solver
+        // compiled 15 of 15 when given 60 interactions or none — so they ran out of room rather than
+        // meeting an impossible task, and they score what a failure scores.
+        val grant = ACQUISITION_CASE_ADMISSIONS.getValue("acquisition__keycloak__oauth-grant-type")
+        assertEquals(
+            listOf(0, 0, 0, 0),
+            grant.baselineRollouts.map { it.endpointScore },
+            "the floor of the admitted case is four zeros with a verdict behind each",
         )
+        assertEquals(
+            listOf(10, 10, 10),
+            grant.goldNoteRollouts.map { it.endpointScore },
+            "and its ceiling is three tens",
+        )
+        // The raw reading stays separable from the endpoint, forever: an unbuilt tree publishes
+        // `oraclePassed=unmeasured`, and only the endpoint reads that as zero.
+        assertNull(grant.baselineRollouts.first().obligations)
     }
 
     @Test

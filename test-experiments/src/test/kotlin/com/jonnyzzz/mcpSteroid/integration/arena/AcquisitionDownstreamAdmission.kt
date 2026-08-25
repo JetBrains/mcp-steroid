@@ -205,7 +205,7 @@ data class AcquisitionCaseAdmission(
         addAll(baselineProblems(baselineRollouts, case))
 
         val goldFloorReading = goldNoteRollouts.mapNotNull { it.obligations }.minOrNull()
-        val baselineCeilingReading = baselineRollouts.mapNotNull { it.obligations }.maxOrNull()
+        val baselineCeilingReading = baselineRollouts.mapNotNull { it.endpointScore }.maxOrNull()
         if (goldFloorReading != null && baselineCeilingReading != null) {
             val gap = goldFloorReading - baselineCeilingReading
             if (gap * 2 < case.oracleTestCount) {
@@ -260,18 +260,23 @@ data class AcquisitionCaseAdmission(
                     "measured floor a flat wave cannot be told from an easy task"
             )
         }
-        // Amendment 2. Recording the compile verdict made the unmeasured cells VISIBLE; it did not stop
-        // them from being counted as a floor. `oauth-grant-type`'s two no-note cells both failed to
-        // build, so their obligation counts are null, so every rule below skipped them in silence and
-        // the case read as having a floor it never measured. A floor is two trees that demonstrably
-        // built and scored low — not two trees nobody could grade.
-        val measuredFloor = rollouts.count { it.compiled == true && it.obligations != null }
-        if (measuredFloor < MIN_BASELINE_ROLLOUTS) {
+        // Amendment 2, as revised 2026-08-25. It first demanded baselines that DEMONSTRABLY BUILT,
+        // because in rounds 2 and 3 a floor of zeros hid compile failures and nothing could tell "did
+        // not understand" from "did not build". That reason is now served by a different mechanism:
+        // `compiled` is its own recorded column, so a zero beside `compiled=0` is fully interpretable
+        // and hides nothing. What the rule demands is therefore the VERDICT, not a successful build.
+        //
+        // And the question of whether a tree that never built deserves a zero is now settled by
+        // measurement rather than by argument: the same solver, given 60 interactions or none at all,
+        // compiled 15 of 15 (round 4, steps 3 and 4). So a no-note cell that fails to build inside the
+        // wave's allowance did not meet an impossible task — it ran out of room, which is a failure of
+        // the work and scores what a failure scores.
+        val withVerdict = rollouts.count { it.compiled != null }
+        if (withVerdict < MIN_BASELINE_ROLLOUTS) {
             add(
-                "$measuredFloor of ${rollouts.size} baseline rollout(s) left a tree that demonstrably " +
-                    "built, $MIN_BASELINE_ROLLOUTS needed. A no-note cell that failed `javac` is not a " +
-                    "low floor, it is an unmeasured cell, and reading one as the other is what produced " +
-                    "three rounds of floors at zero"
+                "$withVerdict of ${rollouts.size} baseline rollout(s) carry a compile verdict, " +
+                    "$MIN_BASELINE_ROLLOUTS needed. Without one a zero cannot be told apart from a " +
+                    "`javac` failure, which is what produced three rounds of uninterpretable floors"
             )
         }
         rollouts.forEach { rollout ->
@@ -281,7 +286,7 @@ data class AcquisitionCaseAdmission(
                         "no-note cell that failed to build reads as a beautifully low floor and is not one"
                 )
             }
-            val obligations = rollout.obligations
+            val obligations = rollout.endpointScore
             if (obligations != null && obligations > pristineFloor + BASELINE_SLACK) {
                 add(
                     "baseline rollout ${rollout.buildId} scored $obligations of ${case.oracleTestCount} " +
@@ -408,7 +413,24 @@ data class AcquisitionRolloutEvidence(
      * cheap next to publishing a correlation computed over `javac` failures.
      */
     val compiled: Boolean? = null,
-)
+) {
+    /**
+     * The obligation count as the ENDPOINT reads it: a tree that did not build satisfied none.
+     *
+     * Deliberately a second property rather than a change to [obligations]. The raw reading stays
+     * honest — a cell publishes `oraclePassed=unmeasured/N ... compiled=0`, and the two facts remain
+     * separable in the CSV forever — while the decision to score an unbuilt tree as zero is one named
+     * place a reader can find and disagree with, instead of an averaging convention nobody voted on.
+     *
+     * Null only when nobody recorded whether the tree built, which is not a score but a missing cell.
+     */
+    val endpointScore: Int?
+        get() = when (compiled) {
+            null -> null
+            false -> 0
+            true -> obligations
+        }
+}
 
 /**
  * The pre-registered admission record of every acquisition case, addressed by id.

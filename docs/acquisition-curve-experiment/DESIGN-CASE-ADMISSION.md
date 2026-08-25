@@ -447,3 +447,68 @@ the downstream path, applying the oracle. The practical exposure to `U` is small
 out of the agent's own scratch file was already observed when it was first read, so no new fact can be
 manufactured — but a brief that asserts a guarantee the harness does not provide is a defect, and it
 is left here rather than quietly repaired at the same time as the two above.
+
+## Amendment 2 revised, and the endpoint decided (2026-08-25)
+
+Decided by the experiment's owner after the floor probes returned, and recorded before the first note
+cell of the wave was queued.
+
+### The endpoint
+
+**A tree that did not build satisfied no obligations.** `compiled=0` scores zero, not "unmeasured".
+
+The reason this is now decidable, where in round 2 it was not: the same solver, given 60 interactions
+or none at all, compiled **15 of 15** (steps 3 and 4). So a no-note cell that fails to build inside the
+wave's twenty did not meet an impossible task — it ran out of room, and running out of room is a
+failure of the work, which is what the endpoint measures.
+
+The raw reading stays separable forever. A cell still publishes `oraclePassed=unmeasured/N …
+compiled=0`, and the zero lives in one named place, `AcquisitionRolloutEvidence.endpointScore`, that a
+reader can find and disagree with — rather than in an averaging convention nobody voted on.
+
+### Amendment 2, restated
+
+It demanded baselines that **demonstrably built**. Its reason was that in rounds 2 and 3 a floor of
+zeros hid compile failures and nothing could tell "did not understand" from "did not build". That
+reason is now served by a different mechanism — `compiled` is its own recorded column — so the rule
+demands the **verdict**, not a successful build.
+
+This is the first amendment in this family that does not move in the stricter direction, and it is
+recorded as such. What licenses it is not that it unblocks a case: it is that the defect it was
+written against is now prevented by a column that did not exist when it was written. The stricter
+version would have refused a floor of four zeros *whose cause is recorded and understood*, which is
+the opposite of what the protocol is for.
+
+### Why the research budget was NOT touched
+
+The proposal on the table was to cut the research allowance from 40 to 20 and re-run everything, to
+widen the separation between floor and ceiling. Calibrating dynamic range is legitimate and this
+protocol licenses it — but the research budget is the wrong lever, and the committed curves say so:
+
+| case | arm | `U` at 20 | calls spent | `U` at 40 | calls spent |
+|---|---|---|---|---|---|
+| `client-auth-method` | mcp | 0.64 | 16.3 | 0.64 | **16.3** |
+| `client-auth-method` | shell | 0.47 | 20 | 0.62 | 31.3 |
+| `oauth-grant-type` | mcp | 0.73 | 17.0 | 0.73 | **17.0** |
+| `oauth-grant-type` | shell | 0.60 | 20 | **0.76** | 40 |
+
+The semantic arm stops on its own at about seventeen interactions, so cutting the allowance to twenty
+does not touch it; the shell arm keeps going and catches up by forty, and on `oauth-grant-type` it
+passes. Cutting to twenty would therefore truncate **only the control arm**, raising the measured
+advantage from +0.02/−0.03 to +0.17/+0.13 for a mechanical reason.
+
+And it would not achieve the stated goal: the downstream floor is the unaided solver and the ceiling
+is a hand-written note, so neither moves with the research budget. What moves is only where the notes
+land between them.
+
+The separation the proposal was after already exists, at the solver allowance the design started
+with. On `oauth-grant-type` at twenty: floor **0, 0, 0, 0**, ceiling **10, 10, 10**, zero variance in
+both groups.
+
+### Where each case stands now
+
+| case | verdict |
+|---|---|
+| `cc-refresh-token` | retired |
+| `client-auth-method` | blocked by 2 — one no-note cell reached 6 of 9, leaving a 3-point gap on a 9-point scale |
+| `oauth-grant-type` | **ADMITTED** |
