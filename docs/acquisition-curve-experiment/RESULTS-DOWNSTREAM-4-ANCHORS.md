@@ -415,3 +415,86 @@ settled:
    rather than reinterpreted in prose.
 
 Nothing in this document licenses skipping that. It reports which branch fired and stops there.
+
+---
+
+# Step 5: the wave — and it sits on the floor
+
+Twenty-four cells on `oauth-grant-type`, the one admitted case: twelve checkpoint notes (four
+trajectories, two per arm, at checkpoints 5/10/20) x two rollouts, allowance 20, endpoint as decided
+on 2026-08-25 (a tree that did not build satisfied no obligations). All twenty-four builds green.
+≈$6.
+
+## The readings
+
+| note | arm | `U_obs` | rep 1 | rep 2 |
+|---|---|---|---|---|
+| `mcp-r1@5` | mcp | 0.53 | 0 | 0 |
+| `mcp-r1@10` | mcp | **0.73** | 0 | 0 |
+| `mcp-r1@20` | mcp | **0.73** | 0 | 0 |
+| `mcp-r2@5` | mcp | 0.47 | 0 | 0 |
+| `mcp-r2@10` | mcp | 0.67 | **9** | **9** |
+| `mcp-r2@20` | mcp | **0.73** | 0 | 0 |
+| `shell-r1@5` | shell | 0.20 | 0 | 0 |
+| `shell-r1@10` | shell | 0.40 | 0 | 0 |
+| `shell-r1@20` | shell | 0.60 | 0 | 0 |
+| `shell-r2@5` | shell | 0.00 | 0 | 0 |
+| `shell-r2@10` | shell | 0.27 | 0 | 0 |
+| `shell-r2@20` | shell | 0.53 | **9** | 0 |
+
+**Three cells of twenty-four produced a gradable tree.** The gold note produced one in three of three.
+
+| quantity | value |
+|---|---|
+| ρ(`U_obs`, obligations), by note, n=12 | **+0.18** |
+| ρ(`U_obs`, finished), by cell, n=24 | +0.18 |
+| cells at the HIGHEST `U` (0.73) that finished | **0 of 6** |
+| cells at `U` ≥ 0.67 that finished | 2 of 8 |
+| cells at `U` < 0.67 that finished | 1 of 16 |
+
+The sign is nominally positive and it means nothing: it rests on three successes, and every cell
+carrying the best note the experiment produced scored zero. One thing is worth recording as a
+positive: `mcp-r2@10` returned **9 of 10 twice**, an exact replication, so a note that works works
+reproducibly.
+
+## What actually failed, and it is the protocol again
+
+Not the hypothesis — the wave could not test it. The band between floor and ceiling is real and wide
+(0 to 10, zero variance at both ends), and **no note the experiment can produce lands inside it.**
+
+The admission gate certified this case on a **hand-written** gold note. Nothing among the six
+requirements asked that a note of the kind the wave actually buys clear the floor even once. So the
+case was admitted on evidence that the task is reachable *by an author who already knew the answer*,
+and the wave then discovered that reachable-with-gold and reachable-with-a-real-note are different
+statements.
+
+That is the same shape of defect as rounds 1, 2 and 3: a property of the instrument, knowable before
+the wave for the price of two cells, that nothing forced anyone to look at.
+
+What is different this time, and it is not nothing: **the zeros are interpretable.** `compiled=0` is
+recorded on every one of them, and the floor probes established that this same solver compiles 15 of
+15 when given 60 interactions or none. So the twenty-one zeros say "did not finish inside twenty",
+which is a fact about the allowance and the note — not the uninterpretable zero that cost rounds 2
+and 3 their waves.
+
+## The window, stated in the numbers that exist
+
+| allowance | no note | gold note | real notes (best, `U`=0.73) |
+|---|---|---|---|
+| 20 | 0 of 4 finish | **3 of 3, all 10/10** | **0 of 6 finish** |
+| 60 | **10 of 10 finish**, 8/10 obligations | — | — |
+| none | 10 of 10 finish, 8/10 obligations | — | — |
+
+A measurable wave needs an allowance where a real note finishes and no note does not. Twenty is below
+that window on the note side; sixty is above it on the control side. Nothing between 20 and 60 has
+been measured, and the pre-registered set offers 25.
+
+## The repair this earns, not yet applied
+
+A seventh admission requirement: **at least one note of the kind the wave will buy must clear the
+floor before the wave is bought.** Two cells, ≈$0.50, and it would have replaced this round's ≈$6 with
+a calibration that said "not at this allowance" before anything was bought.
+
+It is written here and deliberately not implemented in the same breath as the result it would have
+caught, because the allowance it implies moving is the one parameter this design has always held
+closed. That is the next decision, and it is not mine to take alone.

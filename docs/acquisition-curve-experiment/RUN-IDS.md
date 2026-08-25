@@ -326,3 +326,18 @@ Revision `341190fcf`, `understanding.budget=none`, bare `claude-haiku-4-5`, no n
 
 They are NOT recorded in `baselineRollouts`: those are the wave's floor, measured at the wave's
 allowance, and an unbudgeted cell mixed into them would be a floor for a condition nobody runs.
+
+## Round 4, step 5 — the note wave on `oauth-grant-type` (2026-08-25)
+
+Revision `3eb395c9f`, allowance 20, twelve checkpoint notes x two rollouts. All green; three of
+twenty-four produced a gradable tree. Reading: [RESULTS-DOWNSTREAM-4-ANCHORS.md](RESULTS-DOWNSTREAM-4-ANCHORS.md).
+
+| note | rep 1 | rep 2 |
+|---|---|---|
+| `mcp-b40-l2000-r1@5/10/20` | 1040658038 / 040 / 042 | 1040658062 / 064 / 066 |
+| `mcp-b40-l2000-r2@5/10/20` | 1040658044 / 046 / 048 | 1040658068 / 070 / 072 |
+| `none-b40-l2000-r1@5/10/20` | 1040658050 / 052 / 054 | 1040658074 / 1040660396 / 398 |
+| `none-b40-l2000-r2@5/10/20` | 1040658056 / 058 / 060 | 1040660400 / 402 / 404 |
+
+The three that finished: 1040658046 and 1040658070 (`mcp-r2@10`, 9/10 both) and 1040658060
+(`none-r2@20`, 9/10).
