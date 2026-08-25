@@ -205,7 +205,7 @@ class AcquisitionDownstreamTest {
         // impossible to lift; a note cell bought before the evidence exists is the mistake three
         // rounds in a row have paid for.
         if (condition is AcquisitionCheckpointNote) {
-            requireAcquisitionAdmission(case)
+            requireAcquisitionAdmission(case, acquisitionDownstreamBudgetOf(System.getProperty(UNDERSTANDING_BUDGET_PROPERTY)))
         }
 
         val previousModel = System.getProperty(RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY)

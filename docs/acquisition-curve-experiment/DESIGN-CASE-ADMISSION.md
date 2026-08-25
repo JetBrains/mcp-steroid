@@ -512,3 +512,46 @@ both groups.
 | `cc-refresh-token` | retired |
 | `client-auth-method` | blocked by 2 — one no-note cell reached 6 of 9, leaving a 3-point gap on a 9-point scale |
 | `oauth-grant-type` | **ADMITTED** |
+
+## All three cases admitted, each at its own allowance (2026-08-26)
+
+The calibration rule of `DESIGN-DOWNSTREAM.md` — *a floor that still reaches the ceiling means tighten,
+a ceiling that cannot be finished means loosen* — was applied to each case's own readings rather than
+to the family as a whole. Applied honestly it gave two different answers, so the allowance is now a
+property of the case and is recorded as `AcquisitionCaseAdmission.solverAllowance`.
+
+| case | allowance | why it moved | gold note (3 rollouts) | no note (2 rollouts) |
+|---|---|---|---|---|
+| `cc-refresh-token` | **15** | at 20 a no-note cell read 5 of 9 — tighten | 9/9, 9/9, 9/9 | 0, 0 |
+| `client-auth-method` | **15** | at 20 a no-note cell read 6 of 9 — tighten | 9/9, 9/9, 9/9 | 0, 0 |
+| `oauth-grant-type` | **25** | floor was already 0 at 20, but the note WAVE sat on the floor (3 of 24) — loosen | 10/10, 10/10, 10/10 | 0, 0 |
+
+Zero variance in both groups on all three. Every zero is a measured zero: each baseline carries
+`compiled=0` and a null obligation count, so the endpoint decision (an unbuilt tree satisfies none)
+stays visible rather than baked into the number.
+
+Verified cell by cell before the waves were bought: all twenty anchors are green builds, every one
+publishes its `[ACQUISITION-DOWN]` line, none carries a `LOST` verdict or an oracle-patch conflict, and
+every one of the nine zeros failed `default-compile` on a file **the solver itself created** — invented
+names like `ClientCredentialsGrantRefreshTokenRestrictionExecutor` and
+`X509SelfSignedClientAuthenticator_Complete`. Not `testCompile`, not the oracle, not the repository's
+own sources.
+
+### The guard that comes with a per-case allowance
+
+`requireAcquisitionAdmission(case, budget)` now refuses a note cell whose allowance differs from the
+one its case was calibrated at. Without it a wave queued at another case's number would be graded
+against a floor and ceiling nobody measured under it, and would look like an ordinary row in the
+table — the exact failure mode this protocol exists to prevent, in a new dress.
+
+The cost is recorded rather than hidden: cells of different cases are no longer measured under the
+same constraint, so the `U`-to-outcome relation is read **within** a case. The wave is within-case by
+construction, so the primary analysis is unaffected.
+
+### What `cc-refresh-token` shows about the retirement
+
+It was retired on 2026-08-24 for failing to produce a gradable tree in three of three gold rollouts.
+Two of those three failed on a unit test the agent wrote itself — the files amendment 3 now discards —
+and at an allowance of 15 the case reaches its ceiling **three times of three**. The retirement was a
+decision taken on readings a later repair invalidated, and withdrawing it was a correction, not a
+relaxation: the stopping rule is intact and simply did not fire on honest readings.

@@ -53,6 +53,19 @@ data class AcquisitionCaseAdmission(
      * reads 1/9 as partial progress by an agent that did nothing at all.
      */
     val pristineFloor: Int,
+    /**
+     * The solver allowance this case's anchors were measured at, and the one its wave must run at.
+     *
+     * Per case, because the pre-registered calibration rule is per case: "a floor that still reaches
+     * the ceiling means tighten, a ceiling that cannot be finished means loosen", applied to each
+     * case's own floor and ceiling. Applied honestly it produced three different answers, and a single
+     * number would have been a choice rather than the rule's output.
+     *
+     * The consequence is recorded here so nobody has to rediscover it: cells of DIFFERENT cases are no
+     * longer measured under the same constraint, so the `U` to outcome relation is read WITHIN a case.
+     * The wave is within-case by construction, so this costs the primary analysis nothing.
+     */
+    val solverAllowance: Int,
     /** The rungs between floor and ceiling, plus the ceiling itself as the last entry. */
     val rungs: List<AcquisitionPartialRung>,
     /** Weak-agent cells run with the hand-written gold note — the reachability evidence. */
@@ -519,17 +532,24 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
         //
         // All THREE gold-note rollouts failed to compile. The weak agent, handed the reference
         // description of the change, cannot build this tree inside twenty interactions.
+        solverAllowance = 15,
+        // Re-anchored at 15 after the gate printed its own remedy for a floor of 5 of 9: tighten the
+        // allowance. Three of three at the ceiling. The pre-amendment-3 readings this case was once
+        // retired on (1040174097/099/101) are superseded — two of those three failed on a unit test
+        // the agent wrote itself, which amendment 3 now discards.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040174097", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040174099", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040174101", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1041682125", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041794369", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041794371", obligations = 9, compiled = true),
         ),
         // And the one no-note tree that DID build reads 5 of 9 — four obligations above the pristine
         // floor. Round 2's floor of "0, 0, 0, 0" was four failures to compile; the real unaided score
         // of this case, when the agent gets it to build, is most of the scale.
+        // At 15 neither no-note tree builds. At 20 one of them read 5 of 9 (1040174118), which is what
+        // the tightening was for; that reading belongs to the old allowance and is not mixed in here.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040174116", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040174118", obligations = 5, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041772952", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1041772954", obligations = null, compiled = false),
         ),
         // RETIREMENT WITHDRAWN 2026-08-25. It was declared on 1040174097/099/101, three gold-note
         // rollouts that produced no gradable tree — but those cells were bought BEFORE amendment 3,
@@ -591,29 +611,19 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 isolates = "nothing — this is the ceiling",
             ),
         ),
-        // Re-bought under amendment 3, which is why the pre-amendment set is superseded rather than
-        // kept beside these. 1040174120/122/124 read 9, unmeasured, 9 — and the middle one failed
-        // `testCompile` on a test the agent wrote, so the difference between those three readings was
-        // whether a scratch test happened to compile. Every one of the three below discarded exactly
-        // one such test, including the two whose predecessors passed.
-        //
-        // Three of three at the ceiling. Amendment 3's prediction for this half was exact.
+        solverAllowance = 15,
+        // Re-anchored at 15 for the same reason as `cc-refresh-token`: at 20 a no-note cell read 6 of 9.
+        // Three of three at the ceiling here too.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040258857", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040259462", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040259464", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041682138", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041794373", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041794375", obligations = 9, compiled = true),
         ),
-        // All FOUR no-note cells are kept, across both waves. A baseline reading is not affected by
-        // amendment 3 — the rule only removes files that would break the build, and a tree that
-        // compiled and was graded compiles and grades the same without them — so superseding the one
-        // that read 6 of 9 would be dropping the single reading that blocks this case on the gap rule.
-        // One of four built. Amendment 3's prediction for this half was WRONG: it expected the 6 of 9
-        // floor to reappear, and instead neither re-bought baseline produced a gradable tree.
+        // At 15 neither no-note tree builds. The 6-of-9 reading (1040174126) belongs to the 20 allowance
+        // that this tightening replaced, and is not mixed in here.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040174126", obligations = 6, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040174128", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040259466", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040259468", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1041772956", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1041772958", obligations = null, compiled = false),
         ),
     ),
     AcquisitionCaseAdmission(
@@ -669,21 +679,22 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
         // Re-bought under amendment 3; 1040174130/132/134 (unmeasured, 10, 10 — the first failed
         // `testCompile` on the agent's own test) and the round-3 pair 1039700657/653 are superseded.
         // Three of three at the ceiling, each having discarded exactly one agent-authored test.
+        solverAllowance = 25,
+        // LOOSENED, not tightened, and for the opposite reason. This case's floor was already zero at
+        // 20 and its gold reached the ceiling 3 of 3 — but its NOTE WAVE sat on the floor: three of
+        // twenty-four cells produced a gradable tree. Nothing the experiment can produce landed between
+        // floor and ceiling, so the allowance moves up. At 15 even the gold note failed once
+        // (1041682140, did not compile), which is the evidence that this case needs more room, not less.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040259470", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040259472", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1040259474", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041798411", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041798413", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1041798415", obligations = 10, compiled = true),
         ),
-        // FOUR no-note cells across both waves, and not one produced a gradable tree. Three of them
-        // had nothing to discard — the unaided agent never got far enough to write a test — and the
-        // fourth failed on its own implementation with its test already removed. So this case has no
-        // measured floor, and what it has instead is a replicated demonstration that the unaided weak
-        // agent does not reach a compiling tree here at all.
+        // Neither no-note tree builds at 25 either, so loosening the allowance did not hand the control
+        // arm the task: the floor stays at zero while the ceiling stays at ten.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1040174136", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040174138", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040259476", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1040259478", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1041798417", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1041798419", obligations = null, compiled = false),
         ),
     ),
 ).associateBy { it.caseId }
@@ -695,11 +706,20 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
  * conditions: `baseline`, `oracle:gold` and the ladder rungs are exactly the cells that produce the
  * missing evidence, so gating them would make the block impossible to lift.
  */
-fun requireAcquisitionAdmission(case: UnderstandingCase) {
+fun requireAcquisitionAdmission(case: UnderstandingCase, budget: Int? = null) {
     val admission = checkNotNull(ACQUISITION_CASE_ADMISSIONS[case.instanceId]) {
         "'${case.instanceId}' has no admission record. A case joins a downstream wave through " +
             "ACQUISITION_CASE_ADMISSIONS, with its ladder and its thresholds written down BEFORE the " +
             "first note cell is queued"
+    }
+    // The allowance is per case now, so a note cell queued at another case's number would be graded
+    // against a floor and a ceiling that were never measured under it — and would look like an ordinary
+    // cell in the table. Refused before a container starts, like every other admission failure.
+    check(budget == null || budget == admission.solverAllowance) {
+        "'${case.instanceId}' is calibrated at an allowance of ${admission.solverAllowance} " +
+            "interactions and this cell was queued at $budget. Its floor and ceiling were measured at " +
+            "${admission.solverAllowance}; a wave run at anything else is measured against readings " +
+            "that do not exist. Queue it with -D$UNDERSTANDING_BUDGET_PROPERTY=${admission.solverAllowance}"
     }
     val problems = admission.problems(case)
     check(problems.isEmpty()) {

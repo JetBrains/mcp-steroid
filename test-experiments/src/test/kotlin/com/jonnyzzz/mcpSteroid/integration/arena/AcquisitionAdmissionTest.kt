@@ -95,103 +95,64 @@ class AcquisitionAdmissionTest {
     }
 
     @Test
-    fun `exactly one case is admitted, and the other two say what stops them`() {
-        // ONE case is admitted, and that is the whole point of the protocol finally being satisfied
-        // rather than a relaxation of it. `oauth-grant-type` has a replayed ceiling, a ladder whose
-        // rungs separate by axis name, three gold-note rollouts that all compiled and all reached
-        // 10 of 10, and four no-note rollouts that all carry a compile verdict and all score zero.
-        // Floor 0, ceiling 10, zero variance in both.
-        // One admitted today. The other two print the pre-registered remedy for what stops them:
-        // their no-note solver re-derives the understanding, so the allowance is tightened rather than
-        // the rule loosened.
-        val admitted = "acquisition__keycloak__oauth-grant-type"
-        for (caseId in ACQUISITION_CASE_ADMISSIONS.keys) {
+    fun `every case is admitted, each at the allowance its own floor and ceiling asked for`() {
+        // All three, and the allowance is per case because the pre-registered calibration rule is per
+        // case. Applied honestly to each case's own readings it gave two different answers: tighten to
+        // 15 where a no-note cell reached 5 and 6 of 9, loosen to 25 where the gold note reached the
+        // ceiling but no note the experiment can produce did.
+        val expected = mapOf(
+            "acquisition__keycloak__cc-refresh-token" to 15,
+            "acquisition__keycloak__client-auth-method" to 15,
+            "acquisition__keycloak__oauth-grant-type" to 25,
+        )
+        assertEquals(expected.keys, ACQUISITION_CASE_ADMISSIONS.keys)
+
+        for ((caseId, allowance) in expected) {
+            val record = ACQUISITION_CASE_ADMISSIONS.getValue(caseId)
             val case = AcquisitionCases.byId(caseId)
-            val problems = ACQUISITION_CASE_ADMISSIONS.getValue(caseId).problems(case)
-            // Printed, because this list IS the work queue, and an operator should be able to read it
-            // off a green build rather than off a failure they had to provoke.
-            println("[ACQUISITION-ADMISSION] $caseId is blocked by ${problems.size}:")
+            val problems = record.problems(case)
+            println("[ACQUISITION-ADMISSION] $caseId at allowance ${record.solverAllowance}: " +
+                if (problems.isEmpty()) "ADMITTED" else "blocked by ${problems.size}")
             problems.forEach { println("[ACQUISITION-ADMISSION]   - $it") }
-            assertTrue(
-                // Every rollout on record carries a compile verdict, so nothing may still be blocked
-                // for lacking one. A case blocked for the OLD reason means an anchor was added without
-                // buying it under the current instrument.
-                problems.none { "does not say whether its tree compiled" in it },
-                "$caseId still has a rollout without a compile verdict; got $problems",
+
+            assertEquals(allowance, record.solverAllowance, "$caseId runs at a different allowance")
+            assertTrue(problems.isEmpty(), "$caseId should be admitted; blocked by $problems")
+            requireAcquisitionAdmission(case)
+
+            // The separation every one of them was re-anchored to produce: the ceiling every time, the
+            // floor never. Zero variance in both groups is what makes a twelve-note wave readable.
+            assertEquals(
+                List(3) { case.oracleTestCount },
+                record.goldNoteRollouts.map { it.endpointScore },
+                "$caseId's gold note must reach the ceiling in all three rollouts",
             )
-            if (caseId == admitted) {
-                assertTrue(problems.isEmpty(), "$caseId should be admitted; blocked by $problems")
-                requireAcquisitionAdmission(case)
-            } else {
-                assertTrue(problems.isNotEmpty(), "$caseId reports no problems, which nothing earned")
-                assertThrows<IllegalStateException> { requireAcquisitionAdmission(case) }
+            assertEquals(
+                List(2) { 0 },
+                record.baselineRollouts.map { it.endpointScore },
+                "$caseId's no-note cells must all sit on the floor",
+            )
+            // And the floor is a MEASURED zero, not an unrecorded one: every baseline carries a compile
+            // verdict, and its raw obligation count stays null so the endpoint decision remains visible.
+            record.baselineRollouts.forEach {
+                assertEquals(false, it.compiled, "${it.buildId} must carry a compile verdict")
+                assertNull(it.obligations, "${it.buildId} must not invent an obligation count")
             }
         }
+    }
 
-        // The three readings the fifteen anchors bought, each locked to the case it was measured on.
-        val ccProblems = ACQUISITION_CASE_ADMISSIONS
-            .getValue("acquisition__keycloak__cc-refresh-token")
-            .problems(AcquisitionCases.ccRefreshToken)
-        assertEquals(
-            3,
-            ccProblems.count { "did not compile" in it },
-            "all three gold-note rollouts of cc-refresh-token failed to build; got $ccProblems",
-        )
-        assertTrue(
-            ccProblems.any { "1040174118" in it && "scored 5 of 9 with NO note" in it },
-            "the one no-note tree that built scored 5 of 9 and must block the wave; got $ccProblems",
-        )
-        assertTrue(
-            // The retirement was WITHDRAWN: it rested on three gold rollouts bought before amendment 3,
-            // two of which failed on a unit test the agent wrote itself. A case may not stay buried on
-            // a reading a later repair invalidated — the stopping rule is intact and may fire again on
-            // the re-bought anchors.
-            ccProblems.none { "LEFT the downstream family" in it },
-            "cc-refresh-token's retirement is withdrawn pending re-anchoring; got $ccProblems",
-        )
-
-        // Both surviving cases were re-anchored under amendment 3, and neither has a gold-note rollout
-        // that fails: the ceiling is reached every time on both.
-        for (caseId in listOf(
-            "acquisition__keycloak__client-auth-method",
-            "acquisition__keycloak__oauth-grant-type",
-        )) {
-            val problems = ACQUISITION_CASE_ADMISSIONS.getValue(caseId).problems(AcquisitionCases.byId(caseId))
-            assertTrue(
-                problems.none { "gold-note rollout" in it },
-                "$caseId's gold note reaches the ceiling in every recorded rollout; got $problems",
-            )
+    @Test
+    fun `a note cell queued at another case's allowance is refused before a container starts`() {
+        val case = AcquisitionCases.oauthGrantType
+        val record = ACQUISITION_CASE_ADMISSIONS.getValue(case.instanceId)
+        // Its own allowance passes.
+        requireAcquisitionAdmission(case, record.solverAllowance)
+        // Any other pre-registered number does not: the floor and ceiling this case was admitted on
+        // were measured at 25, and a wave at 15 or 20 would be graded against readings that do not
+        // exist while looking like an ordinary row in the table.
+        for (wrong in ACQUISITION_DOWNSTREAM_BUDGETS.filter { it != record.solverAllowance }) {
+            val thrown = assertThrows<IllegalStateException> { requireAcquisitionAdmission(case, wrong) }
+            assertTrue("calibrated at an allowance of 25" in thrown.message.orEmpty(), thrown.message.orEmpty())
         }
-
-        val authProblems = ACQUISITION_CASE_ADMISSIONS
-            .getValue("acquisition__keycloak__client-auth-method")
-            .problems(AcquisitionCases.clientAuthMethod)
-        assertTrue(
-            // Kept across both waves on purpose: it is the only baseline reading above the floor, and
-            // it is the one that blocks this case on the gap rule.
-            authProblems.any { "1040174126" in it && "scored 6 of 9 with NO note" in it },
-            "the no-note solver reaches 6 of 9 unaided and must block the wave; got $authProblems",
-        )
-
-        // Amendment 2, as revised: a floor needs a recorded compile VERDICT, not a successful build,
-        // because `compiled` is now its own column and a zero beside `compiled=0` hides nothing. All
-        // four of this case's no-note cells failed to build inside the allowance, and the same solver
-        // compiled 15 of 15 when given 60 interactions or none — so they ran out of room rather than
-        // meeting an impossible task, and they score what a failure scores.
-        val grant = ACQUISITION_CASE_ADMISSIONS.getValue("acquisition__keycloak__oauth-grant-type")
-        assertEquals(
-            listOf(0, 0, 0, 0),
-            grant.baselineRollouts.map { it.endpointScore },
-            "the floor of the admitted case is four zeros with a verdict behind each",
-        )
-        assertEquals(
-            listOf(10, 10, 10),
-            grant.goldNoteRollouts.map { it.endpointScore },
-            "and its ceiling is three tens",
-        )
-        // The raw reading stays separable from the endpoint, forever: an unbuilt tree publishes
-        // `oraclePassed=unmeasured`, and only the endpoint reads that as zero.
-        assertNull(grant.baselineRollouts.first().obligations)
     }
 
     @Test
@@ -554,6 +515,7 @@ class AcquisitionAdmissionTest {
             ),
             CEILING,
         ),
+        solverAllowance = ACQUISITION_DOWNSTREAM_BUDGET,
         goldNoteRollouts = List(3) { AcquisitionRolloutEvidence("g$it", obligations = 9, compiled = true) },
         baselineRollouts = List(2) { AcquisitionRolloutEvidence("b$it", obligations = 1, compiled = true) },
     )
