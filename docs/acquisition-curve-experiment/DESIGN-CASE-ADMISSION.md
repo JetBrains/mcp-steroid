@@ -383,3 +383,67 @@ Ten cells, five `baseline` at sixty on each surviving case. Written before they 
 
 As with amendment 3, the probe is bought because the readings are wrong, not because they are
 unfavourable. If either case is admitted after it, the prediction failed and that is a finding.
+
+## Two leaks in the allowance, found by auditing transcripts (2026-08-25)
+
+Both were found by counting tool names across the committed transcripts rather than by reasoning about
+the design, and one of them touches the PUBLISHED acquisition result.
+
+### 1. A subagent bought unbounded research for one interaction — and only one arm used it
+
+The gate is a `PreToolUse` hook on the parent agent. An `Agent` call was charged **one** interaction,
+and everything the subagent then read or searched was invisible to it. Across the twenty-one committed
+research trajectories:
+
+| arm | trajectories | used a subagent |
+|---|---|---|
+| `mcp` (semantic) | 10 | **0** |
+| `none` (shell) | 11 | **7**, one to four calls each |
+
+The leak is one-sided and it favours the CONTROL arm. Its effect on the acquisition curve is **not**
+one-directional and must not be asserted either way without measurement:
+
+- the shell arm did more research than its counted budget says, which would make the semantic arm's
+  interaction advantage **understated**;
+- but `U_obs` is computed from tool results in the parent transcript, and a subagent's internal reads
+  are not there, so evidence it found is invisible unless its summary happens to quote the literals —
+  which would make the shell arm's `U_obs` **understated** instead, and the advantage overstated.
+
+`U_note` — the blind judge reading the note — has no such blind spot, so the two readings of the same
+trajectories are affected differently. What this costs the published curves is a question for a
+re-read of the committed transcripts, not for this document.
+
+`UNDERSTANDING_SUBAGENT_TOOLS` now refuses `Agent` and `Task` outright, in both phases. Charging N per
+call was rejected: any N is a guess about how much happened inside, the amount varies per call, and a
+wrong guess is indistinguishable in the table from a real difference between the arms.
+
+### 2. Polling a background build was taxed
+
+A cell that backgrounded a build paid an interaction per poll — for `ScheduleWakeup`, which reads
+nothing, and for reading the CLI's own task-output file under
+`/tmp/claude-<uid>/<slug>/<uuid>/tasks/<id>.output`. The allowance counts calls that read or query the
+PROJECT, so both were charged against their own definition, and the tax fell on exactly the agents
+that ran the long build the brief tells them to run.
+
+`ScheduleWakeup` joins both exempt lists; the task-output path is exempt through a deliberately narrow
+glob. A blanket "outside the project is free" was rejected because one `cp -r project /tmp` would then
+buy unlimited reads.
+
+### Why these were invisible until now
+
+Every existing test of the gate asserted on the script's TEXT. The script exits 0 on any internal
+failure — deliberately, so an instrument that cannot count never becomes one that blocks everything —
+which means a mistyped `sed` or a `case` glob matching nothing does not fail, it silently lets every
+call through while the table still says twenty. `UnderstandingBudgetGateShellTest` now drives the
+script through a real `sh` with the payloads the CLI actually sends, and asserts exit codes and the
+counter file: the subagent refusal, the free poll, the charged ordinary `/tmp` read, the wall, and
+that nothing reaches stdout.
+
+### Not fixed, and recorded as such
+
+The research brief tells the agent its tree is checked for modification and that a run which changed
+anything is discarded. **Nothing checks it.** `GitDriver` appears once in `UnderstandingRun.kt`, in
+the downstream path, applying the oracle. The practical exposure to `U` is small — evidence read back
+out of the agent's own scratch file was already observed when it was first read, so no new fact can be
+manufactured — but a brief that asserts a guarantee the harness does not provide is a defect, and it
+is left here rather than quietly repaired at the same time as the two above.

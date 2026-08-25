@@ -51,6 +51,7 @@ data class AgentHook(val event: String, val scriptPath: String)
 val UNDERSTANDING_BUDGET_EXEMPT_TOOLS: List<String> = listOf(
     "ToolSearch",
     "TodoWrite",
+    "ScheduleWakeup",
     "mcp__mcp-steroid__steroid_list_projects",
     "mcp__mcp-steroid__steroid_fetch_resource",
 )
@@ -79,11 +80,52 @@ val UNDERSTANDING_BUDGET_EXEMPT_TOOLS: List<String> = listOf(
 val UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS: List<String> = listOf(
     "ToolSearch",
     "TodoWrite",
+    "ScheduleWakeup",
     "Write",
     "Edit",
     "MultiEdit",
     "NotebookEdit",
 )
+
+/**
+ * Tools that spawn a SUBAGENT, refused outright in both phases.
+ *
+ * Not exempted and not charged more — refused, because there is no number that would be right. The
+ * allowance counts environment interactions, and a subagent is an unbounded proxy for them: one
+ * `Agent` call reads and searches the repository as many times as it likes, and the gate is a
+ * `PreToolUse` hook on the PARENT, so none of it is seen or counted.
+ *
+ * It was not hypothetical. Across the twenty-one committed research trajectories, subagents were used
+ * by SEVEN of the eleven `none`-arm runs (one to four calls each) and by NONE of the ten `mcp`-arm
+ * runs — a one-sided leak in the arm the semantic arm is measured against.
+ *
+ * Charging N per call was rejected: any N is a guess about how much work happened inside, the amount
+ * varies per call, and a wrong guess is indistinguishable in the table from a real difference between
+ * the arms. Refusal has one meaning.
+ */
+val UNDERSTANDING_SUBAGENT_TOOLS: List<String> = listOf("Agent", "Task")
+
+/**
+ * Why a subagent call is refused, phrased so the agent does the work itself instead of retrying.
+ */
+const val UNDERSTANDING_SUBAGENT_REFUSED_MESSAGE: String =
+    "DELEGATION IS NOT AVAILABLE IN THIS TASK. Spawning a subagent is refused here and retrying will " +
+        "not help: every repository interaction has to be one you make yourself, so that the work is " +
+        "counted. Search, read and reason directly with your own tool calls."
+
+/**
+ * The path shape of the agent CLI's own background-task output, which is not the repository.
+ *
+ * A cell that backgrounds a build then polls it was paying an interaction per poll — for reading a
+ * file the CLI wrote about its OWN task, under `/tmp/claude-<uid>/<slug>/<uuid>/tasks/<id>.output`.
+ * The allowance counts calls that read or query the PROJECT, and this reads neither, so charging for
+ * it taxed exactly the agents that ran a long build the brief told them to run.
+ *
+ * Deliberately narrow. A blanket exemption for everything outside the project directory would let an
+ * agent copy the tree to `/tmp` once and read it for free forever; this pattern only covers the
+ * directory the CLI owns and names after its own task ids.
+ */
+const val UNDERSTANDING_TASK_OUTPUT_PATH_GLOB: String = "/tmp/claude-*/tasks/*.output"
 
 /**
  * The message a downstream agent is shown when its allowance runs out.
@@ -140,16 +182,22 @@ fun understandingBudgetHookScript(
     recordDir: String,
     exemptTools: List<String> = UNDERSTANDING_BUDGET_EXEMPT_TOOLS,
     exhaustedMessage: String = UNDERSTANDING_BUDGET_EXHAUSTED_MESSAGE,
+    subagentTools: List<String> = UNDERSTANDING_SUBAGENT_TOOLS,
+    taskOutputGlob: String = UNDERSTANDING_TASK_OUTPUT_PATH_GLOB,
 ): String {
     require(budget > 0) { "a research budget must be positive, got $budget" }
     require(exemptTools.isNotEmpty()) {
         "the exempt list is what makes two phases comparable; an empty one charges for the CLI's own plumbing"
+    }
+    require(subagentTools.isNotEmpty()) {
+        "a gate that still allows a subagent counts one call for unbounded work; see UNDERSTANDING_SUBAGENT_TOOLS"
     }
     require(exhaustedMessage.isNotBlank()) {
         "a refusal with no reason teaches the agent nothing, and it retries the same call until the run ends"
     }
     val d = "${'$'}"
     val exemptPattern = exemptTools.joinToString("|")
+    val subagentPattern = subagentTools.joinToString("|")
     return """
         #!/bin/sh
         # Research-budget gate: allow exactly $budget environment interactions, then refuse every
@@ -167,9 +215,26 @@ fun understandingBudgetHookScript(
         printf '%s' "${d}payload" | head -c $HOOK_RECORD_MAX_BYTES > $recordDir/call-${d}seq$HOOK_RECORD_SUFFIX ||
             echo "understanding budget hook: could not record attempt ${d}seq" >&2
 
+        # Refused before anything is counted: a subagent is an unbounded proxy for the very
+        # interactions this gate exists to count, and no charge would be the right one.
+        case "${d}name" in
+            $subagentPattern)
+                echo "$UNDERSTANDING_SUBAGENT_REFUSED_MESSAGE" >&2
+                exit 2 ;;
+        esac
+
         case "${d}name" in
             $exemptPattern) exit 0 ;;
         esac
+
+        # Reading the CLI's own background-task output is not a repository interaction. Narrow on
+        # purpose: a blanket exemption outside the project would make `cp -r project /tmp` free.
+        if [ "${d}name" = "Read" ]; then
+            read_path=${d}(printf '%s' "${d}payload" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+            case "${d}read_path" in
+                $taskOutputGlob) exit 0 ;;
+            esac
+        fi
 
         used=${d}(cat $counterFile 2>/dev/null || echo 0)
         case "${d}used" in
