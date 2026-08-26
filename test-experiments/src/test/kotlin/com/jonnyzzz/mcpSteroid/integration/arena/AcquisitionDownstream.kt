@@ -147,6 +147,59 @@ fun acquisitionDownstreamMatrixOf(caseId: String): List<AcquisitionCheckpointNot
     }
 
 /**
+ * How many times the harness hands a cell its own compiler errors back and lets it fix them.
+ *
+ * Three, and the number comes from a measurement rather than a preference. Across the 108 cells of the
+ * six-trajectory wave the within-note noise was 2.6-3.1 obligations against a between-note signal of
+ * 2.2 — the same note, run twice, returned 7 and 0 in about four cells of ten. Among the pairs where
+ * BOTH replicates compiled the within-note noise collapsed to 0.4-1.3. So essentially all of it was one
+ * coin flip: did this run get its own code to build inside the allowance.
+ *
+ * The repair turn removes the flip without giving anything away. The harness runs the build and reads
+ * the files javac named; the agent is handed the diagnostics and those file contents, spends no
+ * interaction, and issues no command whose text could hide a question about the repository. It cannot
+ * learn where anything lives — only what is wrong with what it already wrote.
+ *
+ * Bounded at three because an unbounded loop measures persistence instead of understanding, and
+ * [UnderstandingDownstreamOutcome.repairRounds] publishes how many were actually used, so a cell that
+ * compiled first time is never confused with one that needed all three.
+ */
+const val ACQUISITION_REPAIR_ROUNDS: Int = 3
+
+/**
+ * What a repair turn is told. It receives diagnostics and file contents and nothing else.
+ *
+ * Deliberately narrow in what it asks for: "fix these errors" and not "finish the task". A turn that
+ * invited more work would let a cell continue developing after its allowance ran out, which is the one
+ * thing the allowance exists to prevent.
+ */
+fun acquisitionRepairPrompt(compilerOutput: String, files: Map<String, String>): String = buildString {
+    appendLine("Your change does not compile. Below are the compiler's errors and the current contents")
+    appendLine("of every file it named. Fix ONLY these compilation errors.")
+    appendLine()
+    appendLine("Do not add features, do not write tests, do not write notes or documentation, and do not")
+    appendLine("start anything new. If an error is caused by an API you assumed and it does not exist,")
+    appendLine("remove or simplify the code that assumed it rather than inventing another API.")
+    appendLine()
+    appendLine("You may edit files. You cannot read, search or build — those are exhausted, and every")
+    appendLine("fact you need is below.")
+    appendLine()
+    appendLine("## Compiler output")
+    appendLine()
+    appendLine("```")
+    appendLine(compilerOutput.trim())
+    appendLine("```")
+    files.forEach { (path, content) ->
+        appendLine()
+        appendLine("## $path")
+        appendLine()
+        appendLine("```java")
+        appendLine(content.trimEnd())
+        appendLine("```")
+    }
+}
+
+/**
  * The repository interactions a downstream cell of this round is allowed.
  *
  * Twenty, and the number is a measurement rather than a preference. The first downstream wave gave the
@@ -374,6 +427,14 @@ data class UnderstandingDownstreamOutcome(
      * missing is a column that puts the behaviour in the table rather than in a transcript.
      */
     val agentNonSourceFiles: Int? = null,
+    /**
+     * Repair turns the harness spent handing this cell its own compiler errors, or null for a cell that
+     * ran before the loop existed.
+     *
+     * Zero means it compiled on its own. A reader comparing cells has to be able to tell that apart
+     * from a cell that needed three attempts, or the loop would hide exactly the variance it removes.
+     */
+    val repairRounds: Int? = null,
 ) {
     /**
      * Assertions the note's reader never satisfied — the residual work, in the oracle's own units.
@@ -422,6 +483,7 @@ fun acquisitionDownstreamLine(
     outcome.compiled?.let { append(" compiled=${if (it) 1 else 0}") }
     outcome.agentTestsDiscarded?.let { append(" agentTestsDiscarded=$it") }
     outcome.agentNonSourceFiles?.let { append(" agentNonSourceFiles=$it") }
+    outcome.repairRounds?.let { append(" repairRounds=$it") }
     outcome.toolCalls?.let { append(" toolCalls=$it") }
     outcome.budget?.let { append(" budget=${outcome.budgetUsed ?: "?"}/$it") }
     outcome.budgetDenied?.let { append(" denied=$it") }

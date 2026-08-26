@@ -243,6 +243,52 @@ class AcquisitionDownstreamHarnessTest {
     }
 
     @Test
+    fun `a repair turn is shown its own errors and told to fix nothing else`() {
+        val prompt = acquisitionRepairPrompt(
+            compilerOutput = "[ERROR] A.java:[3,4] cannot find symbol\n  symbol: variable NOPE",
+            files = mapOf("services/src/main/java/A.java" to "class A { int x = NOPE; }"),
+        )
+        // The diagnostics and the file contents are the whole input: the agent cannot read or search,
+        // so anything the harness leaves out is a fact it has to invent.
+        assertTrue(prompt.contains("cannot find symbol"), prompt)
+        assertTrue(prompt.contains("services/src/main/java/A.java"), prompt)
+        assertTrue(prompt.contains("class A { int x = NOPE; }"), prompt)
+        // Narrow on purpose. A turn that invited more work would let a cell keep developing after its
+        // allowance ran out, which is the one thing the allowance exists to prevent.
+        assertTrue(prompt.contains("Fix ONLY these compilation errors"), prompt)
+        assertTrue(prompt.contains("do not write tests"), prompt)
+        assertTrue(prompt.contains("rather than inventing another API"), prompt)
+        assertTrue(prompt.contains("You cannot read, search or build"), prompt)
+
+        // Bounded, and the count is published: a cell that compiled unaided must stay distinguishable
+        // from one that needed every attempt.
+        assertEquals(3, ACQUISITION_REPAIR_ROUNDS)
+        val line = acquisitionDownstreamLine(
+            caseId = case.instanceId,
+            condition = UnderstandingCondition.Baseline,
+            replicate = 1,
+            outcome = UnderstandingDownstreamOutcome(
+                success = true, verdict = "Y=1", oracleTestsPassed = 9, oracleTestsTotal = 9,
+                compiled = true, cost = UnderstandingCellCost(null, null, null), repairRounds = 2,
+            ),
+        )
+        assertTrue(line.contains("repairRounds=2"), line)
+        val older = acquisitionDownstreamLine(
+            caseId = case.instanceId,
+            condition = UnderstandingCondition.Baseline,
+            replicate = 1,
+            outcome = UnderstandingDownstreamOutcome(
+                success = true, verdict = "Y=1", oracleTestsPassed = 9, oracleTestsTotal = 9,
+                compiled = true, cost = UnderstandingCellCost(null, null, null),
+            ),
+        )
+        assertTrue(
+            !older.contains("repairRounds="),
+            "a cell that ran without the loop must not report zero repairs: $older",
+        )
+    }
+
+    @Test
     fun `only a pre-registered allowance can be queued`() {
         assertEquals(ACQUISITION_DOWNSTREAM_BUDGET, acquisitionDownstreamBudgetOf(null))
         assertEquals(ACQUISITION_DOWNSTREAM_BUDGET, acquisitionDownstreamBudgetOf("  "))

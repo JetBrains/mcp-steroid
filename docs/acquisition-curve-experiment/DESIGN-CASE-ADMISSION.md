@@ -555,3 +555,73 @@ Two of those three failed on a unit test the agent wrote itself — the files am
 and at an allowance of 15 the case reaches its ceiling **three times of three**. The retirement was a
 decision taken on readings a later repair invalidated, and withdrawing it was a correction, not a
 relaxation: the stopping rule is intact and simply did not fire on honest readings.
+
+## The repair turn (2026-08-26) — pre-registered before the wave was re-bought
+
+### Why, in the numbers that forced it
+
+The six-trajectory wave (108 cells) was decomposed by variance rather than read for its correlation:
+
+| case | within-note SD | between-note SD | within-note SD where BOTH replicates compiled |
+|---|---|---|---|
+| `cc-refresh-token` | 2.96 | 2.30 | **1.26** |
+| `client-auth-method` | 3.10 | 2.16 | **0.41** |
+| `oauth-grant-type` | 2.59 | 2.28 | — |
+
+**The noise inside one note exceeded the whole signal between notes**, and about four notes in ten
+returned "0 and high" across two runs of the SAME note. Among the pairs where both replicates
+compiled, that noise collapsed to 0.4–1.3 — i.e. once a tree builds, a note's score is nearly
+deterministic.
+
+So essentially all of the variance was one coin flip: **did this run get its own code to build inside
+the allowance.** It is not a property of the note, it is not a property of the arm, and it drowned the
+quantity the round exists to measure.
+
+### Why more data was the wrong answer
+
+Averaging a flip of that size against a signal of 2.2 needs roughly **eighteen replicates per note** —
+18 notes × 3 cases × 18 ≈ 970 cells, of order $250, spent entirely on averaging a defect. Splitting
+the endpoint in two instead (P(compiles), and obligations-given-compiled) was tried on the existing 108
+cells for nothing: it produced one significant number, on the collider-conditioned half, contradicted
+by another case. Neither is a fix.
+
+### The rule
+
+After the agent's run, up to `ACQUISITION_REPAIR_ROUNDS` = **3** times: the harness compiles the graded
+scope, and if it fails, hands the agent the compiler's own diagnostics together with the current
+contents of every file javac named, and asks it to fix **only** those errors.
+
+Why this leaks nothing:
+
+- the **harness** runs the build and reads the files. The agent issues no command whose text could hide
+  a question about the repository, and spends no interaction;
+- the agent learns only what is wrong with code **it already wrote**. Nothing in a diagnostic says
+  where anything lives, what the precedent is, or which second place must be touched — the categories
+  the checklist actually measures;
+- the prompt is deliberately narrow: fix these errors, add no features, write no tests, write no notes,
+  start nothing new. A turn that invited more work would let a cell keep developing after its
+  allowance ran out, which is the one thing the allowance exists to prevent.
+
+`repairRounds` is published per cell. Zero means it compiled unaided; a cell that needed all three must
+stay distinguishable from one that needed none, or the loop would hide the variance it removes. A cell
+that ran before the loop existed publishes no such column at all, rather than a zero that would read as
+"compiled first time".
+
+`ArenaVerifier.compileOnly` runs `test-compile` and not `compile`, because the graded build compiles
+test sources too and a tree that only passes `compile` still fails grading — repairing the wrong phase
+would look like a repair that did not work.
+
+### The prediction
+
+Written before the wave is re-bought:
+
+| quantity | now | predicted after the repair turn |
+|---|---|---|
+| cells that produce a gradable tree | ~60 % | **> 90 %** |
+| within-note SD | 2.6–3.1 | **0.4–1.3** |
+| readable at two replicates? | no — noise ≈ signal | yes — noise well under the 2.2 signal |
+
+If the compile rate does NOT rise, the flip was not what the repair addresses and this change bought
+nothing; that is a finding about the instrument and the round says so. If it rises and the correlation
+stays absent, then the relation is absent at a noise level where it could have been seen — which is the
+first time this project would be able to say that.

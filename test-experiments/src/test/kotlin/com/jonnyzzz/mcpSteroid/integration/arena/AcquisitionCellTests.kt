@@ -221,6 +221,7 @@ class AcquisitionDownstreamTest {
                 condition = condition,
                 replicate = replicate,
                 budget = acquisitionDownstreamBudgetOf(System.getProperty(UNDERSTANDING_BUDGET_PROPERTY)),
+                repairAttempts = ACQUISITION_REPAIR_ROUNDS,
             )
         } finally {
             if (previousModel == null) {

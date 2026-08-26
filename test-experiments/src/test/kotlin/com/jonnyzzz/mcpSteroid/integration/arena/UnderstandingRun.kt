@@ -358,6 +358,15 @@ fun runUnderstandingDownstream(
      * because nothing it could contain changes what the agent can find out for itself.
      */
     budget: Int? = null,
+    /**
+     * How many times the harness may hand this cell its own compiler errors back — see
+     * [ACQUISITION_REPAIR_ROUNDS].
+     *
+     * Zero by default, so the note-bottleneck rounds keep the shape their published tables were
+     * measured under. A cell that runs with zero publishes no `repairRounds` column at all, rather
+     * than a zero that would read as "it compiled first time".
+     */
+    repairAttempts: Int = 0,
 ): UnderstandingDownstreamOutcome {
     val note = condition.noteText(case)
     println(
@@ -444,6 +453,48 @@ fun runUnderstandingDownstream(
 
         val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
         val git = GitDriver(session.scope)
+
+        // The repair loop. Measured reason in ACQUISITION_REPAIR_ROUNDS: almost all of this round's
+        // within-note noise was the single coin flip "did this run get its own code to build". The
+        // harness runs the build and reads the files javac named, so the agent spends no interaction
+        // and issues no command whose text could hide a question about the repository.
+        var repairRounds = 0
+        if (repairAttempts > 0) {
+            repeat(repairAttempts) {
+                val attempt = verifier.compileOnly(
+                    projectJdkVersion = case.projectJdkVersion,
+                    mavenProjectSelector = case.gradingScopeSelector,
+                    mavenAlsoMakeDependencies = case.gradingBuildsDependencyClosure,
+                )
+                if (attempt.compiled) {
+                    println("[UNDERSTANDING-DOWN] the tree compiles after $repairRounds repair turn(s)")
+                    return@repeat
+                }
+                if (attempt.failingFiles.isEmpty()) {
+                    println(
+                        "[UNDERSTANDING-DOWN] the build failed and named no source file, so there is " +
+                            "nothing a repair turn could be shown. Leaving the tree as it is."
+                    )
+                    return@repeat
+                }
+                repairRounds++
+                println(
+                    "[UNDERSTANDING-DOWN] repair turn $repairRounds/$repairAttempts on " +
+                        "${attempt.failingFiles.size} file(s): ${attempt.failingFiles.joinToString()}"
+                )
+                val contents = attempt.failingFiles.associateWith { path ->
+                    session.scope.readFromContainer("$projectDir/$path").orEmpty()
+                }.filterValues { it.isNotBlank() }
+                if (contents.isEmpty()) {
+                    println("[UNDERSTANDING-DOWN] none of the named files could be read; repair stops")
+                    return@repeat
+                }
+                claude.runPrompt(
+                    acquisitionRepairPrompt(attempt.output, contents),
+                    timeoutSeconds = case.researchTimeoutSeconds,
+                )
+            }
+        }
         // Amendment 3 of DESIGN-CASE-ADMISSION.md, applied before the oracle so the grading build
         // never sees a test the agent invented. Only ADDED files: a shipped test the agent broke is
         // evidence about the change and keeps its consequences.
@@ -487,6 +538,7 @@ fun runUnderstandingDownstream(
                 budgetDenied = usage?.denied,
                 agentTestsDiscarded = discardedTests.size,
                 agentNonSourceFiles = scaffolding.size,
+                repairRounds = if (repairAttempts > 0) repairRounds else null,
             )
         }
 
@@ -556,6 +608,7 @@ fun runUnderstandingDownstream(
             budgetDenied = usage?.denied,
             agentTestsDiscarded = discardedTests.size,
             agentNonSourceFiles = scaffolding.size,
+            repairRounds = if (repairAttempts > 0) repairRounds else null,
         )
         // Only for the acquisition family. The note-bottleneck rounds published their tables off the
         // line above and are not re-read; a second verdict line under their cells would mean two

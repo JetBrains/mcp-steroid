@@ -827,6 +827,42 @@ class ArenaVerifier(
      * assertion failed" or "nothing could run" is answered separately by
      * [ArenaVerificationResult.compiled], which every consumer that averages the counts must consult.
      */
+    /**
+     * Compiles the graded scope and returns the compiler's own verdict, without running a single test.
+     *
+     * Exists so the harness can hand an agent the diagnostics of ITS OWN code. The measured reason:
+     * across 108 downstream cells the within-note noise was 2.6-3.1 obligations while the signal
+     * between notes was 2.2 — and among cells where both replicates compiled the within-note noise
+     * fell to 0.4-1.3. Practically all of the noise was one coin flip, "did this run get its own code
+     * to build inside the allowance", and it drowned the quantity the round exists to measure.
+     *
+     * Why this cannot leak research to the agent: the harness runs the build and reads the failing
+     * files. The agent is handed diagnostics and file contents, spends no interaction, and issues no
+     * command whose text could hide a query about the repository.
+     */
+    fun compileOnly(
+        projectJdkVersion: String,
+        mavenProjectSelector: String? = null,
+        mavenAlsoMakeDependencies: Boolean = false,
+    ): ArenaCompileAttempt {
+        val javaHome = resolveJavaHome(projectJdkVersion)
+        val mavenCommand = resolveMavenCommand()
+        val scope = mavenProjectScopeFlag(mavenProjectSelector, mavenAlsoMakeDependencies)
+        // `test-compile` and not `compile`: the graded build compiles test sources too, so a tree that
+        // only passes `compile` still fails grading and the repair would be measuring the wrong phase.
+        val run = bash(
+            "set -o pipefail; cd '$projectDir' && JAVA_HOME='$javaHome' $mavenCommand -q test-compile " +
+                "$scope 2>&1 | tail -200",
+            timeoutSeconds = 1_200,
+            description = "Arena repair: compile the graded scope",
+        )
+        return ArenaCompileAttempt(
+            compiled = run.exitCode == 0,
+            output = run.stdout,
+            failingFiles = arenaFailingSourcePaths(run.stdout, projectDir),
+        )
+    }
+
     fun verify(
         failToPass: List<String>,
         projectJdkVersion: String,
@@ -1016,4 +1052,43 @@ class ArenaVerifier(
             gradingExitCode = mvn.exitCode,
         )
     }
+}
+
+/**
+ * One compile attempt of the graded scope: whether it built, what the compiler said, and which of the
+ * tree's own files it complained about.
+ *
+ * [failingFiles] are repository-relative, extracted from the diagnostics rather than guessed, and they
+ * are what the repair turn is allowed to see the contents of.
+ */
+data class ArenaCompileAttempt(
+    val compiled: Boolean,
+    val output: String,
+    val failingFiles: List<String>,
+)
+
+/**
+ * Matches the absolute source path in a javac diagnostic: `/abs/.../X.java:[12,34] cannot find symbol`.
+ *
+ * The absolute path is captured on purpose and the repository-relative one is derived by stripping the
+ * known project directory — see [arenaFailingSourcePaths]. An earlier version tried to find the repo
+ * root inside the regex with an optional greedy prefix, which silently returned the bare file name and
+ * would have made every repair turn read nothing.
+ */
+val ARENA_COMPILER_FILE: Regex = Regex("""(/[^\s:\[\]]+\.java):\[\d+,\d+]""")
+
+/**
+ * The repository-relative paths javac complained about, deduplicated, in first-seen order.
+ *
+ * Paths outside [projectDir] are dropped rather than guessed at: a diagnostic about a file the harness
+ * cannot locate in the tree is a diagnostic the repair turn cannot act on.
+ */
+fun arenaFailingSourcePaths(compilerOutput: String, projectDir: String): List<String> {
+    val prefix = projectDir.trimEnd('/') + "/"
+    return ARENA_COMPILER_FILE.findAll(compilerOutput)
+        .map { it.groupValues[1] }
+        .filter { it.startsWith(prefix) }
+        .map { it.removePrefix(prefix) }
+        .distinct()
+        .toList()
 }
