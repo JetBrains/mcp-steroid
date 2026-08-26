@@ -228,7 +228,25 @@ const val ACQUISITION_DOWNSTREAM_BUDGET: Int = 20
  * the notes separate is not an experiment; a wave that may be re-run at the two neighbours of a
  * pre-registered default, under a written rule for which direction to move, is a calibration.
  */
-val ACQUISITION_DOWNSTREAM_BUDGETS: Set<Int> = setOf(15, ACQUISITION_DOWNSTREAM_BUDGET, 25)
+val ACQUISITION_DOWNSTREAM_BUDGETS: Set<Int> = setOf(15, ACQUISITION_DOWNSTREAM_BUDGET, 25, 30)
+
+/**
+ * Why 30 joined a set that was closed on purpose (2026-08-27).
+ *
+ * The set was three values so the allowance could not be tuned until the arms separated, and that
+ * reason has not weakened. What changed is that the round ran out of room INSIDE it: the repair turn
+ * — bought precisely to remove the compile coin flip — rescued one cell of the seventy-three that
+ * needed it, and the share of cells producing a gradable tree stayed at 36 %, 70 % and 19 %. On two of
+ * the three cases no note the experiment can produce lands between floor and ceiling at any allowance
+ * the set offers, and 25 is its top.
+ *
+ * So the extension is the calibration rule's own remedy — loosen when the ceiling cannot be finished —
+ * applied at the edge of the set rather than inside it. It is recorded as an extension and not folded
+ * in silently, and the anchors of every case that uses it are re-measured AT it before a single note
+ * cell is queued: an allowance whose floor and ceiling were measured elsewhere is a number with
+ * nothing behind it.
+ */
+const val ACQUISITION_EXTENDED_ALLOWANCE: Int = 30
 
 /**
  * Reads the allowance a cell was queued with, defaulting to the pre-registered one.
