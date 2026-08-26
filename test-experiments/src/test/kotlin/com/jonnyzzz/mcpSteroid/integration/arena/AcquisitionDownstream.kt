@@ -88,14 +88,49 @@ val ACQUISITION_DOWNSTREAM_MATRIX: List<AcquisitionCheckpointNote> =
  * reveal it.
  */
 val ACQUISITION_DOWNSTREAM_MATRICES: Map<String, List<AcquisitionCheckpointNote>> = mapOf(
-    "acquisition__keycloak__cc-refresh-token" to ACQUISITION_DOWNSTREAM_MATRIX,
-    "acquisition__keycloak__client-auth-method" to
-        listOf("mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "none-b40-l2000-r1", "none-b40-l2000-r3")
-            .flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
-    "acquisition__keycloak__oauth-grant-type" to
-        listOf("mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "none-b40-l2000-r1", "none-b40-l2000-r2")
-            .flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
+    "acquisition__keycloak__cc-refresh-token" to listOf(
+            "mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "mcp-b40-l2000-r3",
+            "none-b40-l2000-r1", "none-b40-l2000-r2", "none-b40-l2000-r3",
+        ).flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
+    "acquisition__keycloak__client-auth-method" to listOf(
+            "mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "mcp-b40-l2000-r3",
+            "none-b40-l2000-r1", "none-b40-l2000-r2", "none-b40-l2000-r3",
+        ).flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
+    "acquisition__keycloak__oauth-grant-type" to listOf(
+            "mcp-b40-l2000-r1", "mcp-b40-l2000-r2", "mcp-b40-l2000-r3",
+            "none-b40-l2000-r1", "none-b40-l2000-r2", "none-b40-l2000-r3",
+        ).flatMap { trajectory -> listOf(5, 10, 20).map { AcquisitionCheckpointNote(trajectory, it) } },
 )
+
+/**
+ * Why these matrices grew from four trajectories to six, after a wave had already been read.
+ *
+ * A matrix held in code so it "cannot quietly grow after the first results are in" did grow, and the
+ * reason has to survive being read by someone suspicious.
+ *
+ * The four-trajectory wave was not inconclusive because its effect was small. It was inconclusive
+ * because of ARITHMETIC: the unit of replication is the trajectory, so significance is established by
+ * permuting whole trajectories, and four of them admit 4! = 24 arrangements. The smallest p that can
+ * exist is 1/24 = 0.042 against a conventional threshold of 0.05 — the design could at best scrape
+ * past it, and the observed 2/24 = 0.083 is the second rung of a two-rung ladder. Six trajectories
+ * admit 720 arrangements and a floor of 0.0014.
+ *
+ * What makes this a power correction rather than result-shopping:
+ *
+ * - it adds EVERY remaining trajectory, not a chosen subset. Each case had six research trajectories
+ *   all along, three per arm; the matrix took two per arm because the selection rule asked only for
+ *   arms that OVERLAP in `U`, and two per arm satisfied it. Nothing about which two were added depends
+ *   on any downstream reading.
+ * - the added notes were distilled and committed BEFORE any cell of the four-trajectory wave was
+ *   bought, so they cannot have been written to fit it.
+ * - the four-trajectory reading stays published exactly as measured. The six-trajectory analysis
+ *   replaces nothing, it is reported beside it, and a disagreement between them IS the finding.
+ *
+ * The failure mode this does NOT protect against, written down so it is not forgotten: with six the
+ * temptation becomes choosing WHICH six. There are no more than six here, so the question cannot
+ * arise on these cases — and on any future case the whole set is the matrix or the case is not in.
+ */
+const val ACQUISITION_MATRIX_TRAJECTORIES_PER_ARM: Int = 3
 
 /**
  * The matrix of one case, refusing a case that has none.
