@@ -1,0 +1,13 @@
+**Hand-off note: enforce “no refresh token from client credentials grant” under the `strict` security profile**
+
+**Where the feature lives.** Security profiles are shipped as resources in `services/src/main/resources`: `strict-security-profile.json`, `lax-security-profile.json`, `none-security-profile.json`. Each is tiny and only names a client-profile set and a client-policy set, e.g. strict → `"client-profiles":"keycloak-default-client-profiles"`, `"client-policies":"keycloak-strict-client-policies"`. The default client profiles file (`keycloak-default-client-profiles.json`) sits beside them; the `keycloak-strict-client-policies` resource was not located in this record — find it before editing. Copies under `services/target/classes` are build output; edit only `src/main/resources`.
+
+**Supporting code.** SPI: `server-spi-private/.../org/keycloak/securityprofile/` (`SecurityProfileProvider`, `SecurityProfileProviderFactory`, `SecurityProfileSpi`), implemented by `services/.../services/securityprofile/DefaultSecurityProfileProvider(Factory)`; representation `core/.../representations/idm/SecurityProfileConfiguration.java`.
+
+**What to imitate.** The rule almost certainly belongs as a client-policy executor. Existing examples to copy in shape: `services/.../services/clientpolicy/executor/FullScopeDisabledExecutor.java`, `ConsentRequiredExecutor.java`, `SecureRequestObjectExecutor.java`; for the executor+factory pairing see `services/.../protocol/oid4vc/clientpolicy/CredentialClientPolicyExecutor(Factory).java`. Surrounding machinery: `ClientPoliciesUtil`, `DefaultClientPolicyManager`, and in `server-spi`/`server-spi-private`: `ClientPolicyEvent`, `ClientPolicyContext`, `ClientPolicyException`, `ClientPolicyVote`. How executors are registered/discovered was not inspected.
+
+**Dependencies.** New executor (+factory) → add it to the strict client-policies resource so it is on by default; leave `lax`/`none` and the no-profile path untouched.
+
+**Easy to miss.** Both admin REST and dynamic client registration must be covered — handle every relevant create *and* update policy event, not just one. An update representation that omits the flag must still be judged against the currently stored client. Restrict the check to confidential OIDC clients. Creation without the flag must end up disabled (default false).
+
+**Verification.** Model new tests on `tests/base/src/test/java/org/keycloak/tests/securityprofile/LaxSecurityProfileTest.java` (a strict counterpart may need adding); `services/src/test/.../securityprofile/DefaultSecurityProfileProverFactoryTest.java` covers factory wiring; older policy tests live in `testsuite/integration-arquillian/.../client/policies/AbstractClientPoliciesTest.java`.
