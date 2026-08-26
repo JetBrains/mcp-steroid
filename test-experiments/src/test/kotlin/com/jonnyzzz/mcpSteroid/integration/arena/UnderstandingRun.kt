@@ -447,6 +447,15 @@ fun runUnderstandingDownstream(
         // Amendment 3 of DESIGN-CASE-ADMISSION.md, applied before the oracle so the grading build
         // never sees a test the agent invented. Only ADDED files: a shipped test the agent broke is
         // evidence about the change and keeps its consequences.
+        // Counted BEFORE the oracle patch lands, or the oracle's own test would be in the tally.
+        val scaffolding = git.addedNonSourceFiles(projectDir)
+        if (scaffolding.isNotEmpty()) {
+            println(
+                "[UNDERSTANDING-DOWN] the agent added ${scaffolding.size} file(s) outside every source " +
+                    "root: ${scaffolding.take(12).joinToString()}" +
+                    if (scaffolding.size > 12) " …" else ""
+            )
+        }
         val discardedTests = git.discardAddedTestSources(projectDir)
         if (discardedTests.isEmpty()) {
             println("[UNDERSTANDING-DOWN] the agent added no test sources of its own")
@@ -477,6 +486,7 @@ fun runUnderstandingDownstream(
                 budgetUsed = usage?.used,
                 budgetDenied = usage?.denied,
                 agentTestsDiscarded = discardedTests.size,
+                agentNonSourceFiles = scaffolding.size,
             )
         }
 
@@ -545,6 +555,7 @@ fun runUnderstandingDownstream(
             budgetUsed = usage?.used,
             budgetDenied = usage?.denied,
             agentTestsDiscarded = discardedTests.size,
+            agentNonSourceFiles = scaffolding.size,
         )
         // Only for the acquisition family. The note-bottleneck rounds published their tables off the
         // line above and are not re-read; a second verdict line under their cells would mean two

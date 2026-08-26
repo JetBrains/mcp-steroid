@@ -190,6 +190,15 @@ class GitDriver(
          */
         fun isTestSourcePath(repoRelativePath: String): Boolean =
             repoRelativePath.startsWith("src/test/") || "/src/test/" in repoRelativePath
+
+        /**
+         * Whether a repository-relative path lives in ANY source root, main or test.
+         *
+         * Used to tell a file that is part of the change from a file that is prose about the change.
+         * Resources count: a `META-INF/services` line is the change on several of these cases.
+         */
+        fun isSourcePath(repoRelativePath: String): Boolean =
+            repoRelativePath.startsWith("src/") || "/src/" in repoRelativePath
     }
 
     /**
@@ -231,6 +240,37 @@ class GitDriver(
                 .description("discard ${added.size} agent-added test source(s) in $repoDir")
         }.awaitForProcessFinish().assertExitCode(0, "discard agent-added test sources")
         return added
+    }
+
+    /**
+     * Counts the files the working tree ADDED outside every source root, and returns their paths.
+     *
+     * A blocked agent has an escape hatch this experiment created on purpose: reads are charged and
+     * edits are free, so an agent that hits the interaction wall can no longer investigate but can
+     * still write. One cell answered that by producing twenty-eight files — `apply_patch.py`,
+     * `fix.pl`, `REQUIRED_EDITS.md`, `FINAL_REPORT.md`, `DEPLOY_CHECKLIST.md` and a dozen more
+     * documents ABOUT the change — and none of the change. The oracle scored it zero, correctly, and
+     * nothing in the published row said why.
+     *
+     * Recorded rather than forbidden. Free edits exist so a note is not priced in keystrokes, and that
+     * reason has not changed; what was missing is a column that makes the behaviour visible in the
+     * table instead of only in a transcript somebody happens to read.
+     *
+     * @param repoDir guest path of the repository
+     */
+    fun addedNonSourceFiles(repoDir: String): List<String> {
+        val listed = driver.startProcessInContainer {
+            this
+                .args("git", "-C", repoDir, "ls-files", "--others", "--exclude-standard")
+                .timeoutSeconds(30)
+                .quietly()
+                .description("git ls-files --others in $repoDir")
+        }.awaitForProcessFinish()
+        listed.assertExitCode(0, "git ls-files --others")
+        return listed.stdout.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !isSourcePath(it) }
+            .toList()
     }
 
     /**

@@ -66,6 +66,19 @@ class GitDiscardAddedTestSourcesTest {
     }
 
     @Test
+    fun `a file outside every source root is scaffolding, and a resource line is not`() {
+        // The distinction the column rests on: `META-INF/services/...` under src/main/resources IS the
+        // change on several of these cases, while a root-level report about the change is not.
+        assertTrue(GitDriver.isSourcePath("services/src/main/resources/META-INF/services/x.Factory"))
+        assertTrue(GitDriver.isSourcePath("services/src/test/java/A.java"))
+        assertTrue(GitDriver.isSourcePath("src/main/java/A.java"))
+        assertFalse(GitDriver.isSourcePath("FINAL_REPORT.md"))
+        assertFalse(GitDriver.isSourcePath("apply_patch.py"))
+        assertFalse(GitDriver.isSourcePath("update-client-profiles.sh"))
+        assertFalse(GitDriver.isSourcePath("services/OIDCLoginProtocol_patch.txt"))
+    }
+
+    @Test
     fun `the path rule matches both source-root layouts and nothing that merely looks like one`() {
         assertTrue(GitDriver.isTestSourcePath("src/test/java/A.java"))
         assertTrue(GitDriver.isTestSourcePath("services/src/test/java/A.java"))

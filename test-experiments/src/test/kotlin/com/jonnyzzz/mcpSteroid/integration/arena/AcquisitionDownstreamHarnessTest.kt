@@ -311,12 +311,17 @@ class AcquisitionDownstreamHarnessTest {
                 budgetUsed = 20,
                 budgetDenied = 7,
                 agentTestsDiscarded = 2,
+                agentNonSourceFiles = 28,
             ),
         )
         assertTrue(line.contains("budget=20/20"), line)
         // Amendment 3 removes files from the tree before grading, and a removal nobody can see in the
         // table is a removal nobody can audit.
         assertTrue(line.contains("agentTestsDiscarded=2"), line)
+        // The escape hatch free edits create: a blocked agent writes prose about the change instead of
+        // the change. One cell produced twenty-eight such files and scored zero with nothing in its row
+        // saying why. Recorded, never forbidden.
+        assertTrue(line.contains("agentNonSourceFiles=28"), line)
         assertTrue(line.contains("denied=7"), line)
         assertTrue(line.contains("withinBudget=0"), line)
         // An unbudgeted cell must not print zeros for columns it never measured.
@@ -334,6 +339,10 @@ class AcquisitionDownstreamHarnessTest {
         assertTrue(
             !unbudgeted.contains("agentTestsDiscarded="),
             "a cell that ran before amendment 3 must not claim it discarded none: $unbudgeted",
+        )
+        assertTrue(
+            !unbudgeted.contains("agentNonSourceFiles="),
+            "a cell that predates the column must not claim it wrote none: $unbudgeted",
         )
     }
 

@@ -362,6 +362,18 @@ data class UnderstandingDownstreamOutcome(
      * discard; zero says the tree really carried no invented test.
      */
     val agentTestsDiscarded: Int? = null,
+    /**
+     * Files the agent added OUTSIDE every source root — prose about the change instead of the change.
+     *
+     * Reads are charged and edits are free, so an agent that hits the interaction wall can no longer
+     * investigate but can still write. One cell answered that with twenty-eight files — scripts meant
+     * to apply its own edits and fifteen documents describing what remained to be done — and scored
+     * zero, correctly, with nothing in its published row explaining why.
+     *
+     * Recorded, never forbidden: free edits exist so a note is not priced in keystrokes. What was
+     * missing is a column that puts the behaviour in the table rather than in a transcript.
+     */
+    val agentNonSourceFiles: Int? = null,
 ) {
     /**
      * Assertions the note's reader never satisfied — the residual work, in the oracle's own units.
@@ -409,6 +421,7 @@ fun acquisitionDownstreamLine(
     append("residual=${outcome.residualTests ?: "unmeasured"}")
     outcome.compiled?.let { append(" compiled=${if (it) 1 else 0}") }
     outcome.agentTestsDiscarded?.let { append(" agentTestsDiscarded=$it") }
+    outcome.agentNonSourceFiles?.let { append(" agentNonSourceFiles=$it") }
     outcome.toolCalls?.let { append(" toolCalls=$it") }
     outcome.budget?.let { append(" budget=${outcome.budgetUsed ?: "?"}/$it") }
     outcome.budgetDenied?.let { append(" denied=$it") }
