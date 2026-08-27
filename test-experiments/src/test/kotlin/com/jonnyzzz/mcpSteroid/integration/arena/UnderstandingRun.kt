@@ -454,6 +454,33 @@ fun runUnderstandingDownstream(
         val verifier = ArenaVerifier(session.scope, projectDir, testCase.buildSystem)
         val git = GitDriver(session.scope)
 
+        // Amendment 3 of DESIGN-CASE-ADMISSION.md, applied before the oracle so the grading build
+        // never sees a test the agent invented. Only ADDED files: a shipped test the agent broke is
+        // evidence about the change and keeps its consequences.
+        // Counted BEFORE the oracle patch lands, or the oracle's own test would be in the tally.
+        val scaffolding = git.addedNonSourceFiles(projectDir)
+        if (scaffolding.isNotEmpty()) {
+            println(
+                "[UNDERSTANDING-DOWN] the agent added ${scaffolding.size} file(s) outside every source " +
+                    "root: ${scaffolding.take(12).joinToString()}" +
+                    if (scaffolding.size > 12) " …" else ""
+            )
+        }
+        val discardedTests = git.discardAddedTestSources(projectDir)
+        if (discardedTests.isEmpty()) {
+            println("[UNDERSTANDING-DOWN] the agent added no test sources of its own")
+        } else {
+            println(
+                "[UNDERSTANDING-DOWN] discarded ${discardedTests.size} test source(s) the agent added, " +
+                    "so this cell is graded on its change: ${discardedTests.joinToString()}"
+            )
+        }
+        // ORDER MATTERS, and it was wrong once. The repair loop used to run BEFORE this discard, so it
+        // spent every one of its rounds on a scratch test that was about to be deleted: one cell chased
+        // `SelfSignedX509ClientAuthenticatorTest` three times, the discard then removed that very file,
+        // and the tree compiled — which was published as "repair rescued a cell" when the repair had
+        // done nothing at all. Real main-source failures never reached it. Discard first, then repair
+        // what is actually going to be graded.
         // The repair loop. Measured reason in ACQUISITION_REPAIR_ROUNDS: almost all of this round's
         // within-note noise was the single coin flip "did this run get its own code to build". The
         // harness runs the build and reads the files javac named, so the agent spends no interaction
@@ -506,27 +533,6 @@ fun runUnderstandingDownstream(
                         "${repair.rawStdout.length} bytes of transcript"
                 )
             }
-        }
-        // Amendment 3 of DESIGN-CASE-ADMISSION.md, applied before the oracle so the grading build
-        // never sees a test the agent invented. Only ADDED files: a shipped test the agent broke is
-        // evidence about the change and keeps its consequences.
-        // Counted BEFORE the oracle patch lands, or the oracle's own test would be in the tally.
-        val scaffolding = git.addedNonSourceFiles(projectDir)
-        if (scaffolding.isNotEmpty()) {
-            println(
-                "[UNDERSTANDING-DOWN] the agent added ${scaffolding.size} file(s) outside every source " +
-                    "root: ${scaffolding.take(12).joinToString()}" +
-                    if (scaffolding.size > 12) " …" else ""
-            )
-        }
-        val discardedTests = git.discardAddedTestSources(projectDir)
-        if (discardedTests.isEmpty()) {
-            println("[UNDERSTANDING-DOWN] the agent added no test sources of its own")
-        } else {
-            println(
-                "[UNDERSTANDING-DOWN] discarded ${discardedTests.size} test source(s) the agent added, " +
-                    "so this cell is graded on its change: ${discardedTests.joinToString()}"
-            )
         }
         val oracleApplied = try {
             git.applyPatch(projectDir, testCase.testPatch)
