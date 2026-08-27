@@ -489,9 +489,21 @@ fun runUnderstandingDownstream(
                     println("[UNDERSTANDING-DOWN] none of the named files could be read; repair stops")
                     return@repeat
                 }
-                claude.runPrompt(
+                // AWAITED, and the result is bound and used so a future edit cannot drop the wait
+                // silently. It was dropped once: without the await the loop started three agents,
+                // recompiled the unchanged tree between them — three "repair turns" in 26 seconds —
+                // and left orphaned processes editing files AFTER the scratch tests were discarded, so
+                // the graded build failed on a file the log said had been removed. Every reading that
+                // round produced about repair was a reading of that bug.
+                val repairStart = System.currentTimeMillis()
+                val repair = claude.runPrompt(
                     acquisitionRepairPrompt(attempt.output, contents),
                     timeoutSeconds = case.researchTimeoutSeconds,
+                ).awaitForProcessFinish()
+                println(
+                    "[UNDERSTANDING-DOWN] repair turn $repairRounds finished in " +
+                        "${(System.currentTimeMillis() - repairStart) / 1000}s, " +
+                        "${repair.rawStdout.length} bytes of transcript"
                 )
             }
         }
