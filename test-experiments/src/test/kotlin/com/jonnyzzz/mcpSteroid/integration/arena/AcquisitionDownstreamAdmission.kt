@@ -533,23 +533,30 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
         // All THREE gold-note rollouts failed to compile. The weak agent, handed the reference
         // description of the change, cannot build this tree inside twenty interactions.
         solverAllowance = 15,
-        // Re-anchored at 15 after the gate printed its own remedy for a floor of 5 of 9: tighten the
-        // allowance. Three of three at the ceiling. The pre-amendment-3 readings this case was once
-        // retired on (1040174097/099/101) are superseded — two of those three failed on a unit test
-        // the agent wrote itself, which amendment 3 now discards.
+        // Re-anchored at 15 a second time on 2026-08-28, with a repair turn that can finally act (see
+        // UNDERSTANDING_REPAIR_READABLE_FILE). Three of three at the ceiling again, and all three
+        // without needing the repair at all: a note that says where the change goes leaves the weak
+        // agent nothing to be rescued from. The 2026-08-25 readings (1041682125, 1041794369/371) said
+        // the same thing under an inert repair and are superseded by these rather than averaged with
+        // them — the mechanism differed, so they are not replicates of each other.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1041682125", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1041794369", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1041794371", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788438", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788440", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788442", obligations = 9, compiled = true),
         ),
-        // And the one no-note tree that DID build reads 5 of 9 — four obligations above the pristine
-        // floor. Round 2's floor of "0, 0, 0, 0" was four failures to compile; the real unaided score
-        // of this case, when the agent gets it to build, is most of the scale.
-        // At 15 neither no-note tree builds. At 20 one of them read 5 of 9 (1040174118), which is what
-        // the tightening was for; that reading belongs to the old allowance and is not mixed in here.
+        // The floor, measured where it is hardest to defend: with a working repair turn, which hands a
+        // no-note cell the one thing it lacks. Two of the three trees still did not build after three
+        // repair rounds, and the one the repair DID rescue scored 1 of 9 — the pristine floor, the
+        // obligation an untouched tree already satisfies. So on this case compilation and understanding
+        // separate: the agent could be helped to build its code and still did not learn where the
+        // change belongs. That is what makes the case measurable, and it is not true of its two
+        // siblings, where a rescued no-note tree read 5 of 9 and 6 of 10.
+        // At 25 (1044593892/894/897) this same floor read 4, unbuilt and 7 — which is why the raised
+        // allowance was withdrawn, and why those readings belong to that allowance, not this one.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1041772952", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1041772954", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1044788444", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1044788446", obligations = 1, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788448", obligations = null, compiled = false),
         ),
         // RETIREMENT WITHDRAWN 2026-08-25. It was declared on 1040174097/099/101, three gold-note
         // rollouts that produced no gradable tree — but those cells were bought BEFORE amendment 3,
@@ -612,18 +619,25 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
             ),
         ),
         solverAllowance = 15,
-        // Re-anchored at 15 for the same reason as `cc-refresh-token`: at 20 a no-note cell read 6 of 9.
-        // Three of three at the ceiling here too.
+        // Re-anchored at 15 on 2026-08-28 with a working repair turn, and the ceiling did not survive
+        // the second look: 9, 6 and 7 of 9 across three rollouts, with 6 under the reachability floor
+        // the rule asks for. The three 9s of 2026-08-25 (1041682138, 1041794373/375) were a run of the
+        // same condition, and this case has produced that pattern before — 9 of 9 on its first anchor,
+        // then 0, 0, 0 on the next three. Three rollouts is the minimum for exactly this reason, and
+        // the honest reading of six of them is a ceiling this solver reaches sometimes.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1041682138", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1041794373", obligations = 9, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1041794375", obligations = 9, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788450", obligations = 6, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788452", obligations = 7, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788454", obligations = 9, compiled = true),
         ),
-        // At 15 neither no-note tree builds. The 6-of-9 reading (1040174126) belongs to the 20 allowance
-        // that this tightening replaced, and is not mixed in here.
+        // And the floor rose the moment the repair turn could act: three rounds of repair carried one
+        // no-note tree to a build, and it scored 5 of 9 — four obligations above the pristine floor,
+        // where the rule allows one. Repair is given to both arms and only the arm with no note needs
+        // it, so on this case it subtracts from the gap it was bought to clean up.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1041772956", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1041772958", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1044788456", obligations = 5, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788462", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1044788464", obligations = null, compiled = false),
         ),
     ),
     AcquisitionCaseAdmission(
@@ -686,15 +700,19 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
         // floor and ceiling, so the allowance moves up. At 15 even the gold note failed once
         // (1041682140, did not compile), which is the evidence that this case needs more room, not less.
         goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1041798411", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1041798413", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1041798415", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788466", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788468", obligations = 10, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788470", obligations = 10, compiled = true),
         ),
-        // Neither no-note tree builds at 25 either, so loosening the allowance did not hand the control
-        // arm the task: the floor stays at zero while the ceiling stays at ten.
+        // The floor of 2026-08-25 was "neither no-note tree builds", and it was a reading of a repair
+        // turn that could not edit a file. With one that can, two of three no-note trees were carried
+        // to a build and both scored 6 of 10 — five obligations above the pristine floor, reproducibly.
+        // What the earlier zero measured was the compile flip, not the value of knowing where the
+        // change goes; on this case the unaided solver knows most of it.
         baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1041798417", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1041798419", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1044788472", obligations = 6, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1044788474", obligations = null, compiled = false),
+            AcquisitionRolloutEvidence(buildId = "1044803876", obligations = 6, compiled = true),
         ),
     ),
 ).associateBy { it.caseId }

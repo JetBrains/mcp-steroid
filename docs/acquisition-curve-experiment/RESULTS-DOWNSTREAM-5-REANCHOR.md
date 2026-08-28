@@ -82,3 +82,67 @@ it was: a payment for a defect.
 in `BuildTreeView.rebuildCache` — import progress, not a dialog. The harness's own retry hit it again.
 Known open defect (the `waitForProjectReady` race); the cell owes a re-buy and no agent money was
 spent on it.
+
+---
+
+# Round 6 — the same anchors, with a repair turn that works
+
+Eighteen cells, revision `3e39f1348`, every case at the allowance its own readings calibrated. $5.18.
+Per-cell numbers: [data/downstream6-anchors.csv](data/downstream6-anchors.csv).
+
+## The repair turn was verified in the container, not assumed
+
+Build `1044788462` publishes `reads allowed free for this turn:` with the paths `javac` named, once per
+round. Across its three rounds the agent attempted ten reads and two were refused — both of a file that
+round's compiler output had not named, which is the exemption behaving as written. Where the same cell
+shape previously produced 20 edit attempts and 20 `File has not been read yet` refusals, the agent now
+reads what it was handed and edits it.
+
+The mechanism's first measured rescues follow immediately: `1044788472` and `1044803876` (one repair
+round each) and `1044788456` (three) carried no-note trees to a build that would otherwise have scored
+zero for failing to compile.
+
+## What the anchors say
+
+| case | allowance | gold note | no note |
+|---|---|---|---|
+| `cc-refresh-token` | 15 | 9/9, 9/9, 9/9 | did not build, **1/9**, did not build |
+| `client-auth-method` | 15 | **6/9**, **7/9**, 9/9 | **5/9**, did not build, did not build |
+| `oauth-grant-type` | 25 | 10/10, 10/10, 10/10 | **6/10**, did not build, **6/10** |
+
+`cc-refresh-token` is admitted, and it is the only one. Its gold note reaches the ceiling three times of
+three without a single repair round — a note that says where the change belongs leaves the weak agent
+nothing to be rescued from — while the one no-note tree the repair did carry to a build scored 1 of 9,
+the obligation an untouched tree already satisfies. Compilation and understanding separate on this case,
+which is precisely what makes it measurable.
+
+`client-auth-method` is blocked twice over: one gold rollout fell under the reachability floor (6 of 9,
+where 7 is asked), and a rescued no-note tree read 5 of 9. Its ceiling now reads 9, 7, 6 across three
+replicates of the same condition — the case has form here, having produced 9 and then 0, 0, 0 in an
+earlier round, and three rollouts is the minimum for exactly that reason.
+
+`oauth-grant-type` is blocked on the floor alone, and reproducibly: both no-note trees that built read
+6 of 10. Its gold note is perfect three times of three, so the ceiling is not in doubt — the unaided
+solver simply knows most of this change already.
+
+## The repair turn subtracts from the gap, and that is not a defect in it
+
+It is given to both arms and only one arm needs it. Every gold rollout of round 6 that reached its
+ceiling did so with `repairRounds=0`; every rescue the repair performed was of a no-note cell. So on a
+case where the unaided solver knows the architecture and merely fails to compile, repair converts a zero
+into most of the scale, and the measured value of the note falls accordingly.
+
+That is the correct behaviour for an instrument whose endpoint is "did the change get made". It is also
+the clearest statement yet of the limit found in round 4: about four fifths of every oracle here grades
+implementation, so anything that helps implementation moves the floor more than it moves the ceiling.
+Two cases of three now fail on that, not because the notes are bad but because the endpoint prices what
+the note does not carry.
+
+## What was bought on this reading
+
+The wave on `cc-refresh-token`: 18 distilled notes × 2 replicates, at 15, listed in
+[RUN-IDS.md](RUN-IDS.md). It was queued while the case's last three anchors were still running, on the
+first three; the remaining three agreed. Nothing was bought on the two blocked cases, and nothing may
+be until a reading changes their admission — for `oauth-grant-type` that means an endpoint the unaided
+solver does not already satisfy, which is the architecture-weighted oracle argued for in round 4,
+step 6, not another allowance.

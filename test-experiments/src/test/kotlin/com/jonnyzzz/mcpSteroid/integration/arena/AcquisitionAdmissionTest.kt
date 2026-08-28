@@ -3,6 +3,7 @@ package com.jonnyzzz.mcpSteroid.integration.arena
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.assertThrows
@@ -95,63 +96,96 @@ class AcquisitionAdmissionTest {
     }
 
     @Test
-    fun `every case is admitted, each at the allowance its own floor and ceiling asked for`() {
-        // All three, and the allowance is per case because the pre-registered calibration rule is per
-        // case. Applied honestly to each case's own readings it gave two different answers: tighten to
-        // 15 where a no-note cell reached 5 and 6 of 9, loosen to 25 where the gold note reached the
-        // ceiling but no note the experiment can produce did.
-        val expected = mapOf(
+    fun `one case separates its floor from its ceiling, and the other two are blocked by their own readings`() {
+        // Every case ran three gold-note and three no-note rollouts at its own allowance on
+        // 2026-08-28, with a repair turn that could finally act on the tree. One case came back
+        // measurable and two did not, and the difference is not the allowance: it is whether the
+        // no-note solver, once helped to a compiling tree, knows where the change belongs.
+        val allowances = mapOf(
             "acquisition__keycloak__cc-refresh-token" to 15,
             "acquisition__keycloak__client-auth-method" to 15,
             "acquisition__keycloak__oauth-grant-type" to 25,
         )
-        assertEquals(expected.keys, ACQUISITION_CASE_ADMISSIONS.keys)
+        assertEquals(allowances.keys, ACQUISITION_CASE_ADMISSIONS.keys)
+        for ((caseId, allowance) in allowances) {
+            assertEquals(
+                allowance,
+                ACQUISITION_CASE_ADMISSIONS.getValue(caseId).solverAllowance,
+                "$caseId runs at a different allowance",
+            )
+        }
 
-        for ((caseId, allowance) in expected) {
+        for (caseId in allowances.keys) {
             val record = ACQUISITION_CASE_ADMISSIONS.getValue(caseId)
             val case = AcquisitionCases.byId(caseId)
             val problems = record.problems(case)
             println("[ACQUISITION-ADMISSION] $caseId at allowance ${record.solverAllowance}: " +
                 if (problems.isEmpty()) "ADMITTED" else "blocked by ${problems.size}")
             problems.forEach { println("[ACQUISITION-ADMISSION]   - $it") }
-
-            assertEquals(allowance, record.solverAllowance, "$caseId runs at a different allowance")
-            assertTrue(problems.isEmpty(), "$caseId should be admitted; blocked by $problems")
-            requireAcquisitionAdmission(case)
-
-            // The separation every one of them was re-anchored to produce: the ceiling every time, the
-            // floor never. Zero variance in both groups is what makes a twelve-note wave readable.
-            assertEquals(
-                List(3) { case.oracleTestCount },
-                record.goldNoteRollouts.map { it.endpointScore },
-                "$caseId's gold note must reach the ceiling in all three rollouts",
-            )
-            assertEquals(
-                List(2) { 0 },
-                record.baselineRollouts.map { it.endpointScore },
-                "$caseId's no-note cells must all sit on the floor",
-            )
-            // And the floor is a MEASURED zero, not an unrecorded one: every baseline carries a compile
-            // verdict, and its raw obligation count stays null so the endpoint decision remains visible.
-            record.baselineRollouts.forEach {
-                assertEquals(false, it.compiled, "${it.buildId} must carry a compile verdict")
-                assertNull(it.obligations, "${it.buildId} must not invent an obligation count")
-            }
         }
+
+        val cc = AcquisitionCases.byId("acquisition__keycloak__cc-refresh-token")
+        val ccRecord = ACQUISITION_CASE_ADMISSIONS.getValue(cc.instanceId)
+        assertTrue(
+            ccRecord.problems(cc).isEmpty(),
+            "cc-refresh-token should be admitted; blocked by ${ccRecord.problems(cc)}",
+        )
+        requireAcquisitionAdmission(cc)
+        // The ceiling every time, without a single repair round, and a floor that stays at the
+        // obligation an untouched tree already satisfies even when the repair carries it to a build.
+        assertEquals(
+            List(3) { cc.oracleTestCount },
+            ccRecord.goldNoteRollouts.map { it.endpointScore },
+            "the gold note must reach the ceiling in all three rollouts",
+        )
+        assertEquals(listOf(0, 1, 0), ccRecord.baselineRollouts.map { it.endpointScore })
+        ccRecord.baselineRollouts.forEach {
+            assertNotNull(it.compiled, "${it.buildId} must carry a compile verdict")
+        }
+
+        // The other two are blocked, and by DIFFERENT halves of the same rule, which is why both are
+        // kept rather than retired: a case whose ceiling wobbles can be re-anchored, and a case whose
+        // unaided solver scores most of the scale cannot be measured by any note at any allowance.
+        val clientAuth = AcquisitionCases.byId("acquisition__keycloak__client-auth-method")
+        val clientAuthProblems = ACQUISITION_CASE_ADMISSIONS.getValue(clientAuth.instanceId)
+            .problems(clientAuth)
+        assertTrue(
+            clientAuthProblems.any { "1044788450 scored 6 of 9" in it },
+            "the gold note that missed the reachability floor must block: $clientAuthProblems",
+        )
+        assertTrue(
+            clientAuthProblems.any { "1044788456 scored 5 of 9 with NO note" in it },
+            "the rescued no-note tree must block: $clientAuthProblems",
+        )
+
+        val oauth = AcquisitionCases.oauthGrantType
+        val oauthProblems = ACQUISITION_CASE_ADMISSIONS.getValue(oauth.instanceId).problems(oauth)
+        assertEquals(
+            listOf(6, 0, 6),
+            ACQUISITION_CASE_ADMISSIONS.getValue(oauth.instanceId).baselineRollouts
+                .map { it.endpointScore },
+        )
+        assertTrue(
+            oauthProblems.count { "with NO note" in it } == 2,
+            "both rescued no-note trees must block: $oauthProblems",
+        )
     }
 
     @Test
     fun `a note cell queued at another case's allowance is refused before a container starts`() {
-        val case = AcquisitionCases.oauthGrantType
+        // The one case a wave can be bought on, since a blocked case is refused whatever number it is
+        // queued at and would prove nothing about the allowance guard.
+        val case = AcquisitionCases.byId("acquisition__keycloak__cc-refresh-token")
         val record = ACQUISITION_CASE_ADMISSIONS.getValue(case.instanceId)
         // Its own allowance passes.
         requireAcquisitionAdmission(case, record.solverAllowance)
         // Any other pre-registered number does not: the floor and ceiling this case was admitted on
-        // were measured at 25, and a wave at 15 or 20 would be graded against readings that do not
-        // exist while looking like an ordinary row in the table.
+        // were measured at 15, and a wave at 20 or 25 would be graded against readings that do not
+        // exist while looking like an ordinary row in the table. This case has such readings — at 25
+        // its floor read 4 and 7 of 9 — so the mix-up is a live one, not a hypothetical.
         for (wrong in ACQUISITION_DOWNSTREAM_BUDGETS.filter { it != record.solverAllowance }) {
             val thrown = assertThrows<IllegalStateException> { requireAcquisitionAdmission(case, wrong) }
-            assertTrue("calibrated at an allowance of 25" in thrown.message.orEmpty(), thrown.message.orEmpty())
+            assertTrue("calibrated at an allowance of 15" in thrown.message.orEmpty(), thrown.message.orEmpty())
         }
     }
 
