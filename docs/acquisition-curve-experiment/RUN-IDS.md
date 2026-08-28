@@ -341,3 +341,49 @@ twenty-four produced a gradable tree. Reading: [RESULTS-DOWNSTREAM-4-ANCHORS.md]
 
 The three that finished: 1040658046 and 1040658070 (`mcp-r2@10`, 9/10 both) and 1040658060
 (`none-r2@20`, 9/10).
+
+## Round 5 — every case re-anchored at its raised allowance (2026-08-28)
+
+Revision `098771a4c`, the first with the repair turn ordered after the scratch-test discard. Three
+`oracle:gold` and three `baseline` per case — one baseline more than the protocol's minimum, because
+the raised allowance was bought to move the ceiling and the floor is what it could break. Per-cell
+numbers in [data/downstream5-anchors.csv](data/downstream5-anchors.csv). Reading:
+[RESULTS-DOWNSTREAM-5-REANCHOR.md](RESULTS-DOWNSTREAM-5-REANCHOR.md).
+
+| build | case | condition | allowance | compiled | obligations | repairRounds |
+|---|---|---|---|---|---|---|
+| 1044557834 | `cc-refresh-token` | `oracle:gold` r51 | 25 | 1 | 9/9 | 0 |
+| 1044593888 | `cc-refresh-token` | `oracle:gold` r52 | 25 | 1 | 9/9 | 0 |
+| 1044593890 | `cc-refresh-token` | `oracle:gold` r53 | 25 | 1 | 9/9 | 0 |
+| 1044593892 | `cc-refresh-token` | `baseline` r51 | 25 | 1 | **4/9** | 0 |
+| 1044593894 | `cc-refresh-token` | `baseline` r52 | 25 | 0 | unmeasured | 3 |
+| 1044593897 | `cc-refresh-token` | `baseline` r53 | 25 | 1 | **7/9** | 0 |
+| 1044593899 | `client-auth-method` | `oracle:gold` r51 | 25 | 1 | 9/9 | 0 |
+| 1044593901 | `client-auth-method` | `oracle:gold` r52 | 25 | 1 | 9/9 | 0 |
+| 1044593903 | `client-auth-method` | `oracle:gold` r53 | 25 | 1 | 9/9 | 0 |
+| 1044601603 | `client-auth-method` | `baseline` r51 | 25 | 0 | unmeasured | 3 |
+| 1044601755 | `client-auth-method` | `baseline` r52 | 25 | 1 | **6/9** | 0 |
+| 1044601757 | `client-auth-method` | `baseline` r53 | 25 | 0 | unmeasured | 3 |
+| 1044601759 | `oauth-grant-type` | `oracle:gold` r51 | 30 | 1 | 10/10 | 0 |
+| 1044601761 | `oauth-grant-type` | `oracle:gold` r52 | 30 | 1 | 8/10 | 0 |
+| 1044601763 | `oauth-grant-type` | `oracle:gold` r53 | 30 | 1 | 10/10 | 0 |
+| 1044601765 | `oauth-grant-type` | `baseline` r51 | 30 | 0 | unmeasured | 3 |
+| 1044601767 | `oauth-grant-type` | `baseline` r52 | 30 | 0 | unmeasured | 3 |
+
+`oauth-grant-type` `baseline` r53 (1044601769) is not a reading: it died in setup, before the agent
+started, on `Process failed to register JDKs` — the `syncDocuments` guard fired while the EDT was
+inside `BuildTreeView.rebuildCache`, i.e. on import progress rather than on a dialog. The harness's own
+retry hit the same thing. It is the `waitForProjectReady` modal race, and the cell has to be re-bought.
+
+Queue one anchor (`understanding.budget` accepts 15, 20, 25 or 30):
+
+```
+POST /app/rest/buildQueue
+{"buildType":{"id":"mcp_steroid_IntegrationTests_AcquisitionDownstream"},
+ "branchName":"acquisition-curve-experiment",
+ "properties":{"property":[
+   {"name":"understanding.case","value":"acquisition__keycloak__cc-refresh-token"},
+   {"name":"understanding.condition","value":"oracle:gold"},
+   {"name":"understanding.replicate","value":"51"},
+   {"name":"understanding.budget","value":"25"}]}}
+```

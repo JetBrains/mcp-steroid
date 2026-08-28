@@ -56,6 +56,7 @@ class UnderstandingResearchGate(
     private val deniedFile: String = "$recordDir/budget-denied"
     private val toolLogFile: String = "$recordDir/tools.log"
     private val scriptPath: String = "$recordDir/budget-gate.sh"
+    private val repairReadableFile: String = "$recordDir/$UNDERSTANDING_REPAIR_READABLE_FILE"
 
     /**
      * Writes the gate into the container and hands it to the session as its ONLY settings file.
@@ -84,7 +85,11 @@ class UnderstandingResearchGate(
         // Seeded from inside the container so the files belong to the uid the hook runs as; a
         // host-written counter can be unwritable for the agent, and the budget would never advance.
         exec(
-            listOf("sh", "-c", "echo 0 > $counterFile; echo 0 > $deniedFile; : > $toolLogFile"),
+            listOf(
+                "sh",
+                "-c",
+                "echo 0 > $counterFile; echo 0 > $deniedFile; : > $toolLogFile; : > $repairReadableFile",
+            ),
             "seed the budget counters",
         ).assertExitCode(0) { "Failed to seed the budget counters in $recordDir: $stderr" }
 
@@ -106,6 +111,26 @@ class UnderstandingResearchGate(
             "[UNDERSTANDING] budget gate installed: $budget interactions, records in $recordDir, " +
                 "eager mcp tools=$eagerMcpTools, free: ${exemptTools.joinToString(", ")}",
         )
+    }
+
+    /**
+     * Lets the next turn read exactly [paths] for free, and nothing else.
+     *
+     * Called around one repair turn and cleared after it, so the exemption exists only while the agent
+     * is being asked to fix files it has just been shown. See [UNDERSTANDING_REPAIR_READABLE_FILE] for
+     * why an exemption is needed at all.
+     */
+    fun allowFreeReads(paths: Collection<String>) {
+        val listing = paths.filter { it.isNotBlank() }.joinToString("\n")
+        // Written from inside the container, like the counters: a host-written file can belong to a uid
+        // the hook cannot read, and an unreadable allowlist is indistinguishable from an empty one.
+        container.writeFileInContainer(repairReadableFile, if (listing.isEmpty()) "" else listing + "\n")
+        println("[UNDERSTANDING] reads allowed free for this turn: ${paths.joinToString()}")
+    }
+
+    /** Takes the exemption away again, so an ordinary turn is charged for every read. */
+    fun clearFreeReads() {
+        container.writeFileInContainer(repairReadableFile, "")
     }
 
     fun usage(): UnderstandingBudgetUsage = parseUnderstandingBudgetUsage(
@@ -522,11 +547,22 @@ fun runUnderstandingDownstream(
                 // and left orphaned processes editing files AFTER the scratch tests were discarded, so
                 // the graded build failed on a file the log said had been removed. Every reading that
                 // round produced about repair was a reading of that bug.
+                // Without this the turn could not touch a file at all: the CLI refuses to edit what it
+                // has not read in the same session, a repair turn IS a new session, and `Read` is
+                // charged against an allowance that is spent by now. Round 5 measured the consequence —
+                // 20 edit attempts, 20 `File has not been read yet` refusals, three rounds, no change.
+                gate?.allowFreeReads(contents.keys.map { "$projectDir/$it" })
                 val repairStart = System.currentTimeMillis()
-                val repair = claude.runPrompt(
-                    acquisitionRepairPrompt(attempt.output, contents),
-                    timeoutSeconds = case.researchTimeoutSeconds,
-                ).awaitForProcessFinish()
+                val repair = try {
+                    claude.runPrompt(
+                        acquisitionRepairPrompt(attempt.output, contents),
+                        timeoutSeconds = case.researchTimeoutSeconds,
+                    ).awaitForProcessFinish()
+                } finally {
+                    // The exemption belongs to this turn. A turn that died holding it would leave the
+                    // next one free to read the tree, which is the discovery the allowance prices.
+                    gate?.clearFreeReads()
+                }
                 println(
                     "[UNDERSTANDING-DOWN] repair turn $repairRounds finished in " +
                         "${(System.currentTimeMillis() - repairStart) / 1000}s, " +

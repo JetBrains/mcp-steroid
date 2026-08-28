@@ -128,6 +128,24 @@ const val UNDERSTANDING_SUBAGENT_REFUSED_MESSAGE: String =
 const val UNDERSTANDING_TASK_OUTPUT_PATH_GLOB: String = "/tmp/claude-*/tasks/*.output"
 
 /**
+ * The file, inside the record directory, that lists the paths a repair turn may read for free.
+ *
+ * It exists because two deliberate rules met and cancelled each other out. `Read` is charged, since
+ * reading is discovery and discovery is the quantity a note is supposed to buy; `Edit` and `Write` are
+ * free, so a note is not priced in keystrokes. The CLI, however, refuses to edit a file that was not
+ * read in the SAME session, and a repair turn is a new session — so past the wall the repair agent
+ * could reach for nothing at all. Measured on round 5: 20 edit attempts, 20 refusals of the form
+ * `File has not been read yet`, three rounds, no change to the tree, and a `repairRounds=3` column
+ * that published a number for a mechanism which had never been able to run.
+ *
+ * The list holds only the files `javac` itself named, whose full contents the harness already pastes
+ * into the repair prompt. Reading them back grants the cell no knowledge it was not just handed, and
+ * nothing else in the tree becomes free: an empty or missing list charges every read, which is the
+ * state every non-repair turn runs in.
+ */
+const val UNDERSTANDING_REPAIR_READABLE_FILE: String = "repair-readable"
+
+/**
  * The message a downstream agent is shown when its allowance runs out.
  *
  * Different from the research one in the only way that matters: the research agent is told to stop and
@@ -185,6 +203,7 @@ fun understandingBudgetHookScript(
     subagentTools: List<String> = UNDERSTANDING_SUBAGENT_TOOLS,
     taskOutputGlob: String = UNDERSTANDING_TASK_OUTPUT_PATH_GLOB,
 ): String {
+    val repairReadableFile = "$recordDir/$UNDERSTANDING_REPAIR_READABLE_FILE"
     require(budget > 0) { "a research budget must be positive, got $budget" }
     require(exemptTools.isNotEmpty()) {
         "the exempt list is what makes two phases comparable; an empty one charges for the CLI's own plumbing"
@@ -234,6 +253,13 @@ fun understandingBudgetHookScript(
             case "${d}read_path" in
                 $taskOutputGlob) exit 0 ;;
             esac
+            # A repair turn may read back exactly the files javac named, whose contents it was already
+            # handed. Whole-line match, so a prefix of a listed path buys nothing; an absent or empty
+            # list — every turn that is not a repair turn — charges the read as usual.
+            if [ -n "${d}read_path" ] && [ -s $repairReadableFile ] &&
+                grep -Fxq "${d}read_path" $repairReadableFile 2>/dev/null; then
+                exit 0
+            fi
         fi
 
         used=${d}(cat $counterFile 2>/dev/null || echo 0)

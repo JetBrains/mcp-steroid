@@ -181,8 +181,9 @@ fun acquisitionRepairPrompt(compilerOutput: String, files: Map<String, String>):
     appendLine("start anything new. If an error is caused by an API you assumed and it does not exist,")
     appendLine("remove or simplify the code that assumed it rather than inventing another API.")
     appendLine()
-    appendLine("You may edit files. You cannot read, search or build — those are exhausted, and every")
-    appendLine("fact you need is below.")
+    appendLine("You may read and edit the files named below, and only those. You cannot search or build")
+    appendLine("— those are exhausted, and every fact you need is below. Reading a file before editing it")
+    appendLine("costs you nothing here.")
     appendLine()
     appendLine("## Compiler output")
     appendLine()
@@ -228,25 +229,24 @@ const val ACQUISITION_DOWNSTREAM_BUDGET: Int = 20
  * the notes separate is not an experiment; a wave that may be re-run at the two neighbours of a
  * pre-registered default, under a written rule for which direction to move, is a calibration.
  */
-val ACQUISITION_DOWNSTREAM_BUDGETS: Set<Int> = setOf(15, ACQUISITION_DOWNSTREAM_BUDGET, 25, 30)
+val ACQUISITION_DOWNSTREAM_BUDGETS: Set<Int> = setOf(15, ACQUISITION_DOWNSTREAM_BUDGET, 25)
 
-/**
- * Why 30 joined a set that was closed on purpose (2026-08-27).
+/*
+ * 30 was added to this set on 2026-08-27 and removed again on 2026-08-28, and the round between the
+ * two dates is why the set is three values.
  *
- * The set was three values so the allowance could not be tuned until the arms separated, and that
- * reason has not weakened. What changed is that the round ran out of room INSIDE it: the repair turn
- * — bought precisely to remove the compile coin flip — rescued one cell of the seventy-three that
- * needed it, and the share of cells producing a gradable tree stayed at 36 %, 70 % and 19 %. On two of
- * the three cases no note the experiment can produce lands between floor and ceiling at any allowance
- * the set offers, and 25 is its top.
+ * It was added under the calibration rule's own remedy — loosen when the ceiling cannot be finished —
+ * because no note the experiment could produce was landing between floor and ceiling. Every case was
+ * then re-anchored at its raised allowance, which is what the extension was made conditional on, and
+ * the anchors refused it: with no note at all the solver read 4 and 7 of 9 on `cc-refresh-token` and
+ * 6 of 9 on `client-auth-method`, against a rule that allows it one obligation above the pristine
+ * floor. Extra interactions are handed to both arms, and on these cases they are worth more to the arm
+ * that has nothing to read than the note is to the arm that has one.
  *
- * So the extension is the calibration rule's own remedy — loosen when the ceiling cannot be finished —
- * applied at the edge of the set rather than inside it. It is recorded as an extension and not folded
- * in silently, and the anchors of every case that uses it are re-measured AT it before a single note
- * cell is queued: an allowance whose floor and ceiling were measured elsewhere is a number with
- * nothing behind it.
+ * What made the ceiling unreachable was not the allowance. It was the repair turn, which could not
+ * edit a file because `Read` was walled and the CLI will not edit an unread file — see
+ * UNDERSTANDING_REPAIR_READABLE_FILE. The allowance was being raised to pay for a defect.
  */
-const val ACQUISITION_EXTENDED_ALLOWANCE: Int = 30
 
 /**
  * Reads the allowance a cell was queued with, defaulting to the pre-registered one.

@@ -625,3 +625,37 @@ If the compile rate does NOT rise, the flip was not what the repair addresses an
 nothing; that is a finding about the instrument and the round says so. If it rises and the correlation
 stays absent, then the relation is absent at a noise level where it could have been seen — which is the
 first time this project would be able to say that.
+
+## The allowance raise, measured and withdrawn (2026-08-28)
+
+The set of allowances was opened on 2026-08-27 to admit 30, under the calibration rule's own remedy —
+loosen when the ceiling cannot be finished — and the opening was made conditional on re-anchoring every
+case at its new number before a note cell was queued. The anchors came back and refused it.
+
+| case | allowance | gold note | no note |
+|---|---|---|---|
+| `cc-refresh-token` | 25 | 9/9, 9/9, 9/9 | **4/9**, did not build, **7/9** |
+| `client-auth-method` | 25 | 9/9, 9/9, 9/9 | did not build, **6/9**, did not build |
+| `oauth-grant-type` | 30 | 10/10, 8/10, 10/10 | did not build, did not build |
+
+`BASELINE_SLACK` allows a no-note cell one obligation above the pristine floor. Two cases doubled and
+tripled that, which is the recorded opposite risk arriving: an interaction is given to both arms, and
+where the note's whole content is discovery, the arm without one buys the same thing with time.
+
+The set is closed again at 15, 20, 25 and every case runs at the allowance its own readings asked for.
+Nothing about the withdrawal is a relaxation of the stopping rules: the raise was pre-registered as
+conditional on exactly this measurement, and the measurement said no.
+
+### What the raise was actually paying for
+
+The ceiling was hard to finish because the repair turn could not edit a file. `Read` is charged, since
+reading is discovery; `Edit` is free, so a note is not priced in keystrokes; and the CLI refuses to
+edit a file it has not read in the same session, which a fresh repair turn never has. Round 5 measured
+the result directly — 20 edit attempts, 20 refusals of the form `File has not been read yet`, three
+rounds, no change to any tree — so `repairRounds` was publishing a count for a mechanism that had never
+been able to run, and the allowance was being raised to compensate for it.
+
+The turn now names the files `javac` named in `repair-readable`, and the gate lets a whole-line match
+through free for that turn only. It grants nothing the cell was not already handed: those files'
+complete contents are pasted into the repair prompt. Every other read, in every other turn, is charged
+exactly as before, and an empty list — the state of every non-repair turn — exempts nothing.

@@ -209,6 +209,11 @@ class AcquisitionDownstreamHarnessTest {
         // keyed on the command text is a rule the agent can phrase its way around.
         assertTrue(!UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS.contains("Bash"), script)
         assertTrue(!UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS.contains("Read"), script)
+        // Read stays charged, and the one hole in that rule is the repair turn's own list of files.
+        // Without it `Edit` is free and unusable at once — the CLI will not edit an unread file — so
+        // the repair turn would spend its rounds being refused. See UNDERSTANDING_REPAIR_READABLE_FILE.
+        assertTrue(script.contains(UNDERSTANDING_REPAIR_READABLE_FILE), script)
+        assertTrue(script.contains("grep -Fxq"), "a prefix match would exempt more than javac named")
         // No downstream cell has an IDE in any condition, so an exemption for one would describe a
         // tool that cannot be called — and would invite giving one condition its tools back.
         assertTrue(UNDERSTANDING_DOWNSTREAM_BUDGET_EXEMPT_TOOLS.none { it.contains("steroid") })
@@ -248,8 +253,8 @@ class AcquisitionDownstreamHarnessTest {
             compilerOutput = "[ERROR] A.java:[3,4] cannot find symbol\n  symbol: variable NOPE",
             files = mapOf("services/src/main/java/A.java" to "class A { int x = NOPE; }"),
         )
-        // The diagnostics and the file contents are the whole input: the agent cannot read or search,
-        // so anything the harness leaves out is a fact it has to invent.
+        // The diagnostics and the file contents are the whole input: the agent cannot search, so
+        // anything the harness leaves out is a fact it has to invent.
         assertTrue(prompt.contains("cannot find symbol"), prompt)
         assertTrue(prompt.contains("services/src/main/java/A.java"), prompt)
         assertTrue(prompt.contains("class A { int x = NOPE; }"), prompt)
@@ -258,7 +263,11 @@ class AcquisitionDownstreamHarnessTest {
         assertTrue(prompt.contains("Fix ONLY these compilation errors"), prompt)
         assertTrue(prompt.contains("do not write tests"), prompt)
         assertTrue(prompt.contains("rather than inventing another API"), prompt)
-        assertTrue(prompt.contains("You cannot read, search or build"), prompt)
+        // Reading the named files is allowed, and saying so is not a courtesy: the CLI refuses to edit
+        // a file it has not read, so a turn told it cannot read is a turn that cannot repair anything.
+        // Round 5 ran three rounds of exactly that. Searching and building stay gone.
+        assertTrue(prompt.contains("You may read and edit the files named below"), prompt)
+        assertTrue(prompt.contains("You cannot search or build"), prompt)
 
         // Bounded, and the count is published: a cell that compiled unaided must stay distinguishable
         // from one that needed every attempt.

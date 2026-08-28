@@ -87,6 +87,36 @@ class UnderstandingBudgetGateShellTest {
     }
 
     @Test
+    fun `a repair turn reads the files it was handed for free, and nothing else`() {
+        val gate = gate(budget = 1)
+        val broken = "/home/agent/project-home/services/src/main/java/org/keycloak/A.java"
+        assertEquals(0, gate.run(payload("Bash", """"command":"ls"""")))
+        assertEquals(1, gate.used(), "the allowance is spent, so every read is past the wall now")
+
+        // Before the repair turn there is no exemption: the wall applies to the same file.
+        assertEquals(2, gate.run(payload("Read", """"file_path":"$broken"""")))
+
+        gate.allowFreeReads(listOf(broken))
+        assertEquals(0, gate.run(payload("Read", """"file_path":"$broken"""")), "the named file is free")
+        assertEquals(1, gate.used(), "a free read must not advance the counter")
+        // The exemption is a whole-line match on the paths javac named — not a prefix, not the folder.
+        assertEquals(2, gate.run(payload("Read", """"file_path":"/home/agent/project-home/pom.xml"""")))
+        assertEquals(2, gate.run(payload("Read", """"file_path":"$broken.orig"""")))
+
+        // And it lasts exactly one turn.
+        gate.clearFreeReads()
+        assertEquals(2, gate.run(payload("Read", """"file_path":"$broken"""")))
+    }
+
+    @Test
+    fun `an unused repair list leaves an ordinary read charged`() {
+        val gate = gate(budget = 3)
+        gate.allowFreeReads(emptyList())
+        assertEquals(0, gate.run(payload("Read", """"file_path":"/home/agent/project-home/pom.xml"""")))
+        assertEquals(1, gate.used(), "an empty allowlist exempts nothing")
+    }
+
+    @Test
     fun `nothing the gate does reaches stdout`() {
         val gate = gate(budget = 1)
         gate.run(payload("Bash", """"command":"ls""""))
@@ -125,6 +155,16 @@ class UnderstandingBudgetGateShellTest {
             lastStdout = process.inputStream.bufferedReader().readText()
             lastStderr = process.errorStream.bufferedReader().readText()
             return process.waitFor()
+        }
+
+        /** What [UnderstandingResearchGate.allowFreeReads] writes, without a container to write it in. */
+        fun allowFreeReads(paths: List<String>) {
+            File(dir, UNDERSTANDING_REPAIR_READABLE_FILE)
+                .writeText(if (paths.isEmpty()) "" else paths.joinToString("\n") + "\n")
+        }
+
+        fun clearFreeReads() {
+            File(dir, UNDERSTANDING_REPAIR_READABLE_FILE).writeText("")
         }
 
         fun used(): Int = File(dir, "used").takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull() ?: 0
