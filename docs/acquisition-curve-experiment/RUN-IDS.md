@@ -431,37 +431,65 @@ ceiling was 6 of 6 three times in round 7 and nothing in this round can move it.
 
 | setting | allowance | solver | condition | replicate | build |
 |---|---|---|---|---|---|
-| S0 | 25 | `claude-haiku-4-5` | `baseline` | 81 | 1047209980 |
-| S0 | 25 | `claude-haiku-4-5` | `baseline` | 82 | 1047209982 |
-| S1 | 40 | `claude-haiku-4-5` | `baseline` | 83 | 1047209984 |
-| S1 | 40 | `claude-haiku-4-5` | `baseline` | 84 | 1047209986 |
-| S1 | 40 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 85 | 1047209988 |
-| S1 | 40 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 86 | 1047209990 |
-| S2 | 60 | `claude-haiku-4-5` | `baseline` | 87 | 1047209992 |
-| S2 | 60 | `claude-haiku-4-5` | `baseline` | 88 | 1047209994 |
-| S2 | 60 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 89 | 1047209996 |
-| S2 | 60 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 90 | 1047209998 |
+| S0 | 25 | `claude-haiku-4-5` | `baseline` | 81 | 1047294842 |
+| S0 | 25 | `claude-haiku-4-5` | `baseline` | 82 | 1047294898 |
+| S1 | 40 | `claude-haiku-4-5` | `baseline` | 83 | 1047294900 |
+| S1 | 40 | `claude-haiku-4-5` | `baseline` | 84 | 1047294902 |
+| S1 | 40 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 85 | 1047294904 |
+| S1 | 40 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 86 | 1047294906 |
+| S2 | 60 | `claude-haiku-4-5` | `baseline` | 87 | 1047294908 |
+| S2 | 60 | `claude-haiku-4-5` | `baseline` | 88 | 1047294910 |
+| S2 | 60 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 89 | 1047294912 |
+| S2 | 60 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 90 | 1047294914 |
 | S3 | 25 | `claude-sonnet-5` | `baseline` | 91 | not yet queued |
 | S3 | 25 | `claude-sonnet-5` | `baseline` | 92 | not yet queued |
 | S3 | 25 | `claude-sonnet-5` | `checkpoint:mcp-b40-l2000-r3@20` | 93 | not yet queued |
 | S3 | 25 | `claude-sonnet-5` | `checkpoint:mcp-b40-l2000-r3@20` | 94 | not yet queued |
 
-S0–S2 were queued as one batch of ten. S3 could not be: the build configuration interpolated
+### The voided first batch — ten cells that ran a different cell entirely
+
+| build | 1047209980 | 1047209982 | 1047209984 | 1047209986 | 1047209988 |
+|---|---|---|---|---|---|
+| | 1047209990 | 1047209992 | 1047209994 | 1047209996 | 1047209998 |
+
+Every one of these ten reported
+`case=acquisition__keycloak__cc-refresh-token condition=baseline replicate=1 budget=20/20` — the
+build configuration's **defaults**, not one value of the ten cells they were meant to be. They were
+triggered with `jb tc native run start -S understanding.case=…`, and `-S` sets a TeamCity *system
+property*: the values landed as `system.understanding.case` and friends, while `%understanding.case%`
+in the runner's `gradleParams` resolved the untouched configuration parameter. The correct flag for
+this family is `-P`, and the fix is verifiable for free — a queued build's
+`/app/rest/builds/id:<id>/resulting-properties` shows the parameters seconds after triggering, long
+before an agent spends anything. Every cell of the replacement batch was checked that way before the
+rest were queued.
+
+They cost $4.13 and produced no round-8 reading. What they did produce, by accident, is ten
+`cc-refresh-token` `baseline` replicates at allowance 20 on the OLD nine-axis oracle, against the
+four the case has ever had: four cells never built at all, and the six that did scored 4, 2, 1, 1, 1,
+1 of 9. Round 2's published floor for that case was 0, 0, 2, 1 and calibration wave 2 read 0, 0, 0, 0.
+A 4 is outside anything that floor ever showed. That is not a result — it is an unplanned by-product
+on a superseded instrument — but it is the same worry S0 was added for, so it is recorded rather
+than deleted.
+
+The replacement batch was queued as one batch of ten. S3 could not be: the build configuration interpolated
 `-Dclaude.model` from a constant, so the solver was not selectable at trigger time at all. The DSL
 change that turns it into a closed two-option select is committed in the TeamCity repository
 (`3c9d122`) and its generated XML diff touches this one configuration; the four S3 cells are queued
 against the same `dee8a3cde` once that revision is applied on the server, so the probe stays one
 product revision wide.
 
-Queue one probe cell (the allowance and the solver both leave the calibrated set on purpose, and both
-print themselves in the cell's log):
+Queue one probe cell — `-P`, never `-S`; the allowance and the solver both leave the calibrated set
+on purpose, and both print themselves in the cell's log. Read
+`/app/rest/builds/id:<id>/resulting-properties` right after triggering and before the batch: a
+misrouted parameter is visible there in seconds, and a whole batch of misrouted cells is not visible
+anywhere until forty minutes and the money are gone:
 
 ```
 jb tc native run start mcp_steroid_IntegrationTests_AcquisitionDownstream \
   --branch acquisition-curve-experiment --revision dee8a3cde --no-push \
-  -S understanding.case=acquisition__keycloak__oauth-grant-type \
-  -S understanding.condition=checkpoint:mcp-b40-l2000-r3@20 \
-  -S understanding.replicate=93 \
-  -S understanding.budget=25 \
-  -S acquisition.downstream.model=claude-sonnet-5
+  -P understanding.case=acquisition__keycloak__oauth-grant-type \
+  -P understanding.condition=checkpoint:mcp-b40-l2000-r3@20 \
+  -P understanding.replicate=93 \
+  -P understanding.budget=25 \
+  -P acquisition.downstream.model=claude-sonnet-5
 ```
