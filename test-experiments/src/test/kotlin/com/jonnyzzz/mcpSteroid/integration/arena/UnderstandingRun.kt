@@ -427,10 +427,18 @@ fun runUnderstandingDownstream(
         val projectDir = session.intellijDriver.getGuestProjectDir()
         val claude = session.aiAgents.claude.asDockerClaudeSession()
         println("[UNDERSTANDING-DOWN] resolved agent model: ${claude.model}")
-        check(claude.model.contains("haiku", ignoreCase = true)) {
+        // A probe solver is the one exception, and the exception is a listed set rather than a relaxed
+        // predicate: ACQUISITION_FLOOR_PROBE_SOLVERS holds the single model one rung above the weak one,
+        // so an Opus is still refused by the same check that lets a probe through. The line above has
+        // already printed the resolved model, so a cell that took the exception says so in its log.
+        val probeSolver = claude.model in ACQUISITION_FLOOR_PROBE_SOLVERS
+        check(claude.model.contains("haiku", ignoreCase = true) || probeSolver) {
             "the downstream agent resolved '${claude.model}'. Every downstream cell runs on the same " +
                 "weak model — an Opus cell would answer a different question, at ten times the price. " +
-                "Set -D${RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY} to a haiku, or leave it unset."
+                "Set -D${RippleCheckpointProbeTest.CLAUDE_MODEL_PROPERTY} to a haiku, or leave it unset " +
+                "— or to one of the floor-probe solvers " +
+                "${ACQUISITION_FLOOR_PROBE_SOLVERS.sorted()} if this is a probe cell queued alongside " +
+                "its own floor."
         }
 
         if (case.needsReactorInstall) {

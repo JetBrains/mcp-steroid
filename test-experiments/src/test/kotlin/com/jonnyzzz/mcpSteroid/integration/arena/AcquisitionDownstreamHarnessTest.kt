@@ -332,6 +332,24 @@ class AcquisitionDownstreamHarnessTest {
     }
 
     @Test
+    fun `a probe solver is one rung above the weak model, and never the top of the ladder`() {
+        // The guard that reads this set runs inside a container, so what a unit test can hold is the
+        // set's own shape — and that is the part a later edit would get wrong. A haiku here would make
+        // the exemption a silent duplicate of the model every wave cell already runs on; an opus would
+        // buy a reading from a solver that no longer needs a note, which is the one answer the round
+        // cannot carry back to the wave.
+        assertTrue(ACQUISITION_FLOOR_PROBE_SOLVERS.isNotEmpty(), "the probe has a solver lever or it has none")
+        assertTrue(
+            ACQUISITION_FLOOR_PROBE_SOLVERS.none { it.contains("haiku", ignoreCase = true) },
+            "a probe solver that is itself a haiku exempts nothing: $ACQUISITION_FLOOR_PROBE_SOLVERS",
+        )
+        assertTrue(
+            ACQUISITION_FLOOR_PROBE_SOLVERS.none { it.contains("opus", ignoreCase = true) },
+            "an opus solver answers a question the notes were not written for: $ACQUISITION_FLOOR_PROBE_SOLVERS",
+        )
+    }
+
+    @Test
     fun `success after the wall is not success within the budget`() {
         fun outcome(success: Boolean?, denied: Int?) = UnderstandingDownstreamOutcome(
             success = success,

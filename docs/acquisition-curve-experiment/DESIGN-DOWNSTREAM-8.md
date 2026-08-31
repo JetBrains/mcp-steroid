@@ -162,7 +162,25 @@ effect on the numbers is visible rather than asserted.
   that set is the one parameter that could manufacture a wave result, and a floor probe is not a
   candidate wave setting. `AcquisitionDownstreamHarnessTest` asserts the probe set is a singleton
   and is updated to assert the pair and the disjointness instead.
-- The solver lever needs no code change: `AcquisitionCellTests` honours an already-set
-  `claude.model` property and only defaults to `claude-haiku-4-5` when none is given, so S3 is
-  queued with `-Dclaude.model=claude-sonnet-5`.
+- A note cell is admitted only at the allowance its case was calibrated at, so
+  `requireAcquisitionAdmission` would have refused every S1 and S2 note cell before a container
+  started. A probe cell gets a narrow exemption: it is graded against a floor that does not exist
+  yet, because it is queued together with the cells that measure one. The exemption is exactly as
+  wide as `ACQUISITION_FLOOR_PROBE_BUDGETS`, and what keeps it safe is the disjointness above — no
+  probe allowance is a candidate wave setting, so no wave can enter through it.
+- The solver lever needs two changes, not none. The first bullet of this section originally claimed
+  it needed neither; both were found by reading the harness before anything was queued, and no cell
+  of this round had been triggered when this paragraph was rewritten.
+  - `AcquisitionCellTests` does honour an already-set `claude.model` and defaults to
+    `claude-haiku-4-5` only when none is given — but `runUnderstandingDownstream` then *checks* that
+    the resolved model is a haiku, so S3 would have died at the seam that exists to stop an
+    accidental Opus cell. The check now also accepts `ACQUISITION_FLOOR_PROBE_SOLVERS`, a listed set
+    holding the single model one rung above the weak one. An Opus stays refused, and not on price:
+    the notes were distilled to be read by a solver that cannot do the research itself, so a reading
+    taken from one that can cannot be carried back to the wave.
+  - `mcp_steroid_IntegrationTests_AcquisitionDownstream` hardcoded `-Dclaude.model` to the weak
+    model, so the model was not selectable at trigger time at all. It becomes a build parameter
+    whose default is the weak model and whose only other option is the probe solver — a closed
+    select, so a trigger cannot type in a third model. The allowance select gains the two probe
+    rungs for the same reason. Both are DSL changes, landing after this revision is on `jb`.
 - `ACQUISITION_REPAIR_ROUNDS` stays at 3, for the mechanism reason given above.

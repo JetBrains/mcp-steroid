@@ -322,6 +322,25 @@ const val ACQUISITION_DOWNSTREAM_BUDGET_NONE: String = "none"
 val ACQUISITION_FLOOR_PROBE_BUDGETS: Set<Int> = setOf(ACQUISITION_RESEARCH_BUDGET, 60)
 
 /**
+ * Solvers a FLOOR PROBE may run on, besides the weak model every other cell runs on.
+ *
+ * The allowance is one of the two things that could be starving the solver; the solver itself is the
+ * other, and round 8 probes both because eliminating one without the other leaves the reading
+ * ambiguous in exactly the way round 7 ended. The set is closed for the same reason
+ * [ACQUISITION_FLOOR_PROBE_BUDGETS] is closed, and it is closed one rung up: `claude-sonnet-5` is the
+ * next model above the wave's `claude-haiku-4-5`, not the top of the ladder.
+ *
+ * An Opus stays refused, and not on price. A cell that clears the endpoint on the strongest model
+ * available answers a question nobody asked — the notes were distilled to be read by an agent that
+ * cannot do the research itself, and a solver that can no longer needs one. The probe has to stay
+ * inside the range where a note could still matter, or its result cannot be carried back to the wave.
+ *
+ * Every cell prints its resolved model before the agent starts, so a probe cell names its solver in
+ * the log the same way it names its allowance.
+ */
+val ACQUISITION_FLOOR_PROBE_SOLVERS: Set<String> = setOf("claude-sonnet-5")
+
+/**
  * True for a semantic-arm trajectory that never made a semantic call.
  *
  * Such a cell is not a measurement of the arm it is labelled with: the first pilot produced two of
