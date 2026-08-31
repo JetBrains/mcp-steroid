@@ -402,10 +402,11 @@ object RippleCases {
         oldFqn = "org.keycloak.models.workflow.ResourceType",
         newPackage = "org.keycloak.models.workflow.resource",
         behaviourPreservationEvidence =
-            "The simple name ResourceType is load-bearing in 39 theme-message and realm-JSON files, " +
-                "which a move leaves untouched because it never changes the simple name; the " +
-                "fully-qualified name that DOES change appears in no non-.java file, so the move " +
-                "itself is not externally observable.",
+            "The fully-qualified name that a move changes appears in no non-.java file, so the move " +
+                "is not externally observable. Thirty-nine theme-message and realm-JSON files do match " +
+                "the substring ResourceType, but every hit is an admin-console message key inside a " +
+                "longer identifier (applyToResourceTypeHelp, chooseAResourceType) rather than a " +
+                "reference to the type — and a move never changes the simple name in any case.",
     )
 
     val moveClassWide: RippleCase = RippleCase(

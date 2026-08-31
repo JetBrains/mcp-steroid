@@ -1,0 +1,1101 @@
+diff --git a/services/src/test/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeWiringAndInvariantContractTest.java b/services/src/test/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeWiringAndInvariantContractTest.java
+new file mode 100644
+index 0000000..af7167a
+--- /dev/null
++++ b/services/src/test/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeWiringAndInvariantContractTest.java
+@@ -0,0 +1,1095 @@
++/*
++ * Copyright 2025 Red Hat, Inc. and/or its affiliates
++ * and other contributors as indicated by the @author tags.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package org.keycloak.protocol.oidc.grants;
++
++import java.io.File;
++import java.lang.reflect.Constructor;
++import java.lang.reflect.InvocationHandler;
++import java.lang.reflect.InvocationTargetException;
++import java.lang.reflect.Method;
++import java.lang.reflect.Modifier;
++import java.lang.reflect.Proxy;
++import java.net.URL;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.Enumeration;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.ServiceLoader;
++import java.util.Set;
++import java.util.jar.JarEntry;
++import java.util.jar.JarFile;
++import java.util.stream.Collectors;
++import java.util.stream.Stream;
++
++import jakarta.ws.rs.WebApplicationException;
++import jakarta.ws.rs.core.MultivaluedHashMap;
++import jakarta.ws.rs.core.MultivaluedMap;
++import jakarta.ws.rs.core.Response;
++
++import org.keycloak.Config;
++import org.keycloak.OAuth2Constants;
++import org.keycloak.OAuthErrorException;
++import org.keycloak.common.Profile;
++import org.keycloak.common.crypto.CryptoIntegration;
++import org.keycloak.common.crypto.CryptoProvider;
++import org.keycloak.common.util.Base64Url;
++import org.keycloak.events.EventBuilder;
++import org.keycloak.events.EventType;
++import org.keycloak.models.ClientModel;
++import org.keycloak.models.KeycloakContext;
++import org.keycloak.models.KeycloakSession;
++import org.keycloak.models.KeycloakSessionFactory;
++import org.keycloak.models.RealmModel;
++import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
++import org.keycloak.protocol.oidc.TokenManager;
++import org.keycloak.protocol.oidc.encode.DefaultTokenContextEncoderProviderFactory;
++import org.keycloak.provider.EnvironmentDependentProviderFactory;
++import org.keycloak.provider.ProviderFactory;
++import org.keycloak.representations.idm.OAuth2ErrorRepresentation;
++import org.keycloak.services.cors.Cors;
++import org.keycloak.services.resteasy.ResteasyKeycloakSession;
++import org.keycloak.services.resteasy.ResteasyKeycloakSessionFactory;
++import org.keycloak.tracing.TracingProvider;
++import org.keycloak.util.TokenUtil;
++
++import io.opentelemetry.api.trace.Span;
++
++import org.junit.Assert;
++import org.junit.Test;
++
++/**
++ * The obligations of the dedicated token-endpoint renewal operation that a COMPILING IMPLEMENTATION does not
++ * discharge: the registration hop, the published capability metadata, the refusal invariant, the kind of
++ * error an unreadable credential produces, and the two conservation properties a tree that changed nothing
++ * already satisfies.
++ * <p>
++ * This grades a strict subset of the axes of the ten-axis contract beside it, and the axis numbers are
++ * inherited from that file deliberately: the anchors of the note wave were measured per axis, so a reading
++ * of this file is directly comparable with that table. A1, A3, A6 and A8 are absent by design — the no-note
++ * solver satisfied every one of them in every replicate, so they measure whether an implementation was
++ * written, not whether the architecture was understood.
++ * <p>
++ * Every {@code @Test} below is meant to be <em>independently</em> satisfiable, so that the number of passing
++ * tests measures how much of the work is still missing rather than acting as one boolean wearing six names.
++ * In particular the behaviour axes (A7 and A9) never consult the ServiceLoader registration, the
++ * registration axis (A2) never requires the compiled-class scan to have found anything, and the uniqueness
++ * axis (A4) does not require the grant to be registered at all.
++ * <p>
++ * The implementation under test is never referenced by class name, nor by the grant-type identifier or the
++ * short code it happens to choose. It is discovered by the union of two name-independent routes:
++ * <ol>
++ *     <li>a scan of the compiled classes directory of this module for concrete {@link OAuth2GrantType} and
++ *     {@link OAuth2GrantTypeFactory} implementations under {@code org/keycloak/protocol/oidc/grants/} that
++ *     are absent from the baseline measured on the pristine tree and pinned below;</li>
++ *     <li>the provider SPI: {@link OAuth2GrantType} factory ids resolvable through the session factory that
++ *     are absent from the baseline measured on the pristine tree and pinned below.</li>
++ * </ol>
++ * When neither route finds anything, the behaviour axes FAIL with an explanatory message; they never ERROR.
++ * <p>
++ * Every behaviour axis exercises the grant in the state the runtime puts it in. {@code TokenEndpoint}
++ * authenticates the client, builds the CORS context, stamps the event type
++ * ({@code event.event(grant.getEventType())}) and only then constructs the {@link OAuth2GrantType.Context}
++ * and calls {@code grant.process(context)}. A grant that has never had its event type stamped is a state the
++ * server never creates - {@link EventBuilder#error(String)} throws {@link IllegalStateException} in it - and
++ * punishing an implementation for it would grade the harness, not the code. The whole set-up therefore lives
++ * in exactly one place, {@link #invokeWith(String)}, so no axis added later can forget it.
++ */
++public class OAuth2GrantTypeWiringAndInvariantContractTest {
++
++    private static final String SCANNED_PACKAGE = "org/keycloak/protocol/oidc/grants";
++
++    private static final String CLASS_SUFFIX = ".class";
++
++    /**
++     * Concrete {@link OAuth2GrantType} implementations compiled into this module under
++     * {@link #SCANNED_PACKAGE}, as measured on the pristine tree at the base commit.
++     */
++    private static final Set<String> BASELINE_GRANT_CLASS_NAMES = new LinkedHashSet<>(Arrays.asList(
++            "org.keycloak.protocol.oidc.grants.AuthorizationCodeGrantType",
++            "org.keycloak.protocol.oidc.grants.ClientCredentialsGrantType",
++            "org.keycloak.protocol.oidc.grants.JWTAuthorizationGrantType",
++            "org.keycloak.protocol.oidc.grants.PermissionGrantType",
++            "org.keycloak.protocol.oidc.grants.PreAuthorizedCodeGrantType",
++            "org.keycloak.protocol.oidc.grants.RefreshTokenGrantType",
++            "org.keycloak.protocol.oidc.grants.ResourceOwnerPasswordCredentialsGrantType",
++            "org.keycloak.protocol.oidc.grants.TokenExchangeGrantType",
++            "org.keycloak.protocol.oidc.grants.ciba.CibaGrantType",
++            "org.keycloak.protocol.oidc.grants.device.DeviceGrantType"));
++
++    /**
++     * Concrete {@link OAuth2GrantTypeFactory} implementations compiled into this module under
++     * {@link #SCANNED_PACKAGE}, mapped to the {@code getId()} / {@code getShortcut()} pair each of them
++     * declared on the pristine tree at the base commit.
++     * <p>
++     * Note that this is a <em>compiled classes</em> baseline, not a registration baseline: it holds ten
++     * entries, one of which ({@code PreAuthorizedCodeGrantTypeFactory}) is feature-gated off by default and
++     * is therefore absent from {@link #BASELINE_REGISTERED_GRANT_IDS}.
++     */
++    private static final Map<String, String[]> BASELINE_FACTORIES = baselineFactories();
++
++    /**
++     * Grant ids actually resolvable through the provider SPI on the pristine tree at the base commit, i.e.
++     * the ones the token endpoint can dispatch to and the ones the discovery document advertises. Nine, not
++     * ten: the pre-authorized-code grant is gated behind a disabled feature.
++     */
++    private static final Set<String> BASELINE_REGISTERED_GRANT_IDS = new LinkedHashSet<>(Arrays.asList(
++            "authorization_code",
++            "client_credentials",
++            "password",
++            "refresh_token",
++            "urn:ietf:params:oauth:grant-type:device_code",
++            "urn:ietf:params:oauth:grant-type:jwt-bearer",
++            "urn:ietf:params:oauth:grant-type:token-exchange",
++            "urn:ietf:params:oauth:grant-type:uma-ticket",
++            "urn:openid:params:grant-type:ciba"));
++
++    /**
++     * The SPI name the grant factories are loaded under, needed to reproduce the enablement gate the
++     * provider manager applies when it decides which factories are live.
++     */
++    private static final String GRANT_SPI_NAME = "oauth2-grant-type";
++
++    private static KeycloakSession realSession;
++
++    private static boolean realSessionUnavailable;
++
++    private static Map<String, String[]> baselineFactories() {
++        Map<String, String[]> baseline = new LinkedHashMap<>();
++        baseline.put("org.keycloak.protocol.oidc.grants.AuthorizationCodeGrantTypeFactory",
++                new String[]{"authorization_code", "ac"});
++        baseline.put("org.keycloak.protocol.oidc.grants.ClientCredentialsGrantTypeFactory",
++                new String[]{"client_credentials", "cc"});
++        baseline.put("org.keycloak.protocol.oidc.grants.JWTAuthorizationGrantTypeFactory",
++                new String[]{"urn:ietf:params:oauth:grant-type:jwt-bearer", "ag"});
++        baseline.put("org.keycloak.protocol.oidc.grants.PermissionGrantTypeFactory",
++                new String[]{"urn:ietf:params:oauth:grant-type:uma-ticket", "pg"});
++        baseline.put("org.keycloak.protocol.oidc.grants.PreAuthorizedCodeGrantTypeFactory",
++                new String[]{"urn:ietf:params:oauth:grant-type:pre-authorized_code", "pc"});
++        baseline.put("org.keycloak.protocol.oidc.grants.RefreshTokenGrantTypeFactory",
++                new String[]{"refresh_token", "rt"});
++        baseline.put("org.keycloak.protocol.oidc.grants.ResourceOwnerPasswordCredentialsGrantTypeFactory",
++                new String[]{"password", "ro"});
++        baseline.put("org.keycloak.protocol.oidc.grants.TokenExchangeGrantTypeFactory",
++                new String[]{"urn:ietf:params:oauth:grant-type:token-exchange", "te"});
++        baseline.put("org.keycloak.protocol.oidc.grants.ciba.CibaGrantTypeFactory",
++                new String[]{"urn:openid:params:grant-type:ciba", "ci"});
++        baseline.put("org.keycloak.protocol.oidc.grants.device.DeviceGrantTypeFactory",
++                new String[]{"urn:ietf:params:oauth:grant-type:device_code", "dg"});
++        return Collections.unmodifiableMap(baseline);
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // A2, A4, A5 - the wiring, invariant and capability axes
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * A2 - the grant is registered so that the token endpoint can dispatch to it. This is the
++     * {@code META-INF/services} hop: without it the implementation compiles perfectly, produces no warning
++     * and is simply never reachable.
++     * <p>
++     * Deliberately independent of the compiled-class scan: it asks the provider SPI only, and reproduces the
++     * exact lookup {@code TokenEndpoint.checkGrantType()} performs.
++     */
++    @Test
++    public void theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt() {
++        List<String> newIds = newRegisteredGrantIds();
++
++        Assert.assertEquals("Exactly one new grant id is expected to be resolvable through the provider SPI"
++                        + " on top of the " + BASELINE_REGISTERED_GRANT_IDS.size() + " measured on the"
++                        + " pristine tree, but found " + newIds + ". Is the factory listed in"
++                        + " META-INF/services/" + OAuth2GrantTypeFactory.class.getName() + "?",
++                1, newIds.size());
++
++        String newId = newIds.get(0);
++        KeycloakSession live = sessionOrNull();
++        OAuth2GrantType dispatched;
++        if (live != null) {
++            dispatched = live.getProvider(OAuth2GrantType.class, newId);
++        } else {
++            OAuth2GrantTypeFactory registered = registeredGrantFactory(newId);
++            dispatched = registered == null ? null : registered.create(stubSession());
++        }
++        Assert.assertNotNull("TokenEndpoint resolves a grant with session.getProvider(OAuth2GrantType.class,"
++                + " grantType); that lookup returned null for the newly registered id '" + newId
++                + "', so the token endpoint would answer unsupported_grant_type", dispatched);
++
++        List<Class<?>> discovered = newGrantClasses();
++        if (discovered.size() == 1) {
++            Assert.assertTrue("The grant registered under '" + newId + "' is a "
++                            + dispatched.getClass().getName() + ", which is not the new implementation "
++                            + discovered.get(0).getName() + " found on the compiled classpath",
++                    discovered.get(0).isInstance(dispatched));
++        }
++    }
++
++    /**
++     * A4 - the short code the operation declares is GLOBALLY unique across every grant the server ships.
++     * <p>
++     * That short code - not the grant id - is what gets stamped into every issued token, and its uniqueness
++     * is asserted once, at start-up, in a completely different subsystem
++     * ({@code org.keycloak.protocol.oidc.encode}). This axis grades the same property without booting a
++     * server: it drives the real encoder factory through its real {@code postInit} with a hand-written
++     * provider-factory stub that enumerates every grant factory compiled into the module - including the
++     * feature-gated one, since the invariant is global and a profile may enable it - plus the new one.
++     * <p>
++     * Note that the enumeration deliberately does NOT go through the ServiceLoader, so this axis is gradable
++     * before the registration line exists.
++     */
++    @Test
++    public void theTokenContextShortCodeIsGloballyUnique() {
++        OAuth2GrantTypeFactory factory = factoryUnderTest();
++        String shortcut = factory.getShortcut();
++
++        Assert.assertNotNull("The new grant factory declares no short code (getShortcut() returned null);"
++                + " the token-context encoder stamps that code into every token this grant issues", shortcut);
++        Assert.assertFalse("The new grant factory declares a blank short code", shortcut.trim().isEmpty());
++
++        Map<String, String> shippedShortcuts = shippedShortcutsToGrantIds();
++        Assert.assertFalse("The new grant declares the short code '" + shortcut + "', which the shipped grant"
++                        + " '" + shippedShortcuts.get(shortcut) + "' already uses. The server writes this"
++                        + " code into the tokens it issues, so two grants sharing it make a token's origin"
++                        + " ambiguous - and the server refuses to start rather than allow that",
++                shippedShortcuts.containsKey(shortcut));
++
++        List<ProviderFactory> allFactories = new ArrayList<>(shippedFactories());
++        allFactories.add(factory);
++
++        DefaultTokenContextEncoderProviderFactory encoder = new DefaultTokenContextEncoderProviderFactory();
++        encoder.init(null);
++        try {
++            encoder.postInit(sessionFactoryServing(allFactories));
++        } catch (IllegalStateException e) {
++            Assert.fail("The server refuses to start with the new grant in place: " + e.getMessage());
++        }
++    }
++
++    /**
++     * A5 - the new operation shows up in the server's published capability metadata, so that a client can
++     * detect it.
++     * <p>
++     * {@code OIDCWellKnownProvider.getGrantTypesSupported()} is private and needs a session bound to a realm,
++     * so the axis reproduces its derivation verbatim - the factory stream mapped through
++     * {@code ProviderFactory::getId}, concatenated with the implicit flow and sorted - which is exactly the
++     * list that reaches {@code grant_types_supported}.
++     * <p>
++     * This axis also catches the case where the implementation advertises one identifier and registers
++     * another: the entry the metadata gains must be the identifier the new factory itself declares.
++     */
++    @Test
++    public void theGrantAppearsInThePublishedGrantTypesSupported() {
++        List<String> supported = grantTypesSupported();
++
++        List<String> gained = new ArrayList<>(supported);
++        gained.removeAll(BASELINE_REGISTERED_GRANT_IDS);
++        gained.remove(OAuth2Constants.IMPLICIT);
++
++        Assert.assertEquals("grant_types_supported is derived from the registered grant factories, so the new"
++                        + " renewal operation should appear there automatically. It gained " + gained
++                        + " on top of the baseline measured on the pristine tree", 1, gained.size());
++
++        OAuth2GrantTypeFactory declared = factoryFromCompiledClasses();
++        if (declared != null) {
++            Assert.assertEquals("The published metadata advertises '" + gained.get(0) + "' while the new"
++                            + " grant factory declares '" + declared.getId() + "'. A client that trusts"
++                            + " discovery would send a grant_type the token endpoint cannot serve",
++                    declared.getId(), gained.get(0));
++        }
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // A7, A9 - the behaviour axes, neither of which consults the ServiceLoader registration
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * A7 - the whole point of the operation: an ordinary interactive-session credential is REFUSED, with the
++     * standard {@code invalid_grant} error, before any token is minted.
++     * <p>
++     * The shipped renewal grant accepts this very token and walks straight into issuance, so this axis is
++     * exactly the delta between "copied the neighbour" and "did the work".
++     */
++    @Test
++    public void anOrdinaryInteractiveCredentialIsRefusedBeforeAnyTokenIsMinted() {
++        Outcome outcome = invokeWith(refreshTokenOfType(TokenUtil.TOKEN_TYPE_REFRESH));
++
++        assertRefusedBeforeIssuing(outcome, "an ordinary (online) refresh token");
++        Assert.assertEquals("Refusing an ordinary refresh token must be reported as the standard"
++                        + " invalid_grant protocol error, but the grant reported '" + outcome.oauthError
++                        + "'", OAuthErrorException.INVALID_GRANT, outcome.oauthError);
++    }
++
++    /**
++     * A9 - an unreadable credential is an ordinary protocol error, not a server error.
++     * <p>
++     * The credential-kind check has to parse the token, and parsing can fail. Whatever the implementation
++     * does about it, the caller must see a 4xx OAuth error and nothing must be minted - a leaked parse
++     * exception would surface as a 500.
++     * <p>
++     * The error code is deliberately not pinned: reporting the unreadable token as {@code invalid_grant}
++     * (the shipped precedent's shape - "not the right kind of credential") and reporting it as
++     * {@code invalid_request} are both defensible.
++     */
++    @Test
++    public void anUnreadableCredentialIsAProtocolErrorNotAServerError() {
++        Outcome outcome = invokeWith("this-is-not-a-token");
++
++        assertRefusedBeforeIssuing(outcome, "an unreadable refresh token");
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // A10 - the floor
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * A10 - nothing that already worked was broken: every shipped grant is still compiled, still registered,
++     * and still declares the same identifier and short code.
++     * <p>
++     * This axis intentionally PASSES on a pristine tree - it is a "did not break anything" check and holds
++     * BY CONSTRUCTION before any work is done. It is a floor, not partial progress: a score of 1 out of 10
++     * means nothing has been implemented yet.
++     */
++    @Test
++    public void theShippedGrantsAreUnchanged() {
++        List<String> compiled = compiledClassNames();
++        for (String expected : BASELINE_GRANT_CLASS_NAMES) {
++            Assert.assertTrue("The shipped grant implementation '" + expected + "' is no longer compiled into"
++                    + " the module", compiled.contains(expected));
++        }
++
++        for (Map.Entry<String, String[]> entry : BASELINE_FACTORIES.entrySet()) {
++            Assert.assertTrue("The shipped grant factory '" + entry.getKey() + "' is no longer compiled into"
++                    + " the module", compiled.contains(entry.getKey()));
++            OAuth2GrantTypeFactory factory = instantiateFactory(entry.getKey());
++            Assert.assertEquals("The shipped grant factory '" + entry.getKey() + "' changed its grant type",
++                    entry.getValue()[0], factory.getId());
++            Assert.assertEquals("The shipped grant factory '" + entry.getKey() + "' changed its short code;"
++                            + " tokens already issued carry the old one",
++                    entry.getValue()[1], factory.getShortcut());
++        }
++
++        List<String> registered = registeredGrantIds();
++        for (String expected : BASELINE_REGISTERED_GRANT_IDS) {
++            Assert.assertTrue("The shipped grant '" + expected + "' is no longer resolvable through the"
++                    + " provider SPI; the token endpoint would answer unsupported_grant_type for it",
++                    registered.contains(expected));
++        }
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // behaviour harness - the ONE place the runtime-faithful set-up lives
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * Runs the discovered grant exactly the way {@code TokenEndpoint.processGrantRequest()} runs it: a fresh
++     * instance per request, an event whose type has already been stamped, a live CORS context, an
++     * authenticated client and a realm in the session context, and the form parameters carrying the
++     * {@code grant_type} the grant itself declares.
++     *
++     * @param refreshToken the value of the {@code refresh_token} form parameter, or {@code null} to omit it
++     */
++    private static Outcome invokeWith(String refreshToken) {
++        OAuth2GrantType grant = grantUnderTest();
++
++        MultivaluedMap<String, String> formParams = new MultivaluedHashMap<>();
++        formParams.putSingle(OAuth2Constants.GRANT_TYPE, declaredGrantType());
++        if (refreshToken != null) {
++            formParams.putSingle(OAuth2Constants.REFRESH_TOKEN, refreshToken);
++        }
++
++        EventBuilder event = new EventBuilder(REALM, stubSession());
++        EventType eventType = eventTypeOf(grant);
++        event.event(eventType);
++        // The audit event is queued for the commit of the surrounding transaction instead of being written
++        // through immediately. Both modes are ordinary runtime states (EventBuilder.storeImmediately is
++        // public API); the immediate one opens a nested transaction against a real store, which no unit test
++        // can provide. The grant cannot observe the difference.
++        event.storeImmediately(false);
++
++        // The endpoint hands the grant a real token manager and the authenticated client's advanced config,
++        // both of which the base class casts unconditionally. Supplying them keeps every axis on a state the
++        // runtime can actually produce, even though the paths graded here stop before either is read.
++        OAuth2GrantType.Context context = new OAuth2GrantType.Context(stubSession(),
++                OIDCAdvancedConfigWrapper.fromClientModel(CLIENT), new HashMap<>(),
++                formParams, event, CORS, new TokenManager());
++
++        try {
++            grant.process(context);
++            return Outcome.returnedNormally();
++        } catch (Throwable t) {
++            if (isDelegationMarker(t)) {
++                return Outcome.delegated();
++            }
++            if (t instanceof WebApplicationException) {
++                WebApplicationException wae = (WebApplicationException) t;
++                return new Outcome(false, false, wae, statusOf(wae), oauthErrorOf(wae));
++            }
++            return new Outcome(false, false, t, -1, null);
++        }
++    }
++
++    private static void assertRefusedBeforeIssuing(Outcome outcome, String what) {
++        Assert.assertFalse("The grant handed " + what + " on to the shipped renewal path instead of refusing"
++                + " it; a token would have been minted", outcome.delegated);
++        Assert.assertFalse("The grant accepted " + what + " and returned a token response", outcome.returned);
++        Assert.assertTrue("The grant must refuse " + what + " with an ordinary OAuth protocol error, but it"
++                        + " " + describe(outcome),
++                outcome.thrown instanceof WebApplicationException);
++        Assert.assertTrue("Refusing " + what + " must be a 4xx protocol error, but the grant answered "
++                + outcome.status, outcome.status >= 400 && outcome.status < 500);
++    }
++
++    private static String describe(Outcome outcome) {
++        if (outcome.returned) {
++            return "returned a token response instead";
++        }
++        if (outcome.delegated) {
++            return "delegated to the shipped renewal path instead";
++        }
++        if (outcome.thrown == null) {
++            return "did nothing observable";
++        }
++        return "threw " + outcome.thrown.getClass().getName() + ": " + outcome.thrown.getMessage();
++    }
++
++    private static EventType eventTypeOf(OAuth2GrantType grant) {
++        EventType declared;
++        try {
++            declared = grant.getEventType();
++        } catch (Throwable t) {
++            System.err.println("The grant under test cannot report its event type: " + t);
++            declared = null;
++        }
++        if (declared != null) {
++            return declared;
++        }
++        // The endpoint stamps whatever the grant reports. Falling back keeps the behaviour axes on their own
++        // terms rather than turning a missing event type into an error in every one of them.
++        System.err.println("The grant under test reports no event type; falling back to " + EventType.REFRESH_TOKEN);
++        return EventType.REFRESH_TOKEN;
++    }
++
++    private static int statusOf(WebApplicationException e) {
++        try {
++            return e.getResponse().getStatus();
++        } catch (Throwable t) {
++            System.err.println("Cannot read the status of " + e.getClass().getName() + ": " + t);
++            return -1;
++        }
++    }
++
++    private static String oauthErrorOf(WebApplicationException e) {
++        try {
++            Object entity = e.getResponse().getEntity();
++            if (entity instanceof OAuth2ErrorRepresentation) {
++                return ((OAuth2ErrorRepresentation) entity).getError();
++            }
++        } catch (Throwable t) {
++            System.err.println("Cannot read the OAuth error of " + e.getClass().getName() + ": " + t);
++        }
++        return e.getMessage();
++    }
++
++    /**
++     * A refresh token of the requested {@code typ}, signed with a throw-away signature. Nothing on the path
++     * under test verifies the signature - the credential-kind check reads the token's declared type.
++     * <p>
++     * The two types come from {@link TokenUtil}, the shipped vocabulary for "this is a long-lived credential"
++     * versus "this belongs to an interactive session". They are the wire format the server has always
++     * written, not a choice the new operation gets to make.
++     */
++    private static String refreshTokenOfType(String type) {
++        return Base64Url.encode("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8))
++                + "." + Base64Url.encode(("{\"typ\":\"" + type + "\"}").getBytes(StandardCharsets.UTF_8))
++                + "." + Base64Url.encode("signature".getBytes(StandardCharsets.UTF_8));
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // discovery route (1) - the compiled classes of this module
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<Class<?>> newGrantClasses() {
++        return newConcreteImplementationsOf(OAuth2GrantType.class, BASELINE_GRANT_CLASS_NAMES);
++    }
++
++    private static List<Class<?>> newGrantFactoryClasses() {
++        return newConcreteImplementationsOf(OAuth2GrantTypeFactory.class, BASELINE_FACTORIES.keySet());
++    }
++
++    private static List<Class<?>> newConcreteImplementationsOf(Class<?> spi, Set<String> baseline) {
++        List<Class<?>> discovered = new ArrayList<>();
++        for (String name : compiledClassNames()) {
++            if (baseline.contains(name)) {
++                continue;
++            }
++            try {
++                Class<?> candidate = Class.forName(name, false,
++                        OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader());
++                if (spi.isAssignableFrom(candidate)
++                        && !candidate.isInterface()
++                        && !Modifier.isAbstract(candidate.getModifiers())
++                        && !candidate.isSynthetic()
++                        && !candidate.isAnonymousClass()) {
++                    discovered.add(candidate);
++                }
++            } catch (Throwable t) {
++                // an unloadable class must not abort the scan - it simply cannot be the grant under test
++                System.err.println("Skipping class '" + name + "' which cannot be inspected: " + t);
++            }
++        }
++        return discovered;
++    }
++
++    private static List<String> compiledClassNames() {
++        URL location = RefreshTokenGrantType.class.getProtectionDomain().getCodeSource().getLocation();
++        Assert.assertNotNull("Cannot locate the compiled classes of the services module", location);
++
++        List<String> names = new ArrayList<>();
++        try {
++            Path root = Paths.get(location.toURI());
++            if (Files.isDirectory(root)) {
++                Path scanned = root.resolve(SCANNED_PACKAGE);
++                if (Files.isDirectory(scanned)) {
++                    try (Stream<Path> paths = Files.walk(scanned)) {
++                        names.addAll(paths
++                                .filter(path -> path.getFileName().toString().endsWith(CLASS_SUFFIX))
++                                .map(path -> toClassName(
++                                        root.relativize(path).toString().replace(File.separatorChar, '/')))
++                                .collect(Collectors.toList()));
++                    }
++                }
++            } else {
++                try (JarFile jar = new JarFile(root.toFile())) {
++                    Enumeration<JarEntry> entries = jar.entries();
++                    while (entries.hasMoreElements()) {
++                        String entry = entries.nextElement().getName();
++                        if (entry.startsWith(SCANNED_PACKAGE + "/") && entry.endsWith(CLASS_SUFFIX)) {
++                            names.add(toClassName(entry));
++                        }
++                    }
++                }
++            }
++        } catch (Exception e) {
++            Assert.fail("Cannot scan the compiled classes at '" + location + "': " + e);
++        }
++        Collections.sort(names);
++        return names;
++    }
++
++    private static String toClassName(String resourcePath) {
++        return resourcePath.substring(0, resourcePath.length() - CLASS_SUFFIX.length()).replace('/', '.');
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // discovery route (2) - the provider SPI
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * Every grant factory the ServiceLoader hop makes live, i.e. the ones the token endpoint can dispatch to
++     * and the ones the discovery document advertises.
++     * <p>
++     * The primary route is the running provider registry. When the registry cannot be started at all - which
++     * is precisely what a violated start-up invariant does - this falls back to walking
++     * {@code META-INF/services} directly and applying the same enablement gate the provider manager applies
++     * ({@code scope.getBoolean("enabled", true)} plus {@link EnvironmentDependentProviderFactory}). Without
++     * that fallback a single broken invariant would take every other axis down with it, which is exactly the
++     * cascade this contract must not have: an axis may only be lost for the obligation it grades.
++     */
++    private static List<ProviderFactory> registeredGrantFactories() {
++        KeycloakSession session = sessionOrNull();
++        if (session != null) {
++            return session.getKeycloakSessionFactory()
++                    .getProviderFactoriesStream(OAuth2GrantType.class)
++                    .collect(Collectors.toList());
++        }
++        return serviceLoaderGrantFactories();
++    }
++
++    private static List<ProviderFactory> serviceLoaderGrantFactories() {
++        List<ProviderFactory> factories = new ArrayList<>();
++        for (OAuth2GrantTypeFactory factory
++                : ServiceLoader.load(OAuth2GrantTypeFactory.class,
++                        OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader())) {
++            try {
++                if (isEnabled(factory)) {
++                    factories.add(factory);
++                }
++            } catch (Throwable t) {
++                System.err.println("Skipping registered factory '" + factory.getClass().getName()
++                        + "' which cannot be inspected: " + t);
++            }
++        }
++        return factories;
++    }
++
++    private static boolean isEnabled(ProviderFactory factory) {
++        Config.Scope scope = Config.scope(GRANT_SPI_NAME, factory.getId());
++        if (!scope.getBoolean("enabled", true)) {
++            return false;
++        }
++        if (factory instanceof EnvironmentDependentProviderFactory) {
++            return ((EnvironmentDependentProviderFactory) factory).isSupported(scope);
++        }
++        return true;
++    }
++
++    private static List<String> registeredGrantIds() {
++        return registeredGrantFactories().stream()
++                .map(ProviderFactory::getId)
++                .sorted()
++                .collect(Collectors.toList());
++    }
++
++    private static List<String> newRegisteredGrantIds() {
++        return registeredGrantIds().stream()
++                .filter(id -> !BASELINE_REGISTERED_GRANT_IDS.contains(id))
++                .collect(Collectors.toList());
++    }
++
++    /**
++     * The list {@code grant_types_supported} is built from, derived the way
++     * {@code OIDCWellKnownProvider.getGrantTypesSupported()} derives it.
++     */
++    private static List<String> grantTypesSupported() {
++        Stream<String> ids = registeredGrantFactories().stream().map(ProviderFactory::getId);
++        return Stream.concat(ids, Stream.of(OAuth2Constants.IMPLICIT)).sorted().collect(Collectors.toList());
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // the union of the two routes
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * @return the new grant factory found by the compiled-class scan, or {@code null} when the scan does not
++     * single out exactly one
++     */
++    private static OAuth2GrantTypeFactory factoryFromCompiledClasses() {
++        List<Class<?>> discovered = newGrantFactoryClasses();
++        if (discovered.size() != 1) {
++            return null;
++        }
++        try {
++            return instantiateFactory(discovered.get(0));
++        } catch (Throwable t) {
++            System.err.println("Cannot instantiate the discovered factory '" + discovered.get(0).getName()
++                    + "': " + t);
++            return null;
++        }
++    }
++
++    /**
++     * @return the new grant factory found by the provider SPI, or {@code null} when the SPI does not single
++     * out exactly one
++     */
++    private static OAuth2GrantTypeFactory factoryFromServiceLoader() {
++        try {
++            List<String> newIds = newRegisteredGrantIds();
++            if (newIds.size() != 1) {
++                return null;
++            }
++            return registeredGrantFactory(newIds.get(0));
++        } catch (Exception e) {
++            System.err.println("Cannot reach the new grant factory through the provider SPI: " + e);
++            return null;
++        }
++    }
++
++    private static OAuth2GrantTypeFactory registeredGrantFactory(String id) {
++        return registeredGrantFactories().stream()
++                .filter(factory -> id.equals(factory.getId()))
++                .map(OAuth2GrantTypeFactory.class::cast)
++                .findFirst()
++                .orElse(null);
++    }
++
++    /**
++     * The new grant factory, by the union of both routes. FAILS - never errors - when neither route finds it.
++     */
++    private static OAuth2GrantTypeFactory factoryUnderTest() {
++        OAuth2GrantTypeFactory fromClasses = factoryFromCompiledClasses();
++        if (fromClasses != null) {
++            return fromClasses;
++        }
++        OAuth2GrantTypeFactory fromServiceLoader = factoryFromServiceLoader();
++        if (fromServiceLoader != null) {
++            return fromServiceLoader;
++        }
++        Assert.fail("No new grant factory was found: neither a new " + OAuth2GrantTypeFactory.class.getSimpleName()
++                + " compiled under " + SCANNED_PACKAGE + " (found " + classNames(newGrantFactoryClasses())
++                + ") nor a new grant id registered through the provider SPI (found " + newRegisteredGrantIds()
++                + "). The new renewal operation is not implemented.");
++        throw new AssertionError("unreachable");
++    }
++
++    /**
++     * The grant as the runtime hands it to the token endpoint - built by its own factory whenever one can be
++     * found, exactly as {@code session.getProvider(OAuth2GrantType.class, grantType)} does. FAILS - never
++     * errors - when the implementation is absent.
++     */
++    private static OAuth2GrantType grantUnderTest() {
++        OAuth2GrantTypeFactory factory = null;
++        try {
++            factory = factoryUnderTest();
++        } catch (AssertionError noFactory) {
++            List<Class<?>> discovered = newGrantClasses();
++            if (discovered.isEmpty()) {
++                throw noFactory;
++            }
++        }
++
++        if (factory != null) {
++            OAuth2GrantType created = factory.create(stubSession());
++            if (created != null) {
++                return created;
++            }
++            System.err.println("The new grant factory created no grant; falling back to the compiled class");
++        }
++
++        List<Class<?>> discovered = newGrantClasses();
++        Assert.assertEquals("Exactly one new " + OAuth2GrantType.class.getSimpleName() + " implementation is"
++                        + " expected under " + SCANNED_PACKAGE + ", but found " + classNames(discovered),
++                1, discovered.size());
++        try {
++            for (Constructor<?> constructor : discovered.get(0).getConstructors()) {
++                if (constructor.getParameterCount() == 0) {
++                    return (OAuth2GrantType) constructor.newInstance();
++                }
++            }
++        } catch (Exception e) {
++            Assert.fail("Cannot instantiate the discovered grant '" + discovered.get(0).getName() + "': " + e);
++        }
++        Assert.fail("The discovered grant '" + discovered.get(0).getName() + "' offers no public no-arg"
++                + " constructor and no factory creates it");
++        throw new AssertionError("unreachable");
++    }
++
++    private static String declaredGrantType() {
++        try {
++            String id = factoryUnderTest().getId();
++            if (id != null && !id.trim().isEmpty()) {
++                return id;
++            }
++        } catch (AssertionError | RuntimeException e) {
++            System.err.println("Cannot read the declared grant type: " + e);
++        }
++        return OAuth2Constants.REFRESH_TOKEN;
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // the shipped grants, as pinned on the pristine tree
++    // ----------------------------------------------------------------------------------------------------
++
++    private static List<ProviderFactory> shippedFactories() {
++        List<ProviderFactory> factories = new ArrayList<>();
++        for (String name : BASELINE_FACTORIES.keySet()) {
++            factories.add(instantiateFactory(name));
++        }
++        return factories;
++    }
++
++    private static Map<String, String> shippedShortcutsToGrantIds() {
++        Map<String, String> shortcuts = new LinkedHashMap<>();
++        for (Map.Entry<String, String[]> entry : BASELINE_FACTORIES.entrySet()) {
++            shortcuts.put(entry.getValue()[1], entry.getValue()[0]);
++        }
++        return shortcuts;
++    }
++
++    private static OAuth2GrantTypeFactory instantiateFactory(String className) {
++        try {
++            return instantiateFactory(Class.forName(className, true,
++                    OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader()));
++        } catch (Exception e) {
++            Assert.fail("Cannot load the grant factory '" + className + "': " + e);
++            throw new AssertionError("unreachable");
++        }
++    }
++
++    private static OAuth2GrantTypeFactory instantiateFactory(Class<?> type) {
++        try {
++            return (OAuth2GrantTypeFactory) type.getConstructor().newInstance();
++        } catch (Exception e) {
++            Assert.fail("Cannot instantiate the grant factory '" + type.getName() + "': " + e);
++            throw new AssertionError("unreachable");
++        }
++    }
++
++    private static List<String> classNames(List<Class<?>> classes) {
++        return classes.stream().map(Class::getName).sorted().collect(Collectors.toList());
++    }
++
++    // ----------------------------------------------------------------------------------------------------
++    // test doubles
++    // ----------------------------------------------------------------------------------------------------
++
++    /**
++     * Marks the moment the request crosses into the shipped renewal path. The shipped grant triggers the
++     * client-policy chain right after it has read the credential, so an implementation that delegates gets
++     * here and one that refuses - or that reimplements issuance - does not.
++     */
++    private static final class DelegationMarker extends RuntimeException {
++
++        DelegationMarker() {
++            super("the request reached the shipped renewal path");
++        }
++    }
++
++    private static boolean isDelegationMarker(Throwable t) {
++        for (Throwable current = t; current != null; current = current.getCause()) {
++            if (current instanceof DelegationMarker) {
++                return true;
++            }
++            if (current.getCause() == current) {
++                return false;
++            }
++        }
++        return false;
++    }
++
++    private static final RealmModel REALM = (RealmModel) Proxy.newProxyInstance(
++            OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++            new Class<?>[]{RealmModel.class}, new NeutralDefaults("realm"));
++
++    private static final ClientModel CLIENT = (ClientModel) Proxy.newProxyInstance(
++            OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++            new Class<?>[]{ClientModel.class}, new NeutralDefaults("client"));
++
++    /**
++     * A CORS context that behaves the way the live one does for the only thing the paths under test ask of
++     * it: turning a response builder into a response.
++     */
++    private static final Cors CORS = (Cors) Proxy.newProxyInstance(
++            OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++            new Class<?>[]{Cors.class}, (proxy, method, args) -> {
++                if ("add".equals(method.getName()) && args != null && args.length == 1) {
++                    if (args[0] instanceof Response.ResponseBuilder) {
++                        return ((Response.ResponseBuilder) args[0]).build();
++                    }
++                    if (args[0] instanceof Response) {
++                        return args[0];
++                    }
++                }
++                if ("toString".equals(method.getName())) {
++                    return "cors";
++                }
++                if ("hashCode".equals(method.getName())) {
++                    return System.identityHashCode(proxy);
++                }
++                if ("equals".equals(method.getName())) {
++                    return proxy == args[0];
++                }
++                return Cors.class.isAssignableFrom(method.getReturnType())
++                        ? proxy : NeutralDefaults.defaultValue(method.getReturnType());
++            });
++
++    /**
++     * The running provider registry, or {@code null} when it cannot be started.
++     * <p>
++     * A deployment that violates a start-up invariant is exactly the case where this returns {@code null}.
++     * The failure is reported once, on stderr, and every caller degrades to a narrower route rather than
++     * erroring - the axis that owns the invariant is the only one allowed to lose a point for it.
++     */
++    private static synchronized KeycloakSession sessionOrNull() {
++        if (realSession == null && !realSessionUnavailable) {
++            try {
++                Profile.defaults();
++                CryptoIntegration.init(CryptoProvider.class.getClassLoader());
++                ResteasyKeycloakSessionFactory sessionFactory = new ResteasyKeycloakSessionFactory();
++                sessionFactory.init();
++                realSession = new ResteasyKeycloakSession(sessionFactory);
++            } catch (Throwable t) {
++                realSessionUnavailable = true;
++                System.err.println("The provider registry cannot be started, so the axes that do not grade"
++                        + " start-up fall back to narrower routes: " + t);
++            }
++        }
++        return realSession;
++    }
++
++    /**
++     * The session the token endpoint would hand to the grant: the live session where there is one, with an
++     * authenticated client and a realm already in its context, whose client-policy chain records that the
++     * request reached it. Where the registry did not come up, the same shape is served synthetically so that
++     * the behaviour axes stay gradable.
++     */
++    private static KeycloakSession stubSession() {
++        KeycloakSession delegate = sessionOrNull();
++        KeycloakContext context = (KeycloakContext) Proxy.newProxyInstance(
++                OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++                new Class<?>[]{KeycloakContext.class}, (proxy, method, args) -> {
++                    if ("getRealm".equals(method.getName())) {
++                        return REALM;
++                    }
++                    if ("getClient".equals(method.getName())) {
++                        return CLIENT;
++                    }
++                    return NeutralDefaults.defaultValue(method.getReturnType());
++                });
++        return (KeycloakSession) Proxy.newProxyInstance(
++                OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++                new Class<?>[]{KeycloakSession.class}, (proxy, method, args) -> {
++                    if ("getContext".equals(method.getName())) {
++                        return context;
++                    }
++                    if ("clientPolicy".equals(method.getName())) {
++                        throw new DelegationMarker();
++                    }
++                    if (delegate != null) {
++                        try {
++                            return method.invoke(delegate, args);
++                        } catch (InvocationTargetException e) {
++                            throw e.getTargetException();
++                        }
++                    }
++                    if ("getKeycloakSessionFactory".equals(method.getName())) {
++                        return sessionFactoryServing(Collections.emptyList());
++                    }
++                    if ("getProvider".equals(method.getName()) && args != null && args.length == 1
++                            && TracingProvider.class.equals(args[0])) {
++                        return NON_RECORDING_TRACING;
++                    }
++                    return NeutralDefaults.defaultValue(method.getReturnType());
++                });
++    }
++
++    /**
++     * The tracing provider every event goes through. The live one is disabled by default and hands out a
++     * non-recording span; this reproduces that, so an audit event can be raised without a running registry.
++     */
++    private static final TracingProvider NON_RECORDING_TRACING = (TracingProvider) Proxy.newProxyInstance(
++            OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++            new Class<?>[]{TracingProvider.class}, (proxy, method, args) -> {
++                if (Span.class.equals(method.getReturnType())) {
++                    return Span.getInvalid();
++                }
++                return NeutralDefaults.defaultValue(method.getReturnType());
++            });
++
++    /**
++     * A {@link KeycloakSessionFactory} that serves exactly the given grant factories, so that the real
++     * token-context encoder can be driven through its real start-up check.
++     */
++    private static KeycloakSessionFactory sessionFactoryServing(List<ProviderFactory> factories) {
++        return (KeycloakSessionFactory) Proxy.newProxyInstance(
++                OAuth2GrantTypeWiringAndInvariantContractTest.class.getClassLoader(),
++                new Class<?>[]{KeycloakSessionFactory.class}, (proxy, method, args) -> {
++                    if ("getProviderFactoriesStream".equals(method.getName())
++                            && args != null && args.length == 1) {
++                        return OAuth2GrantType.class.equals(args[0]) ? factories.stream() : Stream.empty();
++                    }
++                    return NeutralDefaults.defaultValue(method.getReturnType());
++                });
++    }
++
++    /**
++     * Answers every call with the neutral default of its return type, and with an empty stream for anything
++     * that returns one, so that a model object can be handed to code that only reads from it.
++     */
++    private static final class NeutralDefaults implements InvocationHandler {
++
++        private final String label;
++
++        NeutralDefaults(String label) {
++            this.label = label;
++        }
++
++        static Object defaultValue(Class<?> type) {
++            if (Stream.class.equals(type)) {
++                return Stream.empty();
++            }
++            if (!type.isPrimitive()) {
++                return null;
++            }
++            if (type == boolean.class) {
++                return Boolean.FALSE;
++            }
++            if (type == char.class) {
++                return (char) 0;
++            }
++            if (type == byte.class) {
++                return (byte) 0;
++            }
++            if (type == short.class) {
++                return (short) 0;
++            }
++            if (type == int.class) {
++                return 0;
++            }
++            if (type == long.class) {
++                return 0L;
++            }
++            if (type == float.class) {
++                return 0F;
++            }
++            if (type == double.class) {
++                return 0D;
++            }
++            return null;
++        }
++
++        @Override
++        public Object invoke(Object proxy, Method method, Object[] args) {
++            String name = method.getName();
++            if ("toString".equals(name)) {
++                return label;
++            }
++            if ("hashCode".equals(name)) {
++                return System.identityHashCode(proxy);
++            }
++            if ("equals".equals(name)) {
++                return proxy == args[0];
++            }
++            return defaultValue(method.getReturnType());
++        }
++    }
++
++    /**
++     * What the grant did with one request.
++     */
++    private static final class Outcome {
++
++        final boolean delegated;
++        final boolean returned;
++        final Throwable thrown;
++        final int status;
++        final String oauthError;
++
++        Outcome(boolean delegated, boolean returned, Throwable thrown, int status, String oauthError) {
++            this.delegated = delegated;
++            this.returned = returned;
++            this.thrown = thrown;
++            this.status = status;
++            this.oauthError = oauthError;
++        }
++
++        static Outcome delegated() {
++            return new Outcome(true, false, null, -1, null);
++        }
++
++        static Outcome returnedNormally() {
++            return new Outcome(false, true, null, -1, null);
++        }
++    }
++}

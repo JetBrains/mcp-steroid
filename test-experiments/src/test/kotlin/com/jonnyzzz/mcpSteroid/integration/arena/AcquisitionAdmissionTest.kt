@@ -143,9 +143,10 @@ class AcquisitionAdmissionTest {
             assertNotNull(it.compiled, "${it.buildId} must carry a compile verdict")
         }
 
-        // The other two are blocked, and by DIFFERENT halves of the same rule, which is why both are
-        // kept rather than retired: a case whose ceiling wobbles can be re-anchored, and a case whose
-        // unaided solver scores most of the scale cannot be measured by any note at any allowance.
+        // The other two are blocked, and for DIFFERENT reasons, which is why both are kept rather than
+        // retired: a case whose ceiling wobbles can be re-anchored, and a case whose unaided solver
+        // scores most of the scale can be measured once the endpoint stops pricing the part the solver
+        // already knows — which is what `oauth-grant-type` is now waiting on cells for.
         val clientAuth = AcquisitionCases.byId("acquisition__keycloak__client-auth-method")
         val clientAuthProblems = ACQUISITION_CASE_ADMISSIONS.getValue(clientAuth.instanceId)
             .problems(clientAuth)
@@ -158,16 +159,33 @@ class AcquisitionAdmissionTest {
             "the rescued no-note tree must block: $clientAuthProblems",
         )
 
+        // Re-weighted to `oracle-v2`: the six axes a compiling implementation does not discharge. Every
+        // reading this case had was taken on the ten-axis contract, so it carries NO rollout and NO
+        // measured rung until fresh cells are bought — and it must be blocked for exactly that reason,
+        // naming every cell that lifts the block, rather than for the floor it used to fail.
         val oauth = AcquisitionCases.oauthGrantType
-        val oauthProblems = ACQUISITION_CASE_ADMISSIONS.getValue(oauth.instanceId).problems(oauth)
-        assertEquals(
-            listOf(6, 0, 6),
-            ACQUISITION_CASE_ADMISSIONS.getValue(oauth.instanceId).baselineRollouts
-                .map { it.endpointScore },
+        val oauthRecord = ACQUISITION_CASE_ADMISSIONS.getValue(oauth.instanceId)
+        val oauthProblems = oauthRecord.problems(oauth)
+        assertEquals(6, oauth.oracleTestCount, "the re-weighted endpoint scores six obligations")
+        assertEquals(emptyList<AcquisitionRolloutEvidence>(), oauthRecord.goldNoteRollouts)
+        assertEquals(emptyList<AcquisitionRolloutEvidence>(), oauthRecord.baselineRollouts)
+        assertTrue(
+            oauthProblems.any { "the ceiling has never been replayed" in it },
+            "the ceiling of the new scale must be replayed before a wave: $oauthProblems",
+        )
+        listOf("implementation-only", "naive-shortcut").forEach { rung ->
+            assertTrue(
+                oauthProblems.any { "rung `$rung`" in it && "never measured" in it },
+                "rung $rung must be re-measured on the new scale: $oauthProblems",
+            )
+        }
+        assertTrue(
+            oauthProblems.any { "0 gold-note rollout(s) recorded" in it },
+            "the ceiling anchors must be re-bought: $oauthProblems",
         )
         assertTrue(
-            oauthProblems.count { "with NO note" in it } == 2,
-            "both rescued no-note trees must block: $oauthProblems",
+            oauthProblems.any { "0 baseline rollout(s) recorded" in it },
+            "the floor anchors must be re-bought: $oauthProblems",
         )
     }
 
@@ -337,7 +355,7 @@ class AcquisitionAdmissionTest {
         assertTrue(condition is AcquisitionLadderCondition)
         assertEquals("ladder-implementation-only", condition.label)
         assertEquals(
-            8,
+            4,
             acquisitionLadderRung(AcquisitionCases.oauthGrantType, "implementation-only")
                 .expectedObligations,
         )

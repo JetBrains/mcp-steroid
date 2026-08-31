@@ -795,3 +795,29 @@ matrix without re-buying research or notes.
 ready in 660 s against Keycloak's 384. The axis is open on infrastructure; what it needs is ONE good
 distributed-architecture case passing the same gates, plus the round-3 lesson: if it is ever to carry a
 downstream endpoint, its implementation must be something a weak agent can compile inside the budget.
+
+## acquisition round 7: the tree that separates A7 from A9
+
+`oracle-v2.patch` for `oauth-grant-type` retains six axes, and two pairs among them have never been
+observed to move apart: A2/A5 flip together on the ServiceLoader line, A7/A9 fail together in every
+tree that lost either (the delegating variant V7 and both no-note anchors). So the six-point scale may
+behave as three groups plus two traps.
+
+What would settle it is one more ladder rung: full gold, the credential-kind check intact, but an
+unparseable credential left to leak its parse failure — losing A9 alone. Worth writing only if the
+wave's reading turns out to be limited by resolution rather than by noise, and it must not be chosen
+after seeing ρ. Recorded in
+`test-experiments/src/test/resources/acquisition-cases/acquisition__keycloak__oauth-grant-type/ORACLE-EVIDENCE.md`.
+
+## ripple: two pinned records to re-read, not to trust
+
+Both surfaced while measuring compiler-invisibility at the pinned base commit, and neither changes a
+published ripple number:
+
+- `moveClassWideTarget`'s evidence claimed the simple name `ResourceType` was "load-bearing in 39
+  theme-message and realm-JSON files". The files match the substring, but every hit is an
+  admin-console message key inside a longer identifier. Corrected in place; the conclusion it supported
+  (a move leaves them untouched) was never in doubt.
+- The family has no case whose obligations survive compilation except `change-signature-wide`. If the
+  ripple track ever wants an endpoint with a scale rather than a gate, that is the only member of the
+  seven that can carry one — measured, not argued: `f1 < 1.0` is zero across all 277 arms of v3.

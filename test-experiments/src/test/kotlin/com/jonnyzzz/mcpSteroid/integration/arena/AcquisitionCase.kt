@@ -468,15 +468,24 @@ object AcquisitionCases {
     val oauthGrantType: UnderstandingCase = UnderstandingCase(
         instanceId = "acquisition__keycloak__oauth-grant-type",
         problemStatement = OAUTH_GRANT_TYPE_STATEMENT,
-        oracleTestPatchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/oracle.patch",
-        failToPass = listOf("org.keycloak.protocol.oidc.grants.OAuth2GrantTypeResidualContractTest"),
-        // Ten INDEPENDENT assertions, measured on seven trees: pristine 1, implementation only 8,
-        // plus the ServiceLoader line 10 — and, off the ladder, 9 for the collided short code (the
-        // uniqueness axis alone) and 8 for a grant that delegates without checking the credential
-        // kind. The registration line flips TWO axes because it has two distinct runtime consequences,
-        // dispatch and discovery; folding them into one would hide a wrong grant URI, which fails
-        // discovery while dispatch still works.
-        oracleTestCount = 10,
+        oracleTestPatchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/oracle-v2.patch",
+        failToPass = listOf(
+            "org.keycloak.protocol.oidc.grants.OAuth2GrantTypeWiringAndInvariantContractTest",
+        ),
+        // Six INDEPENDENT assertions: the obligations a compiling implementation does not discharge.
+        // The ten-axis contract beside this one is kept for reference and no longer graded, because
+        // its per-axis reading showed four of its axes measuring only whether an implementation was
+        // written: the no-note solver passed `aNewGrantImplementationIsCompiledIntoTheModule`,
+        // `theGrantTypeUriAClientWouldSendIsExposed`, `aRequestWithoutACredentialIsRefusedAsA` +
+        // `ProtocolError` and `aLongLivedCredentialIsAcceptedAndHandedToTheShippedRenewalPath` in
+        // EVERY replicate, which is how a floor of 6 of 10 was reached without the note.
+        // ONE of the six is true of a tree that changed nothing — the conservation trap — so the
+        // pristine floor is 1 and not 0, stated here so nobody reads 1 of 6 as partial progress. The
+        // uniqueness trap is NOT: it reaches `factoryUnderTest()`, which fails when no new grant
+        // factory exists, so only a tree that actually adds a grant collects it. The registration line flips TWO of the remaining four because it has
+        // two distinct runtime consequences, dispatch and discovery; folding them into one would hide
+        // a wrong grant URI, which fails discovery while dispatch still works.
+        oracleTestCount = 6,
         gradingScopeSelector = ":keycloak-services",
         // The case that produced the requirement. Its shipped precedent names its grant through a
         // constant in `core`, so every solver that imitated the precedent added one there — and a

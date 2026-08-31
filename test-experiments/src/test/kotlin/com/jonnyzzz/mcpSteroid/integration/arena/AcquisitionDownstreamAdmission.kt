@@ -652,14 +652,12 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                     "services/src/main/java/org/keycloak/protocol/oidc/grants/" +
                         "OfflineRefreshTokenGrantTypeFactory.java",
                 ),
-                expectedObligations = 8,
-                measuredObligations = 8,
-                measuredIn = "1040027004",
+                // Under `oracle-v2` the scale is six, so the reading is four: the rung loses the two
+                // registration axes and keeps the conservation trap, the uniqueness trap and the two
+                // behaviour axes, which the GOLD's implementation satisfies by construction.
+                expectedObligations = 4,
+                measuredObligations = null,
                 losesAxes = listOf(
-                    "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
-                    "theGrantAppearsInThePublishedGrantTypesSupported",
-                ),
-                measuredAxes = listOf(
                     "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
                     "theGrantAppearsInThePublishedGrantTypesSupported",
                 ),
@@ -673,47 +671,41 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 // tree that merely lacks a file never reaches it.
                 patchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/" +
                     "partial-naive-shortcut.patch",
-                expectedObligations = 9,
-                measuredObligations = 9,
-                measuredIn = "1040027006",
-                // Also measured at 9 by 1040019635, before the axes were recorded.
+                expectedObligations = 5,
+                measuredObligations = null,
                 losesAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
-                measuredAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
                 isolates = "the global uniqueness invariant enforced by the token-context encoder",
             ),
             AcquisitionPartialRung(
                 name = "gold",
                 goldPaths = emptyList(),
-                expectedObligations = 10,
-                measuredObligations = 10,
-                measuredIn = "1039952882",
+                expectedObligations = 6,
+                measuredObligations = null,
                 isolates = "nothing — this is the ceiling",
             ),
         ),
-        // Re-bought under amendment 3; 1040174130/132/134 (unmeasured, 10, 10 — the first failed
-        // `testCompile` on the agent's own test) and the round-3 pair 1039700657/653 are superseded.
-        // Three of three at the ceiling, each having discarded exactly one agent-authored test.
-        solverAllowance = 25,
         // LOOSENED, not tightened, and for the opposite reason. This case's floor was already zero at
         // 20 and its gold reached the ceiling 3 of 3 — but its NOTE WAVE sat on the floor: three of
         // twenty-four cells produced a gradable tree. Nothing the experiment can produce landed between
         // floor and ceiling, so the allowance moves up. At 15 even the gold note failed once
         // (1041682140, did not compile), which is the evidence that this case needs more room, not less.
-        goldNoteRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1044788466", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1044788468", obligations = 10, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1044788470", obligations = 10, compiled = true),
-        ),
-        // The floor of 2026-08-25 was "neither no-note tree builds", and it was a reading of a repair
-        // turn that could not edit a file. With one that can, two of three no-note trees were carried
-        // to a build and both scored 6 of 10 — five obligations above the pristine floor, reproducibly.
-        // What the earlier zero measured was the compile flip, not the value of knowing where the
-        // change goes; on this case the unaided solver knows most of it.
-        baselineRollouts = listOf(
-            AcquisitionRolloutEvidence(buildId = "1044788472", obligations = 6, compiled = true),
-            AcquisitionRolloutEvidence(buildId = "1044788474", obligations = null, compiled = false),
-            AcquisitionRolloutEvidence(buildId = "1044803876", obligations = 6, compiled = true),
-        ),
+        //
+        // The re-weighted endpoint does NOT move this number on its own: the calibration rule reads a
+        // floor and a ceiling, and both are re-read below before anything is bought at 25.
+        solverAllowance = 25,
+        // BOTH LISTS EMPTIED when the endpoint was re-weighted to `oracle-v2`, and deliberately not
+        // carried over: every rollout this case had was graded on the ten-axis contract, so its number
+        // is not a reading of this scale. Recomputing the six retained axes from those same cells'
+        // recorded per-axis results — the same trees, the same axes, a different set aggregated —
+        // gives 6 of 6 three times with the gold note (1044788466/468/470) and 2 of 6 twice with none
+        // (1044788472, 1044803876), the second of which is the floor sitting exactly on
+        // `BASELINE_SLACK` rather than inside it.
+        //
+        // That recomputation is the PREDICTION and not the evidence: it is the same data that chose
+        // which axes to retain, so an endpoint validated on it would have been fitted to its own
+        // answer. Fresh cells decide.
+        goldNoteRollouts = emptyList(),
+        baselineRollouts = emptyList(),
     ),
 ).associateBy { it.caseId }
 

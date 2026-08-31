@@ -368,3 +368,44 @@ Disclosed in full:
 `/Users/matvei.ludzskii/Work/keycloak-c3`: `git status --porcelain` → empty; `git rev-parse HEAD` →
 `60c4d5e9321ff5462a772ceb896f8cb2e639e04b`. No commits were made; `~/.m2` was never written to
 (`mvnw` was always run with `-o`, and never with `install` or `-am`).
+
+## The re-weighted contract: `oracle-v2.patch`
+
+`OAuth2GrantTypeWiringAndInvariantContractTest` grades six of the ten axes above and is what the case
+declares. It exists because the ten-axis reading, taken **per axis** on the note wave's anchors rather
+than as a ladder aggregate, showed four axes measuring only whether an implementation was written:
+
+| axis | gold note ×3 | no note ×2 | retained? |
+|---|---|---|---|
+| A2 `theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt` | P | **F** | yes |
+| A5 `theGrantAppearsInThePublishedGrantTypesSupported` | P | **F** | yes |
+| A7 `anOrdinaryInteractiveCredentialIsRefusedBeforeAnyTokenIsMinted` | P | **F** | yes |
+| A9 `anUnreadableCredentialIsAProtocolErrorNotAServerError` | P | **F** | yes |
+| A4 `theTokenContextShortCodeIsGloballyUnique` | P | P | yes — trap |
+| A10 `theShippedGrantsAreUnchanged` | P | P | yes — trap, true of a pristine tree |
+| A1 `aNewGrantImplementationIsCompiledIntoTheModule` | P | P | **no** |
+| A3 `theGrantTypeUriAClientWouldSendIsExposed` | P | P | **no** |
+| A6 `aRequestWithoutACredentialIsRefusedAsAProtocolError` | P | P | **no** |
+| A8 `aLongLivedCredentialIsAcceptedAndHandedToTheShippedRenewalPath` | P | P | **no** |
+
+Source cells: gold `1044788466` / `1044788468` / `1044788470`, no-note `1044788472` / `1044803876`, all
+read from the surefire XML embedded in each build log, each total reproducing the published one.
+
+Re-scaled from the trees already measured above: pristine **1** (A10 alone — A4 needs a new factory to
+exist and `factoryUnderTest()` fails without one), V3 implementation-only **4**, V5 naive short code
+**5**, V7 delegate-without-checking **4** losing a different pair, gold **6**.
+
+### The independence caveat, stated rather than discovered later
+
+Two pairs among the retained six have never been observed to move apart:
+
+- **A2 and A5** flip together on the ServiceLoader line. That is defended in the case's own record —
+  the line has two distinct runtime consequences, dispatch and discovery, and a wrong grant URI fails
+  discovery while dispatch still works — but no tree measured so far separates them.
+- **A7 and A9** fail together in every tree that has lost either: V7 loses both, and both no-note
+  anchors lose both. V6, which removed a defensive guard, lost neither.
+
+So the six-point scale may in practice take fewer levels than six, and the honest description of it
+today is "three groups plus two traps". The tree that would settle A7 against A9 — one that checks the
+credential kind but still leaks a parse failure — does not exist yet and is the next artifact worth
+writing if the wave's resolution turns out to be what limits the reading.
