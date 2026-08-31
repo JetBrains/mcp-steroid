@@ -656,8 +656,13 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 // registration axes and keeps the conservation trap, the uniqueness trap and the two
                 // behaviour axes, which the GOLD's implementation satisfies by construction.
                 expectedObligations = 4,
-                measuredObligations = null,
+                measuredObligations = 4,
+                measuredIn = "1046505073",
                 losesAxes = listOf(
+                    "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
+                    "theGrantAppearsInThePublishedGrantTypesSupported",
+                ),
+                measuredAxes = listOf(
                     "theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt",
                     "theGrantAppearsInThePublishedGrantTypesSupported",
                 ),
@@ -672,15 +677,18 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
                 patchResource = "acquisition-cases/acquisition__keycloak__oauth-grant-type/" +
                     "partial-naive-shortcut.patch",
                 expectedObligations = 5,
-                measuredObligations = null,
+                measuredObligations = 5,
+                measuredIn = "1046529291",
                 losesAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
+                measuredAxes = listOf("theTokenContextShortCodeIsGloballyUnique"),
                 isolates = "the global uniqueness invariant enforced by the token-context encoder",
             ),
             AcquisitionPartialRung(
                 name = "gold",
                 goldPaths = emptyList(),
                 expectedObligations = 6,
-                measuredObligations = null,
+                measuredObligations = 6,
+                measuredIn = "1046476916",
                 isolates = "nothing — this is the ceiling",
             ),
         ),
@@ -704,8 +712,16 @@ val ACQUISITION_CASE_ADMISSIONS: Map<String, AcquisitionCaseAdmission> = listOf(
         // That recomputation is the PREDICTION and not the evidence: it is the same data that chose
         // which axes to retain, so an endpoint validated on it would have been fitted to its own
         // answer. Fresh cells decide.
-        goldNoteRollouts = emptyList(),
-        baselineRollouts = emptyList(),
+        goldNoteRollouts = listOf(
+            AcquisitionRolloutEvidence(buildId = "1046554383", obligations = 6, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1046595043", obligations = 6, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1046626868", obligations = 6, compiled = true),
+        ),
+        baselineRollouts = listOf(
+            AcquisitionRolloutEvidence(buildId = "1046693489", obligations = 2, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1046826970", obligations = 2, compiled = true),
+            AcquisitionRolloutEvidence(buildId = "1046832714", obligations = 1, compiled = true),
+        ),
     ),
 ).associateBy { it.caseId }
 

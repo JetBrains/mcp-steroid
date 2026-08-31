@@ -96,7 +96,7 @@ class AcquisitionAdmissionTest {
     }
 
     @Test
-    fun `one case separates its floor from its ceiling, and the other two are blocked by their own readings`() {
+    fun `two cases separate their floor from their ceiling, and the third is blocked by its own readings`() {
         // Every case ran three gold-note and three no-note rollouts at its own allowance on
         // 2026-08-28, with a repair turn that could finally act on the tree. One case came back
         // measurable and two did not, and the difference is not the allowance: it is whether the
@@ -143,10 +143,10 @@ class AcquisitionAdmissionTest {
             assertNotNull(it.compiled, "${it.buildId} must carry a compile verdict")
         }
 
-        // The other two are blocked, and for DIFFERENT reasons, which is why both are kept rather than
-        // retired: a case whose ceiling wobbles can be re-anchored, and a case whose unaided solver
-        // scores most of the scale can be measured once the endpoint stops pricing the part the solver
-        // already knows — which is what `oauth-grant-type` is now waiting on cells for.
+        // `client-auth-method` stays blocked, and by a different half of the rule than the one
+        // `oauth-grant-type` was blocked by: its ceiling wobbles, which no re-weighting of the endpoint
+        // can fix, because the weak solver holding the gold note cannot finish the implementation the
+        // remaining axes ask for.
         val clientAuth = AcquisitionCases.byId("acquisition__keycloak__client-auth-method")
         val clientAuthProblems = ACQUISITION_CASE_ADMISSIONS.getValue(clientAuth.instanceId)
             .problems(clientAuth)
@@ -167,25 +167,55 @@ class AcquisitionAdmissionTest {
         val oauthRecord = ACQUISITION_CASE_ADMISSIONS.getValue(oauth.instanceId)
         val oauthProblems = oauthRecord.problems(oauth)
         assertEquals(6, oauth.oracleTestCount, "the re-weighted endpoint scores six obligations")
-        assertEquals(emptyList<AcquisitionRolloutEvidence>(), oauthRecord.goldNoteRollouts)
-        assertEquals(emptyList<AcquisitionRolloutEvidence>(), oauthRecord.baselineRollouts)
-        assertTrue(
-            oauthProblems.any { "the ceiling has never been replayed" in it },
-            "the ceiling of the new scale must be replayed before a wave: $oauthProblems",
+        // The ceiling is reachable by the weak solver holding the gold note, three of three, on the
+        // re-weighted scale — which is what round 6 could not show here, because four of its ten axes
+        // were passed with no note at all.
+        assertEquals(
+            List(3) { 6 },
+            oauthRecord.goldNoteRollouts.map { it.endpointScore },
+            "the gold note must reach the six-axis ceiling in all three rollouts",
         )
-        listOf("implementation-only", "naive-shortcut").forEach { rung ->
-            assertTrue(
-                oauthProblems.any { "rung `$rung`" in it && "never measured" in it },
-                "rung $rung must be re-measured on the new scale: $oauthProblems",
-            )
+        oauthRecord.goldNoteRollouts.forEach {
+            assertEquals(true, it.compiled, "${it.buildId} must carry a compile verdict")
+        }
+        // And the floor, three of three, every tree carried to a build so no reading is a `javac`
+        // failure wearing a zero: two of them score both traps and nothing else, the third does not
+        // even produce a factory. Against a pristine floor of 1 and `BASELINE_SLACK` of 1, admissible —
+        // and the gold note buys four of the six obligations over having none.
+        assertEquals(listOf(2, 2, 1), oauthRecord.baselineRollouts.map { it.endpointScore })
+        oauthRecord.baselineRollouts.forEach {
+            assertEquals(true, it.compiled, "${it.buildId} must carry a compile verdict")
         }
         assertTrue(
-            oauthProblems.any { "0 gold-note rollout(s) recorded" in it },
-            "the ceiling anchors must be re-bought: $oauthProblems",
+            oauthProblems.isEmpty(),
+            "the re-weighted endpoint separates its floor from its ceiling: $oauthProblems",
         )
+        requireAcquisitionAdmission(oauth, oauthRecord.solverAllowance)
+        // The ceiling of the new scale IS replayed: build 1046476916 deployed the whole gold patch and
+        // the six retained axes all passed, which also proves `oracle-v2` compiles — the type check
+        // that could not be done anywhere cheaper than a graded cell.
+        val ceiling = oauthRecord.rungs.last()
+        assertEquals("gold", ceiling.name)
+        assertEquals(6, ceiling.measuredObligations)
+        assertEquals("1046476916", ceiling.measuredIn)
         assertTrue(
-            oauthProblems.any { "0 baseline rollout(s) recorded" in it },
-            "the floor anchors must be re-bought: $oauthProblems",
+            oauthProblems.none { "the ceiling has never been replayed" in it },
+            "the ceiling is measured and must stop blocking: $oauthProblems",
+        )
+        // Re-measured on the new scale: the registration rung reads four and loses exactly the two axes
+        // the ServiceLoader line flips, which is what makes the six-point scale a scale here.
+        val implOnly = oauthRecord.rungs.first { it.name == "implementation-only" }
+        assertEquals(4, implOnly.measuredObligations)
+        assertEquals(implOnly.losesAxes.toSet(), implOnly.measuredAxes?.toSet())
+        // And the invariant rung reads five, losing only the uniqueness axis: three trees, three
+        // different subsets of obligations, which is a scale rather than one boolean wearing six names.
+        val naive = oauthRecord.rungs.first { it.name == "naive-shortcut" }
+        assertEquals(5, naive.measuredObligations)
+        assertEquals(naive.losesAxes.toSet(), naive.measuredAxes?.toSet())
+        assertEquals(
+            listOf(4, 5, 6),
+            oauthRecord.rungs.map { it.measuredObligations },
+            "the measured ladder must climb from the registration rung to the ceiling",
         )
     }
 

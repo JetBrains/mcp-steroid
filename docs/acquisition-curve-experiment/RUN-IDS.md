@@ -355,3 +355,37 @@ twenty-four produced a gradable tree. Reading: [RESULTS-DOWNSTREAM-4-ANCHORS.md]
 
 Queued while the last three anchors of the case were still running, on the reading of the first three;
 the three that landed afterwards agreed with them.
+
+## Round 7 — the re-weighted endpoint on `oauth-grant-type` (2026-08-31)
+
+Design: [DESIGN-DOWNSTREAM-7.md](DESIGN-DOWNSTREAM-7.md). Readings:
+[RESULTS-DOWNSTREAM-7.md](RESULTS-DOWNSTREAM-7.md). Branch `acquisition-curve-experiment`, product
+revision `0962b91c0` — the revision that introduces `oracle-v2.patch`, so no cell of this round is
+comparable with a cell of round 6 except through the per-axis recomputation described in the results.
+
+Case selection cost nothing: both parity candidates of the ripple family were refused by a desk
+measurement at the pinned base commit, and no ripple probe was ever queued.
+
+The per-axis readings that chose the axis set were recovered from the build logs of round 6, which
+embed the graded surefire XML. No cell was re-bought to obtain them:
+
+| purpose | builds |
+|---|---|
+| gold-note anchors re-read per axis | 1044788466, 1044788468, 1044788470 |
+| no-note anchors re-read per axis | 1044788472, 1044803876 |
+| `client-auth-method`, same treatment | 1044788450, 1044788452, 1044788454, 1044788456 |
+
+Cells of this round, queued one at a time (`mcp_steroid_IntegrationTests_AcquisitionDownstream`,
+`understanding.case=acquisition__keycloak__oauth-grant-type`, `understanding.budget=25`):
+
+| condition | replicate | build | reading |
+|---|---|---|---|
+| `ladder:gold` | 1 | 1046476916 | **6 of 6** — the ceiling, and `oracle-v2`'s first compilation |
+| `ladder:implementation-only` | 1 | 1046505073 | **4 of 6** — loses exactly A2 and A5 |
+| `ladder:naive-shortcut` | 1 | 1046529291 | **5 of 6** — loses exactly A4 |
+| `oracle:gold` | 61 | 1046554383 | **6 of 6**, compiled, 0 repair turns |
+| `oracle:gold` | 62 | 1046595043 | **6 of 6**, compiled after 2 repair turns |
+| `oracle:gold` | 63 | 1046626868 | **6 of 6**, compiled, 0 repair turns |
+| `baseline` | 61 | 1046693489 | **2 of 6** — both traps only; compiled after 1 repair turn |
+| `baseline` | 62 | 1046826970 | **2 of 6** — the same two traps; compiled after 2 repair turns |
+| `baseline` | 63 | 1046832714 | **1 of 6** — even the uniqueness trap missing; compiled after 1 repair turn |

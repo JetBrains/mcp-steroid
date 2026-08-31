@@ -123,6 +123,77 @@ certificate-matching implementation and the profile allow-list in two rollouts o
 axes it never misses. So the case is blocked by what the endpoint asks the solver to *write*, not by
 what the note manages to say — the same finding as round 4 step 6, now visible per axis.
 
+## The surgery is not a universal solvent, and `client-auth-method` shows where it stops
+
+The same re-weighting applied to `client-auth-method` — keep the four axes on which the gold note and
+the no-note solver differ, keep the conservation trap, drop the four the unaided solver always passes —
+recomputes to:
+
+| condition | under the 9-axis oracle | under the same surgery |
+|---|---|---|
+| gold note r61 | 6 of 9 | **2 of 5** |
+| gold note r62 | 7 of 9 | **3 of 5** |
+| gold note r63 | 9 of 9 | **5 of 5** |
+| no note r61 | 5 of 9 | **1 of 5** |
+
+Its **floor problem disappears**: 5 of 9 was made of implementation axes, and without them the unaided
+solver scores the conservation trap and nothing else — exactly the pristine floor. Its **ceiling problem
+does not**: the weak solver holding the gold note reaches all five only once in three, missing the same
+two obligations both other times, and one rollout additionally broke a shipped path it was told nothing
+about. So the case stays blocked, and it now stays blocked for a single, localized reason — the solver
+cannot finish the certificate matching and the profile allow-list inside its allowance — rather than for
+a floor that was never about the note.
+
+That is worth stating because it constrains what this round may claim. Re-weighting an endpoint onto the
+obligations a compiling implementation misses fixes a floor; it cannot manufacture a ceiling the solver
+cannot reach.
+
+It also changes what the allowance lever means, and this is a hypothesis rather than a finding: round 5
+withdrew a raised allowance because the extra interactions were handed to the no-note arm and closed the
+gap. Under an endpoint that no longer grades implementation, extra interactions buy mostly what is no
+longer scored, so the lever may be usable again on a case blocked by its ceiling alone. Nothing in this
+round tests that, and it must not be tried on the same cells that would then report the result.
+
+## The re-weighted endpoint, measured: nine cells, nine predictions, no misses
+
+Every number below was predicted in `DESIGN-DOWNSTREAM-7.md` before the cell that produced it was
+queued. Ladder rungs run no agent; the anchors run the weak solver (`claude-haiku-4-5`) at the case's
+own allowance of 25.
+
+| condition | predicted | measured | build | note |
+|---|---|---|---|---|
+| pristine | 1 of 6 | — | — | from the axis table: the conservation trap alone |
+| `ladder:implementation-only` | 4 | **4** | 1046505073 | loses exactly A2 and A5 |
+| `ladder:naive-shortcut` | 5 | **5** | 1046529291 | loses exactly A4 |
+| `ladder:gold` | 6 | **6** | 1046476916 | the ceiling — and `oracle-v2`'s first compilation |
+| `oracle:gold` r61 | 6 | **6** | 1046554383 | compiled, 0 repair turns |
+| `oracle:gold` r62 | 6 | **6** | 1046595043 | compiled after 2 repair turns |
+| `oracle:gold` r63 | 6 | **6** | 1046626868 | compiled, 0 repair turns |
+| `baseline` r61 | ≤ 2 | **2** | 1046693489 | both traps only; compiled after 1 repair turn |
+| `baseline` r62 | ≤ 2 | **2** | 1046826970 | the same two traps; compiled after 2 repair turns |
+| `baseline` r63 | ≤ 2 | **1** | 1046832714 | not even a factory; compiled after 1 repair turn |
+
+**The case is admitted.** `AcquisitionDownstreamAdmission.problems()` returns an empty list for
+`oauth-grant-type` for the first time in the family's history — the second case ever to reach that
+state, and the first to reach it by having its endpoint re-weighted rather than its allowance tuned.
+
+Three readings deserve to be stated separately, because they are what the round was bought for:
+
+- **The ceiling is reachable and reproducible**: 6 of 6, three times of three. On the ten-axis contract
+  this case also read 10 of 10 three times — the difference is that four of those ten were passed with
+  no note at all, and now none are.
+- **The floor is at the floor**: 2, 2, 1, against a pristine floor of 1 and a `BASELINE_SLACK` of 1.
+  Every one of the three trees was carried to a build, so no reading is a `javac` failure wearing a
+  zero — the failure mode that made three earlier rounds uninterpretable. What the unaided solver never
+  does is register the grant, publish it, refuse an interactive credential, or return a protocol error
+  instead of a server error.
+- **The gap is four obligations of six**, where the same solver on the same trees read 6 of 10 before.
+  Nothing about the agent changed; the endpoint stopped paying for the part the agent already knew.
+
+And the ladder is a scale rather than a verdict: three deliberately broken trees returned three
+DIFFERENT subsets of unmet obligations — the registration pair, the uniqueness invariant, and the
+ceiling — which is the check that a six-point scale is not one boolean wearing six names.
+
 ## Step 0b — the floor probe
 
 *(not bought: superseded. The per-axis reading above answers the floor question for the case this round
