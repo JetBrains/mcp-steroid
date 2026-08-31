@@ -416,3 +416,52 @@ notes are the same objects at `0962b91c0`.
 | `none-b40-l2000-r3@5` | 1046929403 | 1046929405 |
 | `none-b40-l2000-r3@10` | 1046929407 | 1046929409 |
 | `none-b40-l2000-r3@20` | 1046929411 | 1046929413 |
+
+## Round 8 — the floor probe on `oauth-grant-type` (2026-08-31)
+
+Design: [DESIGN-DOWNSTREAM-8.md](DESIGN-DOWNSTREAM-8.md). Branch `acquisition-curve-experiment`,
+product revision `dee8a3cde`, pinned with `--revision` on every cell so the whole probe reads one
+revision — round 7's reference gap straddled two, which is why S0 exists at all.
+
+Four settings, each carrying its OWN floor cells: the question is the gap
+`g = mean(note) − mean(no note)` at that setting, and a setting whose floor rises as much as its note
+arm has bought nothing. The note is fixed at `mcp-b40-l2000-r3@20` — the highest `U_note` of the wave
+(0.87), chosen on the instrument side before any outcome of this round existed. No gold cells: the
+ceiling was 6 of 6 three times in round 7 and nothing in this round can move it.
+
+| setting | allowance | solver | condition | replicate | build |
+|---|---|---|---|---|---|
+| S0 | 25 | `claude-haiku-4-5` | `baseline` | 81 | 1047209980 |
+| S0 | 25 | `claude-haiku-4-5` | `baseline` | 82 | 1047209982 |
+| S1 | 40 | `claude-haiku-4-5` | `baseline` | 83 | 1047209984 |
+| S1 | 40 | `claude-haiku-4-5` | `baseline` | 84 | 1047209986 |
+| S1 | 40 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 85 | 1047209988 |
+| S1 | 40 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 86 | 1047209990 |
+| S2 | 60 | `claude-haiku-4-5` | `baseline` | 87 | 1047209992 |
+| S2 | 60 | `claude-haiku-4-5` | `baseline` | 88 | 1047209994 |
+| S2 | 60 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 89 | 1047209996 |
+| S2 | 60 | `claude-haiku-4-5` | `checkpoint:mcp-b40-l2000-r3@20` | 90 | 1047209998 |
+| S3 | 25 | `claude-sonnet-5` | `baseline` | 91 | not yet queued |
+| S3 | 25 | `claude-sonnet-5` | `baseline` | 92 | not yet queued |
+| S3 | 25 | `claude-sonnet-5` | `checkpoint:mcp-b40-l2000-r3@20` | 93 | not yet queued |
+| S3 | 25 | `claude-sonnet-5` | `checkpoint:mcp-b40-l2000-r3@20` | 94 | not yet queued |
+
+S0–S2 were queued as one batch of ten. S3 could not be: the build configuration interpolated
+`-Dclaude.model` from a constant, so the solver was not selectable at trigger time at all. The DSL
+change that turns it into a closed two-option select is committed in the TeamCity repository
+(`3c9d122`) and its generated XML diff touches this one configuration; the four S3 cells are queued
+against the same `dee8a3cde` once that revision is applied on the server, so the probe stays one
+product revision wide.
+
+Queue one probe cell (the allowance and the solver both leave the calibrated set on purpose, and both
+print themselves in the cell's log):
+
+```
+jb tc native run start mcp_steroid_IntegrationTests_AcquisitionDownstream \
+  --branch acquisition-curve-experiment --revision dee8a3cde --no-push \
+  -S understanding.case=acquisition__keycloak__oauth-grant-type \
+  -S understanding.condition=checkpoint:mcp-b40-l2000-r3@20 \
+  -S understanding.replicate=93 \
+  -S understanding.budget=25 \
+  -S acquisition.downstream.model=claude-sonnet-5
+```
