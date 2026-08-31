@@ -741,11 +741,22 @@ fun requireAcquisitionAdmission(case: UnderstandingCase, budget: Int? = null) {
     // The allowance is per case now, so a note cell queued at another case's number would be graded
     // against a floor and a ceiling that were never measured under it — and would look like an ordinary
     // cell in the table. Refused before a container starts, like every other admission failure.
-    check(budget == null || budget == admission.solverAllowance) {
+    //
+    // A floor-probe allowance is the one exception, and it is an exception to the second half of that
+    // sentence rather than the first. Such a cell IS measured against readings that do not exist yet —
+    // that is what a probe is for, and it is queued together with the floor cells that create them. What
+    // it cannot do is pass for an ordinary cell: ACQUISITION_FLOOR_PROBE_BUDGETS is disjoint from the
+    // wave's closed set, and the marker line prints the allowance, so a probe cell names itself in the
+    // log and in the table it lands in. The door this check guards — a wave quietly run at a number
+    // nothing was calibrated at — stays shut, because no probe allowance is a candidate wave setting.
+    val probe = budget != null && budget in ACQUISITION_FLOOR_PROBE_BUDGETS
+    check(budget == null || probe || budget == admission.solverAllowance) {
         "'${case.instanceId}' is calibrated at an allowance of ${admission.solverAllowance} " +
             "interactions and this cell was queued at $budget. Its floor and ceiling were measured at " +
             "${admission.solverAllowance}; a wave run at anything else is measured against readings " +
-            "that do not exist. Queue it with -D$UNDERSTANDING_BUDGET_PROPERTY=${admission.solverAllowance}"
+            "that do not exist. Queue it with -D$UNDERSTANDING_BUDGET_PROPERTY=${admission.solverAllowance}, " +
+            "or at one of the floor-probe allowances ${ACQUISITION_FLOOR_PROBE_BUDGETS.sorted()} if this " +
+            "is a probe cell queued alongside its own floor"
     }
     val problems = admission.problems(case)
     check(problems.isEmpty()) {

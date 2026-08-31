@@ -320,10 +320,14 @@ class AcquisitionDownstreamHarnessTest {
             ACQUISITION_FLOOR_PROBE_BUDGETS.none { it in ACQUISITION_DOWNSTREAM_BUDGETS },
             "a probe allowance must never become a candidate setting for the wave",
         )
+        // Both rungs are derived, and the test says so rather than listing them: the matched floor is
+        // the research budget plus the solver's allowance, the lower rung is the research bill alone.
+        // A rung that stopped being derivable from those two numbers would be a chosen one.
+        assertEquals(40, acquisitionDownstreamBudgetOf("40"))
         assertEquals(
-            ACQUISITION_RESEARCH_BUDGET + ACQUISITION_DOWNSTREAM_BUDGET,
-            ACQUISITION_FLOOR_PROBE_BUDGETS.single(),
-            "the matched floor is the research budget plus the solver's allowance, not a round number",
+            setOf(ACQUISITION_RESEARCH_BUDGET, ACQUISITION_RESEARCH_BUDGET + ACQUISITION_DOWNSTREAM_BUDGET),
+            ACQUISITION_FLOOR_PROBE_BUDGETS,
+            "every probe allowance must be derived from the research and solver budgets, not chosen",
         )
     }
 

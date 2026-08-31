@@ -311,8 +311,15 @@ const val ACQUISITION_DOWNSTREAM_BUDGET_NONE: String = "none"
  * The semantic arm's research cost is far lower — roughly seventeen interactions on both cases — so
  * sixty is a GENEROUS control for a semantic note and an exact one for a shell note. That asymmetry is
  * the acquisition result rather than an accident, and it is left visible instead of averaged away.
+ *
+ * **Forty** is the same derivation with one term dropped: the research bill alone, without the
+ * solver's own allowance on top. It exists because a floor read at one allowance is a point and the
+ * question round 8 asks is a shape — at which allowance does the unaided solver start doing the work
+ * the note was supposed to buy. Two derived rungs answer that; one cannot. It is deliberately not a
+ * round number chosen for feeling generous, which is the thing [ACQUISITION_DOWNSTREAM_BUDGETS] is
+ * closed against, and 45 is still refused.
  */
-val ACQUISITION_FLOOR_PROBE_BUDGETS: Set<Int> = setOf(60)
+val ACQUISITION_FLOOR_PROBE_BUDGETS: Set<Int> = setOf(ACQUISITION_RESEARCH_BUDGET, 60)
 
 /**
  * True for a semantic-arm trajectory that never made a semantic call.

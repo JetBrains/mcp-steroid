@@ -238,6 +238,33 @@ class AcquisitionAdmissionTest {
     }
 
     @Test
+    fun `a note cell may be queued at a floor-probe allowance, and only at one`() {
+        val case = AcquisitionCases.byId("acquisition__keycloak__cc-refresh-token")
+        val record = ACQUISITION_CASE_ADMISSIONS.getValue(case.instanceId)
+        // A probe cell is the deliberate off-calibration reading: it IS graded against a floor that does
+        // not exist yet, because it is queued together with the cells that measure one. The guard it is
+        // exempt from protects against something else — a wave quietly run at an uncalibrated number.
+        for (probe in ACQUISITION_FLOOR_PROBE_BUDGETS) {
+            requireAcquisitionAdmission(case, probe)
+        }
+        // What makes the exemption safe is that no probe allowance can ever be mistaken for a wave
+        // setting. If the two sets ever overlapped, this exemption would silently reopen the door the
+        // test above closes, and nothing in a build log would show it.
+        assertTrue(
+            ACQUISITION_FLOOR_PROBE_BUDGETS.none { it in ACQUISITION_DOWNSTREAM_BUDGETS },
+            "a probe allowance that is also a wave setting would let a wave through the probe exemption",
+        )
+        // And the exemption is exactly that wide: a number belonging to neither set is still refused.
+        val unlisted = assertThrows<IllegalStateException> { requireAcquisitionAdmission(case, 45) }
+        assertTrue("calibrated at an allowance of 15" in unlisted.message.orEmpty(), unlisted.message.orEmpty())
+        assertTrue(
+            ACQUISITION_FLOOR_PROBE_BUDGETS.sorted().toString() in unlisted.message.orEmpty(),
+            "the refusal must name the probe allowances, or an operator cannot tell why 45 differs " +
+                "from 40: ${unlisted.message}",
+        )
+    }
+
+    @Test
     fun `every case with a pre-registered note matrix has an admission record`() {
         // Otherwise the matrix is the only thing standing between a queue and a wave, and a matrix
         // says WHICH cells to buy, never whether they can measure anything.
