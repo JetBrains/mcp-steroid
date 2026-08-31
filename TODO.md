@@ -821,3 +821,26 @@ published ripple number:
 - The family has no case whose obligations survive compilation except `change-signature-wide`. If the
   ripple track ever wants an endpoint with a scale rather than a gate, that is the only member of the
   seven that can carry one — measured, not argued: `f1 < 1.0` is zero across all 277 arms of v3.
+
+## The prompt still travels on the command line for Gemini and Codex
+
+`DockerClaudeSession` now sends the prompt on stdin and keeps `-p` as a bare flag. The reason:
+`docker exec` hands the whole assembled command line to the container as ONE argv element, and Linux
+caps a single element at `MAX_ARG_STRLEN` (128 KiB) independently of how much total argv space is
+free. A repair turn that carries compiler output plus the full text of every failing file crosses
+that, and the spawn dies with
+`IOException: Cannot run program "docker": Exec failed, error: 7 (Argument list too long)` — *after*
+the agent has already spent its budget. That makes the loss outcome-correlated rather than random:
+the cells needing the longest repair prompts are exactly the ones that never report a result.
+
+The two sibling sessions still pass the prompt as an argument:
+
+- `DockerGeminiSession.runPrompt` — `"--prompt", prompt`
+- `DockerCodexSession.runPrompt` — `add(prompt)`, the last positional of `codex exec`
+
+Both funnel into the same `session.startProcessInContainer { .args(...) }`, so both break at the same
+size. No experiment has driven either with a prompt that long yet, which is why this is a TODO and not
+a fix. The transport seam already exists (`stdin` + `.interactive()` on `runInContainer`), but each
+CLI needs its own stdin contract *verified against the installed version* before porting — do not
+assume either accepts a prompt on stdin because Claude's `-p` does. When porting, add the
+command-line length assertion that `ClaudePromptArgsTest` carries.

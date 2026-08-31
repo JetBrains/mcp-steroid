@@ -12,6 +12,7 @@ import com.jonnyzzz.mcpSteroid.testHelper.process.StartedProcess
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertExitCode
 import com.jonnyzzz.mcpSteroid.testHelper.process.assertNoErrorsInOutput
 import java.io.File
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -84,8 +85,16 @@ class DockerClaudeSession(
     /**
      * Runs a Claude command inside the Docker container.
      * Debug mode is always enabled to see MCP connection details.
+     *
+     * [stdin], when given, is fed to the CLI on standard input instead of being placed on the command
+     * line. That is the only way to pass anything large: the whole in-container command line reaches
+     * `docker exec` as a single argument, and one argument is capped at 128 KiB on Linux.
      */
-    fun runInContainer(args: List<String>, timeoutSeconds: Long = 120): StartedProcess {
+    fun runInContainer(
+        args: List<String>,
+        timeoutSeconds: Long = 120,
+        stdin: String? = null,
+    ): StartedProcess {
         val claudeArgs = buildList {
             add("claude")
             if (debug) {
@@ -109,8 +118,15 @@ class DockerClaudeSession(
         return session.startProcessInContainer {
             this
                 .args(claudeArgs)
+                .let { req -> if (stdin == null) req else req.interactive().stdin(flowOf(stdin.toByteArray())) }
                 .timeoutSeconds(timeoutSeconds)
-                .description("Claude: " + claudeArgs.joinToString(" ").take(80))
+                // The prompt no longer appears in the arguments, so the run log would show one
+                // indistinguishable "Claude: --permission-mode ..." line per turn without this. The
+                // description is host-side text and never reaches an exec, so length costs nothing here.
+                .description(
+                    "Claude: " + claudeArgs.joinToString(" ").take(80) +
+                        (stdin?.let { " <<< " + it.lineSequence().first().take(120) } ?: "")
+                )
                 .secretPatterns(apiKey)
                 // MERGE (addEnv), don't replace: the container driver may have pre-set env via withEnv
                 // (e.g. DISPLAY from the xcvb GUI container). `.extraEnv(map)` would overwrite it, leaving
@@ -161,12 +177,12 @@ class DockerClaudeSession(
             model = model,
             mcpConfigFile = mcpConfigFile,
             settingsFile = settingsFile,
-            prompt = prompt,
         )
 
         return runInContainer(
             args = claudeArgs,
-            timeoutSeconds = timeoutSeconds
+            timeoutSeconds = timeoutSeconds,
+            stdin = prompt,
         ).toAiStartedProcess()
     }
 
