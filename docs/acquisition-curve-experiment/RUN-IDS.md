@@ -389,3 +389,30 @@ Cells of this round, queued one at a time (`mcp_steroid_IntegrationTests_Acquisi
 | `baseline` | 61 | 1046693489 | **2 of 6** — both traps only; compiled after 1 repair turn |
 | `baseline` | 62 | 1046826970 | **2 of 6** — the same two traps; compiled after 2 repair turns |
 | `baseline` | 63 | 1046832714 | **1 of 6** — even the uniqueness trap missing; compiled after 1 repair turn |
+
+### The wave — 18 notes × 2 replicates, revision `a62ff1fd5`
+
+Queued as one batch after the case was admitted; the revision differs from the anchors' only by
+the recorded readings, the ledger and the results text — the oracle, the case registration and the
+notes are the same objects at `0962b91c0`.
+
+| note | r61 | r62 |
+|---|---|---|
+| `mcp-b40-l2000-r1@5` | 1046914843 | 1046914845 |
+| `mcp-b40-l2000-r1@10` | 1046914847 | 1046914849 |
+| `mcp-b40-l2000-r1@20` | 1046914851 | 1046914853 |
+| `mcp-b40-l2000-r2@5` | 1046914855 | 1046914857 |
+| `mcp-b40-l2000-r2@10` | 1046914859 | 1046914861 |
+| `mcp-b40-l2000-r2@20` | 1046914863 | 1046914865 |
+| `mcp-b40-l2000-r3@5` | 1046914867 | 1046914869 |
+| `mcp-b40-l2000-r3@10` | 1046914871 | 1046914873 |
+| `mcp-b40-l2000-r3@20` | 1046929375 | 1046929377 |
+| `none-b40-l2000-r1@5` | 1046929379 | 1046929381 |
+| `none-b40-l2000-r1@10` | 1046929383 | 1046929385 |
+| `none-b40-l2000-r1@20` | 1046929387 | 1046929389 |
+| `none-b40-l2000-r2@5` | 1046929391 | 1046929393 |
+| `none-b40-l2000-r2@10` | 1046929395 | 1046929397 |
+| `none-b40-l2000-r2@20` | 1046929399 | 1046929401 |
+| `none-b40-l2000-r3@5` | 1046929403 | 1046929405 |
+| `none-b40-l2000-r3@10` | 1046929407 | 1046929409 |
+| `none-b40-l2000-r3@20` | 1046929411 | 1046929413 |

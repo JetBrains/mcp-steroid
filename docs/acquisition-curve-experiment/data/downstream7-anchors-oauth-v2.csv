@@ -1,0 +1,9 @@
+run,case,cond,replicate,budget,solver,passedV2,totalV2,passedOld,totalOld,compiled,failingV2Axes
+1044788472,oauth-grant-type,baseline,61,25,claude-haiku-4-5,2,6,6,10,1,theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt|theGrantAppearsInThePublishedGrantTypesSupported|anOrdinaryInteractiveCredentialIsRefusedBeforeAnyTokenIsMinted|anUnreadableCredentialIsAProtocolErrorNotAServerError
+1044788474,oauth-grant-type,baseline,62,25,claude-haiku-4-5,,6,,10,0,
+1044803876,oauth-grant-type,baseline,63,25,claude-haiku-4-5,2,6,6,10,1,theGrantIsRegisteredSoTheTokenEndpointCanDispatchToIt|theGrantAppearsInThePublishedGrantTypesSupported|anOrdinaryInteractiveCredentialIsRefusedBeforeAnyTokenIsMinted|anUnreadableCredentialIsAProtocolErrorNotAServerError
+1044788466,oauth-grant-type,oracle-gold,61,25,claude-haiku-4-5,6,6,10,10,1,
+1044788468,oauth-grant-type,oracle-gold,62,25,claude-haiku-4-5,6,6,10,10,1,
+1044788470,oauth-grant-type,oracle-gold,63,25,claude-haiku-4-5,6,6,10,10,1,
+1044601765,oauth-grant-type,baseline,51,30,claude-haiku-4-5,,6,,10,0,
+1044601767,oauth-grant-type,baseline,52,30,claude-haiku-4-5,,6,,10,0,

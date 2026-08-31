@@ -227,3 +227,71 @@ with two consequences fixed in advance:
 - It does not touch round 6's reading, and it recomputes no `U`: `U(B)` is a property of the trajectory
   and the checklist and never depended on an oracle.
 - It does not weaken any oracle, narrow any decoy set, or change any allowance to produce a difference.
+
+## Amendment: the judge, and what to do about the notes it will not grade
+
+Written after the judge run and **before any round-7 cell outcome was read** — the only round-7 logs
+fetched at this point are the nine anchors already published in the results, and the wave cells are
+untouched. It is an amendment rather than part of the original registration because the thing it
+handles could not be known until the judge had run.
+
+**The judge.** Both cases were judged in one pass by `anthropic/claude-opus-5`, pinned rather than
+resolved, so the two cases share an instrument and the second case is not confounded by a different
+or unknown judge. The run seeded the 54 already-committed notes first, so nothing was re-distilled:
+the graded texts are exactly the ones the solvers received. On the cc-refresh-token side that also
+fixes the scope — round 6's curve covers eight trajectories but only six carry committed notes, so
+`mcp-b40-l2000-r10` and `none-b40-l2000-r4` are dropped rather than distilled fresh, because a note
+no solver ever read cannot appear in a reading about what solvers did with notes.
+
+**Three notes have no `U_note` and never will from this instrument.** On the oauth case the judge
+answered `stop_reason=refusal` for `none-b40-l2000-r1@5`, `none-b40-l2000-r2@5` and
+`none-b40-l2000-r2@10`. The harness records a refusal as a hole and not a zero, which is right — a
+zero would sink a real note to the bottom of the ranking — but it declines to retry on the argument
+that a refusal is about the content. That argument was an assumption, so it was measured: each of the
+three prompts was replayed twice more, same model, same text, same budget, first parseable verdict to
+win. Nine of nine refused. The holes are a property of those three note texts.
+
+That is missingness correlated with the predictor, not random dropout: all three sit in the `none`
+arm at the two lower checkpoints, which is where the low end of the `U_note` scale lives, so dropping
+them shortens the range the correlation is measured over. Hence, registered here in advance:
+
+- The primary ρ is reported over the **fifteen** oauth notes that have a `U_note`, with the three
+  named.
+- It is additionally reported twice as a **bound**: once with the three missing notes imputed at the
+  lowest observed `U_note` and once at the highest. Bounds, not a point imputation — a single guessed
+  value would launder an unknown into a number, whereas the pair answers the question that actually
+  matters, which is whether the hole decides the result. If the sign and the |ρ| ≥ 0.3 verdict survive
+  both bounds, the reading stands on the fifteen; if they do not, the result is bound-dependent and is
+  published as bound-dependent.
+- The secondary arm reading is unaffected and stays on all thirty-six cells: a cell's arm is known
+  whether or not its note was graded.
+
+## Amendment: a cell whose harness died before it could report
+
+Also written **before any wave cell outcome was read**. One cell of the wave —
+`none-b40-l2000-r3@5` replicate 61, build `1046929403` — ran for 29m36s and then died with
+`IOException: Cannot run program "docker": Exec failed, error: 7 (Argument list too long)`, emitting
+no `[ACQUISITION-DOWN]` line. The cause is transport, not the tree: the repair prompt carries the
+compiler output plus the full text of every failing file, `docker exec` passes the whole command line
+as one argv element, and Linux caps a single element at 128 KiB. The crash lands *after* the agent has
+spent its budget.
+
+This matters beyond one cell because the failure is **outcome-correlated by construction**: the
+prompts that grow past the cap are the ones enumerating many failing files, which is what a
+badly-compiling tree produces. Left unaddressed it would silently trim the low end of the outcome
+scale — the same direction of bias the three ungraded notes introduce at the low end of `U_note`.
+
+Registered in advance:
+
+- A cell lost this way contributes **no row**. It is not scored 0: 0 is a measurement, and this cell
+  produced none. Scoring it 0 would invent a worst-case reading for precisely the cells most likely
+  to have crashed.
+- Its note therefore folds from **one** replicate instead of two. The reading already reports how many
+  notes lack exactly two replicates, and the results text names the build.
+- Dropping a cell requires evidence, not assertion: the collector accepts an explicit build id and
+  refuses it unless that log carries the E2BIG signature *and* no marker line, so a cell cannot be
+  discarded for being inconvenient.
+- The transport is fixed at the source (the prompt moves to stdin, `ClaudePromptArgsTest` gates the
+  command-line length), but the fix is **not** retrofitted into this wave's numbers. Re-running the
+  cell would run it at a different revision from its 35 siblings; whether to re-run it as a labelled
+  addition is a decision for after the reading, and either way both build ids stay in the ledger.

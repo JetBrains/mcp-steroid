@@ -198,3 +198,107 @@ ceiling — which is the check that a six-point scale is not one boolean wearing
 
 *(not bought: superseded. The per-axis reading above answers the floor question for the case this round
 now runs on, from cells already paid for, and no ripple probe was queued.)*
+
+## The wave: 36 cells on the second case, and both cases put on one instrument
+
+**The instrument is recorded before any reading.** Every note in this section — on both cases — was
+graded by `anthropic/claude-opus-5`, pinned, in one run seeded with `--seed` from the 54 notes already
+committed under `test-experiments/src/test/resources/acquisition-notes`. Nothing was re-distilled, so
+the graded texts are byte-for-byte the ones the solvers received. That matters twice over: it is what
+makes the two cases comparable at all, and it is why the cc numbers below can be set beside round 6's
+without the judge being a free variable.
+
+Three of the 18 `oauth-grant-type` notes were **refused** by that judge (`stop_reason=refusal`, zero
+output tokens): `none-b40-l2000-r1@5`, `none-b40-l2000-r2@5`, `none-b40-l2000-r2@10`. Their notes are
+on disk and perfectly usable; what is missing is a grade. A refusal is a hole, never a zero — a zero
+would rank a real note below every graded one and no reading would notice. The pre-registered response
+is to read the wave three times: leaving the holes out, and bounding them at the lowest and the highest
+observed `U_note`. If the three readings disagree, the disagreement *is* the result.
+
+One cell of 36 was lost outright: `none-b40-l2000-r3@5` replicate 61, build `1046929403`, killed after
+29m36s by the repair prompt overflowing Linux's 128 KiB single-argv cap on the `docker exec` command
+line. It contributes no row, so its note folds from one replicate instead of two. That loss is
+outcome-correlated by construction — it strikes exactly the cells whose repair prompts grew longest —
+which is why it is reported here rather than absorbed. The transport is fixed at the source; the fix is
+not retrofitted into these numbers.
+
+### `oauth-grant-type` — the new case
+
+| holes treated as | n | ρ(`U_note`, obligations) | p (two-sided) |
+|---|---|---|---|
+| left out | 15 | **+0.57** | 0.028 |
+| bounded low | 18 | **+0.48** | 0.047 |
+| bounded high | 18 | **+0.39** | 0.112 |
+
+By the letter of the pre-registered rule — publish as a failure to replicate if |ρ| < 0.3 — the case
+replicates: all three treatments clear the threshold. The significance verdict does not survive the
+bounds, though, crossing 0.05 depending on how three refusals are handled, so the honest headline is a
+positive relation of uncertain size, not a confirmed p.
+
+The mechanism check is where this case parts company with the first one. Restricted to notes whose
+**both** replicates built, ρ falls to +0.28 / +0.32 / **+0.05** — nothing, under any treatment. And the
+confound the design was built to catch reads +0.48 / +0.30 / +0.45 for ρ(`U_note`, compiled) at cell
+level. Read together: on this case the note's association with the endpoint runs almost entirely
+through *whether the tree built at all*, and there is essentially no relation left among the trees that
+did build.
+
+Two further readings, both negative, belong in the record. Within the `mcp` arm ρ is **−0.29** under all
+three treatments — the relation does not survive inside that arm. And the endpoint itself came out
+nearly constant: 4 distinct values across 35 cells, with **28 of 35 sitting at exactly 4 of 6**. The
+round-7 axis surgery bought a scale that discriminated beautifully on the ladder and the anchors, and
+then met a wave that parked on one rung of it. That near-constancy — not the judge, not the holes — is
+the largest single limit on what these 36 cells could ever have shown about *differences between
+notes*.
+
+It is not, as this section first concluded, evidence that the case could not measure. That conclusion
+was drawn while the wave was scored `x/6` on `oracle-v2` and the anchors were scored `x/10` on the
+ten-axis oracle, so the two were never on one scale. They can be: the six axes `oracle-v2` retains are
+byte-identical to the same six in the ten-axis oracle, shared assertion helper included, so the anchor
+build logs already carry the six-axis reading. Extracting it re-runs nothing — same surefire XML,
+smaller axis set — and it costs nothing, which is why leaving it unextracted was the round's real
+omission and not a limit of the case.
+
+| `oauth-grant-type`, allowance 25, `claude-haiku-4-5` | obligations of 6 | built |
+|---|---|---|
+| no note at all (`baseline`) | 2, 2 | 2 of 3 |
+| a distilled note (wave, `mcp` arm) | mean 4.06 | 15 of 18 |
+| the gold patch (`oracle-gold`) | 6, 6, 6 | 3 of 3 |
+
+So the scale has three working levels and the note's two obligations are real. What is flat is the
+spread *inside* the note arm, and the per-axis table says exactly where it went: the note buys both
+registration axes and nothing else, two further axes pass in every condition including the floor, and
+the pair sharing `assertRefusedBeforeIssuing` — one obligation counted twice — fails 32 of 32 for every
+note-carrying cell and passes only for gold. One obligation is the whole of the remaining headroom, and
+no note reached it. `DESIGN-DOWNSTREAM-8.md` registers the probe of that headroom and the scale rule
+that stops the two constant axes from being paid for twice.
+
+### `cc-refresh-token` — the first case, re-read on the same instrument
+
+Round 6's outcomes are untouched; only `U_note` is replaced by the opus-5 grade. Four of the 18 notes moved: `mcp-b40-l2000-r1@10` 0.53→0.47, `mcp-b40-l2000-r1@20` 0.67→0.80, `mcp-b40-l2000-r2@10` 0.67→0.73, `none-b40-l2000-r3@20` 0.40→0.33.
+
+| reading | round 6 as published | opus-5 instrument |
+|---|---|---|
+| ρ(`U_note`, obligations), all notes | +0.62 (p 0.008) | **+0.56** (p 0.016) |
+| … notes whose replicates both built | +0.84 (p 0.0004) | **+0.81** (p 0.0011) |
+| ρ(`U_note`, compiled), cell level | — | **+0.03** |
+
+The first case is robust to the judge: swapping the instrument moves ρ by 0.06 and changes no verdict.
+And its mechanism is the mirror image of the new case's — the relation is not a compile confound at all
+(+0.03), and it *strengthens* to +0.81 among the trees that built, exactly where `oauth-grant-type`
+collapses to +0.05.
+
+### What the second case actually established
+
+The relation replicated on the number the design pre-registered, and failed to replicate on the thing
+that number was supposed to stand for. `cc-refresh-token` says a better note yields more discharged
+obligations among trees that compile. `oauth-grant-type` says a better note yields a tree that
+compiles, and once it compiles the note stops predicting anything. Those are different claims, and one
+case each is not enough to say which one generalizes.
+
+Neither case licenses a claim about tools. The arm difference on the new case (`mcp` 4.06 vs `none`
+2.33–2.78, Mann-Whitney p ≈ 0.02; cc: 5.44 vs 4.00, p = 0.114) is secondary by pre-registration and
+confounded by the arm's own trajectories, as the design states.
+
+Data: `data/downstream7-wave-oauth.csv` (35 cells), `data/downstream7-axes-oauth.csv` (per-axis),
+`data/downstream7-wave-cc-opus5.csv` (round-6 outcomes, opus-5 notes). Marker line and surefire XML were
+parsed independently and agree on every one of the 35 measured cells.

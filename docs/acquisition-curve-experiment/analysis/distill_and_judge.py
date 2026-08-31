@@ -29,8 +29,25 @@ import re
 import sys
 import urllib.request
 
-API_URL = "https://api.anthropic.com/v1/messages"
-MODELS_URL = "https://api.anthropic.com/v1/models"
+ANTHROPIC_API_BASE = "https://api.anthropic.com"
+# A gateway in front of the API (LiteLLM and friends) is configured through the same variable the
+# Claude CLI reads, so a machine already set up for the CLI needs no separate setup here.
+API_BASE = os.environ.get("ANTHROPIC_BASE_URL", ANTHROPIC_API_BASE).rstrip("/")
+API_URL = f"{API_BASE}/v1/messages"
+MODELS_URL = f"{API_BASE}/v1/models"
+
+
+def auth_headers(api_key: str) -> dict:
+    """Anthropic authenticates with `x-api-key`; a gateway usually wants a bearer token instead.
+
+    Against the real endpoint only `x-api-key` goes out, so the direct path stays byte-identical.
+    Against an `ANTHROPIC_BASE_URL` override both headers are sent and the gateway takes whichever
+    it understands, which is cheaper than making the caller also declare the scheme their proxy speaks.
+    """
+    headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    if API_BASE != ANTHROPIC_API_BASE:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
 
 
 def resolve_model(api_key: str) -> str:
@@ -44,27 +61,42 @@ def resolve_model(api_key: str) -> str:
     """
     request = urllib.request.Request(
         MODELS_URL + "?limit=100",
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+        headers=auth_headers(api_key),
     )
     with urllib.request.urlopen(request, timeout=120) as response:
         payload = json.load(response)
-    opus = [model for model in payload.get("data", []) if model.get("id", "").startswith("claude-opus")]
+    # A gateway namespaces ids by vendor (`anthropic/claude-opus-5`); the direct API does not.
+    opus = [model for model in payload.get("data", [])
+            if model.get("id", "").rsplit("/", 1)[-1].startswith("claude-opus")]
     if not opus:
         raise SystemExit(f"the key reaches no opus model; it offers {[m.get('id') for m in payload.get('data', [])]}")
-    newest = sorted(opus, key=lambda model: model.get("created_at", ""))[-1]["id"]
+    # Ordering by a field the endpoint does not serve is worse than refusing: every candidate sorts
+    # equal, the sort is stable, and the LAST list entry silently becomes "the newest model" -- which
+    # is how a round gets judged by a year-old opus and never records that it happened.
+    undated = [model.get("id") for model in opus if not model.get("created_at")]
+    if undated:
+        raise SystemExit(
+            f"{len(undated)} of {len(opus)} opus models carry no `created_at`, so 'newest' is not "
+            "decidable here and guessing would silently pick an arbitrary judge. Pass --model "
+            f"explicitly. Available: {sorted(model.get('id') for model in opus)}"
+        )
+    newest = sorted(opus, key=lambda model: model["created_at"])[-1]["id"]
     print(f"resolved model: {newest}")
     return newest
 
 
 def read_api_key() -> str:
-    for name in ("ANTHROPIC_API_KEY", "CLAUDE_EVAL_API_KEY"):
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_EVAL_API_KEY"):
         value = os.environ.get(name)
         if value:
             return value.strip()
     path = pathlib.Path.home() / ".anthropic"
     if path.exists():
         return path.read_text().strip()
-    raise SystemExit("no API key: set ANTHROPIC_API_KEY, CLAUDE_EVAL_API_KEY or write ~/.anthropic")
+    raise SystemExit(
+        "no API key: set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, CLAUDE_EVAL_API_KEY "
+        "or write ~/.anthropic"
+    )
 
 
 class EmptyAnswer(RuntimeError):
@@ -92,11 +124,7 @@ def call_model(api_key: str, model: str, prompt: str, max_tokens: int) -> str:
     request = urllib.request.Request(
         API_URL,
         data=body,
-        headers={
-            "content-type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
+        headers={"content-type": "application/json", **auth_headers(api_key)},
     )
     with urllib.request.urlopen(request, timeout=600) as response:
         payload = json.load(response)
