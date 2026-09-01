@@ -50,18 +50,22 @@ class UnderstandingBudgetGateShellTest {
     }
 
     @Test
-    fun `polling a background build is free, and the exemption does not reach the repository`() {
+    fun `polling a background build is charged, like every other read`() {
         val gate = gate(budget = 5)
+        // The CLI's own task file was exempt between 2026-08-25 and the revert. It is charged again:
+        // an allowance that does not bind on the compile-and-fix loop does not bind on the thing the
+        // downstream endpoint mostly measures.
         val taskOutput = "/tmp/claude-1000/-home-agent-project-home/992965e6/tasks/bu01xz9if.output"
         assertEquals(0, gate.run(payload("Read", """"file_path":"$taskOutput"""")))
-        assertEquals(0, gate.used(), "reading the CLI's own task output is not a repository interaction")
+        assertEquals(1, gate.used(), "polling the CLI's own task output spends an interaction")
 
-        // The narrowness is the point: a blanket "outside the project is free" would make one
-        // `cp -r project /tmp` buy unlimited reads.
+        // A second poll of the SAME file is a second interaction: nothing dedupes by path, so an
+        // agent that waits by polling pays for waiting.
+        assertEquals(0, gate.run(payload("Read", """"file_path":"$taskOutput"""")))
+        assertEquals(2, gate.used(), "each poll is charged separately")
+
         assertEquals(0, gate.run(payload("Read", """"file_path":"/tmp/copy-of-project/pom.xml"""")))
-        assertEquals(1, gate.used(), "an ordinary /tmp path must still be charged")
-        assertEquals(0, gate.run(payload("Read", """"file_path":"/tmp/claude-1000/x/tasks/a.output.java"""")))
-        assertEquals(2, gate.used(), "a path that merely starts like the task output is charged")
+        assertEquals(3, gate.used(), "an ordinary /tmp path is charged")
     }
 
     @Test

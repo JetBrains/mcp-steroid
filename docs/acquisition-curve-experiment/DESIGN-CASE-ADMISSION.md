@@ -429,6 +429,28 @@ that ran the long build the brief tells them to run.
 glob. A blanket "outside the project is free" was rejected because one `cp -r project /tmp` would then
 buy unlimited reads.
 
+**Reverted 2026-09-01, for the task-output half only.** `ScheduleWakeup` stays exempt; reading
+`/tmp/claude-*/tasks/*.output` is charged again. Two reasons, and the second is the binding one.
+
+The exemption was never registered here as an instrument change before the cells it governed — it
+landed in `5c184cd57` (2026-08-25 10:06 +03:00) and this section was written afterwards, so every
+downstream cell from round 4 step 5 onward ran under an allowance the earlier rounds did not have.
+Measured reach: **0 of the 21 committed research trajectories** ever read such a file, so the research
+leg is unaffected either way; **19 of 349 cached cell logs** touch one, and the pre-2026-08-25 cells
+among them were charged while the later ones were not. Rounds 1–4 and rounds 5–8 therefore sat on
+different instruments on this point, undocumented.
+
+The binding reason is what the allowance is for. Roughly four fifths of every oracle in this family
+grades whether the tree compiles, so the compile-and-fix loop is most of what the endpoint measures.
+An allowance that leaves polling free does not bind on that loop, and a bound that does not bind on
+the measured quantity is not a bound.
+
+The known cost is accepted rather than argued away: poll count tracks build duration, not agent skill,
+so a cell that runs a six-minute build spends allowance on waiting, and that is noise which falls
+unevenly on the agents that build at all. The alternative — charging once per distinct background task
+and letting further polls of the same file through — removes both objections and is the right shape if
+this is revisited; it was not taken now because it is new gate code, and the gate is the instrument.
+
 ### Why these were invisible until now
 
 Every existing test of the gate asserted on the script's TEXT. The script exits 0 on any internal

@@ -114,20 +114,6 @@ const val UNDERSTANDING_SUBAGENT_REFUSED_MESSAGE: String =
         "counted. Search, read and reason directly with your own tool calls."
 
 /**
- * The path shape of the agent CLI's own background-task output, which is not the repository.
- *
- * A cell that backgrounds a build then polls it was paying an interaction per poll — for reading a
- * file the CLI wrote about its OWN task, under `/tmp/claude-<uid>/<slug>/<uuid>/tasks/<id>.output`.
- * The allowance counts calls that read or query the PROJECT, and this reads neither, so charging for
- * it taxed exactly the agents that ran a long build the brief told them to run.
- *
- * Deliberately narrow. A blanket exemption for everything outside the project directory would let an
- * agent copy the tree to `/tmp` once and read it for free forever; this pattern only covers the
- * directory the CLI owns and names after its own task ids.
- */
-const val UNDERSTANDING_TASK_OUTPUT_PATH_GLOB: String = "/tmp/claude-*/tasks/*.output"
-
-/**
  * The file, inside the record directory, that lists the paths a repair turn may read for free.
  *
  * It exists because two deliberate rules met and cancelled each other out. `Read` is charged, since
@@ -201,7 +187,6 @@ fun understandingBudgetHookScript(
     exemptTools: List<String> = UNDERSTANDING_BUDGET_EXEMPT_TOOLS,
     exhaustedMessage: String = UNDERSTANDING_BUDGET_EXHAUSTED_MESSAGE,
     subagentTools: List<String> = UNDERSTANDING_SUBAGENT_TOOLS,
-    taskOutputGlob: String = UNDERSTANDING_TASK_OUTPUT_PATH_GLOB,
 ): String {
     val repairReadableFile = "$recordDir/$UNDERSTANDING_REPAIR_READABLE_FILE"
     require(budget > 0) { "a research budget must be positive, got $budget" }
@@ -246,13 +231,13 @@ fun understandingBudgetHookScript(
             $exemptPattern) exit 0 ;;
         esac
 
-        # Reading the CLI's own background-task output is not a repository interaction. Narrow on
-        # purpose: a blanket exemption outside the project would make `cp -r project /tmp` free.
+        # Polling a backgrounded build is charged like any other read. It was briefly exempt, on the
+        # argument that the CLI's own task file is not the repository; the exemption is gone because
+        # the allowance has to bind on the compile-and-fix loop, which is most of what the downstream
+        # endpoint measures. The cost is known and accepted: poll count tracks build duration rather
+        # than the agent, so a long build spends allowance on waiting.
         if [ "${d}name" = "Read" ]; then
             read_path=${d}(printf '%s' "${d}payload" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-            case "${d}read_path" in
-                $taskOutputGlob) exit 0 ;;
-            esac
             # A repair turn may read back exactly the files javac named, whose contents it was already
             # handed. Whole-line match, so a prefix of a listed path buys nothing; an absent or empty
             # list — every turn that is not a repair turn — charges the read as usual.
